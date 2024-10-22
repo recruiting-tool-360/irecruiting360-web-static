@@ -4,7 +4,17 @@ const routes = [
   {
     path: '/',
     name: 'home',
-    component: () => import('@/views/home')
+    component: () => import('@/views/home/Home.vue')
+  },
+  {
+    path: '/search',
+    name: 'search',
+    component: () => import('@/views/search/AISearch.vue')
+  },
+  {
+    path: '/setting',
+    name: 'setting',
+    component: () => import('@/views/setting/Setting.vue')
   },
   {
     path:'/:catchAll(.*)',
