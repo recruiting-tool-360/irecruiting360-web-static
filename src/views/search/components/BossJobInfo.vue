@@ -6,7 +6,7 @@
       <el-row class="geek-img-el-row el-row-width-full" :gutter="10">
         <el-col class="geek-img-el-col el-col-display-Style" :span="18">
           <!--   头像     -->
-          <el-avatar class="headerIcons" :size="40" :src="'/index/header/icons/geekWoman.svg'" />
+          <el-avatar class="headerIcons" :size="40" :src="`${geekList.genderStr==='男'?'/index/header/icons/geekMan.svg':'/index/header/icons/geekWoman.svg'}`" />
           <el-text class="mx-1 el-button-margin-left" style="font-size: 1rem;font-weight: bold">{{geekList.name}}</el-text>
           <el-text class="mx-1 el-button-margin-left text-gray-color-130">{{geekList.genderStr}} · {{geekList.age}} · 未知</el-text>
           <el-button size="small" disabled round style="margin-left: 1rem;">求职意向:
