@@ -3,11 +3,11 @@ import {ElMessage,ElNotification} from "element-plus";
 import store from '@/store';
 
 const service=axios.create({
-    //baseURL:'http://127.0.0.1:9090',
+    baseURL: '/api',
     timeout:5000,
 })
 
-//结果集处理器
+// 结果集处理器
 service.interceptors.response.use(
     res => {
         if(res.status===200){
@@ -20,6 +20,7 @@ service.interceptors.response.use(
     err => {
         console.log("服务异常,请联系管理员")
         errorAlert("服务异常","请联系管理员");
+        new Error("服务异常,请联系管理员")
     }
 )
 
@@ -40,14 +41,8 @@ const validateError=(responseData)=>{
         if(responseData.success==='success'){
             return responseData;
         }else{
-            const data=store.getters["responseErrorMsg/getAllErrorMsg"];
-            if(data){
-                const errorCode =data.get(responseData.errorCode);
-                ElMessage.error(errorCode.value);
-            }else{
-                console.log("服务异常,请联系管理员")
-                errorAlert("服务异常","请联系管理员");
-            }
+            console.log("服务异常,请联系管理员")
+            errorAlert("服务异常","请联系管理员");
         }
     }else{
         console.log("服务异常,请联系管理员")
