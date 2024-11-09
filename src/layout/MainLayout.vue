@@ -2,12 +2,12 @@
 <template>
   <div class="common-layout">
     <el-container class="el-container">
-      <el-header class="el-header" style="background-color: #00d7c6">
+      <el-header class="el-header">
         <Header></Header>
       </el-header>
       <el-container class="el-container-main">
-        <el-aside class="el-aside-main" width="200px" style="background-color: #545c64">
-          <LeftHeader></LeftHeader>
+        <el-aside class="el-aside-main">
+          <LeftHeader2></LeftHeader2>
         </el-aside>
         <el-main class="el-main" style="background-color: #ffffff">
           <router-view></router-view>
@@ -19,7 +19,7 @@
 
 <script setup>
 import Header from "@/layout/header/Header.vue";
-import LeftHeader from "@/layout/header/LeftHeader.vue";
+import LeftHeader2 from "@/layout/header/LeftHeader2.vue";
 
 </script>
 
@@ -32,10 +32,13 @@ import LeftHeader from "@/layout/header/LeftHeader.vue";
   }
   .el-header{
     padding: 0;
+    background-color: rgba(31, 124, 255, 1)
   }
   .el-aside-main{
     //padding: 8px 0 0 0;
     height: 100%;
+    background-color: white;
+    width: 17rem;
   }
 
   .el-main{
