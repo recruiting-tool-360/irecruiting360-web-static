@@ -9,3 +9,14 @@ export const saveJobList = (data) => {
     });
 }
 
+//保存详细简历信息
+export const saveResumeDetail = (data) => {
+    return request({
+        method:'POST',
+        url:'/resume/saveResumeDetail',
+        data:data
+    });
+}
+
+
+

@@ -44,7 +44,7 @@
               <!--     搜索按钮       -->
               <el-button class="btm-color-white btm-bg-color" @click="searchJobList">搜索</el-button>
               <!--     AI人才搜索       -->
-              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color">
+              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color" @click="aiChatDialogFlag=true">
                 <el-image :src="'/index/header/icons/aiBtm.svg'" style="margin-right: 8px"></el-image>
                 AI人才搜索</el-button>
             </el-col>
@@ -258,7 +258,10 @@
             <!--    头部标签      -->
             <el-col class="jobList-top-el-col el-col-display-Style" style="justify-content: start;align-items: center;" :span="16">
               <el-button text @click="jobInfoName='ALL';activeButton='ALL'" :class="{ 'btm-color': activeButton === 'ALL' }">聚合渠道</el-button>
-              <el-button text @click="jobInfoName='BOSS';activeButton='BOSS'" :class="{ 'btm-color': activeButton === 'BOSS' }">BOSS</el-button>
+              <el-button text @click="jobInfoName='BOSS';activeButton='BOSS'" :class="{ 'btm-color': activeButton === 'BOSS' }">BOSS(
+                <el-text v-if="allLoginStatus.BOSS" class="" type="success">已登陆</el-text>
+                <el-text v-else class="" type="danger">未登陆</el-text>
+                )</el-button>
               <el-button text @click="jobInfoName='ALL';activeButton='ZHILIAN'" :class="{ 'btm-color': activeButton === 'ZHILIAN' }">智联招聘</el-button>
               <el-button text @click="jobInfoName='ALL';activeButton='LAGOU'" :class="{ 'btm-color': activeButton === 'LAGOU' }">拉钩</el-button>
             </el-col>
@@ -274,11 +277,15 @@
           <BossJobInfo v-if="jobInfoName==='BOSS'" :large-data="allResponse.BOSS"></BossJobInfo>
         </el-card>
       </div>
+
+      <!--   聊天chat   -->
+      <AIChat v-show="false" :dialog-flag="aiChatDialogFlag" :on-close-click="()=>aiChatDialogFlag=false"></AIChat>
     </div>
 </template>
 <script setup>
 import { onMounted, ref} from 'vue'
 import { CircleClose } from '@element-plus/icons-vue'
+import AIChat from "@/views/search/dto/AIChat.vue";
 import {createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "@/domain/request/SaveSearchRequest";
 import {degreeOptions,genderOptions,salaryConfig,citiesConfig,jobStatusOptions} from "@/views/search/dto/SearchPageConfig";
@@ -295,6 +302,8 @@ import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
 import {saveJobList} from "@/api/jobList/JobListApi";
 import JobInfo from "@/views/search/components/JobInfo.vue";
 import BossJobInfo from "@/views/search/components/BossJobInfo.vue";
+import boosQueueManager from "@/components/QueueManager/queueManager";
+import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
 
 const store = useStore();
 
@@ -312,14 +321,24 @@ const allResponse = ref({
   BOSS:{},
   ZHILIAN:{},
   LAGOU:{},
-})
+});
+//登陆状态
+const allLoginStatus = ref({
+  BOSS:false,
+  ZHILIAN:false,
+  LAGOU:false,
+});
+//ai对话框开关
+const aiChatDialogFlag = ref(false);
 
 
 
 
 //onMounted 生命周期函数
 onMounted(async () => {
-
+  const userLoginStatus = await boosUserStatus();
+  console.log("userLoginStatusu",userLoginStatus)
+  allLoginStatus.value.BOSS = pluginBossResultProcessor(userLoginStatus);
 })
 
 /**
@@ -356,58 +375,104 @@ const searchJobList = async () => {
     return;
   }
   //列表存到后端
+  const boosList = responseJobListData.responseData.data.zpData.geeks;
   let saveJobListRequest = saveJobListRequestTemplate();
   saveJobListRequest.outId = data.requestId;
   saveJobListRequest.searchConditionId = data.id;
   saveJobListRequest.channel = "BOSS";
-  saveJobListRequest.resumeList = responseJobListData.responseData.data.zpData.geeks;
+  saveJobListRequest.resumeList = boosList;
   let {data:jobList} = await saveJobList(saveJobListRequest);
-  console.log(jobList)
   allResponse.value.BOSS =jobList;
   console.log("allResponse.value.BOSS",allResponse.value.BOSS)
+  //处理id
+  if(!jobList||jobList.length===0){
+    return;
+  }
+  const rtGeeksListIds = boosList.map(item => {
+    const match = jobList.find(a => a.rawDataId === item.uniqSign);
+    if (match) {
+      return { [`'${match.rawDataId}'`]: match.id };
+    }
+    return item;
+  });
+  console.log(rtGeeksListIds)
+  //查询渠道信息
+  //生成异步任务
+  boosList.forEach((item, index) => {
+    const match = jobList.find(a => a.rawDataId === item.uniqSign);
+    if (match) {
+      let jobHunterInfo = item.geekCard;
+      const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
+      const outId = saveJobListRequest.outId;
+      const resumeBlindId = match.id;
+      const type ="1";
+      const taskRequest = {queryString,outId,resumeBlindId,type};
+      if(index<1){
+        boosQueueManager.enqueue(taskRequest);
+      }
+    }
+  });
 }
 
 
 //boos数据列表
 const boosJobList = async (searchConfig) => {
-  let headers = {};
+  const headers = await getBoosHeader(true);
   searchConfig.page = 1;
   const queryString = qs.stringify(searchConfig);
-  //请求头信息
-  let pluginBaseConfigEmptyDTO = getPluginBaseConfigEmptyDTO();
-  pluginBaseConfigEmptyDTO.parameters = pluginKeys.BoosStorageKey;
-  let boosRequestHeader = await i360Request(pluginBaseConfigEmptyDTO.action, pluginBaseConfigEmptyDTO);
-  if(pluginResultProcessor(boosRequestHeader)){
-    const httpHeader = boosRequestHeader.responseData.data.headersData;
-    if(httpHeader){
-      headers= httpHeader;
-    }
-  }else{
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
-    return;
-  }
-  //认证信息
-  let pluginCookieBaseConfigEmpty = getPluginBaseConfigEmptyDTO();
-  pluginCookieBaseConfigEmpty.parameters =pluginKeys.BoosCookieStorageKey;
-  let responseCookieData = await i360Request(pluginCookieBaseConfigEmpty.action,pluginCookieBaseConfigEmpty);
-  if(pluginResultProcessor(responseCookieData)){
-    const httpHeader = responseCookieData.responseData.data.cookieData;
-    if(httpHeader){
-      headers= Object.assign(headers,{Cookie:httpHeader})
-    }else{
-      ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
-      return;
-    }
-  }else{
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
-    return;
-  }
   //访问Boos
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
   pluginEmptyRequestTemplate.parameters = null;
   pluginEmptyRequestTemplate.requestHeader = headers;
   pluginEmptyRequestTemplate.requestType = pluginAllRequestType.GET;
   pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.getAllJobList+"?"+queryString;
+  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+}
+
+//boos 请求头信息
+// const getBoosHeader = async () => {
+//   let headers = {};
+//   //请求头信息
+//   let pluginBaseConfigEmptyDTO = getPluginBaseConfigEmptyDTO();
+//   pluginBaseConfigEmptyDTO.parameters = pluginKeys.BoosStorageKey;
+//   let boosRequestHeader = await i360Request(pluginBaseConfigEmptyDTO.action, pluginBaseConfigEmptyDTO);
+//   if(pluginResultProcessor(boosRequestHeader)){
+//     const httpHeader = boosRequestHeader.responseData.data.headersData;
+//     if(httpHeader){
+//       headers= httpHeader;
+//     }
+//   }else{
+//     ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
+//     throw new Error("request error");
+//   }
+//   //认证信息
+//   let pluginCookieBaseConfigEmpty = getPluginBaseConfigEmptyDTO();
+//   pluginCookieBaseConfigEmpty.parameters =pluginKeys.BoosCookieStorageKey;
+//   let responseCookieData = await i360Request(pluginCookieBaseConfigEmpty.action,pluginCookieBaseConfigEmpty);
+//   if(pluginResultProcessor(responseCookieData)){
+//     const httpHeader = responseCookieData.responseData.data.cookieData;
+//     if(httpHeader){
+//       headers= Object.assign(headers,{Cookie:httpHeader})
+//     }else{
+//       ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
+//       throw new Error("request error");
+//     }
+//   }else{
+//     ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
+//     throw new Error("request error");
+//   }
+//   return headers;
+// }
+
+
+//boos 用户登陆状态
+const boosUserStatus = async () => {
+  const headers = await getBoosHeader(true);
+  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+  pluginEmptyRequestTemplate.parameters = null;
+  pluginEmptyRequestTemplate.requestHeader = headers;
+  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.GET;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.checkUserAuth;
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
@@ -431,6 +496,7 @@ const i360Request= async (action,emptyRequestTemplate, timeout = 5000) => {
   loadingOpen();
   try {
     const response = await PluginMessenger.sendMessage(action, emptyRequestTemplate, timeout);
+    loadingClose();
     return response;
   } catch (error) {
     console.error('Error:', error.message);
