@@ -25,7 +25,9 @@ export const pluginAllActions = {
 export const pluginAllUrls = {
     BOSS:{
         baseUrl:"https://www.zhipin.com",
-        getAllJobList:"/wapi/zpitem/web/boss/search/geeks.json"
+        getAllJobList:"/wapi/zpitem/web/boss/search/geeks.json",
+        checkUserAuth:"/wapi/hunter/h5/hunterManage/checkAuth",
+        getGeekInfo:"/wapi/zpitem/web/boss/search/geek/info"
     },
 }
 //插件所有key配置
