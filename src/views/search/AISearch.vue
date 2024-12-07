@@ -407,9 +407,7 @@ const searchJobList = async () => {
       const resumeBlindId = match.id;
       const type ="1";
       const taskRequest = {queryString,outId,resumeBlindId,type};
-      if(index<1){
-        boosQueueManager.enqueue(taskRequest);
-      }
+      boosQueueManager.enqueue(taskRequest);
     }
   });
 }
