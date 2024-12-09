@@ -16,9 +16,8 @@ const i360Request= async (action, emptyRequestTemplate, timeout = 5000) => {
         console.error('Error:', error.message);
     }
 }
-
 //boos 请求头信息
-export const getBoosHeader = async (flag) => {
+const getBoosHeaderInfo = async (flag) => {
     let headers = {};
     //请求头信息
     let pluginBaseConfigEmptyDTO = getPluginBaseConfigEmptyDTO();
@@ -57,6 +56,18 @@ export const getBoosHeader = async (flag) => {
     }
     return headers;
 }
+//boos 请求头信息
+export const getBoosHeader = async (flag) => {
+    let header = null;
+    try {
+        header = await getBoosHeaderInfo(flag);
+    }catch (e){
+        console.log(e);
+        header = null;
+    }
+    return header;
+}
+
 
 //查询简历详情
 const findJobDetail = async (data)=>{

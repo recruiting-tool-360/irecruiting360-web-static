@@ -336,9 +336,15 @@ const aiChatDialogFlag = ref(false);
 
 //onMounted 生命周期函数
 onMounted(async () => {
-  const userLoginStatus = await boosUserStatus();
-  console.log("userLoginStatusu",userLoginStatus)
-  allLoginStatus.value.BOSS = pluginBossResultProcessor(userLoginStatus);
+  let userLoginStatus;
+  try {
+    userLoginStatus = await boosUserStatus();
+    console.log("userLoginStatusu",userLoginStatus)
+    allLoginStatus.value.BOSS = pluginBossResultProcessor(userLoginStatus);
+  }catch (e){
+    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
+    allLoginStatus.value.BOSS = false;
+  }
 })
 
 /**
@@ -368,7 +374,13 @@ const searchJobList = async () => {
   if(store.getters.getTestSwitch){
     responseJobListData = getBoosTestJobList().BOSS;
   }else{
-    responseJobListData = await boosJobList(data.channelSearchConditions[0].conditionData);
+    try {
+      responseJobListData = await boosJobList(data.channelSearchConditions[0].conditionData);
+    }catch (e){
+      console.log(e);
+      loadingClose();
+      return;
+    }
   }
   if(!pluginBossResultProcessor(responseJobListData)){
     ElMessage.error('Boos数据查询异常！请联系管理员！')
@@ -416,6 +428,10 @@ const searchJobList = async () => {
 //boos数据列表
 const boosJobList = async (searchConfig) => {
   const headers = await getBoosHeader(true);
+  if(!headers){
+    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
+    throw new Error("系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！");
+  }
   searchConfig.page = 1;
   const queryString = qs.stringify(searchConfig);
   //访问Boos
@@ -466,6 +482,11 @@ const boosJobList = async (searchConfig) => {
 //boos 用户登陆状态
 const boosUserStatus = async () => {
   const headers = await getBoosHeader(true);
+  if(!headers){
+    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
+    throw new Error("系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！");
+  }
+  console.log("my headers:",headers)
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
   pluginEmptyRequestTemplate.parameters = null;
   pluginEmptyRequestTemplate.requestHeader = headers;
