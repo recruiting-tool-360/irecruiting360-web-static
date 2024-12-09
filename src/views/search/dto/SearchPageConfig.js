@@ -9,6 +9,12 @@ function generateOptions(start, end, suffix) {
     }));
 }
 
+// 渠道配置
+export const channelOptions = [
+    { eName: "ALL", id: "0",desc:"全渠道" },
+    { eName: "BOSS", id: "1",desc:"boss直聘" },
+];
+
 export const topSearchStates =[
     'Alabama',
     'Alaska',

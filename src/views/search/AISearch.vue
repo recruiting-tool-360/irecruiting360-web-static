@@ -288,8 +288,15 @@ import { CircleClose } from '@element-plus/icons-vue'
 import AIChat from "@/views/search/dto/AIChat.vue";
 import {createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "@/domain/request/SaveSearchRequest";
-import {degreeOptions,genderOptions,salaryConfig,citiesConfig,jobStatusOptions} from "@/views/search/dto/SearchPageConfig";
-import {saveCondition} from "@/api/search/SearchApi";
+import {
+  degreeOptions,
+  genderOptions,
+  salaryConfig,
+  citiesConfig,
+  jobStatusOptions,
+  channelOptions
+} from "@/views/search/dto/SearchPageConfig";
+import {querySearch, saveCondition} from "@/api/search/SearchApi";
 import PluginMessenger from "@/api/PluginSendMsg";
 import {ElLoading, ElMessage} from 'element-plus';
 import {getPluginBaseConfigEmptyDTO,getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls, pluginKeys
@@ -304,9 +311,11 @@ import JobInfo from "@/views/search/components/JobInfo.vue";
 import BossJobInfo from "@/views/search/components/BossJobInfo.vue";
 import boosQueueManager from "@/components/QueueManager/queueManager";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
+import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConfig";
 
 const store = useStore();
-
+//搜索id
+const searchConditionId = ref(null);
 //固定条件搜索属性
 let searchStateConfig =createSearchState();
 const searchState = ref(searchStateConfig);
@@ -319,8 +328,6 @@ const activeButton = ref('ALL');
 const allResponse = ref({
   ALL:{},
   BOSS:{},
-  ZHILIAN:{},
-  LAGOU:{},
 });
 //登陆状态
 const allLoginStatus = ref({
@@ -362,20 +369,29 @@ const searchJobList = async () => {
   //处理年龄边界
   const ageElSliderValue = searchState.value.ageElSliderValue;
   ageElSliderValue[1] = ageElSliderValue[1] === 51 ? ageElSliderValue[1] = -1 : ageElSliderValue[1];
+  //用户id
+  searchState.value.userId=1;
   //处理其他参数
   let searchConditionRequest = convertSearchConditionRequest(searchState.value);
   searchConditionRequest.experienceTo = workElSliderValue[1];
   searchConditionRequest.ageTo = ageElSliderValue[1];
-  const {data} = await saveCondition(searchConditionRequest);
-  console.log("data",data)
-  const newObject888 = data.channelSearchConditions[0].conditionData;
+  //搜索条件
+  let searchRequestData;
+  try {
+    const {data} = await saveCondition(searchConditionRequest);
+    searchRequestData = data;
+    searchConditionId.value = searchRequestData.id;
+  }catch (e){
+    console.log(e);
+    return;
+  }
   //如果开启测试，不需要查询数据列表
   let responseJobListData;
   if(store.getters.getTestSwitch){
     responseJobListData = getBoosTestJobList().BOSS;
   }else{
     try {
-      responseJobListData = await boosJobList(data.channelSearchConditions[0].conditionData);
+      responseJobListData = await boosJobList(searchRequestData.channelSearchConditions[0].conditionData);
     }catch (e){
       console.log(e);
       loadingClose();
@@ -389,25 +405,24 @@ const searchJobList = async () => {
   //列表存到后端
   const boosList = responseJobListData.responseData.data.zpData.geeks;
   let saveJobListRequest = saveJobListRequestTemplate();
-  saveJobListRequest.outId = data.requestId;
-  saveJobListRequest.searchConditionId = data.id;
+  saveJobListRequest.outId = searchRequestData.requestId;
+  saveJobListRequest.searchConditionId = searchRequestData.id;
   saveJobListRequest.channel = "BOSS";
   saveJobListRequest.resumeList = boosList;
-  let {data:jobList} = await saveJobList(saveJobListRequest);
+  let jobList;
+  try {
+    let {data:jobListData} = await saveJobList(saveJobListRequest);
+    jobList = jobListData;
+  }catch (e){
+    console.log(e);
+    return;
+  }
   allResponse.value.BOSS =jobList;
   console.log("allResponse.value.BOSS",allResponse.value.BOSS)
   //处理id
   if(!jobList||jobList.length===0){
     return;
   }
-  const rtGeeksListIds = boosList.map(item => {
-    const match = jobList.find(a => a.rawDataId === item.uniqSign);
-    if (match) {
-      return { [`'${match.rawDataId}'`]: match.id };
-    }
-    return item;
-  });
-  console.log(rtGeeksListIds)
   //查询渠道信息
   //生成异步任务
   boosList.forEach((item, index) => {
@@ -419,9 +434,25 @@ const searchJobList = async () => {
       const resumeBlindId = match.id;
       const type ="1";
       const taskRequest = {queryString,outId,resumeBlindId,type};
-      boosQueueManager.enqueue(taskRequest);
+      if(!store.getters.getTestSwitch){
+        boosQueueManager.enqueue(taskRequest);
+      }
     }
   });
+  //各个渠道列表
+  for (const item of channelOptions) {
+    let pageSearchRequest = createPageSearchRequest();
+    pageSearchRequest.channel = item.desc;
+    pageSearchRequest.searchConditionId = searchConditionId.value;
+    let listResponse = null;
+    try {
+      listResponse = await querySearch(pageSearchRequest);
+      console.log("查询结果：",listResponse)
+    }catch (e){
+      console.log(e)
+    }
+    //allResponse.value[item.eName] =
+  }
 }
 
 
@@ -442,41 +473,6 @@ const boosJobList = async (searchConfig) => {
   pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.getAllJobList+"?"+queryString;
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
-
-//boos 请求头信息
-// const getBoosHeader = async () => {
-//   let headers = {};
-//   //请求头信息
-//   let pluginBaseConfigEmptyDTO = getPluginBaseConfigEmptyDTO();
-//   pluginBaseConfigEmptyDTO.parameters = pluginKeys.BoosStorageKey;
-//   let boosRequestHeader = await i360Request(pluginBaseConfigEmptyDTO.action, pluginBaseConfigEmptyDTO);
-//   if(pluginResultProcessor(boosRequestHeader)){
-//     const httpHeader = boosRequestHeader.responseData.data.headersData;
-//     if(httpHeader){
-//       headers= httpHeader;
-//     }
-//   }else{
-//     ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
-//     throw new Error("request error");
-//   }
-//   //认证信息
-//   let pluginCookieBaseConfigEmpty = getPluginBaseConfigEmptyDTO();
-//   pluginCookieBaseConfigEmpty.parameters =pluginKeys.BoosCookieStorageKey;
-//   let responseCookieData = await i360Request(pluginCookieBaseConfigEmpty.action,pluginCookieBaseConfigEmpty);
-//   if(pluginResultProcessor(responseCookieData)){
-//     const httpHeader = responseCookieData.responseData.data.cookieData;
-//     if(httpHeader){
-//       headers= Object.assign(headers,{Cookie:httpHeader})
-//     }else{
-//       ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
-//       throw new Error("request error");
-//     }
-//   }else{
-//     ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！')
-//     throw new Error("request error");
-//   }
-//   return headers;
-// }
 
 
 //boos 用户登陆状态

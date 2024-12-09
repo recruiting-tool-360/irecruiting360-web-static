@@ -145,5 +145,7 @@ export const createSearchState = ()=>{
          * @type {boolean|null}
          */
         aiSortCheckBoxValue : null,
+        //用户id
+        userId:null
     };
 }

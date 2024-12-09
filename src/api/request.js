@@ -10,6 +10,7 @@ const service=axios.create({
 // 结果集处理器
 service.interceptors.response.use(
     res => {
+        console.log("response")
         if(res.status===200){
             return validateError(res.data);
         }else{
@@ -20,7 +21,7 @@ service.interceptors.response.use(
     err => {
         console.log("服务异常,请联系管理员")
         errorAlert("服务异常","请联系管理员");
-        new Error("服务异常,请联系管理员")
+        return Promise.reject(err);
     }
 )
 
@@ -61,8 +62,7 @@ service.stream = (url, data, onMessage, onError) => {
         cancelToken: source.token,
     })
         .then(response => {
-            console.log("结果集：",response)
-            console.log("结果集data：",response.data)
+            console.log("stream结果集：",response)
             const reader = response.data.getReader();
             const decoder = new TextDecoder('utf-8');
 
