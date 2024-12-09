@@ -171,5 +171,6 @@ export const convertSearchConditionRequest = (obj) => {
     searchConditionRequest.school = obj.schoolInpValue;
     searchConditionRequest.major = obj.professionInpValue;
     searchConditionRequest.searchChannels = ['boss直聘'];
+    searchConditionRequest.userId =obj.userId
     return searchConditionRequest;
 }

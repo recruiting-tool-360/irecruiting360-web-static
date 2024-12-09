@@ -9,3 +9,12 @@ export const saveCondition = (data) => {
     });
 }
 
+//分页查询列表
+export const querySearch = (data) => {
+    return request({
+        method:'POST',
+        url:'/search/querySearchResult',
+        data:data
+    });
+}
+
