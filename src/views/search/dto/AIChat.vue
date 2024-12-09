@@ -70,6 +70,8 @@
 import {ref,watch,nextTick} from "vue";
 import { ElButton, ElDrawer } from 'element-plus'
 import { vChatScroll } from "vue3-chat-scroll";
+import streamService from "@/api/chat/ChatApi";
+import {fetchStream} from "@/api/chat/ChatUtil2";
 
 const props = defineProps({
   dialogFlag: {
@@ -131,13 +133,59 @@ const messages = ref([
 ]);
 let j =3;
 const sentMassage = () =>{
-  for (let i=1;i<=100;i++){
-    const data = { id: i*j, text: "Hello, how are you?---"+(i*j) }
-    messages.value.push(data);
-    scrollToBottom();  // 调用滚动到底部的函数
-  }
-  j+=2;
+  testChat();
+  // for (let i=1;i<=100;i++){
+  //   const data = { id: i*j, text: "Hello, how are you?---"+(i*j) }
+  //   messages.value.push(data);
+  //   scrollToBottom();  // 调用滚动到底部的函数
+  // }
+  // j+=2;
 }
+
+const chatRequest = {
+  chatId: "123",
+  userId: "456",
+  searchConditionId: "789",
+  prompt: "你好",
+};
+
+const handleMessage = (message) => {
+  console.log("Received:", message);
+  // 更新 UI 或其他逻辑
+};
+
+const handleError = (error) => {
+  console.error("Error:", error);
+  // 错误提示逻辑
+};
+
+let idNum =1;
+const testChat = () => {
+  // streamService.streamRequest(
+  //     "http://127.0.0.1:8087/ihire/chat/streamChat",
+  //     chatRequest,
+  //     handleMessage,
+  //     handleError
+  // )
+  fetchStream(
+      "http://127.0.0.1:8087/ihire/chat/streamChat",
+      chatRequest,
+      (message) => {
+        console.log("Received:", message);
+        //this.messages.push(message); // 将接收到的消息添加到消息列表
+        const msg = { id: ++idNum, text: message};
+        messages.value.push(msg);
+        scrollToBottom();  // 调用滚动到底部的函数
+      },
+      (error) => {
+        console.error("Stream error:", error);
+      }
+  );
+}
+
+
+
+
 
 
 
