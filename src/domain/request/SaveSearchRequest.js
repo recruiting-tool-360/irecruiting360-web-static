@@ -138,6 +138,13 @@ export const SearchConditionRequest =()=>{
          * @type {string}
          */
         major : '',
+
+        // 渠道
+        /**
+         * 渠道
+         * @type {Array<string>}
+         */
+        searchChannels: [],
     }
 }
 
@@ -163,5 +170,6 @@ export const convertSearchConditionRequest = (obj) => {
     searchConditionRequest.company = obj.corporationInpValue;
     searchConditionRequest.school = obj.schoolInpValue;
     searchConditionRequest.major = obj.professionInpValue;
+    searchConditionRequest.searchChannels = ['boss直聘'];
     return searchConditionRequest;
 }
