@@ -75,6 +75,7 @@ const jobALlData =ref(props.largeData);
 
 // 如果 props 的值可能会变化，使用 watch 来同步更新 localValue
 watch(() => props.largeData, (newValue) => {
+  console.log("新值：",newValue)
   jobALlData.value = newValue;
 });
 </script>
