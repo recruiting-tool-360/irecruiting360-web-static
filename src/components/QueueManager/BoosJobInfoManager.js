@@ -82,12 +82,10 @@ const findJobDetail = async (data)=>{
 
 export const exeJobInfo = async (data) => {
     let boosJobInfo = await findJobDetail(data);
-    console.log(boosJobInfo)
     if(pluginBossResultProcessor(boosJobInfo)){
-        data.data = boosJobInfo.responseData.data.zpData;
-        console.log(data);
+        data.content = boosJobInfo.responseData.data.zpData;
         try {
-            await saveResumeDetail(data.data);
+            await saveResumeDetail(data);
         }catch (e){
             ElMessage.error('后台服务异常导致系统无法分析本渠道信息！请联系管理员！')
         }

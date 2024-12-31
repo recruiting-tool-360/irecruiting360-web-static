@@ -18,5 +18,14 @@ export const saveResumeDetail = (data) => {
     });
 }
 
+//保存详细简历信息
+export const getScoreList = (data) => {
+    return request({
+        method:'POST',
+        url:'/resume/getScoreList',
+        data:data
+    });
+}
+
 
 

@@ -10,7 +10,6 @@ const service=axios.create({
 // 结果集处理器
 service.interceptors.response.use(
     res => {
-        console.log("response")
         if(res.status===200){
             return validateError(res.data);
         }else{
@@ -52,44 +51,44 @@ const validateError=(responseData)=>{
 }
 
 // 添加流接口支持
-service.stream = (url, data, onMessage, onError) => {
-    const source = axios.CancelToken.source();
-    axios({
-        method: 'POST',
-        url,
-        data,
-        responseType: 'stream', // 确保流的支持
-        cancelToken: source.token,
-    })
-        .then(response => {
-            console.log("stream结果集：",response)
-            const reader = response.data.getReader();
-            const decoder = new TextDecoder('utf-8');
-
-            const read = () => {
-                reader.read().then(({ done, value }) => {
-                    if (done) {
-                        console.log("Stream finished");
-                        return;
-                    }
-                    const text = decoder.decode(value);
-                    onMessage(text); // 回调处理流数据
-                    read(); // 继续读取
-                }).catch(err => {
-                    console.error("Error reading stream", err);
-                    if (onError) onError(err);
-                });
-            };
-
-            read();
-        })
-        .catch(error => {
-            console.error("Streaming error", error);
-            if (onError) onError(error);
-        });
-
-    return source; // 返回用于取消请求的 source
-};
+// service.stream = (url, data, onMessage, onError) => {
+//     const source = axios.CancelToken.source();
+//     axios({
+//         method: 'POST',
+//         url,
+//         data,
+//         responseType: 'stream', // 确保流的支持
+//         cancelToken: source.token,
+//     })
+//         .then(response => {
+//             console.log("stream结果集：",response)
+//             const reader = response.data.getReader();
+//             const decoder = new TextDecoder('utf-8');
+//
+//             const read = () => {
+//                 reader.read().then(({ done, value }) => {
+//                     if (done) {
+//                         console.log("Stream finished");
+//                         return;
+//                     }
+//                     const text = decoder.decode(value);
+//                     onMessage(text); // 回调处理流数据
+//                     read(); // 继续读取
+//                 }).catch(err => {
+//                     console.error("Error reading stream", err);
+//                     if (onError) onError(err);
+//                 });
+//             };
+//
+//             read();
+//         })
+//         .catch(error => {
+//             console.error("Streaming error", error);
+//             if (onError) onError(error);
+//         });
+//
+//     return source; // 返回用于取消请求的 source
+// };
 
 // 添加流式请求方法
 // service.stream = (url, data, onMessage, onError) => {

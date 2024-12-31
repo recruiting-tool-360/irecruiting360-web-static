@@ -1,5 +1,8 @@
 import { createStore } from "vuex";
 import TestConfig from "@/store/modules/TestConfig";
+import PluginConfig from "@/store/modules/PluginConfig";
+import ChatConfig from "@/store/modules/ChatConfig";
+import AiSerachConfig from "@/store/modules/AiSerachConfig";
 import createPersistedState from "vuex-persistedstate";
 
 export default createStore({
@@ -8,14 +11,20 @@ export default createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig
   },
   plugins: [
     createPersistedState({
       key: "vuex", // 存储键名
       storage: window.localStorage,
-      paths: ["TestConfig.testSwitch"], // 持久化 TestConfig 模块的 testSwitch 字段
-    }),
+      paths: [
+        "TestConfig.testSwitch",
+        "PluginConfig.pluginSwitch",
+        "ChatConfig.localUserChatId",
+        "ChatConfig.searchConditionId",
+        "ChatConfig.chatMsg",
+      ],
+    })
   ],
 });
 

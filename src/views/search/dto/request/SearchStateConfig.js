@@ -88,7 +88,7 @@ export const createSearchState = ()=>{
          * 期望工作地点
          * @type {string|null}
          */
-        expectedWorkLocationValue : null,
+        expectedWorkLocationValue : ['31', '3101'],
 
         // 学校属性
         /**
