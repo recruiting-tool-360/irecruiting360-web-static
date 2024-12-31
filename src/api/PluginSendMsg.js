@@ -11,7 +11,7 @@ export default class PluginMessenger {
             payload.action = action;
             // 响应处理函数
             const responseHandler = (event) => {
-                console.log("event.data.action:",event)
+                //console.log("event.data.action:",event)
                 if (event.data&&event.data.action&&!event.data.action.startsWith("response")) {
                     return;
                 }

@@ -5,17 +5,17 @@ const routes = [
     path: '/',
     name: 'home',
     // component: () => import('@/views/home/Home.vue')
-    component: () => import('@/views/search/AISearch.vue')
+    component: () => import('@/layout/MainLayout.vue')
   },
   {
-    path: '/search',
-    name: 'search',
-    component: () => import('@/views/search/AISearch.vue')
+    path: '/guide',
+    name: 'guide',
+    component: () => import('@/views/guide/Fingerpost.vue')
   },
   {
-    path: '/setting',
-    name: 'setting',
-    component: () => import('@/views/setting/Setting.vue')
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/login/Login.vue')
   },
   {
     path:'/:catchAll(.*)',

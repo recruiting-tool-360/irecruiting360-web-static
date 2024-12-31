@@ -1,5 +1,8 @@
 <template>
   <div class="bossContainer">
+    <template v-if="jobALlData===undefined||jobALlData===null||jobALlData.length===0">
+      <el-empty description="BOSS--无数据" />
+    </template>
     <!--  列表信息  -->
     <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id">
       <!--  头像行    -->
@@ -57,11 +60,24 @@
       </el-row>
 
     </el-card>
+
+    <!--  分页信息  -->
+    <div class="pageConfig">
+      <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[15,30,60,100]"
+          background
+          layout="prev, pager, next,sizes"
+          :total="10"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+      />
+    </div>
   </div>
 </template>
 
 <script setup>
-import {Star} from '@element-plus/icons-vue'
 import {ref,watch} from "vue";
 // 通过 defineProps 定义 props
 const props = defineProps({
@@ -70,12 +86,11 @@ const props = defineProps({
     required: true
   }
 });
-const jobALlData =ref(props.largeData);
+const jobALlData =ref([]);
 
 
 // 如果 props 的值可能会变化，使用 watch 来同步更新 localValue
 watch(() => props.largeData, (newValue) => {
-  console.log("新值：",newValue)
   jobALlData.value = newValue;
 });
 </script>
@@ -115,6 +130,14 @@ watch(() => props.largeData, (newValue) => {
     margin-left: 0 !important;
     border: none;
     font-size: 2rem;
+  }
+
+  .pageConfig{
+    border-top:1px solid #E8E8E8;
+    padding: 8px 16px;
+    display: flex;
+    justify-content: end;
+
   }
 
 </style>

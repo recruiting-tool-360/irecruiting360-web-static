@@ -1,16 +1,20 @@
 <template>
   <div class="MainApi">
-    <MainLayout></MainLayout>
+<!--    <MainLayout></MainLayout>-->
+    <router-view></router-view>
   </div>
 </template>
 
 <script setup>
+import { useRoute } from 'vue-router'
 import { onMounted, onBeforeUnmount } from "vue";
 import MainLayout from "@/layout/MainLayout.vue";
 import boosQueueManager from "@/components/QueueManager/queueManager";
 import {generateOneUniqueRandomNumber} from "@/util/RandomNum";
 import {exeJobInfo} from "@/components/QueueManager/BoosJobInfoManager";
-
+// 获取当前路由信息
+const route = useRoute()
+const isMainLayoutRoute = ['home'].includes(route.name)
 // 异步处理器
 function fn(val){
   console.log("值：",val)

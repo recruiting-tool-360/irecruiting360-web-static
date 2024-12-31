@@ -15,6 +15,11 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import 'element-plus/dist/index.css'
 import PluginMessenger from "@/api/PluginSendMsg";
 import {getPluginBaseConfig, getPluginCookieBaseConfig} from "@/components/PluginRequestManager";
+import zhCn from 'element-plus/es/locale/lang/zh-cn';
+
+const handlePluginSwitchChange = (payload) => {
+    store.commit('changePluginSwitch',payload);
+};
 
 const app = createApp(App);
 
@@ -22,13 +27,15 @@ const app = createApp(App);
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
     app.component(key, component)
 }
-const pluginRequest= async (action,emptyRequestTemplate, timeout = 3000) => {
+const pluginRequest= async (action,emptyRequestTemplate, timeout = 1000) => {
     try {
         const response = await PluginMessenger.sendMessage(action, emptyRequestTemplate, timeout);
+        handlePluginSwitchChange(true)
         return response;
     } catch (error) {
         ElMessage.error('系统监测到【i快找】浏览器插件异常，请及时安装最新插件！如果问题还没解决请联系管理员！')
         console.error('Error:', error.message);
+        handlePluginSwitchChange(false)
     }
 }
 
@@ -42,7 +49,7 @@ const initializePluginConfig = async () => {
 
 app.use(store).
 use(router).
-use(ElementPlus).
+use(ElementPlus, { locale: zhCn }).
 mount('#app');
 
 window.addEventListener('load', () => {
@@ -50,6 +57,15 @@ window.addEventListener('load', () => {
     initializePluginConfig();
 });
 
+async function periodicFetch() {
+    try {
+        await store.dispatch("fetchAndUpdateScore"); // 执行任务
+    } catch (error) {
+        console.error("Fetch failed:", error); // 记录错误
+    }
+    setTimeout(periodicFetch, 10000); // 再次设置定时器
+}
+periodicFetch(); // 启动任务
 
 
 

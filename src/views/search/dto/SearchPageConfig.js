@@ -15,6 +15,13 @@ export const channelOptions = [
     { eName: "BOSS", id: "1",desc:"boss直聘" },
 ];
 
+// 渠道按钮
+export const topChannelBtmOptions = [
+    { value: 'ALL', label: '渠道聚合' },
+    { value: 'BOSS', label: 'BOSS' },
+    { value: 'Collect', label: '我的收藏' },
+];
+
 export const topSearchStates =[
     'Alabama',
     'Alaska',
