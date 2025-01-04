@@ -4,7 +4,7 @@ import request from "../request";
 export const saveCondition = (data) => {
     return request({
         method:'POST',
-        url:'/search/saveCondition2',
+        url:'/search/saveCondition',
         data:data
     });
 }

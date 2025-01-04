@@ -4,7 +4,7 @@ import request from "../request";
 export const saveJobList = (data) => {
     return request({
         method:'POST',
-        url:'/search/saveSearch2',
+        url:'/search/saveSearch',
         data:data
     });
 }
