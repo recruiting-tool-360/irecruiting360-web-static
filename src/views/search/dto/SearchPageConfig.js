@@ -22,77 +22,16 @@ export const topChannelBtmOptions = [
     { value: 'Collect', label: '我的收藏' },
 ];
 
-export const topSearchStates =[
-    'Alabama',
-    'Alaska',
-    'Arizona',
-    'Arkansas',
-    'California',
-    'Colorado',
-    'Connecticut',
-    'Delaware',
-    'Florida',
-    'Georgia',
-    'Hawaii',
-    'Idaho',
-    'Illinois',
-    'Indiana',
-    'Iowa',
-    'Kansas',
-    'Kentucky',
-    'Louisiana',
-    'Maine',
-    'Maryland',
-    'Massachusetts',
-    'Michigan',
-    'Minnesota',
-    'Mississippi',
-    'Missouri',
-    'Montana',
-    'Nebraska',
-    'Nevada',
-    'New Hampshire',
-    'New Jersey',
-    'New Mexico',
-    'New York',
-    'North Carolina',
-    'North Dakota',
-    'Ohio',
-    'Oklahoma',
-    'Oregon',
-    'Pennsylvania',
-    'Rhode Island',
-    'South Carolina',
-    'South Dakota',
-    'Tennessee',
-    'Texas',
-    'Utah',
-    'Vermont',
-    'Virginia',
-    'Washington',
-    'West Virginia',
-    'Wisconsin',
-    'Wyoming',
-]
-
-export const topSearchOptions = [
-    { value: '1', label: 'JAVA' },
-    { value: '2', label: '会计' },
-    { value: '3', label: '平面设计师' },
-    { value: '4', label: '美工' },
-    { value: '5', label: '清洁工' }
-];
-
 // 定义学历选项配置
 export const degreeOptions = [
-    { label: "不限", value: "201,201" },
-    { label: "初中及以下", value: "209,209" },
-    { label: "高中", value: "206,206" },
-    { label: "中专/中技", value: "208,208" },
-    { label: "大专", value: "202,202" },
-    { label: "本科", value: "203,203" },
-    { label: "硕士", value: "204,204" },
-    { label: "博士", value: "205,205" },
+    { label: "不限", value: "201|201" },
+    { label: "初中及以下", value: "209|209" },
+    { label: "高中", value: "206|206" },
+    { label: "中专/中技", value: "208|208" },
+    { label: "大专", value: "202|202" },
+    { label: "本科", value: "203|203" },
+    { label: "硕士", value: "204|204" },
+    { label: "博士", value: "205|205" },
 ];
 
 // export const degreeOptions = [
@@ -139,7 +78,6 @@ export const jobStatusOptions = [
 export const salaryConfig = generateOptions(1, 200, "K");
 
 // 转换函数
-const filterData =['北京市','天津市','重庆市','上海市'];
 const transformData = (provinces, cities) => {
     return provinces.map(province => ({
         value: province.code,

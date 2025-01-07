@@ -18,7 +18,8 @@ export const pluginAllActions = {
         setBaseConfig:"setBaseConfig",
         setCookieConfig:"setCookieConfig",
         getBaseConfig:"getBaseConfig",
-        universalRequest:"universalRequest"
+        universalRequest:"universalRequest",
+        universalRequestRtText:"universalRequestRtText"
     }
 }
 //插件所有Url配置

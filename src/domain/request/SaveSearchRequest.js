@@ -50,12 +50,18 @@ export const SearchConditionRequest =()=>{
          */
         ageTo : -1,
 
-        // 教育水平
+        // 学院类型
         /**
-         * 教育水平
+         * 学院类型
          * @type {string}
          */
         educationLevel : '',
+        // 学历
+        /**
+         * 学历
+         * @type {string}
+         */
+        degree : '',
 
         // 性别
         /**
@@ -157,7 +163,8 @@ export const convertSearchConditionRequest = (obj) => {
     let ageElSliderValue = obj.ageElSliderValue;
     searchConditionRequest.ageFrom =ageElSliderValue[0];
     searchConditionRequest.ageTo =ageElSliderValue[1];
-    searchConditionRequest.educationLevel =obj.eduValue
+    searchConditionRequest.degree =obj.eduValue;
+    searchConditionRequest.educationLevel = obj.educationLevel;
     searchConditionRequest.gender =obj.sexValue;
     searchConditionRequest.currentSalaryFrom =obj.currentSalaryStartValue;
     searchConditionRequest.currentSalaryTo =obj.currentSalaryEndValue;

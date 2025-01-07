@@ -14,19 +14,19 @@
       <el-col :span="12">
         <el-row class="small-el-row-rg" justify="end" align="middle">
             <el-col class="col-operation-guide" :span="8">
-              <el-tooltip
-                  class="box-item"
-                  effect="dark"
-                  content="测试数据开关"
-                  placement="bottom"
-              >
-                <el-switch
-                    v-model="testSwitch"
-                    class="ml-2"
-                    style="--el-switch-on-color: #13ce66;"
-                    @click="handleSwitchChange"
-                />
-              </el-tooltip>
+<!--              <el-tooltip-->
+<!--                  class="box-item"-->
+<!--                  effect="dark"-->
+<!--                  content="测试数据开关"-->
+<!--                  placement="bottom"-->
+<!--              >-->
+<!--                <el-switch-->
+<!--                    v-model="testSwitch"-->
+<!--                    class="ml-2"-->
+<!--                    style="&#45;&#45;el-switch-on-color: #13ce66;"-->
+<!--                    @click="handleSwitchChange"-->
+<!--                />-->
+<!--              </el-tooltip>-->
               <div style="height: 100%;display: flex;align-items: center">
                 <el-tooltip
                     class="box-item"

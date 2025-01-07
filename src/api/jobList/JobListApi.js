@@ -4,7 +4,7 @@ import request from "../request";
 export const saveJobList = (data) => {
     return request({
         method:'POST',
-        url:'/search/saveSearch2',
+        url:'/search/saveSearch',
         data:data
     });
 }
@@ -24,6 +24,15 @@ export const getScoreList = (data) => {
         method:'POST',
         url:'/resume/getScoreList',
         data:data
+    });
+}
+
+//查询搜详细简历
+export const getGeekDetail = (id) => {
+    const basseUrl='/resume/queryResumeDetailByResumeBlindId?resumeBlindId=';
+    return request({
+        method:'GET',
+        url:basseUrl+id
     });
 }
 

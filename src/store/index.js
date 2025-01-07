@@ -3,6 +3,7 @@ import TestConfig from "@/store/modules/TestConfig";
 import PluginConfig from "@/store/modules/PluginConfig";
 import ChatConfig from "@/store/modules/ChatConfig";
 import AiSerachConfig from "@/store/modules/AiSerachConfig";
+import ChannelConfig from "@/store/modules/ChannelConfig";
 import createPersistedState from "vuex-persistedstate";
 
 export default createStore({
@@ -11,7 +12,7 @@ export default createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,PluginConfig,ChatConfig,AiSerachConfig
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig
   },
   plugins: [
     createPersistedState({

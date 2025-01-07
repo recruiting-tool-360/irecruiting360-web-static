@@ -29,7 +29,13 @@ export const createSearchState = ()=>{
          * 学历选项
          * @type {string}
          */
-        eduValue : "201,201",
+        eduValue : "201|201",
+        // 院校要求
+        /**
+         * 院校要求
+         * @type {string}
+         */
+        educationLevel : "-1",
 
         // 性别属性
         /**

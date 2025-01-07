@@ -4,8 +4,8 @@
     <el-row class="el-row-100-percent-w chatHeader" style="margin-bottom: 8px;padding:8px 0 8px 16px;border-bottom: 1px solid #E0E0E0;
 ">
       <el-col :span="12" style="display:flex;align-items: center;justify-content: start">
-        <el-image class="headerIcons" :src="'/index/header/icons/kefu.svg'"></el-image>
-        <el-text style="font-size: 14px;margin-left: 8px"> AI助理小爱 </el-text>
+        <el-image class="headerIcons" :src="'/index/header/chat/ai.svg'" style="height: 30px;width: 40px"></el-image>
+        <el-text style="font-size: 14px;margin-left: 8px;margin-top: 9px;color: #1296db;"> AI搜索人才 </el-text>
       </el-col>
       <!--  历史对话    -->
       <el-col :span="12" style="display:flex;align-items: center;justify-content: end">
@@ -61,7 +61,7 @@
             <div class="leftContainer chatContainer">
               <div class="contentBox">
                 <div class="content">{{ message.content }}</div>
-                <el-button class="contentButton">聚合搜索</el-button>
+                <el-button class="contentButton" @click="aiSearchFlag=true">聚合搜索</el-button>
               </div>
             </div>
           </div>
@@ -80,6 +80,8 @@
             resize="none"
             type="textarea"
             @keydown="handleKeyDown"
+            @compositionstart="isComposing = true"
+            @compositionend="isComposing = false"
             placeholder="Please input"
         >
         </el-input>
@@ -92,12 +94,26 @@
                 class="send-button"
                 @click="sentMassage"
                 type="primary"
+                v-if="!chatFluxStatus"
                 round
                 style="width: 80px;height: 30px;background: linear-gradient(249.61deg, #C7A0FF 0%, #8777FF 11.71%, #5280FC 49.68%, #54A4FF 74.23%, #3CD1F6 90.26%, #74FFCD 100%);"
             >
               <el-image class="headerIcons" :src="'/index/header/chat/fasong.svg'" style="margin-right: 4px"></el-image>
-              <el-text style="font-size: 12px;color: white">发送</el-text>
+              <el-text style="font-size: 12px;color: white">{{'发送'}}</el-text>
             </el-button>
+            <el-tooltip v-if="chatFluxStatus" content="点击停止输出" placement="top" effect="light">
+              <el-button
+                  class="send-button"
+                  @click="sentMassage"
+                  type="primary"
+                  round
+                  style="width: 80px;height: 30px;background: linear-gradient(249.61deg, #C7A0FF 0%, #8777FF 11.71%, #5280FC 49.68%, #54A4FF 74.23%, #3CD1F6 90.26%, #74FFCD 100%);"
+              >
+                <el-icon><Loading /></el-icon>
+                <el-image class="headerIcons" :src="'/index/header/chat/fasong.svg'" style="margin-right: 4px"></el-image>
+                <el-text style="font-size: 12px;color: white">{{'正在输出'}}</el-text>
+              </el-button>
+            </el-tooltip>
           </el-col>
         </el-row>
 
@@ -105,6 +121,8 @@
     </el-row>
     <!--  历史对话dialog  -->
     <DialogTemplate v-model:dialogVisible="historyDialog" :change-close-status="()=>historyDialog=false" :on-confirm="clearHistory" :context="'确认清理历史对话!'"></DialogTemplate>
+    <!--  ai搜索  -->
+    <DialogTemplate v-model:dialogVisible="aiSearchFlag" :change-close-status="()=>aiSearchFlag=false" :on-confirm="findAiCondition" :context="'确认AI搜索!'"></DialogTemplate>
   </div>
 </template>
 
@@ -114,10 +132,11 @@ import {useStore} from 'vuex';
 import { ElButton, ElMessage } from 'element-plus'
 import { vChatScroll } from "vue3-chat-scroll";
 import {fetchStream} from "@/api/chat/ChatUtil";
-import {clearChatHistory, getChatHistory, getChatIdByUserId} from "@/api/chat/ChatApi";
+import {clearChatHistory, getChatHistory, getChatIdByUserId, getCurrentConditionByChatId} from "@/api/chat/ChatApi";
 import {getChatTemplate} from "@/views/search/dto/chat/ChatTemplate";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 import { v4 as uuidv4 } from 'uuid';
+import { Loading } from '@element-plus/icons-vue'
 const store = useStore();
 
 const props = defineProps({
@@ -139,6 +158,14 @@ const historyLoading = ref(false);
 //history确认弹窗
 const historyDialog = ref(false);
 const historyRef =ref(null);
+//ai chat状态
+const chatFluxStatus = ref(false);
+//ai搜索开关
+const aiSearchFlag = ref(false);
+// 标记是否在输入法状态中
+let isComposing = ref(false);
+
+
 
 //初始化
 onMounted(async ()=>{
@@ -150,6 +177,9 @@ const messages = computed(()=>store.getters.getChatMassages?store.getters.getCha
 
 // 处理按键事件
 const handleKeyDown = (event) => {
+  if(isComposing.value){
+    return;
+  }
   if (event.key === "Enter" && event.ctrlKey) {
     // Ctrl+Enter 换行
     message.value += "\n";
@@ -157,6 +187,10 @@ const handleKeyDown = (event) => {
   } else if (event.key === "Enter") {
     // Enter 键发送消息
     event.preventDefault(); // 阻止默认换行行为
+    if(chatFluxStatus.value){
+      ElMessage.warning('正在输出内容，请稍等！');
+      return;
+    }
     sentMassage();
   }
 };
@@ -169,6 +203,7 @@ const findHistoricalDialogue = async () => {
     chatHistoryList.value = data.chatHistory;
   }catch (e){
     console.log(e);
+    ElMessage.error('服务异常，请联系管理员！');
     chatHistoryList.value = [];
   }
   historyLoading.value=false;
@@ -180,13 +215,38 @@ const clearHistory = async () => {
     ElMessage.success('操作成功！');
   }catch (e){
     console.log(e);
+    ElMessage.error('服务异常，请联系管理员！');
   }
   historyDialog.value = false;
+}
+
+// 查询搜索条件
+const findAiCondition = async () => {
+  try {
+    let {data} = await getCurrentConditionByChatId(userChatId.value);
+    if(data){
+      store.commit('changeSearchConditionRequestData',data);
+    }
+    if(props.onCloseClick){
+      aiSearchFlag.value=false
+      setTimeout(async () => {
+        props.onCloseClick();
+      },200);
+    }
+  } catch (e) {
+    console.log(e);
+    ElMessage.error('服务异常，请联系管理员！');
+  }
 }
 
 
 //发送对话
 const sentMassage = () =>{
+  console.log(message.value,chatFluxStatus.value)
+  if(chatFluxStatus.value){
+    chatFluxStatus.value=false;
+    return;
+  }
   if(!message.value){
     return;
   }
@@ -220,6 +280,7 @@ const invokeChat = (userMsg) => {
   //chatRequest.chatId = userChatId.value;
   //chatRequest.searchConditionId = searchConditionId.value;
   //发送ai 用户消息
+  chatFluxStatus.value = true;
   fetchStream(
       "http://127.0.0.1:8087/ihire/chat/streamChat",
       aiRequestMsg,
@@ -237,7 +298,10 @@ const invokeChat = (userMsg) => {
         scrollToBottom();  // 调用滚动到底部的函数
       },
       (error) => {
+        chatFluxStatus.value = false;
         console.error("Stream error:", error);
+      },()=>{
+        chatFluxStatus.value = false;
       }
   );
 }
@@ -245,6 +309,11 @@ const invokeChat = (userMsg) => {
 const setMsgContainer = (msg) => {
   const content = msg.choices?.[0]?.delta?.content; // 提取内容
   if (content) {
+    if(content==='[DONE]'){
+      console.log(content)
+      chatFluxStatus.value = false;
+      return;
+    }
     const foundObject = messages.value.find(item => item.id === msg.id);
     if(foundObject){
       foundObject.content = foundObject.content+content;

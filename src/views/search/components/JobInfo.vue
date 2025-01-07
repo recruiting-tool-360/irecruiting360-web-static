@@ -21,7 +21,10 @@
           </el-button>
         </el-col>
         <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="6">
-          <el-button text disabled size="small">BOSS直聘</el-button>
+          <el-button text disabled size="small">
+          <el-image :src="'/index/header/searchPage/boss.ico'"></el-image>
+            &nbsp;&nbsp;BOSS直聘
+          </el-button>
           <el-text style="margin-right: 8px;color: #E0E0E0">|</el-text>
           <el-rate :v-model="geekList.collectOrNot" :max="1"/>
           <el-button disabled text size="small" style="margin-left: -5px">
@@ -70,90 +73,7 @@
 
     </el-card>
 
-    <!--  详细信息  -->
-<!--    <el-dialog-->
-<!--        class="bigGeekInfo"-->
-<!--        v-model="geekInfoDialog"-->
-<!--        width="600"-->
-<!--        align-center-->
-<!--        :show-close="true"-->
-<!--        :close-on-click-modal="false"-->
-<!--    >-->
-<!--      &lt;!&ndash;  简历详情    &ndash;&gt;-->
-<!--      <el-row >-->
-<!--        <el-descriptions :column="2" v-if="geekDetailINfo&&Object.keys(geekDetailINfo).length > 0">-->
-<!--          <el-descriptions-item  class="geekImage" width="80" class-name="geekImage">-->
-<!--            <el-avatar :src="geekDetailINfo.geekDetail.geekBaseInfo.large"></el-avatar>-->
-<!--          </el-descriptions-item>-->
-<!--          <el-descriptions-item  class="geekInfoCad" class-name="geekInfoCad" style="width: 100%" :span="7" :rowspan="2">-->
-<!--            <div style="border-bottom: 1px solid;">-->
-<!--              <el-text>{{geekDetailINfo.geekDetail.geekBaseInfo.name}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.geekDetail.geekBaseInfo.gender===1?'男':'女'}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.geekDetail.geekBaseInfo.activeTimeDesc}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.geekDetail.geekBaseInfo.ageDesc}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.geekDetail.geekBaseInfo.degreeCategory}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.geekDetail.geekBaseInfo.workYearDesc}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.geekDetail.geekBaseInfo.applyStatusContent}}</el-text>-->
-<!--            </div>-->
-<!--            <div>-->
-<!--              <el-text style="white-space: pre-line">{{geekDetailINfo.geekDetail.geekBaseInfo.userDescription}}</el-text>-->
-<!--            </div>-->
-<!--          </el-descriptions-item>-->
-<!--        </el-descriptions>-->
-<!--      </el-row>-->
-<!--      <el-row >-->
-<!--        <el-descriptions :column="2" v-if="geekDetailINfo&&Object.keys(geekDetailINfo).length > 0">-->
-<!--          <el-descriptions-item  class="geekImage" width="80" class-name="geekImage" label="期望职位"></el-descriptions-item>-->
-<!--          <el-descriptions-item  class="geekInfoCad" class-name="geekInfoCad" style="width: 100%" :rowspan="2">-->
-<!--            <div style="border-bottom: 1px solid;">-->
-<!--              <el-text>{{geekDetailINfo.showExpectPosition.locationName}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.showExpectPosition.positionName}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.showExpectPosition.industryDesc}}</el-text>-->
-<!--              <el-text>{{geekDetailINfo.showExpectPosition.salaryDesc}}</el-text>-->
-<!--            </div>-->
-<!--          </el-descriptions-item>-->
-<!--        </el-descriptions>-->
-<!--      </el-row>-->
-<!--      <el-row >-->
-<!--        <el-descriptions :column="2" v-if="geekDetailINfo&&Object.keys(geekDetailINfo).length > 0">-->
-<!--          <el-descriptions-item  class="geekImage" width="80" class-name="geekImage" label="岗位经验"></el-descriptions-item>-->
-<!--          <el-descriptions-item  class="geekInfoCad" class-name="geekInfoCad" style="width: 100%" :rowspan="2">-->
-<!--            <template v-for="(info,index) in geekDetailINfo.bossViewGeekWorkExp.geekWorkPositionExpDescList" :key="index">-->
-<!--              <div style="border-bottom: 1px solid;">-->
-<!--                <el-text >{{info.company}}</el-text>-->
-<!--                <el-text style="white-space: pre-line">{{info.positionName}}</el-text>-->
-<!--                <el-text>{{info.startYearMonStr}}</el-text>-->
-<!--                <el-text>{{info.endYearMonStr}}</el-text>-->
-<!--              </div>-->
-<!--              <div>-->
-<!--                <el-text style="white-space: pre-line">{{info.responsibility}}</el-text>-->
-<!--              </div>-->
-<!--            </template>-->
-
-<!--          </el-descriptions-item>-->
-<!--        </el-descriptions>-->
-<!--      </el-row>-->
-<!--      <el-row >-->
-<!--        <el-descriptions :column="2" v-if="geekDetailINfo&&Object.keys(geekDetailINfo).length > 0">-->
-<!--          <el-descriptions-item  class="geekImage" width="80" class-name="geekImage" label="工作经历"></el-descriptions-item>-->
-<!--          <el-descriptions-item  class="geekInfoCad" class-name="geekInfoCad" style="width: 100%" :rowspan="2">-->
-<!--            <div style="border-bottom: 1px solid;">-->
-<!--              <el-text v-for="(info,index) in geekDetailINfo.geekDetail.geekWorkExpList" :key="index">{{info}}</el-text>-->
-
-<!--            </div>-->
-<!--          </el-descriptions-item>-->
-<!--        </el-descriptions>-->
-<!--      </el-row>-->
-<!--      <template #footer>-->
-<!--        <div class="dialog-footer">-->
-<!--          <el-button type="primary" >联系他</el-button>-->
-<!--        </div>-->
-<!--      </template>-->
-<!--    </el-dialog>-->
-
-<!--    </el-dialog>-->
-
-    <BossDetial v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}"></BossDetial>
+    <BossDetial v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -176,7 +96,7 @@ import {useStore} from "vuex";
 import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConfig";
 import {getGeekDetail, querySearch} from "@/api/search/SearchApi";
 import {channelOptions} from "@/views/search/dto/SearchPageConfig";
-import BossDetial from "@/views/search/components/BossDetial.vue";
+import BossDetial from "@/views/search/components/BossDetial2.vue";
 
 //store
 const store = useStore();
@@ -212,15 +132,6 @@ const userInfoOpen = async (userInfo) => {
   userInfo.read = 1;
   resumeId.value = userInfo.id;
   geekInfoDialog.value = true;
-
-  // try {
-  //   let {data} = await getGeekDetail(null);
-  //   geekDetailINfo.value =data
-  // }catch (e){
-  //   console.log(e)
-  //   geekDetailINfo.value = {};
-  //   ElMessage.error('查询简历失败！请联系管理员');
-  // }
 }
 
 //分页设置触发时

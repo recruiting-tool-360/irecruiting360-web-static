@@ -1,5 +1,5 @@
 import { ElMessage } from 'element-plus'
-export const fetchStream = async (url, data, onMessage, onError) => {
+export const fetchStream = async (url, data, onMessage, onError,endStream) => {
     try {
         const response = await fetch(url, {
             method: "POST",
@@ -31,6 +31,7 @@ export const fetchStream = async (url, data, onMessage, onError) => {
                         if (data === "[DONE]") {
                             // 流结束
                             done = true;
+                            endStream();
                             break;
                         }
                         onMessage(data); // 将每次接收到的数据块传递给回调
@@ -40,11 +41,11 @@ export const fetchStream = async (url, data, onMessage, onError) => {
         }
     } catch (error) {
         console.log(error)
-        ElMessage.error('AI服务异常，请联系管理员');
         if (onError) {
             onError(error);
         } else {
             console.error("Stream error:", error);
         }
+        ElMessage.error('AI服务异常，请联系管理员');
     }
 };
