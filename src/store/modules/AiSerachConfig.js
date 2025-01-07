@@ -1,9 +1,12 @@
 import {getScoreList} from "@/api/jobList/JobListApi";
 import {querySearchConditionCollection} from "@/api/search/SearchApi";
+import {ElMessage} from "element-plus";
 
 
 export default {
     state: () => ({
+        leftLoadingSwitch:false,
+        searchConditionRequestData:null,
         allChannelCount: 0,
         bossChannelCount: 0,
         scoreList:[],
@@ -11,6 +14,12 @@ export default {
         searchConditionList:[]
     }),
     mutations: {
+        changeLeftLoadingSwitch(state,payload) {
+            state.leftLoadingSwitch = payload;
+        },
+        changeSearchConditionRequestData(state,payload) {
+            state.searchConditionRequestData = payload;
+        },
         changeAllChannelCount(state,payload) {
             state.allChannelCount = payload;
         },
@@ -36,7 +45,7 @@ export default {
                 if (map.has(updatedItem.id)) {
                     const item = map.get(updatedItem.id);
                     updatedItem.score = item.score; // 更新 score 值
-                    if(item.score&&item.score>=0){
+                    if(item.score&&item.score>=-1){
                         this.commit("deleteScoreConfigById", updatedItem.id);
                     }
                 }
@@ -76,16 +85,28 @@ export default {
             }
         },
         async findSearchCondition({ commit, state },userId) {
+            await commit("changeLeftLoadingSwitch", true);
             try {
                 let {data} = await querySearchConditionCollection(userId);
-                commit("setSearchConditionList", data);
+                if(data){
+                    await commit("setSearchConditionList", data);
+                }
             }catch (e){
                 console.log(e)
+                await commit("changeLeftLoadingSwitch", false);
+                ElMessage.error('服务异常,请联系管理员');
                 throw new Error("getScoreList service error");
             }
+            await commit("changeLeftLoadingSwitch", false);
         }
     },
     getters: {
+        getLeftLoadingSwitch(state) {
+            return state.leftLoadingSwitch;
+        },
+        getSearchConditionRequestData(state) {
+            return state.searchConditionRequestData;
+        },
         getAllChannelCount(state) {
             return state.allChannelCount;
         },

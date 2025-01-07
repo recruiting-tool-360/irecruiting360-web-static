@@ -24,14 +24,24 @@ service.interceptors.response.use(
     }
 )
 
+// const errorAlert=(title,message)=>{
+//     ElNotification({
+//         title: title,
+//         duration: 3000,
+//         customClass:"notice",
+//         message: message,
+//         type: 'error',
+//     })
+// }
 const errorAlert=(title,message)=>{
-    ElNotification({
-        title: title,
-        duration: 3000,
-        customClass:"notice",
-        message: message,
-        type: 'error',
-    })
+    // ElNotification({
+    //     title: title,
+    //     duration: 3000,
+    //     customClass:"notice",
+    //     message: message,
+    //     type: 'error',
+    // })
+    ElMessage.error(title,message);
 }
 
 //校验结果集

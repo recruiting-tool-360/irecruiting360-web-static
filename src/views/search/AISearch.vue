@@ -2,7 +2,7 @@
     <div class="aiSearchPage">
       <el-backtop :right="100" :bottom="100" />
       <!--   搜索操作按钮   -->
-      <div class="jobSearch">
+      <div class="jobSearch" v-loading="searchAreaLoadingSwitch">
         <el-card class="jobSearch-card ">
           <!--     头部搜索     -->
           <el-row class="search-big-el-row">
@@ -88,7 +88,7 @@
                 <!--     学历       -->
                 <div class="edu-div group-div default-input-size">
                   <div style="width: 100%" class="text-inp-margin">
-                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">学历:</el-text>
+                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style el-text-ellipsis">学历:</el-text>
                   </div>
                   <el-select class="default-module-height" v-model="searchState.eduValue"
                              placeholder="学历"
@@ -96,7 +96,7 @@
                              no-match-text="无"
                   >
                     <el-option
-                        v-for="item in degreeOptions"
+                        v-for="item in degreeOptionsVal"
                         :key="item.value"
                         :label="item.label"
                         :value="item.value"
@@ -106,7 +106,7 @@
                 <!--     性别       -->
                 <div class="sex-div group-div default-input-size default-input-left-margin">
                   <div style="width: 100%" class="text-inp-margin">
-                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">性别:</el-text>
+                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style el-text-ellipsis">性别:</el-text>
                   </div>
                   <el-select class="default-module-height" v-model="searchState.sexValue"
                              placeholder="性别"
@@ -114,7 +114,7 @@
                              no-match-text="无"
                   >
                     <el-option
-                        v-for="item in genderOptions"
+                        v-for="item in genderOptionsVal"
                         :key="item.value"
                         :label="item.label"
                         :value="item.value"
@@ -317,8 +317,26 @@
             <!--     学校：：职位：：公司：：：专业：：求职状态：     -->
             <el-row class="company-and-school-row" gutter="0" style="margin-top: 8px">
               <el-col class="edu-and-sex-el-col el-col-display-Style ">
+                <!--     院校要求       -->
+                <div class="schoolLevel-status-div group-div default-input-size">
+                  <div style="width: 100%" class="text-inp-margin">
+                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style el-text-ellipsis">院校要求:</el-text>
+                  </div>
+                  <el-select class="default-module-height" v-model="searchState.educationLevel"
+                             placeholder="院校要求"
+                             no-data-text="无"
+                             no-match-text="无"
+                  >
+                    <el-option
+                        v-for="item in schoolLevelOptionsVal"
+                        :key="item.value"
+                        :label="item.label"
+                        :value="item.value"
+                    />
+                  </el-select>
+                </div>
                 <!--     求职状态       -->
-                <div class="job-seeking-status-div group-div default-input-size">
+                <div class="job-seeking-status-div group-div default-input-size default-input-left-margin">
                   <div style="width: 100%" class="text-inp-margin">
                     <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style el-text-ellipsis">求职状态:</el-text>
                   </div>
@@ -328,7 +346,7 @@
                              no-match-text="无"
                   >
                     <el-option
-                        v-for="item in jobStatusOptions"
+                        v-for="item in jobStatusOptionsVal"
                         :key="item.value"
                         :label="item.label"
                         :value="item.value"
@@ -338,37 +356,37 @@
                 <!--     职位       -->
                 <div class="position-div group-div default-input-size default-input-left-margin">
                   <div style="width: 100%" class="text-inp-margin">
-                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">职位:</el-text>
+                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style el-text-ellipsis">职位:</el-text>
                   </div>
                   <el-input class="default-module-height" v-model="searchState.positionInpValue" placeholder="职位" />
                 </div>
                 <!--     公司       -->
                 <div class="corporation-div group-div default-input-size default-input-left-margin">
                   <div style="width: 100%" class="text-inp-margin">
-                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">公司:</el-text>
+                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style el-text-ellipsis">公司:</el-text>
                   </div>
                   <el-input class="default-module-height" v-model="searchState.corporationInpValue" placeholder="公司" />
                 </div>
                 <!--     学校       -->
                 <div class="school-div group-div default-input-size default-input-left-margin">
                   <div style="width: 100%" class="text-inp-margin">
-                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">学校:</el-text>
+                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style el-text-ellipsis">学校:</el-text>
                   </div>
                   <el-input class="default-module-height" v-model="searchState.schoolInpValue" placeholder="学校" />
                 </div>
                 <!--     专业       -->
                 <div class="corporation-div group-div default-input-size default-input-left-margin">
                   <div style="width: 100%" class="text-inp-margin">
-                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">专业:</el-text>
+                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style el-text-ellipsis">专业:</el-text>
                   </div>
                   <el-input class="default-module-height" v-model="searchState.professionInpValue" placeholder="专业" />
                 </div>
                 <!--     空位置       -->
-                <div class="empty-div group-div default-input-size default-input-left-margin" style="visibility: hidden;">
-                  <div style="width: 100%" class="text-inp-margin">
-                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style"></el-text>
-                  </div>
-                </div>
+<!--                <div class="empty-div group-div default-input-size default-input-left-margin" style="visibility: hidden;">-->
+<!--                  <div style="width: 100%" class="text-inp-margin">-->
+<!--                    <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style"></el-text>-->
+<!--                  </div>-->
+<!--                </div>-->
               </el-col>
               <!--            &lt;!&ndash;     学校       &ndash;&gt;-->
               <!--            <el-col class="company-and-school-el-col el-col-display-Style" :span="3">-->
@@ -472,41 +490,19 @@
                   <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
                     <el-checkbox v-model="searchState.unreadCheckBoxValue" style="height: 32px;font-size: 13px" label="仅显示未读"/>
                     <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>
-                    <el-button class="btm-color" style="margin-left: 2rem;height: 32px">渠道设置</el-button>
+                    <el-button class="btm-color" style="margin-left: 2rem;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
                   </div>
                 </el-descriptions-item>
               </el-descriptions>
             </el-col>
           </el-row>
-          <!--    数据表标签页      -->
-<!--          <el-row class="jobList-top-el-row" :gutter="0" style="border-bottom: 2px solid #E8E8E8;min-height: 3rem">-->
-<!--            &lt;!&ndash;    头部标签      &ndash;&gt;-->
-<!--            <el-col class="jobList-top-el-col el-col-display-Style" style="justify-content: start;align-items: center;" :span="16">-->
-<!--              <el-button text @click="jobInfoName='ALL';activeButton='ALL'" :class="{ 'btm-color': activeButton === 'ALL' }">聚合渠道({{allChannelDataSize}})</el-button>-->
-<!--              <el-button v-show="allChannelStatus.BOSS.disable" text @click="jobInfoName='BOSS';activeButton='BOSS'" :class="{ 'btm-color': activeButton === 'BOSS' }">BOSS(-->
-<!--                <el-text v-if="allChannelStatus.BOSS.login" class="" type="success">已登陆</el-text>-->
-<!--                <el-text v-else-if="allChannelStatus.BOSS.loading" class="" type="warning">检测中...</el-text>-->
-<!--                <el-text v-else class="" type="danger">未登陆</el-text>-->
-<!--                )</el-button>-->
-<!--&lt;!&ndash;              <el-button text @click="jobInfoName='ALL';activeButton='ZHILIAN'" :class="{ 'btm-color': activeButton === 'ZHILIAN' }">智联招聘</el-button>&ndash;&gt;-->
-<!--&lt;!&ndash;              <el-button text @click="jobInfoName='ALL';activeButton='LAGOU'" :class="{ 'btm-color': activeButton === 'LAGOU' }">拉钩</el-button>&ndash;&gt;-->
-<!--              <el-button text @click="jobInfoName='Collect';activeButton='Collect'" :class="{ 'btm-color': activeButton === 'Collect' }">我的收藏({{allChannelDataSize}})</el-button>-->
-<!--            </el-col>-->
-<!--            &lt;!&ndash;    渠道设置      &ndash;&gt;-->
-<!--            <el-col class="jobList-top-el-col el-col-display-Style" style="justify-content: end;align-items: center" :span="8">-->
-<!--              <el-checkbox v-model="searchState.unreadCheckBoxValue" label="仅显示未读" size="small" />-->
-<!--              <el-checkbox v-model="searchState.aiSortCheckBoxValue" label="根据AI评估排序" size="small" />-->
-<!--              <el-button class="btm-color" size="small" style="margin-left: 2rem">渠道设置</el-button>-->
-<!--            </el-col>-->
-<!--          </el-row>-->
           <!--    不同模版      -->
           <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JobInfo>
           <BossJobInfo v-show="jobInfoName==='BOSS'"></BossJobInfo>
         </el-card>
       </div>
-      <div class="pageConfig">
-
-      </div>
+      <!--   渠道配置   -->
+      <ChannelConfig v-model:dialogVisible="channelDialogFlag" :change-close-status="()=>channelDialogFlag=false"></ChannelConfig>
       <!--   聊天chat   -->
       <AIChat2 :dialog-flag="aiChatDialogFlag" :on-close-click="()=>aiChatDialogFlag=false"></AIChat2>
       <!--  插件安装提示    -->
@@ -516,7 +512,7 @@
     </div>
 </template>
 <script setup>
-import { computed,onMounted, ref} from 'vue'
+import {computed, onMounted, ref, watch} from 'vue'
 import {CircleClose, ArrowUp,ArrowDown,Close} from '@element-plus/icons-vue'
 import AIChat2 from "@/views/search/chat/AIChat2.vue";
 import {createSearchState} from "@/views/search/dto/request/SearchStateConfig";
@@ -527,9 +523,9 @@ import {
   salaryConfig,
   citiesConfig,
   jobStatusOptions,
-  topChannelBtmOptions
+  topChannelBtmOptions, schoolLevelOptions
 } from "@/views/search/dto/SearchPageConfig";
-import {querySearch, saveCondition} from "@/api/search/SearchApi";
+import {getSearchConditionDefaultDicts, querySearch, saveCondition} from "@/api/search/SearchApi";
 import PluginMessenger from "@/api/PluginSendMsg";
 import {ElLoading, ElMessage} from 'element-plus';
 import {getPluginBaseConfigEmptyDTO,getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls, pluginKeys
@@ -548,10 +544,15 @@ import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConf
 import PluginInfo from "@/views/search/components/PluginInfo.vue";
 import {getChatIdByUserId} from "@/api/chat/ChatApi";
 import SearchCondition from "@/views/search/searchCondition/SearchCondition.vue";
+import ChannelConfig from "@/views/search/channel/ChannelConfig.vue";
 
 const store = useStore();
+//新的搜索体
+const searchConditionRequestData = computed(() => store.getters.getSearchConditionRequestData);
 //搜索id
 const searchConditionId = computed(() => store.getters.getSearchConditionId);
+//搜索区域loading
+const searchAreaLoadingSwitch = ref(false);
 //固定条件搜索属性
 let searchStateConfig =createSearchState();
 const searchState = ref(searchStateConfig);
@@ -572,14 +573,17 @@ const allResponse = ref({
 //ref
 const jobInfoRef = ref(null);
 //登陆状态
-const allChannelStatus = ref({
-  BOSS:{
-    login:false,
-    loading:false,
-    name:"boss直聘",
-    disable:true
-  },
-});
+// const allChannelStatus = ref({
+//   BOSS:{
+//     login:false,
+//     loading:false,
+//     name:"boss直聘",
+//     disable:true
+//   },
+// });
+const allChannelStatus = computed(() => store.getters.getChannelConf);
+//渠道对话框开关
+const channelDialogFlag = ref(false);
 //ai对话框开关
 const aiChatDialogFlag = ref(false);
 //搜索收缩按钮开关
@@ -588,7 +592,15 @@ const contentHeight =ref(0);
 const searchAriaHeight = ref(true);
 //保存搜索条件
 const searchConditionDialog = ref(false);
-
+//配置信息
+//性别
+const genderOptionsVal = ref(genderOptions);
+//学校类型
+const schoolLevelOptionsVal = ref(schoolLevelOptions);
+//在职状态
+const jobStatusOptionsVal = ref(jobStatusOptions);
+//学历状态
+const degreeOptionsVal = ref(degreeOptions);
 
 
 
@@ -621,9 +633,24 @@ onMounted(async ()=>{
     const {data}= await getChatIdByUserId(1);
     store.commit('changeLocalUserChatId',data);
   }catch (e){
-    ElMessage.error('服务异常');
+    ElMessage.error('后端服务异常，请联系管理员');
   }
-})
+});
+
+const loadingAllSearchConfig = async () => {
+  try {
+    const {data} = await getSearchConditionDefaultDicts();
+    if (data) {
+      genderOptionsVal.value = data.GENDER ? data.GENDER : genderOptions;
+      schoolLevelOptionsVal.value = data.EDUCATION_LEVEL ? data.EDUCATION_LEVEL : schoolLevelOptions;
+      jobStatusOptionsVal.value = data.AVAILABILITY_STATUS ? data.AVAILABILITY_STATUS : jobStatusOptions;
+      degreeOptionsVal.value = data.DEGREE ? data.DEGREE : degreeOptions;
+    }
+  } catch (e) {
+    ElMessage.error('后端服务异常，请联系管理员');
+  }
+}
+loadingAllSearchConfig();
 
 /**
  * 搜索
@@ -832,6 +859,14 @@ const resetSearchConnect = ()=>{
   searchState.value = createSearchState();
 }
 
+//监听搜索体
+watch(() => searchConditionRequestData.value, (newValue) => {
+  searchAreaLoadingSwitch.value=true;
+  console.log("监听搜索体",newValue)
+  setTimeout(async () => {
+    searchAreaLoadingSwitch.value=false;
+  },2000);
+});
 
 </script>
 <style scoped lang="scss">
@@ -900,7 +935,7 @@ const resetSearchConnect = ()=>{
           justify-content: space-between;
 
           .text-inp-margin{
-            margin-bottom: 4px;
+            margin-bottom: 3px;
           }
         }
 
