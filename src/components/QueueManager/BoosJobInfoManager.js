@@ -70,7 +70,7 @@ export const getBoosHeader = async (flag) => {
 
 
 //查询简历详情
-const findJobDetail = async (data)=>{
+export const findJobDetail = async (data)=>{
     const headers = await getBoosHeader();
     let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
     pluginEmptyRequestTemplate.parameters = null;

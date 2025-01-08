@@ -17,7 +17,6 @@ const route = useRoute()
 const isMainLayoutRoute = ['home'].includes(route.name)
 // 异步处理器
 function fn(val){
-  console.log("值：",val)
   exeJobInfo(val);
 }
 

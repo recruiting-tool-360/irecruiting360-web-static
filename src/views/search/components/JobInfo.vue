@@ -73,7 +73,7 @@
 
     </el-card>
 
-    <BossDetial v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
+    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -96,7 +96,8 @@ import {useStore} from "vuex";
 import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConfig";
 import {getGeekDetail, querySearch} from "@/api/search/SearchApi";
 import {channelOptions} from "@/views/search/dto/SearchPageConfig";
-import BossDetial from "@/views/search/components/BossDetial2.vue";
+import BossDetial from "@/views/search/components/BossDetial.vue";
+import {ElMessage} from "element-plus";
 
 //store
 const store = useStore();
@@ -127,11 +128,14 @@ const searchConditionId = computed(() => store.getters.getSearchConditionId);
 const geekInfoDialog = ref(false);
 //盲简历id
 const resumeId = ref("");
+//bossDetialRef
+const bossDetialRef = ref(null);
 
 const userInfoOpen = async (userInfo) => {
   userInfo.read = 1;
   resumeId.value = userInfo.id;
   geekInfoDialog.value = true;
+  bossDetialRef.value?.childGeekInfoMethod(userInfo);
 }
 
 //分页设置触发时
@@ -166,7 +170,7 @@ const search = async (page) => {
     listResponse = await querySearch(pageSearchRequest);
   } catch (e) {
     console.log(e)
-    throw new Error("request error");
+    ElMessage.error('服务异常，请联系管理员！');
   }
   if(listResponse){
     totalNum.value = listResponse.data.totalCount;

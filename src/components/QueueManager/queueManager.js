@@ -32,7 +32,6 @@ class QueueManager {
     dequeueAndProcess() {
         if (this.queue.length > 0) {
             const item = this.queue.shift(); // 获取队列头部数据
-            console.log("Processing:", item,this.queue.length);
             if(this.fn!=null){
                 this.fn(item);
             }
