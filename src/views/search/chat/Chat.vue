@@ -24,11 +24,10 @@
               <template v-for="(history, index) in chatHistoryList" :key="index">
               <el-row style="margin-top: 16px">
                 <el-col :span="24" style="margin-bottom: 4px">
-                  <el-text style="color: rgba(0, 0, 0, 0.45)">2024-12-25</el-text>
+                  <el-text style="color: rgba(0, 0, 0, 0.45)">{{history.timestamp}}&nbsp;&nbsp;&nbsp;{{history.role==='user'?'(我)':'AI'}}</el-text>
                 </el-col>
                 <el-col :span="24">
-
-                    <div class="chatListCard" style="width: 100%;display: flex;align-items: center">
+                    <div class="chatListCard" style="width: 100%;display: flex;align-items: center" :style="`background: ${history.role==='user'?'rgba(255, 255, 255, 1)':'#1296db0d'}`">
                       <el-image :src="'/index/header/chat/wath.svg'" style="height: 20px;width: 20px;margin: 0 8px"></el-image>
                       <el-popover placement="left" :width="300" trigger="hover">
                         <template #reference>

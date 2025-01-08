@@ -699,6 +699,7 @@ const searchJobList = async () => {
     searchRequestData = data;
     store.commit('changeSearchConditionId',searchRequestData.id);
   }catch (e){
+    ElMessage.error('后端服务异常，请联系管理员');
     console.log(e);
     return;
   }
@@ -717,7 +718,7 @@ const searchJobList = async () => {
     return;
   }
   if(!pluginBossResultProcessor(responseJobListData)){
-    ElMessage.error('Boos数据查询异常！请联系管理员！')
+    ElMessage.error('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
     return;
   }
   //列表存到后端
@@ -732,6 +733,7 @@ const searchJobList = async () => {
     let {data:jobListData} = await saveJobList(saveJobListRequest);
     jobList = jobListData;
   }catch (e){
+    ElMessage.error('后端服务异常，请联系管理员');
     console.log(e);
     return;
   }
@@ -753,9 +755,6 @@ const searchJobList = async () => {
       const type ="1";
       const taskRequest = {queryString,outId,resumeBlindId,type};
       if(index<1){
-        // if(!store.getters.getTestSwitch){
-        //
-        // }
         boosQueueManager.enqueue(taskRequest);
       }
     }
@@ -809,7 +808,7 @@ const boosUserStatus = async () => {
   const headers = await getBoosHeader(true);
   if(!headers){
     ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
-    throw new Error("系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！",headers);
+    return;
   }
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
   pluginEmptyRequestTemplate.parameters = null;
