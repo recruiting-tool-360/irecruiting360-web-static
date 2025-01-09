@@ -476,13 +476,13 @@
                 <el-descriptions-item>
                   <div class="top-div" style="min-width: 350px;align-items: center">
 <!--                    <el-segmented v-model="channelValue" :options="topChannelBtmOptionsConfig" />-->
-                      <el-button text @click="jobInfoName='ALL';activeButton='ALL'" :class="{ 'btm-color': activeButton === 'ALL' }">聚合渠道({{allChannelDataSize}})</el-button>
-                      <el-button v-show="allChannelStatus.BOSS.disable" text @click="jobInfoName='BOSS';activeButton='BOSS'" :class="{ 'btm-color': activeButton === 'BOSS' }">BOSS(
+                      <el-button text @click="jobInfoName='ALL';" :class="{ 'btm-color': jobInfoName === 'ALL' }">聚合渠道({{allChannelDataSize}})</el-button>
+                      <el-button v-show="allChannelStatus.BOSS.disable" text @click="jobInfoName='BOSS';" :class="{ 'btm-color': jobInfoName === 'BOSS' }">BOSS(0)&nbsp;
                         <el-text v-if="allChannelStatus.BOSS.login" class="" type="success">已登陆</el-text>
                         <el-text v-else-if="allChannelStatus.BOSS.loading" class="" type="warning">检测中...</el-text>
                         <el-text v-else class="" type="danger">未登陆</el-text>
-                        )</el-button>
-                      <el-button text @click="jobInfoName='Collect';activeButton='Collect'" :class="{ 'btm-color': activeButton === 'Collect' }">我的收藏({{allChannelDataSize}})</el-button>
+                        </el-button>
+                      <el-button text @click="jobInfoName='Collect';" :class="{ 'btm-color': jobInfoName === 'Collect' }">我的收藏({{allChannelDataSize}})</el-button>
                   </div>
                 </el-descriptions-item>
                 <el-descriptions-item align="right">
@@ -502,7 +502,7 @@
         </el-card>
       </div>
       <!--   渠道配置   -->
-      <ChannelConfig v-model:dialogVisible="channelDialogFlag" :change-close-status="()=>channelDialogFlag=false"></ChannelConfig>
+      <ChannelConfig v-model:dialogVisible="channelDialogFlag" :change-close-status="()=>channelDialogFlag=false" :on-confirm="onChannelConfig"></ChannelConfig>
       <!--   聊天chat   -->
       <AIChat2 :dialog-flag="aiChatDialogFlag" :on-close-click="()=>aiChatDialogFlag=false"></AIChat2>
       <!--  插件安装提示    -->
@@ -637,6 +637,7 @@ onMounted(async ()=>{
   }
 });
 
+//加载所有配置
 const loadingAllSearchConfig = async () => {
   try {
     const {data} = await getSearchConditionDefaultDicts();
@@ -651,6 +652,14 @@ const loadingAllSearchConfig = async () => {
   }
 }
 loadingAllSearchConfig();
+
+//渠道确认回调函数
+const onChannelConfig = (keys) => {
+  if(keys&&keys.length>0&&jobInfoName.value!=='ALL'&&jobInfoName.value!=='Collect'&&keys.indexOf(jobInfoName.value)>=0){
+    jobInfoName.value='ALL';
+  }
+  channelDialogFlag.value = false;
+}
 
 /**
  * 搜索
@@ -762,7 +771,7 @@ const searchJobList = async () => {
   //各个渠道列表
   if (jobInfoRef.value) {
     jobInfoName.value='ALL';
-    activeButton.value='ALL';
+    // activeButton.value='ALL';
     jobInfoRef.value.search(1);
   }
 }
