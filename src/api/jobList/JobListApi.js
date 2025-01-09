@@ -36,5 +36,18 @@ export const getGeekDetail = (id) => {
     });
 }
 
+//已读标识
+export const markResumeBlindReadStatus = (resumeBlindIds, readStatus) => {
+    const basseUrl='/resume/markResumeBlindReadStatus';
+    return request({
+        method: 'POST',
+        url: basseUrl,
+        data: {                            // 查询参数
+            resumeBlindIds: resumeBlindIds,
+            status: readStatus
+        }
+    });
+}
+
 
 

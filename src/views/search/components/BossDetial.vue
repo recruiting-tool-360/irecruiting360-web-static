@@ -132,7 +132,7 @@ const beforeClose = () => {
 }
 
 const openDetail = async ()=>{
-    const url=`https://m.zhipin.com/web/frame/recommend/resume?expectId=${geekDetailINfo.value.expectId}&isInnerAccount=0&isResume=1&isPreview=0&status=5&jobId=-1&securityId=${geekDetailINfo.value.securityId}`;
+    const url=pluginAllUrls.BOSS.geekDetailUrl+`?expectId=${geekDetailINfo.value.expectId}&isInnerAccount=0&isResume=1&isPreview=0&status=5&jobId=-1&securityId=${geekDetailINfo.value.securityId}`;
     const name='_blank';                            //网页名称，可为空;
     const iWidth=window.screen.availWidth *0.7;                          //弹出窗口的宽度;
     const iHeight=window.screen.availHeight * 0.7;                         //弹出窗口的高度;
@@ -144,16 +144,12 @@ const openDetail = async ()=>{
 }
 
 const openInteraction = async ()=>{
-  // let newVar2 = await runCollect2();
-  // console.log(newVar2)
-  let newVar = await runCollect();
-  // let newVar2 = await runCollect2();
-  // let newVar3 = await runCollect3();
-
-  // console.log(newVar)
-  // console.log(newVar2)
-  // console.log(newVar3)
-  const url=`https://www.zhipin.com/web/chat/interaction`;
+  let collectResult = await runCollect();
+  if(!pluginBossResultProcessor(collectResult)){
+    ElMessage.error('系统异常，请联系管理员！');
+    return null;
+  }
+  const url=pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.interactionUrl;
   const name='_blank';                            //网页名称，可为空;
   const iWidth=window.screen.availWidth *0.9;                          //弹出窗口的宽度;
   const iHeight=window.screen.availHeight * 0.9;                         //弹出窗口的高度;
@@ -180,6 +176,12 @@ const runCollect = async () => {
   pluginEmptyRequestTemplate.parameters = null;
   pluginEmptyRequestTemplate.requestHeader = headers;
   pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.delCollect+"?"+qs.stringify(requestData);
+  let deleteCollect = await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+  if(!pluginBossResultProcessor(deleteCollect)){
+    ElMessage.error('系统异常，请联系管理员！');
+    return null;
+  }
   pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.addCollect+"?"+qs.stringify(requestData);
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
@@ -289,20 +291,10 @@ defineExpose({
 });
 
 // 如果 props 的值可能会变化，使用 resumeId 更新数据
-watch(() => props.resumeId, async (newValue) => {
-  if(newValue){
-    // try {
-    //   let {data} = await getGeekDetail(newValue);
-    //   console.log("zhi::::::",data)
-    //   geekDetailINfo.value = data
-    // } catch (e) {
-    //   console.log(e)
-    //   geekDetailINfo.value = {};
-    //   ElMessage.error('查询简历失败！请联系管理员');
-    // }
-  }
-
-});
+// watch(() => props.resumeId, async (newValue) => {
+//   if(newValue){
+//   }
+// });
 
 </script>
 

@@ -30,7 +30,9 @@ export const pluginAllUrls = {
         checkUserAuth:"/wapi/hunter/h5/hunterManage/checkAuth",
         getGeekInfo:"/wapi/zpitem/web/boss/search/geek/info",
         delCollect:"/wapi/zprelation/userMark/del",
-        addCollect:"/wapi/zprelation/userMark/add"
+        addCollect:"/wapi/zprelation/userMark/add",
+        interactionUrl:"/web/chat/interaction",
+        geekDetailUrl:"https://m.zhipin.com/web/frame/recommend/resume"
     },
 }
 //插件所有key配置

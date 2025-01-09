@@ -6,7 +6,7 @@
     <!--  列表信息  -->
     <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id" @click="userInfoOpen(geekList)">
       <!--   已读   -->
-      <div v-if="geekList.read" class="read-div">
+      <div v-if="geekList.isRead" class="read-div">
         <el-image :src="'/index/header/searchPage/read.svg'" style="width: 100%;height: 100%"></el-image>
       </div>
       <!--  头像行    -->
@@ -98,6 +98,7 @@ import {getGeekDetail, querySearch} from "@/api/search/SearchApi";
 import {channelOptions} from "@/views/search/dto/SearchPageConfig";
 import BossDetial from "@/views/search/components/BossDetial.vue";
 import {ElMessage} from "element-plus";
+import {markResumeBlindReadStatus} from "@/api/jobList/JobListApi";
 
 //store
 const store = useStore();
@@ -132,10 +133,17 @@ const resumeId = ref("");
 const bossDetialRef = ref(null);
 
 const userInfoOpen = async (userInfo) => {
-  userInfo.read = 1;
   resumeId.value = userInfo.id;
   geekInfoDialog.value = true;
   bossDetialRef.value?.childGeekInfoMethod(userInfo);
+  //设置为已读
+  try {
+    let {data} = await markResumeBlindReadStatus([userInfo.id],true);
+    userInfo.isRead = 1;
+  }catch (e){
+    console.log(e);
+    ElMessage.error('服务异常，请联系管理员！');
+  }
 }
 
 //分页设置触发时
