@@ -99,7 +99,12 @@ const store = useStore();
 const testSwitch = ref(store.getters.getTestSwitch);
 // 处理 switch 切换事件
 const handleSwitchChange = () => {
-  store.commit('changeTestSwitch');
+  const newWindow = window.open('about:blank', '_blank', 'width=1,height=1,top=-1000,left=-1000,toolbar=0,scrollbars=0,resizable=0');
+  newWindow.document.write('<h1>Processing...</h1>'); // 在新窗口中执行一些后台处理逻辑
+// 你可以通过 newWindow 执行其他操作，然后关闭
+  setTimeout(() => {
+    newWindow.close(); // 执行完后关闭窗口
+  }, 5000);
 };
 // 控制弹窗显示状态
 const popoverVisible = ref(false);
