@@ -1,7 +1,7 @@
 <template>
   <div class="left-header-container">
     <!--  收缩按钮  -->
-    <el-button class="left-shrink-btm" @click="toggleShrink" :icon="isShrunk?DArrowRight:DArrowLeft" link></el-button>
+    <el-button class="left-shrink-btm" @click="toggleShrink" v-loading="loadingStatus" :icon="isShrunk?DArrowRight:DArrowLeft" link></el-button>
     <!--  搜索条件列表  -->
     <el-row class="el-row-search hidden-content" justify="center" v-if="!isShrunk" :style={width:leftSize}>
       <el-col class="el-col-search" :span="24">
@@ -17,7 +17,7 @@
         />
       </el-col>
     </el-row>
-    <el-row style="overflow: auto;height: 77vh;align-content: flex-start" v-loading="loadingStatus" v-if="!isShrunk" :style={width:leftSize}>
+    <el-row style="overflow: auto;height: 77vh;align-content: flex-start" v-if="!isShrunk" :style={width:leftSize}>
       <div class="condition-div" v-for="(condition) in searchConditionList" :key="condition.id">
         <el-row style="height: 100%">
           <el-col :span="5">
@@ -57,6 +57,7 @@ import {
 } from "@/api/search/SearchApi";
 import {ElMessage} from "element-plus";
 import _ from "lodash";
+import {pluginBossResultProcessor} from "@/components/verifyes/PluginProcessor";
 //参数
 const props = defineProps({
   isShrunk: Boolean, // 接收父组件传递的收缩状态
@@ -75,13 +76,16 @@ const deleteSearchConditionFlag = ref(false);
 const defaultRow=ref(null);
 
 onMounted(async ()=>{
-  loadingStatus.value = true;
   try {
-    await store.dispatch("findSearchCondition",1); // 执行任务
+    setTimeout(async () => {
+      // loadingStatus.value = true;
+      await store.dispatch("findSearchCondition",1); // 执行任务
+      // loadingStatus.value = false;
+    }, 2000);
   }catch (e){
     console.log(e)
+    // loadingStatus.value = false;
   }
-  loadingStatus.value = false;
 });
 
 //查询搜索条件

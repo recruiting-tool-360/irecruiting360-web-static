@@ -177,7 +177,7 @@ export const convertSearchConditionRequest = (obj) => {
     searchConditionRequest.company = obj.corporationInpValue;
     searchConditionRequest.school = obj.schoolInpValue;
     searchConditionRequest.major = obj.professionInpValue;
-    searchConditionRequest.searchChannels = ['boss直聘'];
+    searchConditionRequest.searchChannels = [];
     searchConditionRequest.userId =obj.userId
     return searchConditionRequest;
 }

@@ -12,6 +12,11 @@ export const pluginAllGroup = {
         UNIVERSAL_REQUEST:"UNIVERSAL_REQUEST"
     }
 }
+//插件所有group
+export const headerTypes = {
+    REQUEST:"REQUEST",
+    RESPONSE:"RESPONSE"
+}
 //插件所有action
 export const pluginAllActions = {
     Sys:{
@@ -34,11 +39,20 @@ export const pluginAllUrls = {
         interactionUrl:"/web/chat/interaction",
         geekDetailUrl:"https://m.zhipin.com/web/frame/recommend/resume"
     },
+    ZHILIAN:{
+        baseUrl:"https://rd6.zhaopin.com",
+        userStatus:"/api/weChat/getAcction/status",
+        getAllJobList:"/api/talent/search/list",
+        geekDetailUrl:"/resume/detail"
+    }
 }
 //插件所有key配置
 export const pluginKeys = {
     BoosStorageKey:"BoosStorageKey",
     BoosCookieStorageKey:"BoosCookieStorageKey",
+    ZHILIANRequestStorageKey:"ZHILIANRequestStorageKey",
+    ZHILIANResponseStorageKey:"ZHILIANResponseStorageKey",
+    ZHILIANCookieStorageKey:"ZHILIANCookieStorageKey",
 }
 //插件请求模版
 export const getPluginEmptyRequestTemplate = () => {
@@ -66,10 +80,23 @@ export const getPluginBaseConfig = ()=>{
     let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
     pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.BASE_CONFIG;
     pluginEmptyRequestTemplate.parameters =[{
+        type:headerTypes.REQUEST,
         url: pluginAllUrls.BOSS.baseUrl,
         headers: ["zp_token"],
         requestFilterType: ["requestHeaders"],
         storageKey: pluginKeys.BoosStorageKey
+    },{
+        type:headerTypes.REQUEST,
+        url: pluginAllUrls.ZHILIAN.baseUrl,
+        headers: ["X-Zp-Ai-Token","X-Zp-Page-Code","Y-Zp-Business-Type"],
+        requestFilterType: ["requestHeaders", "blocking", "extraHeaders"],
+        storageKey: pluginKeys.ZHILIANRequestStorageKey
+    },{
+        type: headerTypes.RESPONSE,
+        url: pluginAllUrls.ZHILIAN.baseUrl,
+        responseHeaders: ["X-zp-page-request-id"],
+        responseFilterType: ['blocking', 'responseHeaders'],
+        storageKey: pluginKeys.ZHILIANResponseStorageKey
     }];
     pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setBaseConfig;
     return pluginEmptyRequestTemplate;
@@ -82,6 +109,11 @@ export const getPluginCookieBaseConfig = ()=>{
         url: pluginAllUrls.BOSS.baseUrl,
         requestFilterType: [],
         cookieStorageKey: pluginKeys.BoosCookieStorageKey
+    },
+    {
+        url: pluginAllUrls.ZHILIAN.baseUrl,
+        requestFilterType: [],
+        cookieStorageKey: pluginKeys.ZHILIANCookieStorageKey
     }];
     pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setCookieConfig;
     return pluginEmptyRequestTemplate;

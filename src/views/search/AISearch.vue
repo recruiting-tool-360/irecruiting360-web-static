@@ -11,9 +11,6 @@
               <el-input v-model="searchState.selectValue"
                         placeholder="多个关键词空格隔开"
                         class="input-with-select">
-<!--                <template #append>-->
-<!--                  <el-button :icon="CircleClose" @click="searchState.selectValue = ''"/>-->
-<!--                </template>-->
                 <!-- 右侧图标 -->
                 <template #suffix>
                   <div style="height: 100%;display: flex;align-items: center">
@@ -32,19 +29,6 @@
                 <el-image :src="'/index/header/icons/aiBtm.svg'" style="margin-right: 8px"></el-image>
                 AI人才搜索</el-button>
             </el-col>
-
-<!--            <el-col class="search-el-col search-el-col-rt" :span="9">-->
-<!--              &lt;!&ndash;      重置筛选项      &ndash;&gt;-->
-<!--              <el-button class="btm-color btm-border-blue-style" @click="resetSearchConnect">重置筛选项</el-button>-->
-<!--              &lt;!&ndash;     保存搜索条件       &ndash;&gt;-->
-<!--              <el-button class="btm-color btm-border-blue-style">保存搜索条件</el-button>-->
-<!--              &lt;!&ndash;     搜索按钮       &ndash;&gt;-->
-<!--              <el-button class="btm-color-white btm-bg-color" @click="searchJobListFn">搜索</el-button>-->
-<!--              &lt;!&ndash;     AI人才搜索       &ndash;&gt;-->
-<!--              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color" @click="aiChatDialogFlag=true">-->
-<!--                <el-image :src="'/index/header/icons/aiBtm.svg'" style="margin-right: 8px"></el-image>-->
-<!--                AI人才搜索</el-button>-->
-<!--            </el-col>-->
           </el-row>
 
           <!--     搜索条件区域     -->
@@ -471,34 +455,42 @@
         <el-card class="jobList-card">
           <el-row class="jobList-top-el-row" :gutter="0" style="border-bottom: 1px solid #E8E8E8;min-height: 3rem;min-width: 350px;margin-bottom: 15px">
             <el-col class="jobList-top-el-col el-col-display-Style topBtm">
-              <el-descriptions :column="2" style="width: 100%;">
-                <!--       按钮列表         -->
-                <el-descriptions-item>
-                  <div class="top-div" style="min-width: 350px;align-items: center">
-<!--                    <el-segmented v-model="channelValue" :options="topChannelBtmOptionsConfig" />-->
-                      <el-button text @click="jobInfoName='ALL';" :class="{ 'btm-color': jobInfoName === 'ALL' }">聚合渠道({{allChannelDataSize}})</el-button>
-                      <el-button v-show="allChannelStatus.BOSS.disable" text @click="jobInfoName='BOSS';" :class="{ 'btm-color': jobInfoName === 'BOSS' }">BOSS(0)&nbsp;
-                        <el-text v-if="allChannelStatus.BOSS.login" class="" type="success">已登陆</el-text>
-                        <el-text v-else-if="allChannelStatus.BOSS.loading" class="" type="warning">检测中...</el-text>
-                        <el-text v-else class="" type="danger">未登陆</el-text>
-                        </el-button>
-                      <el-button text @click="jobInfoName='Collect';" :class="{ 'btm-color': jobInfoName === 'Collect' }">我的收藏({{allChannelDataSize}})</el-button>
-                  </div>
-                </el-descriptions-item>
-                <el-descriptions-item align="right">
-                  <!--    渠道设置      -->
-                  <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
-                    <el-checkbox v-model="searchState.unreadCheckBoxValue" style="height: 32px;font-size: 13px" label="仅显示未读"/>
-                    <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>
-                    <el-button class="btm-color" style="margin-left: 2rem;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
-                  </div>
-                </el-descriptions-item>
-              </el-descriptions>
+              <div class="channelBtms" style="width: 100%">
+                <el-menu
+                    ellipsis
+                    class="el-menu-popper-demo"
+                    mode="horizontal"
+                    :popper-offset="16"
+                    style=""
+                    :default-active="jobInfoName"
+                >
+                  <!--         渠道配置           -->
+                  <template v-for="(channel, key) in allChannelStatus" :key="key">
+                    <el-menu-item v-if="key==='ALL'||key==='Collect'" class="menuItems" :index="key" @click="jobInfoName=key">{{channel.name}}({{channel.dataSize}})</el-menu-item>
+                    <el-menu-item v-else v-show="channel.disable" class="menuItems" :index="key" @click="jobInfoName=key">
+                      {{key==='BOSS'?'BOSS':channel.name}}({{channel.dataSize}})&nbsp;
+                      <el-text v-if="channel.login" class="" type="success">已登陆</el-text>
+                      <el-text v-else-if="channel.loading" class="" type="warning">检测中...</el-text>
+                      <el-text v-else class="" type="danger">未登陆</el-text>
+                    </el-menu-item>
+                  </template>
+                </el-menu>
+              </div>
+              <!--      操作列表        -->
+              <div class="right-btms" style="width: 360px">
+                <!--    渠道设置      -->
+                <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
+                  <el-checkbox v-model="searchState.unreadCheckBoxValue" style="height: 32px;font-size: 13px" label="仅显示未读"/>
+                  <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>
+                  <el-button class="btm-color" style="margin-left: 2rem;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
+                </div>
+              </div>
             </el-col>
           </el-row>
           <!--    不同模版      -->
           <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JobInfo>
-          <BossJobInfo v-show="jobInfoName==='BOSS'"></BossJobInfo>
+          <BossJobInfo ref="bossJobInfoRef" v-show="jobInfoName==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></BossJobInfo>
+          <ZHILIANJobInfo  ref="zhiLianInfoRef" v-show="jobInfoName==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></ZHILIANJobInfo>
         </el-card>
       </div>
       <!--   渠道配置   -->
@@ -533,14 +525,13 @@ import {getPluginBaseConfigEmptyDTO,getPluginEmptyRequestTemplate, pluginAllRequ
 import {pluginBossResultProcessor, pluginResultProcessor} from "@/components/verifyes/PluginProcessor";
 import qs from "qs";
 import {useStore} from "vuex";
-import {getBoosTestJobList} from "@/views/search/dto/request/TestData";
 import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
 import {saveJobList} from "@/api/jobList/JobListApi";
 import JobInfo from "@/views/search/components/JobInfo.vue";
 import BossJobInfo from "@/views/search/components/BossJobInfo.vue";
+import ZHILIANJobInfo from "@/views/search/components/ZHILIANJobInfo.vue";
 import boosQueueManager from "@/components/QueueManager/queueManager";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
-import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConfig";
 import PluginInfo from "@/views/search/components/PluginInfo.vue";
 import {getChatIdByUserId} from "@/api/chat/ChatApi";
 import SearchCondition from "@/views/search/searchCondition/SearchCondition.vue";
@@ -572,15 +563,9 @@ const allResponse = ref({
 });
 //ref
 const jobInfoRef = ref(null);
-//登陆状态
-// const allChannelStatus = ref({
-//   BOSS:{
-//     login:false,
-//     loading:false,
-//     name:"boss直聘",
-//     disable:true
-//   },
-// });
+const bossJobInfoRef = ref(null);
+const zhiLianInfoRef = ref(null);
+
 const allChannelStatus = computed(() => store.getters.getChannelConf);
 //渠道对话框开关
 const channelDialogFlag = ref(false);
@@ -611,21 +596,8 @@ onMounted(async () => {
     contentHeight.value = expandableDiv.value.scrollHeight;
   }
   //加载登陆状态
-  let userLoginStatus;
-  try {
-    allChannelStatus.value.BOSS.loading = true;
-    setTimeout(async () => {
-      userLoginStatus = await boosUserStatus();
-      allChannelStatus.value.BOSS.login = pluginBossResultProcessor(userLoginStatus);
-      allChannelStatus.value.BOSS.loading = false;
-    }, 2000)
-    // userLoginStatus = await boosUserStatus();
-    // allLoginStatus.value.BOSS = pluginBossResultProcessor(userLoginStatus);
-  }catch (e){
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
-    allChannelStatus.value.BOSS.login = false;
-    allChannelStatus.value.BOSS.loading = false;
-  }
+  // bossJobInfoRef.value.userLoginStatus();
+  zhiLianInfoRef.value.userLoginStatus();
 })
 
 onMounted(async ()=>{
@@ -688,18 +660,6 @@ const searchJobListFn = async () => {
  * 渲染页面
  */
 const searchJobList = async () => {
-  // //处理工作年限边界
-  // const workElSliderValue = searchState.value.workElSliderValue;
-  // workElSliderValue[1] = workElSliderValue[1] === 11 ? workElSliderValue[1] = -1 : workElSliderValue[1];
-  // //处理年龄边界
-  // const ageElSliderValue = searchState.value.ageElSliderValue;
-  // ageElSliderValue[1] = ageElSliderValue[1] === 51 ? ageElSliderValue[1] = -1 : ageElSliderValue[1];
-  // //用户id
-  // searchState.value.userId=1;
-  // //处理其他参数
-  // let searchConditionRequest = convertSearchConditionRequest(searchState.value);
-  // searchConditionRequest.experienceTo = workElSliderValue[1];
-  // searchConditionRequest.ageTo = ageElSliderValue[1];
   let searchConditionRequest = getSearchConditionRequest();
   //搜索条件
   let searchRequestData;
@@ -719,6 +679,11 @@ const searchJobList = async () => {
   // }else{
   //
   // }
+  // bossJobInfoRef.value.channelSearch(searchRequestData);
+  zhiLianInfoRef.value.channelSearch(searchRequestData)
+  if(!responseJobListData){
+    return;
+  }
   try {
     responseJobListData = await boosJobList(searchRequestData.channelSearchConditions[0].conditionData);
   }catch (e){
@@ -788,6 +753,9 @@ const getSearchConditionRequest = () => {
   searchState.value.userId=1;
   //处理其他参数
   let searchConditionRequest = convertSearchConditionRequest(searchState.value);
+  searchConditionRequest.searchChannels = Object.entries(store.getters.getChannelConf)
+      .filter(([key, channel]) => !(key==='ALL'||key==='Collect')) // 过滤出 disable 为 false 的项
+      .map(([key, channel]) => (channel.name))||[];
   searchConditionRequest.experienceTo = workElSliderValue[1];
   searchConditionRequest.ageTo = ageElSliderValue[1];
   return searchConditionRequest;
@@ -1004,6 +972,7 @@ watch(() => searchConditionRequestData.value, (newValue) => {
           margin-right: 5px;
         }
         .topBtm{
+          justify-content: space-between;
           //大元素配置
           ::v-deep(.el-descriptions__table tbody tr){
             display: flex;
@@ -1023,6 +992,27 @@ watch(() => searchConditionRequestData.value, (newValue) => {
             }
           }
         }
+
+        .el-menu-popper-demo{
+          border-bottom: none;
+          height: 32px;
+
+          .menuItems{
+            --el-menu-active-color:rgba(31, 124, 255, 1);
+            --el-menu-hover-bg-color: #f5f6f9;
+            --el-menu-text-color: none;
+            border:none;
+            font-size:14px;
+            font-weight:500;
+            height: 32px;
+            color: #626675;
+
+            :focus{
+              background-color:#ffffff00;
+            }
+          }
+        }
+
       }
     }
     ::v-deep(.input-with-select .el-input-group__append) {

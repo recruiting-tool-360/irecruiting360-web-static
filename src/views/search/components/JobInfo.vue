@@ -104,16 +104,9 @@ import {markResumeBlindReadStatus} from "@/api/jobList/JobListApi";
 const store = useStore();
 // 通过 defineProps 定义 props
 const props = defineProps({
-  largeData: {
-    type: Array,
-    required: true,
-    default: () => []
-  },
   onLodingOpen: Function,
   onLodingClose: Function,
 });
-// const jobALlData =ref(Array.isArray(props.largeData) ? props.largeData : []);
-//const jobALlData =computed(()=>Array.isArray(props.largeData) ? props.largeData : []);
 const jobALlData =computed(()=>store.getters.getJobALlData);
 //当前页码数
 const currentPage = ref(1);
@@ -197,6 +190,12 @@ const search = async (page) => {
     store.commit('setJobALlData',[])
   }
   store.commit('changeAllChannelCount',totalNum.value);
+}
+
+
+//渠道查询
+const channelSearch = (channelRequestInfo) => {
+
 }
 
 // 使用 expose 暴露方法
