@@ -1,7 +1,7 @@
 <template>
   <div class="allBobContainer">
     <template v-if="jobALlData===undefined||jobALlData===null||jobALlData.length===0">
-      <el-empty description="BOSS渠道--无数据" />
+      <el-empty description="智联渠道--无数据" />
     </template>
     <!--  列表信息  -->
     <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id" @click="userInfoOpen(geekList)">
@@ -72,8 +72,6 @@
       </el-row>
 
     </el-card>
-
-    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -95,16 +93,17 @@ import {ref,computed,watch,defineExpose} from "vue";
 import {useStore} from "vuex";
 import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConfig";
 import {getGeekDetail, querySearch} from "@/api/search/SearchApi";
-import BossDetial from "@/views/search/components/BossDetial.vue";
 import {ElMessage} from "element-plus";
 import {markResumeBlindReadStatus, saveJobList} from "@/api/jobList/JobListApi";
-import {pluginBossResultProcessor} from "@/components/verifyes/PluginProcessor";
+import {pluginBossResultProcessor, pluginZhiLianResultProcessor} from "@/components/verifyes/PluginProcessor";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
 import {getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls} from "@/components/PluginRequestManager";
 import PluginMessenger from "@/api/PluginSendMsg";
 import qs from "qs";
 import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
 import boosQueueManager from "@/components/QueueManager/queueManager";
+import {getZhiLianHeader, getZhiLianPageRequestId} from "@/components/QueueManager/ZhiLianJobInfoManager";
+import {getCookieValue} from "@/util/StringUtil";
 
 //store
 const store = useStore();
@@ -114,7 +113,7 @@ const props = defineProps({
   onLodingClose: Function,
 });
 //渠道
-const channelKey = "BOSS";
+const channelKey = "ZHILIAN";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
 //当前页码数
@@ -139,37 +138,47 @@ const userLoginStatus = () => {
   try {
     store.commit('changeChannelConfLoading',{key:channelKey,value:true});
     setTimeout(async () => {
-      userLoginStatus = await boosUserStatus();
-      const loginStatus = pluginBossResultProcessor(userLoginStatus);
+      userLoginStatus = await zhiLianUserStatus();
+      const loginStatus = pluginZhiLianResultProcessor(userLoginStatus);
       store.commit('changeChannelConfLogin',{key:channelKey,value:loginStatus});
       store.commit('changeChannelConfLoading',{key:channelKey,value:false});
     }, 2000)
   }catch (e){
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
+    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     store.commit('changeChannelConfLogin',{key:channelKey,value:false});
     store.commit('changeChannelConfLoading',{key:channelKey,value:false});
   }
 }
 
-//boos 用户登陆状态
-const boosUserStatus = async () => {
-  const headers = await getBoosHeader(true);
-  if(!headers){
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
+//智联 用户登陆状态
+const zhiLianUserStatus = async () => {
+  const headers = await getZhiLianHeader(true);
+  if(!headers||headers.length===0){
+    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
+  }
+  let xZpClientId = getCookieValue("x-zp-client-id",headers['Cookie']);
+  let zhiLianPageRequestId = await getZhiLianPageRequestId();
+  if(!(xZpClientId)||!(zhiLianPageRequestId)||!(zhiLianPageRequestId['X-zp-page-request-id'])){
+    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+  }
+  const requestData ={
+    "_": new Date().getTime(),
+    "x-zp-page-request-id": zhiLianPageRequestId['X-zp-page-request-id'],
+    "x-zp-client-id": xZpClientId
   }
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
   pluginEmptyRequestTemplate.parameters = null;
   pluginEmptyRequestTemplate.requestHeader = headers;
-  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.GET;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.checkUserAuth;
+  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.userStatus+"?"+qs.stringify(requestData);
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
 const userInfoOpen = async (listInfo) => {
+  console.log(listInfo)
   resumeId.value = listInfo.id;
-  geekInfoDialog.value = true;
-  bossDetialRef.value?.childGeekInfoMethod(listInfo);
+  openDetail(listInfo);
   //设置为已读
   try {
     let {data} = await markResumeBlindReadStatus([listInfo.id],true);
@@ -178,6 +187,24 @@ const userInfoOpen = async (listInfo) => {
     console.log(e);
     ElMessage.error('服务异常，请联系管理员！');
   }
+}
+
+const openDetail = (listInfo)=>{
+  let split = listInfo.outId.split("&");
+  const requestData ={
+    "t": split[2],
+    "resumeNumber": split[1],
+    "k": split[0]
+  }
+  const url=pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.geekDetailUrl+`?`+qs.stringify(requestData);
+  const name='_blank';                            //网页名称，可为空;
+  const iWidth=window.screen.availWidth *0.7;                          //弹出窗口的宽度;
+  const iHeight=window.screen.availHeight * 0.7;                         //弹出窗口的高度;
+  //获得窗口的垂直位置
+  const iTop = (window.screen.availHeight +30 - iHeight) / 2;
+  //获得窗口的水平位置
+  const iLeft = (window.screen.availWidth - 10 - iWidth) / 2;
+  window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
 }
 
 //分页设置触发时
@@ -230,22 +257,23 @@ const channelSearchList = async (channelRequestInfo) => {
   }
   let responseJobListData;
   try {
-    responseJobListData = await boosJobList(channelSearchCondition.conditionData);
+    responseJobListData = await searchJobList(channelSearchCondition.conditionData);
   }catch (e){
     console.log(e);
     return;
   }
-  if(!pluginBossResultProcessor(responseJobListData)){
-    ElMessage.error('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
+  if(!pluginZhiLianResultProcessor(responseJobListData)){
+    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.message))
     return;
   }
+  console.log("responseJobListData.responseData.data",responseJobListData.responseData.data.data.list)
   //列表存到后端
-  const boosList = responseJobListData.responseData.data.zpData.geeks;
+  const channelList = responseJobListData.responseData.data.data.list;
   let saveJobListRequest = saveJobListRequestTemplate();
   saveJobListRequest.outId = channelRequestInfo.requestId;
   saveJobListRequest.searchConditionId = channelRequestInfo.id;
-  saveJobListRequest.channel = "boss直聘";
-  saveJobListRequest.resumeList = boosList;
+  saveJobListRequest.channel = channelConfig.value.name;
+  saveJobListRequest.resumeList = channelList;
   let jobList;
   try {
     let {data:jobListData} = await saveJobList(saveJobListRequest);
@@ -261,20 +289,20 @@ const channelSearchList = async (channelRequestInfo) => {
   }
   //查询渠道信息
   //生成异步任务
-  boosList.forEach((item, index) => {
-    const match = jobList.find(a => a.rawDataId === item.uniqSign);
-    if (match) {
-      let jobHunterInfo = item.geekCard;
-      const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
-      const outId = saveJobListRequest.outId;
-      const resumeBlindId = match.id;
-      const type ="1";
-      const taskRequest = {queryString,outId,resumeBlindId,type};
-      if(index<1){
-        boosQueueManager.enqueue(taskRequest);
-      }
-    }
-  });
+  // channelList.forEach((item, index) => {
+    // const match = jobList.find(a => a.rawDataId === item.uniqSign);
+    // if (match) {
+    //   let jobHunterInfo = item.geekCard;
+    //   const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
+    //   const outId = saveJobListRequest.outId;
+    //   const resumeBlindId = match.id;
+    //   const type ="1";
+    //   const taskRequest = {queryString,outId,resumeBlindId,type};
+    //   if(index<1){
+    //     //boosQueueManager.enqueue(taskRequest);
+    //   }
+    // }
+  // });
   //查询第一页数据
   await search(1);
 }
@@ -288,7 +316,7 @@ const search = async (page) => {
   let pageSearchRequest = createPageSearchRequest();
   pageSearchRequest.offset=page;
   pageSearchRequest.size =pageSize.value;
-  pageSearchRequest.channel = "boss直聘";
+  pageSearchRequest.channel = channelConfig.value.name;
   pageSearchRequest.searchConditionId = searchConditionId.value;
   let listResponse = null;
   try {
@@ -316,21 +344,32 @@ const search = async (page) => {
   store.commit('changeChannelConfDataSize',{key:channelKey,value:totalNum.value});
 }
 
-//boss列表查询
-const boosJobList = async (searchConfig) => {
-  const headers = await getBoosHeader(true);
-  if(!headers){
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
-    throw new Error("系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！");
+//列表查询
+const searchJobList = async (searchConfig) => {
+  const headers = await getZhiLianHeader(true);
+  if(!headers||headers.length===0){
+    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+    return;
   }
-  searchConfig.page = 1;
-  const queryString = qs.stringify(searchConfig);
-  //访问Boos
+  let xZpClientId = getCookieValue("x-zp-client-id",headers['Cookie']);
+  let zhiLianPageRequestId = await getZhiLianPageRequestId();
+  if(!(xZpClientId)||!(zhiLianPageRequestId)||!(zhiLianPageRequestId['X-zp-page-request-id'])){
+    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+  }
+  headers["Content-Type"] = "application/json;charset=UTF-8";
+  console.log(headers)
+  const requestData ={
+    "_": new Date().getTime(),
+    "x-zp-page-request-id": zhiLianPageRequestId['X-zp-page-request-id'],
+    "x-zp-client-id": xZpClientId
+  }
+  searchConfig.pageNo = 1;
+  //访问智联
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  pluginEmptyRequestTemplate.parameters = null;
+  pluginEmptyRequestTemplate.parameters = searchConfig;
   pluginEmptyRequestTemplate.requestHeader = headers;
-  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.GET;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.getAllJobList+"?"+queryString;
+  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.getAllJobList+"?"+qs.stringify(requestData);
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
@@ -349,10 +388,6 @@ defineExpose({
   search,userLoginStatus,channelSearch
 });
 
-// 如果 props 的值可能会变化，使用 watch 来同步更新 localValue
-// watch(() => props.largeData, (newValue) => {
-//   jobALlData.value = newValue;
-// });
 </script>
 
 <style scoped lang="scss">

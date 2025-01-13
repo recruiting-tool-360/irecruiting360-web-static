@@ -12,3 +12,7 @@ export const pluginResultProcessor = (responseData)=>{
 export const pluginBossResultProcessor = (responseData)=>{
     return pluginResultProcessor(responseData)&&responseData.responseData.data.message&&responseData.responseData.data.message==='Success';
 }
+
+export const pluginZhiLianResultProcessor = (responseData)=>{
+    return pluginResultProcessor(responseData)&&responseData.responseData.data.code&&responseData.responseData.data.code===200;
+}

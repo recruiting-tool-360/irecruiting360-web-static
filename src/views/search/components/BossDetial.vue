@@ -4,7 +4,7 @@
         class="bigGeekInfo"
         v-model="detailDialogVisible"
         width="600"
-        title="求职者信息"
+        title="人才信息"
         align-center
         :show-close="true"
         :close-on-click-modal="false"
