@@ -1,6 +1,7 @@
 import {getScoreList} from "@/api/jobList/JobListApi";
 import {querySearchConditionCollection} from "@/api/search/SearchApi";
 import {ElMessage} from "element-plus";
+import {createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 
 
 export default {
@@ -17,7 +18,8 @@ export default {
             BOSS:[],
             ZHILIAN:[],
             Collect:[]
-        }
+        },
+        searchStateConfig:createSearchState()
     }),
     mutations: {
         changeLeftLoadingSwitch(state,payload) {
@@ -31,6 +33,9 @@ export default {
         },
         changeBossChannelCount(state,payload) {
             state.bossChannelCount = payload;
+        },
+        changeSearchStateConfig(state,payload) {
+            state.searchStateConfig = payload;
         },
         setJobALlData(state,payload) {
             if(payload){
@@ -172,6 +177,9 @@ export default {
         },
         getSearchConditionList(state) {
             return state.searchConditionList;
+        },
+        getSearchStateConfig(state) {
+            return state.searchStateConfig;
         },
     },
 };

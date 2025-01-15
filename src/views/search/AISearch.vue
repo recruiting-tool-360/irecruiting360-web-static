@@ -432,19 +432,23 @@
           </el-row>
         <!--    AI推荐部分      -->
           <el-row class="height-btm-row" style="margin-top: 12px">
-            <el-col :span="24" style="display: flex;justify-content: flex-start;align-items: center;flex-wrap: nowrap">
-              <el-text class="mx-1 el-text-margin-rg-style">AI推荐:</el-text>
-              <el-button class="recommended">ai行业工作经验
-                <el-icon class="el-icon--right"><Close /></el-icon>
-              </el-button>
-              <el-button class="recommended">3年以上人事软件实施工作经验
-                <el-icon class="el-icon--right"><Close /></el-icon>
-              </el-button>
-              <el-button class="recommended">男士优先
-                <el-icon class="el-icon--right"><Close /></el-icon>
-              </el-button>
+            <el-col :span="24" style="display: flex;justify-content: flex-start;align-items: center;flex-wrap: wrap">
+              <el-text class="mx-1 el-text-margin-rg-style" style="margin-bottom: 6px">AI推荐:</el-text>
+              <el-tag v-for="tag in tags" :key="tag.name" closable :type="tag.type" style="margin-right: 6px;margin-bottom: 6px">
+                {{ tag.name }}
+              </el-tag>
               <el-button class="recommended-btm" type="primary" link>清空</el-button>
-              <el-button class="recommended-btm" type="primary" link style="margin-left: 8px;">确定</el-button>
+<!--              <el-button class="recommended">ai行业工作经验-->
+<!--                <el-icon class="el-icon&#45;&#45;right"><Close /></el-icon>-->
+<!--              </el-button>-->
+<!--              <el-button class="recommended">3年以上人事软件实施工作经验-->
+<!--                <el-icon class="el-icon&#45;&#45;right"><Close /></el-icon>-->
+<!--              </el-button>-->
+<!--              <el-button class="recommended">男士优先-->
+<!--                <el-icon class="el-icon&#45;&#45;right"><Close /></el-icon>-->
+<!--              </el-button>-->
+<!--              <el-button class="recommended-btm" type="primary" link>清空</el-button>-->
+<!--              <el-button class="recommended-btm" type="primary" link style="margin-left: 8px;">确定</el-button>-->
             </el-col>
           </el-row>
         </el-card>
@@ -463,6 +467,7 @@
                     :popper-offset="16"
                     style=""
                     :default-active="jobInfoName"
+                    @select="handleMenuSelect"
                 >
                   <!--         渠道配置           -->
                   <template v-for="(channel, key) in allChannelStatus" :key="key">
@@ -546,7 +551,7 @@ const searchConditionId = computed(() => store.getters.getSearchConditionId);
 const searchAreaLoadingSwitch = ref(false);
 //固定条件搜索属性
 let searchStateConfig =createSearchState();
-const searchState = ref(searchStateConfig);
+const searchState = computed(() => store.getters.getSearchStateConfig);
 //加载 loading
 let loadingBig ;
 //结果集渲染模版名称
@@ -587,6 +592,29 @@ const jobStatusOptionsVal = ref(jobStatusOptions);
 //学历状态
 const degreeOptionsVal = ref(degreeOptions);
 
+//ai推荐
+const tags = ref([
+  { name: 'ai行业工作经验', type: 'primary' },
+  { name: '3年以上人事软件实施工作经验', type: 'success' },
+  { name: '男士优先', type: 'info' },
+  { name: 'Tag 4', type: 'warning' },
+  { name: 'Tag 5', type: 'danger' },
+  { name: 'ai行业工作经验', type: 'primary' },
+  { name: '3年以上人事软件实施工作经验', type: 'success' },
+  { name: '男士优先', type: 'info' },
+  { name: 'Tag 4', type: 'warning' },
+  { name: 'Tag 5', type: 'danger' },
+  { name: 'ai行业工作经验', type: 'primary' },
+  { name: '3年以上人事软件实施工作经验', type: 'success' },
+  { name: '男士优先', type: 'info' },
+  { name: 'Tag 4', type: 'warning' },
+  { name: 'Tag 5', type: 'danger' },
+  { name: 'ai行业工作经验', type: 'primary' },
+  { name: '3年以上人事软件实施工作经验', type: 'success' },
+  { name: '男士优先', type: 'info' },
+  { name: 'Tag 4', type: 'warning' },
+  { name: 'Tag 5', type: 'danger' },
+]);
 
 
 //onMounted 生命周期函数
@@ -596,7 +624,7 @@ onMounted(async () => {
     contentHeight.value = expandableDiv.value.scrollHeight;
   }
   //加载登陆状态
-  // bossJobInfoRef.value.userLoginStatus();
+  bossJobInfoRef.value.userLoginStatus();
   zhiLianInfoRef.value.userLoginStatus();
 })
 
@@ -608,6 +636,17 @@ onMounted(async ()=>{
     ElMessage.error('后端服务异常，请联系管理员');
   }
 });
+
+// 加载效果
+const handleMenuSelect = async (index) => {
+  loadingOpen();
+  try {
+    // 模拟数据加载
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  } finally {
+    loadingClose();
+  }
+};
 
 //加载所有配置
 const loadingAllSearchConfig = async () => {
@@ -646,9 +685,11 @@ const searchJobListFn = async () => {
   try {
     loadingOpen();
     await searchJobList();
-  }finally {
+  }catch (e){
+    console.log(e);
     loadingClose();
   }
+  loadingClose();
 }
 /**
  * 搜索
@@ -679,66 +720,83 @@ const searchJobList = async () => {
   // }else{
   //
   // }
-  // bossJobInfoRef.value.channelSearch(searchRequestData);
-  zhiLianInfoRef.value.channelSearch(searchRequestData)
-  if(!responseJobListData){
-    return;
-  }
   try {
-    responseJobListData = await boosJobList(searchRequestData.channelSearchConditions[0].conditionData);
-  }catch (e){
-    console.log(e);
-    loadingClose();
-    return;
-  }
-  if(!pluginBossResultProcessor(responseJobListData)){
-    ElMessage.error('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
-    return;
-  }
-  //列表存到后端
-  const boosList = responseJobListData.responseData.data.zpData.geeks;
-  let saveJobListRequest = saveJobListRequestTemplate();
-  saveJobListRequest.outId = searchRequestData.requestId;
-  saveJobListRequest.searchConditionId = searchRequestData.id;
-  saveJobListRequest.channel = "boss直聘";
-  saveJobListRequest.resumeList = boosList;
-  let jobList;
-  try {
-    let {data:jobListData} = await saveJobList(saveJobListRequest);
-    jobList = jobListData;
-  }catch (e){
-    ElMessage.error('后端服务异常，请联系管理员');
-    console.log(e);
-    return;
-  }
-  allResponse.value.BOSS =jobList;
-  console.log("allResponse.value.BOSS",allResponse.value.BOSS)
-  //处理id
-  if(!jobList||jobList.length===0){
-    return;
-  }
-  //查询渠道信息
-  //生成异步任务
-  boosList.forEach((item, index) => {
-    const match = jobList.find(a => a.rawDataId === item.uniqSign);
-    if (match) {
-      let jobHunterInfo = item.geekCard;
-      const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
-      const outId = saveJobListRequest.outId;
-      const resumeBlindId = match.id;
-      const type ="1";
-      const taskRequest = {queryString,outId,resumeBlindId,type};
-      if(index<1){
-        boosQueueManager.enqueue(taskRequest);
-      }
+    // 使用 Promise.all 等待两个方法并行执行完毕
+    await Promise.all([
+      bossJobInfoRef.value.channelSearch(searchRequestData),
+      zhiLianInfoRef.value.channelSearch(searchRequestData),
+    ]);
+
+    // 两个方法执行完毕后，执行 JobInfo 的逻辑
+    if (jobInfoRef.value) {
+      // console.log("全渠道执行完了")
+      await jobInfoRef.value.search(1);
+      console.log("全渠道执行完了")
+      // jobInfoRef.value.channelSearch(searchRequestData);
     }
-  });
-  //各个渠道列表
-  if (jobInfoRef.value) {
-    jobInfoName.value='ALL';
-    // activeButton.value='ALL';
-    jobInfoRef.value.search(1);
+  } catch (error) {
+    console.error('Error during search:', error);
   }
+  // bossJobInfoRef.value.channelSearch(searchRequestData);
+  // zhiLianInfoRef.value.channelSearch(searchRequestData);
+  // if(!responseJobListData){
+  //   return;
+  // }
+  // try {
+  //   responseJobListData = await boosJobList(searchRequestData.channelSearchConditions[0].conditionData);
+  // }catch (e){
+  //   console.log(e);
+  //   loadingClose();
+  //   return;
+  // }
+  // if(!pluginBossResultProcessor(responseJobListData)){
+  //   ElMessage.error('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
+  //   return;
+  // }
+  // //列表存到后端
+  // const boosList = responseJobListData.responseData.data.zpData.geeks;
+  // let saveJobListRequest = saveJobListRequestTemplate();
+  // saveJobListRequest.outId = searchRequestData.requestId;
+  // saveJobListRequest.searchConditionId = searchRequestData.id;
+  // saveJobListRequest.channel = "boss直聘";
+  // saveJobListRequest.resumeList = boosList;
+  // let jobList;
+  // try {
+  //   let {data:jobListData} = await saveJobList(saveJobListRequest);
+  //   jobList = jobListData;
+  // }catch (e){
+  //   ElMessage.error('后端服务异常，请联系管理员');
+  //   console.log(e);
+  //   return;
+  // }
+  // allResponse.value.BOSS =jobList;
+  // console.log("allResponse.value.BOSS",allResponse.value.BOSS)
+  // //处理id
+  // if(!jobList||jobList.length===0){
+  //   return;
+  // }
+  // //查询渠道信息
+  // //生成异步任务
+  // boosList.forEach((item, index) => {
+  //   const match = jobList.find(a => a.rawDataId === item.uniqSign);
+  //   if (match) {
+  //     let jobHunterInfo = item.geekCard;
+  //     const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
+  //     const outId = saveJobListRequest.outId;
+  //     const resumeBlindId = match.id;
+  //     const type ="1";
+  //     const taskRequest = {queryString,outId,resumeBlindId,type};
+  //     if(index<1){
+  //       boosQueueManager.enqueue(taskRequest);
+  //     }
+  //   }
+  // });
+  // //各个渠道列表
+  // if (jobInfoRef.value) {
+  //   jobInfoName.value='ALL';
+  //   // activeButton.value='ALL';
+  //   jobInfoRef.value.search(1);
+  // }
 }
 
 //获取搜索条件
@@ -800,11 +858,11 @@ const boosUserStatus = async () => {
 const loadingOpen = () => {
   loadingBig = ElLoading.service({
     lock: true,
-    text: 'Loading'
+    text: '数据加载中'
   })
-  setTimeout(() => {
-    loadingClose()
-  }, 8000)
+  // setTimeout(() => {
+  //   loadingClose()
+  // }, 15000)
 }
 //关闭加载 loding
 const loadingClose = ()=>{

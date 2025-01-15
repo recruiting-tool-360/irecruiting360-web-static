@@ -26,10 +26,10 @@
             </div>
           </el-col>
           <el-col :span="16" style="display:flex;justify-content: start;align-items: center;flex-wrap: wrap">
-            <div style="width: 100%"><span>后端没有返回名称</span></div>
+            <div style="width: 100%"><span>{{condition.collectedName}}</span></div>
             <div style="width: 100%"><el-text type="info">后端没有返回具体的时间</el-text></div>
           </el-col>
-          <el-col :span="3" style="display:flex;justify-content: space-around;align-items: center">
+          <el-col class="deleteSearchConditionElCol" :span="3" style="display:flex;justify-content: space-around;align-items: center">
             <el-button link :icon="CircleClose" @click="deleteSearchConditionFlag=true;defaultRow=condition"></el-button>
           </el-col>
         </el-row>
@@ -173,6 +173,13 @@ const myHerf = (menuConfig) => {
       background: rgba(250, 250, 250, 1);
       cursor: pointer;
       color: rgba(31, 124, 255, 1);
+    }
+
+    .deleteSearchConditionElCol:hover{
+      background-color: rgba(255, 232, 232, 1);
+      :hover{
+        background-color: rgba(255, 232, 232, 1);
+      }
     }
 
   }
