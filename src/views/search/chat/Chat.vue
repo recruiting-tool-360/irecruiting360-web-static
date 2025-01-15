@@ -60,6 +60,8 @@
             <div class="leftContainer chatContainer">
               <div class="contentBox">
                 <div class="content">{{ message.content }}</div>
+<!--                <div v-html="md.render(markdownContent)"></div>-->
+<!--                <div class="content" v-html="parseMarkdown(message.content)"></div>-->
                 <el-button class="contentButton" @click="aiSearchFlag=true">聚合搜索</el-button>
               </div>
             </div>
@@ -136,6 +138,8 @@ import {getChatTemplate} from "@/views/search/dto/chat/ChatTemplate";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 import { v4 as uuidv4 } from 'uuid';
 import { Loading } from '@element-plus/icons-vue'
+import MarkdownIt from 'markdown-it';
+import hljs from 'highlight.js';
 const store = useStore();
 
 const props = defineProps({
@@ -170,6 +174,33 @@ let isComposing = ref(false);
 onMounted(async ()=>{
   scrollToBottom();  // 调用滚动到底部的函数
 });
+
+const md = new MarkdownIt({
+  highlight: function (str, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return `<pre class="chatHtml"><code class="chatHtmlCode">${hljs.highlight(str, { language: lang }).value}</code></pre>`;
+      } catch (e) {
+        console.log(e)
+      }
+    }
+    return `<pre class="chatHtml"><code class="chatHtmlCode">${md.utils.escapeHtml(str)}</code></pre>`;
+  },
+});
+// 转换并清理 Markdown 内容
+// 转换并清理 Markdown 内容
+async function parseMarkdown(content) {
+  console.log(content)
+  // const foundObject = messages.value.find(item => item.id === id);
+  // if (foundObject && foundObject.content) {
+  //   const cleanedContent = content.replace(/\\n/g, '\n').replace(/\\`/g, '`');
+  //   return md.render(cleanedContent);
+  // }
+  // content = "当然可以！以下是一个简单的Java代码示例，它定义了一个`HelloWorld`类，并在控制台输出“Hello, World!”：\n\n```java\npublic class HelloWorld {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n}\n```\n\n这段代码是Java编程语言的一个经典入门示例。如果您需要更复杂的代码或有特定的功能需求，请告诉我，我可以为您提供更详细的代码示例。";
+  // 确保内容中的换行符能正确处理
+  // const cleanedContent = content.replace(/\\n/g, '\n').replace(/\\`/g, '`');
+  return md.render(content);
+}
 
 // 定义消息数据
 const messages = computed(()=>store.getters.getChatMassages?store.getters.getChatMassages:[]);
@@ -427,7 +458,7 @@ const getFormatData =(timestamp)=>{
       border: 1px solid #E8E8E8;
       padding: 12px;
 
-      .content{
+      .content {
         width: 100%;
         font-size: 13px;
         font-weight: 400;
@@ -436,7 +467,64 @@ const getFormatData =(timestamp)=>{
         word-wrap: break-word; /* 允许单词在任意位置换行 */
         word-break: break-word; /* 兼容旧浏览器 */
         overflow-wrap: break-word; /* 现代浏览器支持 */
+
+        ::v-deep(.chatHtml){
+          white-space: pre-wrap;
+          overflow-x: auto;
+          background: #f5f5f5;
+          padding: 10px;
+          border-radius: 5px;
+          font-size: 14px;
+          font-family: 'Courier New', monospace;
+          overflow-x: auto; /* 防止代码块溢出 */
+        }
       }
+
+      //.content pre {
+      //  white-space: pre-wrap;
+      //  overflow-x: auto;
+      //  background: #f5f5f5;
+      //  padding: 10px;
+      //  border-radius: 5px;
+      //  font-size: 14px;
+      //  font-family: 'Courier New', monospace;
+      //  overflow-x: auto; /* 防止代码块溢出 */
+      //}
+      //
+      //.content .hljs {
+      //  padding: 10px;
+      //  border-radius: 5px;
+      //  background: #f0f0f0 !important;
+      //  color: #333;
+      //}
+      //
+      //.content .hljs code {
+      //  background: rgba(27, 31, 35, 0.05);
+      //  border-radius: 3px;
+      //  padding: 0 4px;
+      //  font-size: 90%;
+      //  white-space: pre-wrap;
+      //  word-wrap: break-word; /* 允许单词在任意位置换行 */
+      //  word-break: break-word; /* 兼容旧浏览器 */
+      //  overflow-wrap: break-word; /* 现代浏览器支持 */
+      //  overflow-x: auto;
+      //}
+      //.content pre{
+      //  white-space: pre-wrap; /* 长内容自动换行 */
+      //  overflow-x: auto; /* 防止代码块溢出 */
+      //}
+
+      .content .hljs code{
+        padding: 10px;
+        border-radius: 5px;
+        background: #e70404 !important;
+        white-space: pre-wrap;
+        word-wrap: break-word; /* 允许单词在任意位置换行 */
+        word-break: break-word; /* 兼容旧浏览器 */
+        overflow-wrap: break-word; /* 现代浏览器支持 */
+        overflow-x: auto;
+      }
+
       .contentButton{
         width: 100%;
         border-radius: 13px;
@@ -503,5 +591,13 @@ const getFormatData =(timestamp)=>{
   border-radius: 6px;
   background: rgba(255, 255, 255, 1);
   border: 1px solid rgba(121, 96, 255, 1);
+}
+</style>
+
+<style scoped lang="scss">
+.hljs {
+  padding: 10px;
+  border-radius: 5px;
+  background: #e70404 !important;
 }
 </style>

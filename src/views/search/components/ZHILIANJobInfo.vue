@@ -1,7 +1,13 @@
 <template>
   <div class="allBobContainer">
-    <template v-if="jobALlData===undefined||jobALlData===null||jobALlData.length===0">
-      <el-empty description="智联渠道--无数据" />
+    <template v-if="!(channelConfig&&channelConfig.login&&channelConfig.disable)">
+      <el-empty :description="`${channelConfig.name}渠道暂无数据`" >
+        <el-button class="btm-color" style="height: 30px;width: 88px" @click="goToLogin">前往登陆</el-button>
+      </el-empty>
+    </template>
+    <template v-else-if="jobALlData===undefined||jobALlData===null||jobALlData.length===0">
+      <el-empty :description="`${channelConfig.name}渠道暂无数据`" >
+      </el-empty>
     </template>
     <!--  列表信息  -->
     <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id" @click="userInfoOpen(geekList)">
@@ -131,6 +137,10 @@ const resumeId = ref("");
 //bossDetialRef
 const bossDetialRef = ref(null);
 
+//跳转登陆页
+const goToLogin = () => {
+  window.open(pluginAllUrls.ZHILIAN.baseUrl, '_blank');
+};
 //用户登陆状态
 const userLoginStatus = () => {
   //加载登陆状态
@@ -234,17 +244,18 @@ const channelSearch = async (channelRequestInfo) => {
   if(!(channelConfig.value&&channelConfig.value.login&&channelConfig.value.disable)){
     return;
   }
-  if(props.onLodingOpen){
-    props.onLodingOpen();
-  }
+  // if(props.onLodingOpen){
+  //   props.onLodingOpen();
+  // }
   try {
     await channelSearchList(channelRequestInfo);
   }catch (e){
     console.log(e);
   }
-  if(props.onLodingClose){
-    props.onLodingClose();
-  }
+  // if(props.onLodingClose){
+  //   props.onLodingClose();
+  // }
+  console.log("zhilian执行完了")
 }
 
 const channelSearchList = async (channelRequestInfo) => {
@@ -272,7 +283,7 @@ const channelSearchList = async (channelRequestInfo) => {
   let saveJobListRequest = saveJobListRequestTemplate();
   saveJobListRequest.outId = channelRequestInfo.requestId;
   saveJobListRequest.searchConditionId = channelRequestInfo.id;
-  saveJobListRequest.channel = channelConfig.value.name;
+  saveJobListRequest.channel = channelConfig.value.desc;
   saveJobListRequest.resumeList = channelList;
   let jobList;
   try {
@@ -316,7 +327,7 @@ const search = async (page) => {
   let pageSearchRequest = createPageSearchRequest();
   pageSearchRequest.offset=page;
   pageSearchRequest.size =pageSize.value;
-  pageSearchRequest.channel = channelConfig.value.name;
+  pageSearchRequest.channel = channelConfig.value.desc;
   pageSearchRequest.searchConditionId = searchConditionId.value;
   let listResponse = null;
   try {

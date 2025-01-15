@@ -7,6 +7,7 @@ import store from './store'
 import '@/assets/scss/index.scss'
 //ali icons
 import '@/assets/icons/iconfont.css';
+import 'highlight.js/styles/github.css';
 
 //element plus
 import ElementPlus from 'element-plus'

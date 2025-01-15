@@ -6,6 +6,7 @@ export default {
             ALL:{
                 key:"ALL",
                 name:"渠道聚合",
+                desc:"全渠道",
                 disable:true,
                 dataSize:0
             },
@@ -14,6 +15,7 @@ export default {
                 login:false,
                 loading:false,
                 name:"boss直聘",
+                desc:"boss直聘",
                 disable:true,
                 dataSize:0
             },
@@ -22,12 +24,14 @@ export default {
                 login:false,
                 loading:false,
                 name:"智联招聘",
+                desc:"智联招聘",
                 disable:true,
                 dataSize:0
             },
             Collect:{
                 key:"Collect",
                 name:"我的收藏",
+                desc:"我的收藏",
                 disable:true,
                 dataSize:0
             },

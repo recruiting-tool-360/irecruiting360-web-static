@@ -1,7 +1,7 @@
 <template>
   <div class="allBobContainer">
     <template v-if="jobALlData===undefined||jobALlData===null||jobALlData.length===0">
-      <el-empty description="聚合渠道--无数据" />
+      <el-empty description="聚合渠道暂无数据" />
     </template>
     <!--  列表信息  -->
     <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id" @click="userInfoOpen(geekList)">
@@ -22,8 +22,14 @@
         </el-col>
         <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="6">
           <el-button text disabled size="small">
-          <el-image :src="'/index/header/searchPage/boss.ico'"></el-image>
-            &nbsp;&nbsp;BOSS直聘
+            <template v-if="geekList.outId.split('&').length===3">
+              <el-image :src="'/index/header/searchPage/zhilian.svg'"></el-image>
+              &nbsp;&nbsp;智联直聘
+            </template>
+            <template v-else>
+              <el-image :src="'/index/header/searchPage/boss.ico'"></el-image>
+              &nbsp;&nbsp;BOSS直聘
+            </template>
           </el-button>
           <el-text style="margin-right: 8px;color: #E0E0E0">|</el-text>
           <el-rate :v-model="geekList.collectOrNot" :max="1"/>
@@ -99,6 +105,8 @@ import {channelOptions} from "@/views/search/dto/SearchPageConfig";
 import BossDetial from "@/views/search/components/BossDetial.vue";
 import {ElMessage} from "element-plus";
 import {markResumeBlindReadStatus} from "@/api/jobList/JobListApi";
+import {pluginAllUrls} from "@/components/PluginRequestManager";
+import qs from "qs";
 
 //store
 const store = useStore();
@@ -107,7 +115,9 @@ const props = defineProps({
   onLodingOpen: Function,
   onLodingClose: Function,
 });
-const jobALlData =computed(()=>store.getters.getJobALlData);
+const channelKey = "ALL";
+const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
+const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
 //当前页码数
 const currentPage = ref(1);
 //当前页显示条目数
@@ -126,17 +136,40 @@ const resumeId = ref("");
 const bossDetialRef = ref(null);
 
 const userInfoOpen = async (userInfo) => {
-  resumeId.value = userInfo.id;
-  geekInfoDialog.value = true;
-  bossDetialRef.value?.childGeekInfoMethod(userInfo);
-  //设置为已读
-  try {
-    let {data} = await markResumeBlindReadStatus([userInfo.id],true);
-    userInfo.isRead = 1;
-  }catch (e){
-    console.log(e);
-    ElMessage.error('服务异常，请联系管理员！');
+  let splitStr = userInfo.outId.split('&');
+  if(splitStr.length===3){
+   openDetail(userInfo);
+  }else{
+    resumeId.value = userInfo.id;
+    geekInfoDialog.value = true;
+    bossDetialRef.value?.childGeekInfoMethod(userInfo);
+    //设置为已读
+    try {
+      let {data} = await markResumeBlindReadStatus([userInfo.id],true);
+      userInfo.isRead = 1;
+    }catch (e){
+      console.log(e);
+      ElMessage.error('服务异常，请联系管理员！');
+    }
   }
+}
+
+const openDetail = (listInfo)=>{
+  let split = listInfo.outId.split("&");
+  const requestData ={
+    "t": split[2],
+    "resumeNumber": split[1],
+    "k": split[0]
+  }
+  const url=pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.geekDetailUrl+`?`+qs.stringify(requestData);
+  const name='_blank';                            //网页名称，可为空;
+  const iWidth=window.screen.availWidth *0.7;                          //弹出窗口的宽度;
+  const iHeight=window.screen.availHeight * 0.7;                         //弹出窗口的高度;
+  //获得窗口的垂直位置
+  const iTop = (window.screen.availHeight +30 - iHeight) / 2;
+  //获得窗口的水平位置
+  const iLeft = (window.screen.availWidth - 10 - iWidth) / 2;
+  window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
 }
 
 //分页设置触发时
@@ -164,7 +197,7 @@ const search = async (page) => {
   let pageSearchRequest = createPageSearchRequest();
   pageSearchRequest.offset=page;
   pageSearchRequest.size =pageSize.value;
-  pageSearchRequest.channel = channel.desc;
+  pageSearchRequest.channel = channelConfig.value.desc;
   pageSearchRequest.searchConditionId = searchConditionId.value;
   let listResponse = null;
   try {
@@ -181,15 +214,15 @@ const search = async (page) => {
   if(listResponse&&listResponse.data&&listResponse.data.data){
     // jobALlData.value=listResponse.data.data;
     let scoreList = listResponse.data.data.map(item=>item.id);
-    store.commit('setJobALlData',listResponse.data.data);
+    store.commit('setChannelData',{key:channelKey,value:listResponse.data.data});
     listResponse.data.data.forEach(item=>{
-      store.commit('addScoreConfigToQueue',item.id);
+      store.commit('addScoreConfigToQueue',{id:item.id,count:0});
     });
   }else{
     // jobALlData.value=[];
-    store.commit('setJobALlData',[])
+    store.commit('setChannelData',{key:channelKey,value:[]})
   }
-  store.commit('changeAllChannelCount',totalNum.value);
+  store.commit('changeChannelConfDataSize',{key:channelKey,value:totalNum.value});
 }
 
 
