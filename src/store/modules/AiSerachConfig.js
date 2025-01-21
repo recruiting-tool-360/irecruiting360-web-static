@@ -19,7 +19,8 @@ export default {
             ZHILIAN:[],
             Collect:[]
         },
-        searchStateConfig:createSearchState()
+        searchStateConfig:createSearchState(),
+        unreadCheckBoxV:false
     }),
     mutations: {
         changeLeftLoadingSwitch(state,payload) {
@@ -36,6 +37,9 @@ export default {
         },
         changeSearchStateConfig(state,payload) {
             state.searchStateConfig = payload;
+        },
+        changeUnreadCheckBoxV(state,payload) {
+            state.unreadCheckBoxV = payload;
         },
         setJobALlData(state,payload) {
             if(payload){
@@ -83,7 +87,7 @@ export default {
                             }else{
                                 if(updatedItem.reflashAIScore!==undefined&&updatedItem.reflashAIScore!==null){
                                     updatedItem.reflashAIScore++;
-                                    if(updatedItem.reflashAIScore>3){
+                                    if(updatedItem.reflashAIScore>10){
                                         this.commit("deleteScoreConfigById", updatedItem.id);
                                     }
                                 }else{
@@ -180,6 +184,9 @@ export default {
         },
         getSearchStateConfig(state) {
             return state.searchStateConfig;
+        },
+        getUnreadCheckBoxV(state) {
+            return state.unreadCheckBoxV;
         },
     },
 };

@@ -10,74 +10,8 @@
       </el-empty>
     </template>
     <!--  列表信息  -->
-    <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id" @click="userInfoOpen(geekList)">
-      <!--   已读   -->
-      <div v-if="geekList.isRead" class="read-div">
-        <el-image :src="'/index/header/searchPage/read.svg'" style="width: 100%;height: 100%"></el-image>
-      </div>
-      <!--  头像行    -->
-      <el-row class="geek-img-el-row el-row-width-full" :gutter="10">
-        <el-col class="geek-img-el-col el-col-display-Style" :span="18">
-          <!--   头像     -->
-          <el-avatar class="headerIcons" :size="40" :src="`${geekList.gender===1?'/index/header/icons/geekMan.svg':'/index/header/icons/geekWoman.svg'}`" />
-          <el-text class="mx-1 el-button-margin-left" style="font-size: 1rem;font-weight: bold">{{geekList.name}}</el-text>
-          <el-text class="mx-1 el-button-margin-left text-gray-color-130">{{geekList.genderStr}} · {{geekList.age}} · 未知</el-text>
-          <el-button size="small" disabled round style="margin-left: 1rem;">求职意向:
-            <el-text style="margin-left: 5px;color: rgb(31, 35, 41)">{{geekList.intention}}</el-text>
-          </el-button>
-        </el-col>
-        <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="6">
-          <el-button text disabled size="small">
-            <el-image :src="'/index/header/searchPage/boss.ico'"></el-image>
-            &nbsp;&nbsp;BOSS直聘
-          </el-button>
-          <el-text style="margin-right: 8px;color: #E0E0E0">|</el-text>
-          <el-rate :v-model="geekList.collectOrNot" :max="1"/>
-          <el-button disabled text size="small" style="margin-left: -5px">
-            收藏
-          </el-button>
-        </el-col>
-      </el-row>
-      <!--  学历行    -->
-      <el-row class="geek-highestDegree-el-row el-row-width-full el-row-margin-top-6px"  :gutter="0">
-        <el-col class="geek-highestDegree-el-col el-col-display-Style" :span="15">
-          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.educationStr}}</el-button>
-          <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear}}年</el-button>
-          <el-button style="background-color: #FFF7E6;color: #F79000" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
-            <el-image class="headerIcons" :src="'/index/header/icons/phone.svg'"></el-image>
-            12345678910</el-button>
-          <el-button style="background-color: #F9F0FF;color: #722ED1" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
-            <el-image class="headerIcons" :src="'/index/header/icons/email.svg'"></el-image>
-            12345678910@126.com</el-button>
-        </el-col>
-        <el-col class="geek-highestDegree-el-col el-col-display-Style" style="justify-content: end" :span="9">
-          <div class="geekAIBtm">
-            <spa>AI评估</spa>
-          </div>
-          <div class="geekAINumBtm">
-            <el-text v-if="geekList.score&&geekList.score>=-1" style="font-size: 20px;">{{geekList.score}}</el-text>
-            <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
-          </div>
-        </el-col>
-      </el-row>
+    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"></ResumeListInfo>
 
-      <!--  工作年龄一行    -->
-      <el-row class="geek-work-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">
-        <el-button text style="background-color: rgba(255,230,230,0);" class="workBtm" size="small" disabled round>
-          <el-image  class="headerIcons" :src="'/index/header/icons/work.svg'" style="margin-right: 10px"></el-image>
-          <el-text>2018.01 - 2020.12   上海力德信息科技有限公司</el-text>
-        </el-button>
-      </el-row>
-
-      <!--  学校一行    -->
-      <el-row class="geek-school-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">
-        <el-button text style="background-color: rgba(255,230,230,0);" class="schoolBtm" size="small" disabled round>
-          <el-image  class="headerIcons" :src="'/index/header/icons/school.svg'" style="margin-right: 10px"></el-image>
-          <el-text>2013.09 - 2017.06   清华大学  视觉传达设计</el-text>
-        </el-button>
-      </el-row>
-
-    </el-card>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -103,13 +37,24 @@ import {ElMessage} from "element-plus";
 import {markResumeBlindReadStatus, saveJobList} from "@/api/jobList/JobListApi";
 import {pluginBossResultProcessor, pluginZhiLianResultProcessor} from "@/components/verifyes/PluginProcessor";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
-import {getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls} from "@/components/PluginRequestManager";
+import {
+  getPluginEmptyRequestTemplate,
+  pluginAllActions,
+  pluginAllRequestType,
+  pluginAllUrls
+} from "@/components/PluginRequestManager";
 import PluginMessenger from "@/api/PluginSendMsg";
 import qs from "qs";
 import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
-import boosQueueManager from "@/components/QueueManager/queueManager";
-import {getZhiLianHeader, getZhiLianPageRequestId} from "@/components/QueueManager/ZhiLianJobInfoManager";
+import {zhiLianQueueManager} from "@/components/QueueManager/queueManager";
+import {
+  getZhiLianHeader,
+  getZhiLianPageRequestId,
+  getZhiLianUniversalParams
+} from "@/components/QueueManager/ZhiLianJobInfoManager";
 import {getCookieValue} from "@/util/StringUtil";
+import {getHTMlDom} from "@/api/testRequest/DetialApi";
+import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
 
 //store
 const store = useStore();
@@ -117,11 +62,14 @@ const store = useStore();
 const props = defineProps({
   onLodingOpen: Function,
   onLodingClose: Function,
+  searchStateCriteria:Object
 });
 //渠道
 const channelKey = "ZHILIAN";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
+//ai推荐
+const searchStateAIParam = computed(()=>props.searchStateCriteria);
 //当前页码数
 const currentPage = ref(1);
 //当前页显示条目数
@@ -185,8 +133,7 @@ const zhiLianUserStatus = async () => {
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
-const userInfoOpen = async (listInfo) => {
-  console.log(listInfo)
+const clickListInfo = async (listInfo) => {
   resumeId.value = listInfo.id;
   openDetail(listInfo);
   //设置为已读
@@ -200,21 +147,48 @@ const userInfoOpen = async (listInfo) => {
 }
 
 const openDetail = (listInfo)=>{
-  let split = listInfo.outId.split("&");
+  if(!listInfo.originalResumeUrlInfo){
+    console.log("cardInfo.originalResumeUrlInfo is null")
+    ElMessage.error('服务异常，请联系管理员！');
+  }
+
+  const requestParams = JSON.parse(listInfo.originalResumeUrlInfo);
   const requestData ={
-    "t": split[2],
-    "resumeNumber": split[1],
-    "k": split[0]
+    "t": requestParams.request.t,
+    "resumeNumber": requestParams.request.resumeNumber,
+    "k": requestParams.request.k
   }
   const url=pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.geekDetailUrl+`?`+qs.stringify(requestData);
   const name='_blank';                            //网页名称，可为空;
-  const iWidth=window.screen.availWidth *0.7;                          //弹出窗口的宽度;
-  const iHeight=window.screen.availHeight * 0.7;                         //弹出窗口的高度;
+  const iWidth=window.screen.availWidth *0.8;                          //弹出窗口的宽度;
+  const iHeight=window.screen.availHeight * 0.8;                         //弹出窗口的高度;
   //获得窗口的垂直位置
   const iTop = (window.screen.availHeight +30 - iHeight) / 2;
   //获得窗口的水平位置
   const iLeft = (window.screen.availWidth - 10 - iWidth) / 2;
   window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
+
+  //同步详细简历
+  zhiLianDetailRequest(listInfo);
+}
+
+const zhiLianDetailRequest = async (listInfo) => {
+  if (!listInfo.originalResumeUrlInfo) {
+    return;
+  }
+  let resumeDetail;
+  let request = JSON.parse(listInfo.originalResumeUrlInfo);
+  try {
+    resumeDetail = await searchResumeInfo(request.request);
+  } catch (e) {
+    console.log(e);
+    return;
+  }
+  if (!pluginZhiLianResultProcessor(resumeDetail)) {
+    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！` + (resumeDetail?.responseData?.data?.message))
+    return;
+  }
+  console.log("详细简历：",resumeDetail?.responseData?.data)
 }
 
 //分页设置触发时
@@ -277,7 +251,6 @@ const channelSearchList = async (channelRequestInfo) => {
     ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.message))
     return;
   }
-  console.log("responseJobListData.responseData.data",responseJobListData.responseData.data.data.list)
   //列表存到后端
   const channelList = responseJobListData.responseData.data.data.list;
   let saveJobListRequest = saveJobListRequestTemplate();
@@ -298,22 +271,28 @@ const channelSearchList = async (channelRequestInfo) => {
   if(!jobList||jobList.length===0){
     return;
   }
+  console.log("智联channelList:",channelList)
+  console.log("智联jobList:",jobList)
   //查询渠道信息
   //生成异步任务
-  // channelList.forEach((item, index) => {
-    // const match = jobList.find(a => a.rawDataId === item.uniqSign);
-    // if (match) {
-    //   let jobHunterInfo = item.geekCard;
-    //   const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
-    //   const outId = saveJobListRequest.outId;
-    //   const resumeBlindId = match.id;
-    //   const type ="1";
-    //   const taskRequest = {queryString,outId,resumeBlindId,type};
-    //   if(index<1){
-    //     //boosQueueManager.enqueue(taskRequest);
-    //   }
-    // }
-  // });
+  channelList.forEach((item, index) => {
+    const match = jobList.find(a => a.rawDataId === item.resumeNumber);
+    if (match) {
+      if(!match.originalResumeUrlInfo){
+        console.log("match.originalResumeUrlInfo is null")
+        ElMessage.error('服务异常，请联系管理员！');
+      }
+      const requestParams = JSON.parse(match.originalResumeUrlInfo);
+      const queryString = requestParams.request;
+      const outId = saveJobListRequest.outId;
+      const resumeBlindId = match.id;
+      const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
+      const taskRequest = {queryString,outId,resumeBlindId,type};
+      if(index<1){
+        zhiLianQueueManager.enqueue(taskRequest);
+      }
+    }
+  });
   //查询第一页数据
   await search(1);
 }
@@ -368,12 +347,8 @@ const searchJobList = async (searchConfig) => {
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
   }
   headers["Content-Type"] = "application/json;charset=UTF-8";
-  console.log(headers)
-  const requestData ={
-    "_": new Date().getTime(),
-    "x-zp-page-request-id": zhiLianPageRequestId['X-zp-page-request-id'],
-    "x-zp-client-id": xZpClientId
-  }
+
+  let requestData = getZhiLianUniversalParams(zhiLianPageRequestId, xZpClientId);
   searchConfig.pageNo = 1;
   //访问智联
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
@@ -381,6 +356,30 @@ const searchJobList = async (searchConfig) => {
   pluginEmptyRequestTemplate.requestHeader = headers;
   pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
   pluginEmptyRequestTemplate.requestPath = pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.getAllJobList+"?"+qs.stringify(requestData);
+  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+}
+
+//详细信息查询
+const searchResumeInfo = async (requestParam) => {
+  const headers = await getZhiLianHeader(true);
+  if(!headers||headers.length===0){
+    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+    return;
+  }
+  let xZpClientId = getCookieValue("x-zp-client-id",headers['Cookie']);
+  let zhiLianPageRequestId = await getZhiLianPageRequestId();
+  if(!(xZpClientId)||!(zhiLianPageRequestId)||!(zhiLianPageRequestId['X-zp-page-request-id'])){
+    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+  }
+  headers["Content-Type"] = "application/json;charset=UTF-8";
+
+  let requestData = getZhiLianUniversalParams(zhiLianPageRequestId, xZpClientId);
+  //访问智联
+  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+  pluginEmptyRequestTemplate.parameters = requestParam;
+  pluginEmptyRequestTemplate.requestHeader = headers;
+  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.resumeDetail+"?"+qs.stringify(requestData);
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
@@ -402,63 +401,6 @@ defineExpose({
 </script>
 
 <style scoped lang="scss">
-.geek-card-list{
-  margin-bottom: 10px;
-  position: relative;
-
-  .read-div{
-    height: 43px;
-    width: 43px;
-    position: absolute;
-    top: 0;
-    left: 0;
-  }
-
-  .el-row-margin-top-6px{
-    margin-top: 6px
-  }
-  .el-col-display-Style{
-    display: flex;
-    align-items: center;
-  }
-  .el-button-margin-left{
-    margin-left: 0.5rem;
-  }
-
-  :hover{
-    cursor: pointer;
-  }
-}
-.highestDegreeBtmMgLeft{
-  margin-left: 8px;
-}
-
-.geekAIBtm{
-  width: 70px;
-  height: 36px;
-  color: white;
-  border-radius: 8.93px 0 0 8.93px;
-  background: linear-gradient(248deg, #C7A0FF 0%, #8777FF 11.71%, #5280FC 49.68%, #54A4FF 74.23%, #3CD1F6 90.26%, #74FFCD 100%);
-  margin-right: 0 !important;
-  border: none;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 13px;
-}
-
-.geekAINumBtm{
-  width: 56px;
-  height: 36px;
-  border-radius: 0 8.93px 8.93px 0;
-  background: linear-gradient(246.8deg, rgba(199, 160, 255, 0.15) 0%, rgba(136, 120, 255, 0.15) 11.71%, rgba(82, 128, 252, 0.15) 49.68%, rgba(84, 164, 255, 0.15) 74.23%, rgba(60, 209, 246, 0.15) 90.26%, rgba(116, 255, 205, 0.15) 100%);
-  margin-left: 0 !important;
-  border: none;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 20px;
-}
 
 .pageConfig{
   border-top:1px solid #E8E8E8;
@@ -467,28 +409,5 @@ defineExpose({
   justify-content: end;
 
 }
-
-.rotating {
-  animation: spin 2s linear infinite; /* 2秒完成一圈，线性匀速，无限循环 */
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg); /* 起始角度 */
-  }
-  to {
-    transform: rotate(360deg); /* 结束角度 */
-  }
-}
-
-.bigGeekInfo{
-
-  .geekInfoCad .el-text{
-    margin: 0px 4px;
-  }
-
-}
-
-
 
 </style>

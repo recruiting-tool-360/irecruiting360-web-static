@@ -24,7 +24,7 @@
           <el-button text disabled size="small">
             <template v-if="geekList.outId.split('&').length===3">
               <el-image :src="'/index/header/searchPage/zhilian.svg'"></el-image>
-              &nbsp;&nbsp;智联直聘
+              &nbsp;&nbsp;智联招聘
             </template>
             <template v-else>
               <el-image :src="'/index/header/searchPage/boss.ico'"></el-image>
@@ -114,6 +114,7 @@ const store = useStore();
 const props = defineProps({
   onLodingOpen: Function,
   onLodingClose: Function,
+  thirdPartyChannelConfig:Array
 });
 const channelKey = "ALL";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));

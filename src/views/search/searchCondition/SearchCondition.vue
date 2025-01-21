@@ -29,7 +29,7 @@
             <el-option
                 v-for="item in conditionOptions"
                 :key="item.id"
-                :label="item.id"
+                :label="item.collectedName"
                 :value="item"
             />
           </el-select>

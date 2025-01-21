@@ -53,4 +53,6 @@ class QueueManager {
 
 // 创建单例实例
 const boosQueueManager = new QueueManager();
-export default boosQueueManager;
+const zhiLianQueueManager = new QueueManager();
+// 命名导出
+export { boosQueueManager, zhiLianQueueManager };

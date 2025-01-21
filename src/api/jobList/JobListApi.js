@@ -50,4 +50,14 @@ export const markResumeBlindReadStatus = (resumeBlindIds, readStatus) => {
 }
 
 
+export const userCollectResume = (data)=>{
+    const basseUrl='/resume/userCollectResume';
+    return request({
+        method: 'POST',
+        url: basseUrl,
+        data: data
+    });
+}
+
+
 

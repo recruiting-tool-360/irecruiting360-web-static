@@ -8,7 +8,8 @@ export default {
                 name:"渠道聚合",
                 desc:"全渠道",
                 disable:true,
-                dataSize:0
+                dataSize:0,
+                cardInfoRef:null
             },
             BOSS:{
                 key:"BOSS",
@@ -17,7 +18,8 @@ export default {
                 name:"boss直聘",
                 desc:"boss直聘",
                 disable:true,
-                dataSize:0
+                dataSize:0,
+                cardInfoRef:null
             },
             ZHILIAN:{
                 key:"ZHILIAN",
@@ -26,14 +28,16 @@ export default {
                 name:"智联招聘",
                 desc:"智联招聘",
                 disable:true,
-                dataSize:0
+                dataSize:0,
+                cardInfoRef:null
             },
             Collect:{
                 key:"Collect",
                 name:"我的收藏",
                 desc:"我的收藏",
                 disable:true,
-                dataSize:0
+                dataSize:0,
+                cardInfoRef:null
             },
         },
     }),
@@ -49,6 +53,9 @@ export default {
         },
         changeChannelConfDataSize(state,{key,value}) {
             state.channelConf[key].dataSize=value;
+        },
+        changeChannelCardInfoRef(state,{key,value}) {
+            state.channelConf[key].cardInfoRef=value;
         },
     },
     actions: {},

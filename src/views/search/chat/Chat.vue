@@ -59,9 +59,9 @@
             <div class="dataCont" style="width: 100%">{{getFormatData(message.created)}}</div>
             <div class="leftContainer chatContainer">
               <div class="contentBox">
-                <div class="content">{{ message.content }}</div>
+<!--                <div class="content">{{ message.content }}</div>-->
 <!--                <div v-html="md.render(markdownContent)"></div>-->
-<!--                <div class="content" v-html="parseMarkdown(message.content)"></div>-->
+                <div class="content" v-html="parseMarkdown(message.content)"></div>
                 <el-button class="contentButton" @click="aiSearchFlag=true">聚合搜索</el-button>
               </div>
             </div>
@@ -132,7 +132,7 @@ import {onMounted,computed,ref,watch,nextTick} from "vue";
 import {useStore} from 'vuex';
 import { ElButton, ElMessage } from 'element-plus'
 import { vChatScroll } from "vue3-chat-scroll";
-import {fetchStream} from "@/api/chat/ChatUtil";
+import {fetchStream} from "@/api/chat/ChatUtil2";
 import {clearChatHistory, getChatHistory, getChatIdByUserId, getCurrentConditionByChatId} from "@/api/chat/ChatApi";
 import {getChatTemplate} from "@/views/search/dto/chat/ChatTemplate";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
@@ -189,16 +189,7 @@ const md = new MarkdownIt({
 });
 // 转换并清理 Markdown 内容
 // 转换并清理 Markdown 内容
-async function parseMarkdown(content) {
-  console.log(content)
-  // const foundObject = messages.value.find(item => item.id === id);
-  // if (foundObject && foundObject.content) {
-  //   const cleanedContent = content.replace(/\\n/g, '\n').replace(/\\`/g, '`');
-  //   return md.render(cleanedContent);
-  // }
-  // content = "当然可以！以下是一个简单的Java代码示例，它定义了一个`HelloWorld`类，并在控制台输出“Hello, World!”：\n\n```java\npublic class HelloWorld {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n}\n```\n\n这段代码是Java编程语言的一个经典入门示例。如果您需要更复杂的代码或有特定的功能需求，请告诉我，我可以为您提供更详细的代码示例。";
-  // 确保内容中的换行符能正确处理
-  // const cleanedContent = content.replace(/\\n/g, '\n').replace(/\\`/g, '`');
+function parseMarkdown(content) {
   return md.render(content);
 }
 
@@ -259,9 +250,10 @@ const findAiCondition = async () => {
     }
     if(props.onCloseClick){
       aiSearchFlag.value=false
-      setTimeout(async () => {
-        props.onCloseClick();
-      },200);
+      // setTimeout(async () => {
+      //   props.onCloseClick();
+      // },200);
+      props.onCloseClick();
     }
   } catch (e) {
     console.log(e);
@@ -272,7 +264,6 @@ const findAiCondition = async () => {
 
 //发送对话
 const sentMassage = () =>{
-  console.log(message.value,chatFluxStatus.value)
   if(chatFluxStatus.value){
     chatFluxStatus.value=false;
     return;
@@ -323,15 +314,18 @@ const invokeChat = (userMsg) => {
           let json = JSON.parse(jsonString); // 解析流数据
           setMsgContainer(json);
         } catch (error) {
-          console.error("Message parsing error:", error, message);
+          chatFluxStatus.value = false;
+          console.error("chat出列异常，Message parsing error:", error, message);
         }
         scrollToBottom();  // 调用滚动到底部的函数
       },
       (error) => {
         chatFluxStatus.value = false;
         console.error("Stream error:", error);
+        console.log("chat结束了 Stream error",error)
       },()=>{
         chatFluxStatus.value = false;
+        console.log("chat正常结束了 Stream end")
       }
   );
 }
@@ -340,7 +334,7 @@ const setMsgContainer = (msg) => {
   const content = msg.choices?.[0]?.delta?.content; // 提取内容
   if (content) {
     if(content==='[DONE]'){
-      console.log(content)
+      console.log("chat结束了",content)
       chatFluxStatus.value = false;
       return;
     }
@@ -478,51 +472,6 @@ const getFormatData =(timestamp)=>{
           font-family: 'Courier New', monospace;
           overflow-x: auto; /* 防止代码块溢出 */
         }
-      }
-
-      //.content pre {
-      //  white-space: pre-wrap;
-      //  overflow-x: auto;
-      //  background: #f5f5f5;
-      //  padding: 10px;
-      //  border-radius: 5px;
-      //  font-size: 14px;
-      //  font-family: 'Courier New', monospace;
-      //  overflow-x: auto; /* 防止代码块溢出 */
-      //}
-      //
-      //.content .hljs {
-      //  padding: 10px;
-      //  border-radius: 5px;
-      //  background: #f0f0f0 !important;
-      //  color: #333;
-      //}
-      //
-      //.content .hljs code {
-      //  background: rgba(27, 31, 35, 0.05);
-      //  border-radius: 3px;
-      //  padding: 0 4px;
-      //  font-size: 90%;
-      //  white-space: pre-wrap;
-      //  word-wrap: break-word; /* 允许单词在任意位置换行 */
-      //  word-break: break-word; /* 兼容旧浏览器 */
-      //  overflow-wrap: break-word; /* 现代浏览器支持 */
-      //  overflow-x: auto;
-      //}
-      //.content pre{
-      //  white-space: pre-wrap; /* 长内容自动换行 */
-      //  overflow-x: auto; /* 防止代码块溢出 */
-      //}
-
-      .content .hljs code{
-        padding: 10px;
-        border-radius: 5px;
-        background: #e70404 !important;
-        white-space: pre-wrap;
-        word-wrap: break-word; /* 允许单词在任意位置换行 */
-        word-break: break-word; /* 兼容旧浏览器 */
-        overflow-wrap: break-word; /* 现代浏览器支持 */
-        overflow-x: auto;
       }
 
       .contentButton{
