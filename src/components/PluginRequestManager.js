@@ -43,7 +43,8 @@ export const pluginAllUrls = {
         baseUrl:"https://rd6.zhaopin.com",
         userStatus:"/api/weChat/getAcction/status",
         getAllJobList:"/api/talent/search/list",
-        geekDetailUrl:"/resume/detail"
+        geekDetailUrl:"/resume/detail",
+        resumeDetail:"/api/resume/detail"
     }
 }
 //插件所有key配置

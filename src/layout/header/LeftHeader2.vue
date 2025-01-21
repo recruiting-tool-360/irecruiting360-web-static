@@ -1,7 +1,7 @@
 <template>
   <div class="left-header-container">
     <!--  收缩按钮  -->
-    <el-button class="left-shrink-btm" @click="toggleShrink" v-loading="loadingStatus" :icon="isShrunk?DArrowRight:DArrowLeft" link></el-button>
+    <el-button class="left-shrink-btm" @click="toggleShrink" :icon="isShrunk?DArrowRight:DArrowLeft" link></el-button>
     <!--  搜索条件列表  -->
     <el-row class="el-row-search hidden-content" justify="center" v-if="!isShrunk" :style={width:leftSize}>
       <el-col class="el-col-search" :span="24">
@@ -17,17 +17,17 @@
         />
       </el-col>
     </el-row>
-    <el-row style="overflow: auto;height: 77vh;align-content: flex-start" v-if="!isShrunk" :style={width:leftSize}>
+    <el-row style="overflow: auto;height: 77vh;align-content: flex-start" v-if="!isShrunk" :style={width:leftSize} v-loading="loadingStatus">
       <div class="condition-div" v-for="(condition) in searchConditionList" :key="condition.id">
         <el-row style="height: 100%">
-          <el-col :span="5">
+          <el-col :span="5" @click="clickCondition(condition)">
             <div style="height:100%;display: flex;justify-content: center;align-items: center;margin-left: 8px;margin-right: 4px">
               <el-image :src="'/index/left/condition.svg'"></el-image>
             </div>
           </el-col>
-          <el-col :span="16" style="display:flex;justify-content: start;align-items: center;flex-wrap: wrap">
+          <el-col :span="16" style="display:flex;justify-content: start;align-items: center;flex-wrap: wrap" @click="clickCondition(condition)">
             <div style="width: 100%"><span>{{condition.collectedName}}</span></div>
-            <div style="width: 100%"><el-text type="info">后端没有返回具体的时间</el-text></div>
+            <div style="width: 100%"><el-text type="info">{{condition.collectedTime}}</el-text></div>
           </el-col>
           <el-col class="deleteSearchConditionElCol" :span="3" style="display:flex;justify-content: space-around;align-items: center">
             <el-button link :icon="CircleClose" @click="deleteSearchConditionFlag=true;defaultRow=condition"></el-button>
@@ -116,6 +116,11 @@ const deleteSearchCondition = async () => {
   } catch (e) {
     ElMessage.error('后台服务异常，请联系管理员！');
   }
+}
+
+//点击列表
+const clickCondition =(condition) => {
+  store.commit('changeSearchConditionRequestData',condition);
 }
 
 

@@ -1,3 +1,4 @@
+import {SearchConditionRequest} from "@/domain/request/SaveSearchRequest";
 
 export const createSearchState = ()=>{
     return {
@@ -15,7 +16,7 @@ export const createSearchState = ()=>{
          * 工作年限选择范围
          * @type {Array<number>}
          */
-        workElSliderValue : [1, 6],
+        workElSliderValue : [-1, 6],
 
         // 年龄属性
         /**
@@ -151,7 +152,40 @@ export const createSearchState = ()=>{
          * @type {boolean|null}
          */
         aiSortCheckBoxValue : null,
+        //ai 推荐
+        criteria:null,
         //用户id
         userId:null
     };
+}
+
+export const convertSearchState = (obj) => {
+    const searchState = createSearchState();
+    searchState.selectValue= obj.keyWord;
+    let workElSlider = [obj.experienceFrom,obj.experienceTo];
+    searchState.workElSliderValue = workElSlider;
+    let ages =[obj.ageFrom,obj.ageTo];
+    searchState.ageElSliderValue = ages;
+
+    searchState.eduValue =obj.degree;
+    searchState.educationLevel = obj.educationLevel;
+    searchState.sexValue =obj.gender*1;
+
+    searchState.currentSalaryStartValue =obj.currentSalaryFrom?(obj.currentSalaryFrom<=0?null:obj.currentSalaryFrom):null;
+    searchState.currentSalaryEndValue =obj.currentSalaryTo?(obj.currentSalaryTo<=0?null:obj.currentSalaryTo):null;
+    searchState.expectedSalaryStartValue =obj.expectedSalaryFrom?(obj.expectedSalaryFrom<=0?null:obj.expectedSalaryFrom):null;
+
+    searchState.expectedSalaryEndValue =obj.expectedSalaryTo?(obj.expectedSalaryTo<=0?null:obj.expectedSalaryTo):null;
+    searchState.currentWorkPlaceValue = obj.currentLocations;
+    searchState.expectedWorkLocationValue = (obj.expectedLocations&&obj.expectedLocations.length==2)?obj.expectedLocations:searchState.expectedWorkLocationValue;
+    searchState.jobSeekingStatusInpValue = obj.availabilityStatus;
+
+    searchState.positionInpValue = obj.position;
+    searchState.corporationInpValue = obj.company;
+    searchState.schoolInpValue = obj.school;
+    searchState.professionInpValue = obj.major;
+    searchState.searchChannels = [];
+    searchState.criteria = obj.criteria;
+    searchState.userId =obj.userId
+    return searchState;
 }

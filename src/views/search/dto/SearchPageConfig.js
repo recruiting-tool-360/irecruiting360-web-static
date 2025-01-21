@@ -86,6 +86,7 @@ const transformData = (provinces, cities) => {
             .filter(city => city.provinceCode === province.code)
             .map(city => ({
                 value: city.code,
+                parentCode:city.provinceCode,
                 label: city.name
             }))
     }));

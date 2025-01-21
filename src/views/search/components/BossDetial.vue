@@ -4,7 +4,7 @@
         class="bigGeekInfo"
         v-model="detailDialogVisible"
         width="600"
-        title="人才信息"
+        title="人才详情"
         align-center
         :show-close="true"
         :close-on-click-modal="false"
@@ -13,7 +13,8 @@
 <!--      <el-row class="detailMsg" style="justify-content: center;margin-top: 16px;">-->
 <!--        <el-text>基本信息</el-text>-->
 <!--      </el-row>-->
-      <el-row v-loading="loadingUserInfoSwitch">
+      <el-row v-loading="loadingUserInfoSwitch" style="position: relative">
+        <div style="position: absolute;width: 100%;height: 100%;background: linear-gradient(rgb(255 255 255 / 0%) 20%, rgb(255 255 255 / 51%) 50%, rgb(255 255 255) 100%)"></div>
         <el-descriptions :column="2" v-if="geekDetailINfo&&Object.keys(geekDetailINfo).length > 0">
           <el-descriptions-item  class="geekImage" width="100" class-name="geekImage">
             <el-avatar :src="geekDetailINfo.geekDetail.geekBaseInfo.large" style="width: 100%;height: 100%"></el-avatar>
@@ -60,14 +61,17 @@
           </el-descriptions-item>
         </el-descriptions>
       </el-row>
-      <el-row class="detailMsg" style="justify-content: center;margin-top: 16px;">
-        <el-button :icon="Pointer"
+      <el-row class="detailMsg" style="justify-content: center;margin-top: 16px;position: relative">
+        <el-button
                    :class="['animated-button']"
-                   color="#409eff"
-                   :style="`--el-button-hover-text-color:white`"
+                   style="position: absolute;bottom: 2%;color: #3f9eff"
+                   :style="`--el-button-hover-text-color:white;--el-button-border-color: #dcdfe600;`"
                    @click="openDetail"
                    :disabled="!(geekDetailINfo&&Object.keys(geekDetailINfo).length > 0)"
-        >了解更多信息</el-button>
+        >
+          <el-icon style="transform: rotate(90deg)"><DArrowRight /></el-icon>
+          &nbsp;&nbsp;&nbsp;
+          了解更多信息</el-button>
       </el-row>
 
       <template #footer>
@@ -92,7 +96,7 @@
 
 <script setup>
 import {onMounted,computed,ref,watch,defineExpose} from "vue";
-import { User,Male,Female,Calendar,Suitcase,School,Pointer } from '@element-plus/icons-vue'
+import { User,Male,Female,Calendar,Suitcase,School,Pointer,DArrowRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import PluginMessenger from "@/api/PluginSendMsg";
 import {findJobDetail, getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
@@ -119,23 +123,18 @@ const geekListInfo = ref({});
 //查看更多信息部分按钮动画控制开关
 const loadingUserInfoSwitch = ref(false);
 
-onMounted(()=>{
-  console.log("geekResumeId.value",geekResumeId.value)
-});
 const beforeClose = () => {
   if(props.changeCloseStatus){
     props.changeCloseStatus();
   }
   geekResumeId.value =null;
-  // geekDetailINfo.value ={};
-  // geekListInfo.value ={};
 }
 
 const openDetail = async ()=>{
     const url=pluginAllUrls.BOSS.geekDetailUrl+`?expectId=${geekDetailINfo.value.expectId}&isInnerAccount=0&isResume=1&isPreview=0&status=5&jobId=-1&securityId=${geekDetailINfo.value.securityId}`;
     const name='_blank';                            //网页名称，可为空;
-    const iWidth=window.screen.availWidth *0.7;                          //弹出窗口的宽度;
-    const iHeight=window.screen.availHeight * 0.7;                         //弹出窗口的高度;
+    const iWidth=window.screen.availWidth *0.8;                          //弹出窗口的宽度;
+    const iHeight=window.screen.availHeight * 0.8;                         //弹出窗口的高度;
     //获得窗口的垂直位置
     const iTop = (window.screen.availHeight +30 - iHeight) / 2;
     //获得窗口的水平位置
@@ -244,29 +243,23 @@ const childGeekInfoMethod = async (cardInfo) => {
       console.log("cardInfo.originalResumeUrlInfo is null")
       ElMessage.error('服务异常，请联系管理员！');
     }
-    //解析参数
-    const urlParams = new URLSearchParams(cardInfo.originalResumeUrlInfo);
-    // 获取每个参数的值
-    const rowId = urlParams.get('rowId');
-    const expectId = urlParams.get('expectId');
-    const lid = urlParams.get('lid');
-    const lidTag = urlParams.get('lidTag');
-    const jobId = urlParams.get('jobId');
-    const securityId = urlParams.get('securityId');
+
+    const requestParams = JSON.parse(cardInfo.originalResumeUrlInfo);
+
     //构造参数
-    const queryString = `securityId=${securityId}&segs=${lidTag}&lid=${lid}`;
+    const queryString = `securityId=${requestParams.request.securityId}&segs=${requestParams.request.lidTag}&lid=${requestParams.request.lid}`;
     let boosJobInfo =null;
     loadingUserInfoSwitch.value = true;
     try {
       boosJobInfo = await findJobDetail({queryString});
       if(pluginBossResultProcessor(boosJobInfo)){
         geekDetailINfo.value = boosJobInfo.responseData.data.zpData;
-        geekDetailINfo.value.newLid = lid;
+        geekDetailINfo.value.newLid = requestParams.request.lid;
         loadingUserInfoSwitch.value = false;
         //数据发给后端
         const outId = geekListInfo.value.outId;
         const resumeBlindId = geekListInfo.value.id;
-        const type ="1";
+        const type ="SCORE";
         const content = geekDetailINfo.value;
         const detailRequest = {content,outId,resumeBlindId,type};
         try {
@@ -289,12 +282,6 @@ const childGeekInfoMethod = async (cardInfo) => {
 defineExpose({
   childGeekInfoMethod
 });
-
-// 如果 props 的值可能会变化，使用 resumeId 更新数据
-// watch(() => props.resumeId, async (newValue) => {
-//   if(newValue){
-//   }
-// });
 
 </script>
 
@@ -339,7 +326,7 @@ defineExpose({
     transform: scale(1);
   }
   50% {
-    transform: scale(1.05);
+    transform: scale(1.10);
   }
   100% {
     transform: scale(1);

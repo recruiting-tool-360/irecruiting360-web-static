@@ -5,10 +5,15 @@ import {
     getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls,
     pluginKeys
 } from "@/components/PluginRequestManager";
-import {pluginBossResultProcessor, pluginResultProcessor} from "@/components/verifyes/PluginProcessor";
+import {
+    pluginBossResultProcessor,
+    pluginResultProcessor,
+    pluginZhiLianResultProcessor
+} from "@/components/verifyes/PluginProcessor";
 import {saveResumeDetail} from "@/api/jobList/JobListApi";
 import {ElMessage} from "element-plus";
 import {getCookieValue} from "@/util/StringUtil";
+import qs from "qs";
 
 const i360Request= async (action, emptyRequestTemplate, timeout = 5000) => {
     try {
@@ -77,7 +82,7 @@ export const getZhiLianHeaderInfo = async (flag) => {
     }
     return headers;
 }
-//boos 请求头信息
+//智联 请求头信息
 export const getZhiLianHeader = async (flag) => {
     let header = null;
     try {
@@ -89,22 +94,51 @@ export const getZhiLianHeader = async (flag) => {
     return header;
 }
 
+//智联 获取统一url参数
+export const getZhiLianUniversalParams = async (zhiLianPageRequestId,xZpClientId) => {
+    return {
+        "_": new Date().getTime(),
+        "x-zp-page-request-id": zhiLianPageRequestId['X-zp-page-request-id'],
+        "x-zp-client-id": xZpClientId
+    };
+}
+
 
 //查询简历详情
 export const findZhiLianJobDetail = async (data)=>{
-    const headers = await getZhiLianHeader();
+    return await searchResumeInfo(data.queryString);
+
+}
+
+//详细信息查询
+const searchResumeInfo = async (requestParam) => {
+    const headers = await getZhiLianHeader(true);
+    if(!headers||headers.length===0){
+        //ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+        return;
+    }
+    let xZpClientId = getCookieValue("x-zp-client-id",headers['Cookie']);
+    let zhiLianPageRequestId = await getZhiLianPageRequestId();
+    if(!(xZpClientId)||!(zhiLianPageRequestId)||!(zhiLianPageRequestId['X-zp-page-request-id'])){
+        //ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+        return;
+    }
+    headers["Content-Type"] = "application/json;charset=UTF-8";
+
+    let requestData = getZhiLianUniversalParams(zhiLianPageRequestId, xZpClientId);
+    //访问智联
     let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-    pluginEmptyRequestTemplate.parameters = null;
+    pluginEmptyRequestTemplate.parameters = requestParam;
     pluginEmptyRequestTemplate.requestHeader = headers;
-    pluginEmptyRequestTemplate.requestType = pluginAllRequestType.GET;
-    pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.getGeekInfo+"?"+data.queryString;
+    pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+    pluginEmptyRequestTemplate.requestPath = pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.resumeDetail+"?"+qs.stringify(requestData);
     return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
 export const exeZhiLianJobInfo = async (data) => {
     let boosJobInfo = await findZhiLianJobDetail(data);
-    if(pluginBossResultProcessor(boosJobInfo)){
-        data.content = boosJobInfo.responseData.data.zpData;
+    if(pluginZhiLianResultProcessor(boosJobInfo)){
+        data.content = boosJobInfo.responseData.data;
         try {
             await saveResumeDetail(data);
         }catch (e){

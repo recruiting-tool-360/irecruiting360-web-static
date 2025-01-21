@@ -115,7 +115,7 @@ export const SearchConditionRequest =()=>{
          * 求职状态
          * @type {string}
          */
-        jobSeekingStatus : '',
+        availabilityStatus : '',
 
         // 岗位
         /**
@@ -151,6 +151,8 @@ export const SearchConditionRequest =()=>{
          * @type {Array<string>}
          */
         searchChannels: [],
+        //ai 推荐
+        criteria:null
     }
 }
 
@@ -172,12 +174,13 @@ export const convertSearchConditionRequest = (obj) => {
     searchConditionRequest.expectedSalaryTo =obj.expectedSalaryEndValue;
     searchConditionRequest.currentLocations = obj.currentWorkPlaceValue;
     searchConditionRequest.expectedLocations = obj.expectedWorkLocationValue;
-    searchConditionRequest.jobSeekingStatus = obj.jobSeekingStatusInpValue;
+    searchConditionRequest.availabilityStatus = obj.jobSeekingStatusInpValue;
     searchConditionRequest.position = obj.positionInpValue;
     searchConditionRequest.company = obj.corporationInpValue;
     searchConditionRequest.school = obj.schoolInpValue;
     searchConditionRequest.major = obj.professionInpValue;
     searchConditionRequest.searchChannels = [];
+    searchConditionRequest.criteria = obj.criteria;
     searchConditionRequest.userId =obj.userId
     return searchConditionRequest;
 }

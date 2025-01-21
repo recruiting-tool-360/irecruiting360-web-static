@@ -49,7 +49,7 @@
                 <el-button class="" size="small" link @click="searchState.workElSliderValue = [5,10]">5-10</el-button>
                 <div class="el-col-display-Style el-button-margin-left" style="justify-content: start;width: 100%">
                   <span class="demonstration">自定义:</span>
-                  <el-slider class="el-button-margin-left" style="width: 60%" v-model="searchState.workElSliderValue" range :min="1" :max="11" :format-tooltip="(value)=>value<11?value+'年':'10年以上'"/>
+                  <el-slider class="el-button-margin-left" style="width: 60%" v-model="searchState.workElSliderValue" range :min="0" :max="11" :format-tooltip="formatWorkSize"/>
                 </div>
                 <!--      年龄      -->
               </el-col>
@@ -60,7 +60,7 @@
                 <el-button class="" size="small" link @click="searchState.ageElSliderValue = [40,50]">40-50</el-button>
                 <div class="el-col-display-Style el-button-margin-left" style="justify-content: start;width: 100%">
                   <span class="demonstration">自定义:</span>
-                  <el-slider class="el-button-margin-left" style="width: 60%" v-model="searchState.ageElSliderValue" range :min="18" :max="51" :format-tooltip="(value)=>value<51?value+'岁':'50岁以上'"/>
+                  <el-slider class="el-button-margin-left" style="width: 60%" v-model="searchState.ageElSliderValue" range :min="15" :max="51" :format-tooltip="formatAgeSize"/>
                 </div>
               </el-col>
             </el-row>
@@ -199,103 +199,6 @@
                   />
                 </div>
               </el-col>
-              <!--            &lt;!&ndash;     性别       &ndash;&gt;-->
-              <!--            <el-col class="edu-and-sex-el-col el-col-display-Style " :span="3">-->
-              <!--              <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">性别:</el-text>-->
-              <!--              <el-select v-model="searchState.sexValue"-->
-              <!--                         placeholder="性别"-->
-              <!--                         size="small"-->
-              <!--                         no-data-text="无"-->
-              <!--                         no-match-text="无"-->
-              <!--              >-->
-              <!--                <el-option-->
-              <!--                    v-for="item in genderOptions"-->
-              <!--                    :key="item.value"-->
-              <!--                    :label="item.label"-->
-              <!--                    :value="item.value"-->
-              <!--                />-->
-              <!--              </el-select>-->
-              <!--            </el-col>-->
-              <!--            &lt;!&ndash;     当前薪资       &ndash;&gt;-->
-              <!--            <el-col class="edu-and-sex-el-col el-col-display-Style " :span="5">-->
-              <!--              <el-text class="mx-1 el-text-margin-rg-style" style="min-width: 4rem">当前薪资:</el-text>-->
-              <!--              &lt;!&ndash;      开始        &ndash;&gt;-->
-              <!--              <el-select v-model="searchState.currentSalaryStartValue"-->
-              <!--                         placeholder="K"-->
-              <!--                         size="small"-->
-              <!--                         no-data-text="无"-->
-              <!--                         no-match-text="无"-->
-              <!--                         style="width: 4rem"-->
-              <!--              >-->
-              <!--                <el-option-->
-              <!--                    v-for="item in salaryConfig"-->
-              <!--                    :key="item.value"-->
-              <!--                    :label="item.label"-->
-              <!--                    :value="item.value"-->
-              <!--                />-->
-              <!--              </el-select>-->
-              <!--              <el-text class="mx-1" style="margin: 0 5px">-</el-text>-->
-              <!--              &lt;!&ndash;      结束        &ndash;&gt;-->
-              <!--              <el-select v-model="searchState.currentSalaryEndValue"-->
-              <!--                         placeholder="K"-->
-              <!--                         size="small"-->
-              <!--                         no-data-text="无"-->
-              <!--                         no-match-text="无"-->
-              <!--                         style="width: 4rem"-->
-              <!--              >-->
-              <!--                <el-option-->
-              <!--                    v-for="item in salaryConfig"-->
-              <!--                    :key="item.value"-->
-              <!--                    :label="item.label"-->
-              <!--                    :value="item.value"-->
-              <!--                />-->
-              <!--              </el-select>-->
-              <!--            </el-col>-->
-              <!--            &lt;!&ndash;     期望薪资       &ndash;&gt;-->
-              <!--            <el-col class="edu-and-sex-el-col el-col-display-Style " :span="5">-->
-              <!--              <el-text class="mx-1 el-text-margin-rg-style" style="min-width: 4rem">期望薪资:</el-text>-->
-              <!--              &lt;!&ndash;      开始        &ndash;&gt;-->
-              <!--              <el-select v-model="searchState.expectedSalaryStartValue"-->
-              <!--                         placeholder="K"-->
-              <!--                         size="small"-->
-              <!--                         no-data-text="无"-->
-              <!--                         no-match-text="无"-->
-              <!--                         style="width: 4rem"-->
-              <!--              >-->
-              <!--                <el-option-->
-              <!--                    v-for="item in salaryConfig"-->
-              <!--                    :key="item.value"-->
-              <!--                    :label="item.label"-->
-              <!--                    :value="item.value"-->
-              <!--                />-->
-              <!--              </el-select>-->
-              <!--              <el-text class="mx-1" style="margin: 0 5px">-</el-text>-->
-              <!--              &lt;!&ndash;      结束        &ndash;&gt;-->
-              <!--              <el-select v-model="searchState.expectedSalaryEndValue"-->
-              <!--                         placeholder="K"-->
-              <!--                         size="small"-->
-              <!--                         no-data-text="无"-->
-              <!--                         no-match-text="无"-->
-              <!--                         style="width: 4rem"-->
-              <!--              >-->
-              <!--                <el-option-->
-              <!--                    v-for="item in salaryConfig"-->
-              <!--                    :key="item.value"-->
-              <!--                    :label="item.label"-->
-              <!--                    :value="item.value"-->
-              <!--                />-->
-              <!--              </el-select>-->
-              <!--            </el-col>-->
-              <!--            &lt;!&ndash;     当前工作地点       &ndash;&gt;-->
-              <!--            <el-col class="edu-and-sex-el-col el-col-display-Style " :span="8">-->
-              <!--              <el-text class="mx-1 el-text-margin-rg-style" style="min-width: 6rem">当前工作地点:</el-text>-->
-              <!--              <el-cascader-->
-              <!--                  v-model="searchState.currentWorkPlaceValue"-->
-              <!--                  :options="citiesConfig"-->
-              <!--                  size="small"-->
-              <!--                  placeholder="请选择城市"-->
-              <!--              />-->
-              <!--            </el-col>-->
             </el-row>
 
             <!--     学校：：职位：：公司：：：专业：：求职状态：     -->
@@ -372,53 +275,6 @@
 <!--                  </div>-->
 <!--                </div>-->
               </el-col>
-              <!--            &lt;!&ndash;     学校       &ndash;&gt;-->
-              <!--            <el-col class="company-and-school-el-col el-col-display-Style" :span="3">-->
-              <!--              <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">学校:</el-text>-->
-              <!--              <el-input v-model="searchState.schoolInpValue" size="small" placeholder="学校" />-->
-              <!--            </el-col>-->
-              <!--            &lt;!&ndash;     职位       &ndash;&gt;-->
-              <!--            <el-col class="company-and-school-el-col el-col-display-Style" :span="3">-->
-              <!--              <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">职位:</el-text>-->
-              <!--              <el-input v-model="searchState.positionInpValue" size="small" placeholder="职位" />-->
-              <!--            </el-col>-->
-              <!--            &lt;!&ndash;     公司       &ndash;&gt;-->
-              <!--            <el-col class="company-and-school-el-col el-col-display-Style" :span="3">-->
-              <!--              <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">公司:</el-text>-->
-              <!--              <el-input v-model="searchState.corporationInpValue" size="small" placeholder="公司" />-->
-              <!--            </el-col>-->
-              <!--            &lt;!&ndash;     专业       &ndash;&gt;-->
-              <!--            <el-col class="company-and-school-el-col el-col-display-Style" :span="3">-->
-              <!--              <el-text class="mx-1 el-text-min-width-style el-text-margin-rg-style">专业:</el-text>-->
-              <!--              <el-input v-model="searchState.professionInpValue" size="small" placeholder="专业" />-->
-              <!--            </el-col>-->
-              <!--            &lt;!&ndash;     求职状态       &ndash;&gt;-->
-              <!--            <el-col class="company-and-school-el-col el-col-display-Style" :span="4">-->
-              <!--              <el-text class="mx-1 el-text-margin-rg-style" style="min-width: 4rem">求职状态:</el-text>-->
-              <!--              <el-select v-model="searchState.jobSeekingStatusInpValue"-->
-              <!--                         placeholder="求职状态"-->
-              <!--                         size="small"-->
-              <!--                         no-data-text="无"-->
-              <!--                         no-match-text="无"-->
-              <!--              >-->
-              <!--                <el-option-->
-              <!--                    v-for="item in jobStatusOptions"-->
-              <!--                    :key="item.value"-->
-              <!--                    :label="item.label"-->
-              <!--                    :value="item.value"-->
-              <!--                />-->
-              <!--              </el-select>-->
-              <!--            </el-col>-->
-              <!--            &lt;!&ndash;     期望工作地点       &ndash;&gt;-->
-              <!--            <el-col class="edu-and-sex-el-col el-col-display-Style " :span="8">-->
-              <!--              <el-text class="mx-1 el-text-margin-rg-style" style="min-width: 6rem">期望工作地点:</el-text>-->
-              <!--              <el-cascader-->
-              <!--                  v-model="searchState.expectedWorkLocationValue"-->
-              <!--                  :options="citiesConfig"-->
-              <!--                  size="small"-->
-              <!--                  placeholder="请选择城市"-->
-              <!--              />-->
-              <!--            </el-col>-->
             </el-row>
           </div>
 
@@ -431,24 +287,21 @@
             </el-col>
           </el-row>
         <!--    AI推荐部分      -->
-          <el-row class="height-btm-row" style="margin-top: 12px">
+          <el-row v-if="searchState.criteria && Object.keys(searchState.criteria).length > 0" class="height-btm-row" style="margin-top: 12px">
             <el-col :span="24" style="display: flex;justify-content: flex-start;align-items: center;flex-wrap: wrap">
               <el-text class="mx-1 el-text-margin-rg-style" style="margin-bottom: 6px">AI推荐:</el-text>
-              <el-tag v-for="tag in tags" :key="tag.name" closable :type="tag.type" style="margin-right: 6px;margin-bottom: 6px">
-                {{ tag.name }}
-              </el-tag>
-              <el-button class="recommended-btm" type="primary" link>清空</el-button>
-<!--              <el-button class="recommended">ai行业工作经验-->
-<!--                <el-icon class="el-icon&#45;&#45;right"><Close /></el-icon>-->
-<!--              </el-button>-->
-<!--              <el-button class="recommended">3年以上人事软件实施工作经验-->
-<!--                <el-icon class="el-icon&#45;&#45;right"><Close /></el-icon>-->
-<!--              </el-button>-->
-<!--              <el-button class="recommended">男士优先-->
-<!--                <el-icon class="el-icon&#45;&#45;right"><Close /></el-icon>-->
-<!--              </el-button>-->
-<!--              <el-button class="recommended-btm" type="primary" link>清空</el-button>-->
-<!--              <el-button class="recommended-btm" type="primary" link style="margin-left: 8px;">确定</el-button>-->
+              <template v-if="searchState.criteria">
+                <template v-for="(obj,key) in searchState.criteria" :key="key">
+                  <template v-if="obj">
+                    <template v-for="(item,index) in obj" :key="index">
+                      <el-tag closable :type="['success', 'warning', 'success', 'info'][item.length%index]" style="margin-right: 6px;margin-bottom: 6px">
+                        {{ item }}
+                      </el-tag>
+                    </template>
+                  </template>
+                </template>
+              </template>
+              <el-button class="recommended-btm" type="primary" link style="margin-top: -6px;" @click="deleteAIConditionFlag=true">清空</el-button>
             </el-col>
           </el-row>
         </el-card>
@@ -471,8 +324,8 @@
                 >
                   <!--         渠道配置           -->
                   <template v-for="(channel, key) in allChannelStatus" :key="key">
-                    <el-menu-item v-if="key==='ALL'||key==='Collect'" class="menuItems" :index="key" @click="jobInfoName=key">{{channel.name}}({{channel.dataSize}})</el-menu-item>
-                    <el-menu-item v-else v-show="channel.disable" class="menuItems" :index="key" @click="jobInfoName=key">
+                    <el-menu-item v-if="key==='ALL'||key==='Collect'" class="menuItems" :index="key" @click="clickMenu(channel)">{{channel.name}}({{channel.dataSize}})</el-menu-item>
+                    <el-menu-item v-else-if="channel.disable" class="menuItems" :index="key" @click="clickMenu(channel)">
                       {{key==='BOSS'?'BOSS':channel.name}}({{channel.dataSize}})&nbsp;
                       <el-text v-if="channel.login" class="" type="success">已登陆</el-text>
                       <el-text v-else-if="channel.loading" class="" type="warning">检测中...</el-text>
@@ -485,7 +338,7 @@
               <div class="right-btms" style="width: 360px">
                 <!--    渠道设置      -->
                 <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
-                  <el-checkbox v-model="searchState.unreadCheckBoxValue" style="height: 32px;font-size: 13px" label="仅显示未读"/>
+                  <el-checkbox v-model="unreadCheckBoxValue" style="height: 32px;font-size: 13px" label="仅显示未读" @click="clickUnreadCheck"/>
                   <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>
                   <el-button class="btm-color" style="margin-left: 2rem;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
                 </div>
@@ -493,9 +346,10 @@
             </el-col>
           </el-row>
           <!--    不同模版      -->
-          <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JobInfo>
-          <BossJobInfo ref="bossJobInfoRef" v-show="jobInfoName==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></BossJobInfo>
-          <ZHILIANJobInfo  ref="zhiLianInfoRef" v-show="jobInfoName==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></ZHILIANJobInfo>
+          <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JobInfo>
+          <BossJobInfo ref="bossJobInfoRef" v-show="jobInfoName==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></BossJobInfo>
+          <ZHILIANJobInfo  ref="zhiLianInfoRef" v-show="jobInfoName==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></ZHILIANJobInfo>
+          <CollectJobInfo ref="collectInfoRef" v-show="jobInfoName==='Collect'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></CollectJobInfo>
         </el-card>
       </div>
       <!--   渠道配置   -->
@@ -506,13 +360,15 @@
       <PluginInfo></PluginInfo>
       <!--   保存搜索条件   -->
       <SearchCondition v-model:dialogVisible="searchConditionDialog" :change-close-status="()=>searchConditionDialog=false" :on-condition-request="getSearchConditionRequest"></SearchCondition>
+      <!--  删除ai推荐  -->
+      <DialogTemplate v-if="deleteAIConditionFlag" v-model:dialogVisible="deleteAIConditionFlag" :change-close-status="()=>deleteAIConditionFlag=false" :on-confirm="deleteALlAICondition" :context="'确认删除AI推荐搜索条件!'"></DialogTemplate>
     </div>
 </template>
 <script setup>
 import {computed, onMounted, ref, watch} from 'vue'
 import {CircleClose, ArrowUp,ArrowDown,Close} from '@element-plus/icons-vue'
 import AIChat2 from "@/views/search/chat/AIChat2.vue";
-import {createSearchState} from "@/views/search/dto/request/SearchStateConfig";
+import {convertSearchState, createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "@/domain/request/SaveSearchRequest";
 import {
   degreeOptions,
@@ -535,23 +391,29 @@ import {saveJobList} from "@/api/jobList/JobListApi";
 import JobInfo from "@/views/search/components/JobInfo.vue";
 import BossJobInfo from "@/views/search/components/BossJobInfo.vue";
 import ZHILIANJobInfo from "@/views/search/components/ZHILIANJobInfo.vue";
+import CollectJobInfo from "@/views/search/components/CollectJobInfo.vue";
 import boosQueueManager from "@/components/QueueManager/queueManager";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
 import PluginInfo from "@/views/search/components/PluginInfo.vue";
 import {getChatIdByUserId} from "@/api/chat/ChatApi";
 import SearchCondition from "@/views/search/searchCondition/SearchCondition.vue";
 import ChannelConfig from "@/views/search/channel/ChannelConfig.vue";
+import _ from "lodash";
+import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 
 const store = useStore();
 //新的搜索体
 const searchConditionRequestData = computed(() => store.getters.getSearchConditionRequestData);
 //搜索id
 const searchConditionId = computed(() => store.getters.getSearchConditionId);
+//是否过滤已读
+const unreadCheckBoxV = computed(() => store.getters.getUnreadCheckBoxV);
+const unreadCheckBoxValue = ref(false);
 //搜索区域loading
 const searchAreaLoadingSwitch = ref(false);
 //固定条件搜索属性
 let searchStateConfig =createSearchState();
-const searchState = computed(() => store.getters.getSearchStateConfig);
+const searchState = ref(searchStateConfig);
 //加载 loading
 let loadingBig ;
 //结果集渲染模版名称
@@ -570,8 +432,15 @@ const allResponse = ref({
 const jobInfoRef = ref(null);
 const bossJobInfoRef = ref(null);
 const zhiLianInfoRef = ref(null);
-
+const collectInfoRef = ref(null);
+//所有渠道配置
 const allChannelStatus = computed(() => store.getters.getChannelConf);
+//所有第三方渠道
+const allThirdPartyChannelConfig = computed(() => {
+  return Object.entries(allChannelStatus.value)
+      .filter(([key, channel]) => !(key==='ALL'||key==='Collect'))
+      .map(([key, channel]) => ({...channel })); // 返回过滤后的对象
+});
 //渠道对话框开关
 const channelDialogFlag = ref(false);
 //ai对话框开关
@@ -582,6 +451,8 @@ const contentHeight =ref(0);
 const searchAriaHeight = ref(true);
 //保存搜索条件
 const searchConditionDialog = ref(false);
+//清除AI搜索条件
+const deleteAIConditionFlag = ref(false);
 //配置信息
 //性别
 const genderOptionsVal = ref(genderOptions);
@@ -592,30 +463,6 @@ const jobStatusOptionsVal = ref(jobStatusOptions);
 //学历状态
 const degreeOptionsVal = ref(degreeOptions);
 
-//ai推荐
-const tags = ref([
-  { name: 'ai行业工作经验', type: 'primary' },
-  { name: '3年以上人事软件实施工作经验', type: 'success' },
-  { name: '男士优先', type: 'info' },
-  { name: 'Tag 4', type: 'warning' },
-  { name: 'Tag 5', type: 'danger' },
-  { name: 'ai行业工作经验', type: 'primary' },
-  { name: '3年以上人事软件实施工作经验', type: 'success' },
-  { name: '男士优先', type: 'info' },
-  { name: 'Tag 4', type: 'warning' },
-  { name: 'Tag 5', type: 'danger' },
-  { name: 'ai行业工作经验', type: 'primary' },
-  { name: '3年以上人事软件实施工作经验', type: 'success' },
-  { name: '男士优先', type: 'info' },
-  { name: 'Tag 4', type: 'warning' },
-  { name: 'Tag 5', type: 'danger' },
-  { name: 'ai行业工作经验', type: 'primary' },
-  { name: '3年以上人事软件实施工作经验', type: 'success' },
-  { name: '男士优先', type: 'info' },
-  { name: 'Tag 4', type: 'warning' },
-  { name: 'Tag 5', type: 'danger' },
-]);
-
 
 //onMounted 生命周期函数
 onMounted(async () => {
@@ -623,9 +470,16 @@ onMounted(async () => {
   if (expandableDiv.value) {
     contentHeight.value = expandableDiv.value.scrollHeight;
   }
+  //初始化渠道ref
+  store.commit('changeChannelCardInfoRef',{key:"BOSS",value:bossJobInfoRef.value});
+  store.commit('changeChannelCardInfoRef',{key:"ZHILIAN",value:zhiLianInfoRef.value});
+  store.commit('changeChannelCardInfoRef',{key:"Collect",value:collectInfoRef.value});
   //加载登陆状态
-  bossJobInfoRef.value.userLoginStatus();
-  zhiLianInfoRef.value.userLoginStatus();
+  allThirdPartyChannelConfig.value.forEach((item)=>{
+    item.cardInfoRef.userLoginStatus();
+  })
+  // bossJobInfoRef.value.userLoginStatus();
+  // zhiLianInfoRef.value.userLoginStatus();
 })
 
 onMounted(async ()=>{
@@ -635,6 +489,10 @@ onMounted(async ()=>{
   }catch (e){
     ElMessage.error('后端服务异常，请联系管理员');
   }
+});
+//初始化所有ref
+onMounted(async ()=>{
+
 });
 
 // 加载效果
@@ -647,6 +505,16 @@ const handleMenuSelect = async (index) => {
     loadingClose();
   }
 };
+
+//点击tab事件
+const clickMenu = (obj) => {
+  jobInfoName.value=obj.key
+}
+//仅显示已读
+const clickUnreadCheck = () => {
+  store.commit('changeUnreadCheckBoxV',!unreadCheckBoxValue.value);
+
+}
 
 //加载所有配置
 const loadingAllSearchConfig = async () => {
@@ -672,6 +540,19 @@ const onChannelConfig = (keys) => {
   channelDialogFlag.value = false;
 }
 
+//清除所有ai推荐
+const deleteALlAICondition = async () => {
+  searchState.value.criteria = null;
+  deleteAIConditionFlag.value = false;
+  searchAreaLoadingSwitch.value = true;
+  try {
+    // 模拟数据加载
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  } catch (e) {
+    console.log(e)
+  }
+  searchAreaLoadingSwitch.value = false;
+}
 /**
  * 搜索
  * 保存搜索条件，
@@ -714,7 +595,7 @@ const searchJobList = async () => {
     return;
   }
   //如果开启测试，不需要查询数据列表
-  let responseJobListData;
+  // let responseJobListData;
   // if(store.getters.getTestSwitch){
   //   responseJobListData = getBoosTestJobList().BOSS;
   // }else{
@@ -802,57 +683,44 @@ const searchJobList = async () => {
 //获取搜索条件
 const getSearchConditionRequest = () => {
   //处理工作年限边界
-  const workElSliderValue = searchState.value.workElSliderValue;
-  workElSliderValue[1] = workElSliderValue[1] === 11 ? workElSliderValue[1] = -1 : workElSliderValue[1];
+  const workElSliderValue = _.cloneDeep(searchState.value.workElSliderValue);
+  workElSliderValue[0] = (workElSliderValue[0] <=0||workElSliderValue[0] >10) ? workElSliderValue[0] = -1 : workElSliderValue[0];
+  workElSliderValue[1] = (workElSliderValue[1] <=0||workElSliderValue[1] >10) ? workElSliderValue[1] = -1 : workElSliderValue[1];
   //处理年龄边界
-  const ageElSliderValue = searchState.value.ageElSliderValue;
-  ageElSliderValue[1] = ageElSliderValue[1] === 51 ? ageElSliderValue[1] = -1 : ageElSliderValue[1];
+  const ageElSliderValue = _.cloneDeep(searchState.value.ageElSliderValue);
+  ageElSliderValue[0] = (ageElSliderValue[0] <=15||ageElSliderValue[0] >50) ? ageElSliderValue[0] = -1 : ageElSliderValue[0];
+  ageElSliderValue[1] = (ageElSliderValue[1] <=15||ageElSliderValue[1] >50) ? ageElSliderValue[1] = -1 : ageElSliderValue[1];
   //用户id
   searchState.value.userId=1;
   //处理其他参数
   let searchConditionRequest = convertSearchConditionRequest(searchState.value);
-  searchConditionRequest.searchChannels = Object.entries(store.getters.getChannelConf)
-      .filter(([key, channel]) => !(key==='ALL'||key==='Collect')) // 过滤出 disable 为 false 的项
-      .map(([key, channel]) => (channel.name))||[];
+  searchConditionRequest.searchChannels = allThirdPartyChannelConfig.value.filter((channel) => channel.disable).map((item) => (item.name))||[];
+  searchConditionRequest.experienceFrom = workElSliderValue[0];
   searchConditionRequest.experienceTo = workElSliderValue[1];
+  searchConditionRequest.ageFrom = ageElSliderValue[0];
   searchConditionRequest.ageTo = ageElSliderValue[1];
   return searchConditionRequest;
 }
 
-//boos数据列表
-const boosJobList = async (searchConfig) => {
-  const headers = await getBoosHeader(true);
-  if(!headers){
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
-    throw new Error("系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！");
+const formatWorkSize =(value)=>{
+  if(value<=0){
+    return "不限";
+  }else if(value>10){
+    return '10年以上';
+  }else{
+    return value+'年';
   }
-  searchConfig.page = 1;
-  const queryString = qs.stringify(searchConfig);
-  //访问Boos
-  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  pluginEmptyRequestTemplate.parameters = null;
-  pluginEmptyRequestTemplate.requestHeader = headers;
-  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.GET;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.getAllJobList+"?"+queryString;
-  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
-
-//boos 用户登陆状态
-const boosUserStatus = async () => {
-  const headers = await getBoosHeader(true);
-  if(!headers){
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
-    return;
+const formatAgeSize =(value)=>{
+  if(value<=15){
+    return "不限";
+  }else if(value>50){
+    return '50岁以上';
+  }else{
+    return value+'岁';
   }
-  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  pluginEmptyRequestTemplate.parameters = null;
-  pluginEmptyRequestTemplate.requestHeader = headers;
-  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.GET;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl+pluginAllUrls.BOSS.checkUserAuth;
-  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
-
 
 //打开加载 loding
 const loadingOpen = () => {
@@ -860,32 +728,12 @@ const loadingOpen = () => {
     lock: true,
     text: '数据加载中'
   })
-  // setTimeout(() => {
-  //   loadingClose()
-  // }, 15000)
 }
 //关闭加载 loding
 const loadingClose = ()=>{
   loadingBig.close();
 }
-//请求
-const i360Request= async (action,emptyRequestTemplate, timeout = 5000) => {
-  try {
-    const response = await PluginMessenger.sendMessage(action, emptyRequestTemplate, timeout);
-    return response;
-  } catch (error) {
-    console.error('Error:', error.message);
-  }
-}
 
-/**
- * 监听数据表头部事件
- * @param tab
- * @param event
- */
-const jobListTopTabHandleClick = (tab,event) => {
-  console.log(tab, event)
-}
 /**
  * 重置搜索条件
  */
@@ -894,12 +742,20 @@ const resetSearchConnect = ()=>{
 }
 
 //监听搜索体
-watch(() => searchConditionRequestData.value, (newValue) => {
-  searchAreaLoadingSwitch.value=true;
-  console.log("监听搜索体",newValue)
-  setTimeout(async () => {
-    searchAreaLoadingSwitch.value=false;
-  },2000);
+watch(() => searchConditionRequestData.value, async (newValue) => {
+  console.log(newValue)
+  if(newValue){
+    searchAreaLoadingSwitch.value = true;
+    try {
+      // 模拟数据加载
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } catch (e){
+      console.log(e)
+    }
+    searchState.value = convertSearchState(newValue);
+    searchAreaLoadingSwitch.value = false;
+    store.commit('changeSearchConditionRequestData',null);
+  }
 });
 
 </script>

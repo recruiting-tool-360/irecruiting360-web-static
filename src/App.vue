@@ -9,15 +9,19 @@
 import { useRoute } from 'vue-router'
 import { onMounted, onBeforeUnmount } from "vue";
 import MainLayout from "@/layout/MainLayout.vue";
-import boosQueueManager from "@/components/QueueManager/queueManager";
+import {boosQueueManager, zhiLianQueueManager} from "@/components/QueueManager/queueManager";
 import {generateOneUniqueRandomNumber} from "@/util/RandomNum";
 import {exeJobInfo} from "@/components/QueueManager/BoosJobInfoManager";
+import {exeZhiLianJobInfo} from "@/components/QueueManager/ZhiLianJobInfoManager";
 // 获取当前路由信息
 const route = useRoute()
 const isMainLayoutRoute = ['home'].includes(route.name)
 // 异步处理器
-function fn(val){
+function bossFn(val){
   exeJobInfo(val);
+}
+function zhiLianFn(val){
+  exeZhiLianJobInfo(val);
 }
 
 // 定义标签页可见性变化的处理函数
@@ -34,9 +38,16 @@ onMounted(() => {
   const runTime = generateOneUniqueRandomNumber(2000,3000);
   console.log(runTime)
   // 开始定时器
-  boosQueueManager.start(runTime,fn);
+  boosQueueManager.start(runTime,bossFn);
   // 监听标签页可见性变化
   //document.addEventListener("visibilitychange", handleVisibilityChange);
+});
+// 在组件挂载时执行
+onMounted(() => {
+  const runTime = generateOneUniqueRandomNumber(2000,3000);
+  console.log(runTime)
+  // 开始定时器
+  zhiLianQueueManager.start(runTime,zhiLianFn);
 });
 
 // 在组件卸载时执行

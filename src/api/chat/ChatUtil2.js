@@ -17,6 +17,7 @@ export const fetchStream = async (url, data, onMessage, onError,endStream) => {
         const decoder = new TextDecoder("UTF-8");
 
         let done = false;
+        let buffer = ""; // 缓存数据，避免分割时丢失
 
         while (!done) {
             const { value, done: readerDone } = await reader.read();
@@ -24,9 +25,12 @@ export const fetchStream = async (url, data, onMessage, onError,endStream) => {
 
             if (value) {
                 const chunk = decoder.decode(value, { stream: true });
+                buffer += chunk; // 将每次读取的数据追加到缓冲区
 
-                const messages = chunk.split("\n").filter(Boolean); // 按行分隔消息
-                for (const message of messages) {
+                let lines = buffer.split("\n");
+                buffer = lines.pop(); // 将最后一行数据保留在缓冲区
+                // const messages = chunk.split("\n").filter(Boolean); // 按行分隔消息
+                for (const message of lines) {
                     if (message.startsWith("data:")) {
                         const data = message.substring(5).trim();
                         if (data === "[DONE]") {
