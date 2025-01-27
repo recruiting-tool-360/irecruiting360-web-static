@@ -54,7 +54,7 @@
             <spa>AI评估</spa>
           </div>
           <div class="geekAINumBtm">
-            <el-text v-if="geekList.score&&geekList.score>=0" style="font-size: 20px;">{{geekList.score}}</el-text>
+            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{geekList.score}}</el-text>
             <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
           </div>
         </el-col>
@@ -86,6 +86,7 @@ import {onMounted,computed,ref,watch,defineExpose} from "vue";
 import {useStore} from "vuex";
 import {userCollectResume} from "@/api/jobList/JobListApi";
 import {ElMessage} from "element-plus";
+import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 
 //store
 const store = useStore();
@@ -97,7 +98,7 @@ const props = defineProps({
 const jobALlData = computed(()=>props.listData);
 const channelKey = "Collect";
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
-
+const sortComparisonValue = getSortComparisonValue();
 const clickListInfo = (value) => {
   props.clickListInfoFn(value);
 }

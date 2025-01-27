@@ -9,6 +9,7 @@ export default {
                 desc:"全渠道",
                 disable:true,
                 dataSize:0,
+                aiSort:false,
                 cardInfoRef:null
             },
             BOSS:{
@@ -19,6 +20,7 @@ export default {
                 desc:"boss直聘",
                 disable:true,
                 dataSize:0,
+                aiSort:false,
                 cardInfoRef:null
             },
             ZHILIAN:{
@@ -29,6 +31,7 @@ export default {
                 desc:"智联招聘",
                 disable:true,
                 dataSize:0,
+                aiSort:false,
                 cardInfoRef:null
             },
             Collect:{
@@ -37,6 +40,7 @@ export default {
                 desc:"我的收藏",
                 disable:true,
                 dataSize:0,
+                aiSort:false,
                 cardInfoRef:null
             },
         },
@@ -56,6 +60,9 @@ export default {
         },
         changeChannelCardInfoRef(state,{key,value}) {
             state.channelConf[key].cardInfoRef=value;
+        },
+        changeAiSortSwitch(state,{key,value}) {
+            state.channelConf[key].aiSort=value;
         },
     },
     actions: {},

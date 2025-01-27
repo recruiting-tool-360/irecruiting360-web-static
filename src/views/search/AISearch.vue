@@ -338,9 +338,12 @@
               <div class="right-btms" style="width: 360px">
                 <!--    渠道设置      -->
                 <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
-                  <el-checkbox v-model="unreadCheckBoxValue" style="height: 32px;font-size: 13px" label="仅显示未读" @click="clickUnreadCheck"/>
-                  <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>
-                  <el-button class="btm-color" style="margin-left: 2rem;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
+                  <el-checkbox v-model="unreadCheckBoxValue" style="height: 32px;font-size: 13px;margin-right: 16px;" label="仅显示未读" @click="clickUnreadCheck"/>
+<!--                  <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>-->
+                  <template v-for="(channel, key) in allChannelStatus" :key="key">
+                    <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName" style="height: 32px" @click="aiSortSearch(channel)">AI排序-{{channel.name}}</el-button>
+                  </template>
+                  <el-button class="btm-color" style="margin-left: 16px;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
                 </div>
               </div>
             </el-col>
@@ -471,6 +474,7 @@ onMounted(async () => {
     contentHeight.value = expandableDiv.value.scrollHeight;
   }
   //初始化渠道ref
+  store.commit('changeChannelCardInfoRef',{key:"ALL",value:jobInfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"BOSS",value:bossJobInfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"ZHILIAN",value:zhiLianInfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"Collect",value:collectInfoRef.value});
@@ -553,6 +557,15 @@ const deleteALlAICondition = async () => {
   }
   searchAreaLoadingSwitch.value = false;
 }
+
+//ai 排序
+const aiSortSearch = (channel) => {
+  if(channel&&channel.cardInfoRef){
+    channel.cardInfoRef.handleCurrentChange(1);
+  }
+}
+
+
 /**
  * 搜索
  * 保存搜索条件，
@@ -694,7 +707,7 @@ const getSearchConditionRequest = () => {
   searchState.value.userId=1;
   //处理其他参数
   let searchConditionRequest = convertSearchConditionRequest(searchState.value);
-  searchConditionRequest.searchChannels = allThirdPartyChannelConfig.value.filter((channel) => channel.disable).map((item) => (item.name))||[];
+  searchConditionRequest.searchChannels = allThirdPartyChannelConfig.value.filter((channel) => channel.disable&&channel.login).map((item) => (item.name))||[];
   searchConditionRequest.experienceFrom = workElSliderValue[0];
   searchConditionRequest.experienceTo = workElSliderValue[1];
   searchConditionRequest.ageFrom = ageElSliderValue[0];
@@ -927,6 +940,9 @@ watch(() => searchConditionRequestData.value, async (newValue) => {
           }
         }
 
+        .ai-sort-btm{
+          background: linear-gradient(208deg, rgb(255 192 160) 0%, rgb(219 255 119) 11.71%, rgb(252 82 245) 49.68%, rgb(198 84 255) 74.23%, rgb(246 211 60) 90.26%, rgb(217 255 116) 100%) !important;
+        }
       }
     }
     ::v-deep(.input-with-select .el-input-group__append) {

@@ -4,82 +4,84 @@
       <el-empty description="聚合渠道暂无数据" />
     </template>
     <!--  列表信息  -->
-    <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id" @click="userInfoOpen(geekList)">
-      <!--   已读   -->
-      <div v-if="geekList.isRead" class="read-div">
-        <el-image :src="'/index/header/searchPage/read.svg'" style="width: 100%;height: 100%"></el-image>
-      </div>
-      <!--  头像行    -->
-      <el-row class="geek-img-el-row el-row-width-full" :gutter="10">
-        <el-col class="geek-img-el-col el-col-display-Style" :span="18">
-          <!--   头像     -->
-          <el-avatar class="headerIcons" :size="40" :src="`${geekList.genderStr==='男'?'/index/header/icons/geekMan.svg':'/index/header/icons/geekWoman.svg'}`" />
-          <el-text class="mx-1 el-button-margin-left" style="font-size: 1rem;font-weight: bold">{{geekList.name}}</el-text>
-          <el-text class="mx-1 el-button-margin-left text-gray-color-130">{{geekList.genderStr}} · {{geekList.age}} · 未知</el-text>
-          <el-button size="small" disabled round style="margin-left: 1rem;">求职意向:
-            <el-text style="margin-left: 5px;color: rgb(31, 35, 41)">{{geekList.intention}}</el-text>
-          </el-button>
-        </el-col>
-        <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="6">
-          <el-button text disabled size="small">
-            <template v-if="geekList.outId.split('&').length===3">
-              <el-image :src="'/index/header/searchPage/zhilian.svg'"></el-image>
-              &nbsp;&nbsp;智联招聘
-            </template>
-            <template v-else>
-              <el-image :src="'/index/header/searchPage/boss.ico'"></el-image>
-              &nbsp;&nbsp;BOSS直聘
-            </template>
-          </el-button>
-          <el-text style="margin-right: 8px;color: #E0E0E0">|</el-text>
-          <el-rate :v-model="geekList.collectOrNot" :max="1"/>
-          <el-button disabled text size="small" style="margin-left: -5px">
-            收藏
-          </el-button>
-        </el-col>
-      </el-row>
-      <!--  学历行    -->
-      <el-row class="geek-highestDegree-el-row el-row-width-full el-row-margin-top-6px"  :gutter="0">
-        <el-col class="geek-highestDegree-el-col el-col-display-Style" :span="15">
-          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.educationStr}}</el-button>
-          <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear}}年</el-button>
-          <el-button style="background-color: #FFF7E6;color: #F79000" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
-            <el-image class="headerIcons" :src="'/index/header/icons/phone.svg'"></el-image>
-            12345678910</el-button>
-          <el-button style="background-color: #F9F0FF;color: #722ED1" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
-            <el-image class="headerIcons" :src="'/index/header/icons/email.svg'"></el-image>
-            12345678910@126.com</el-button>
-        </el-col>
-        <el-col class="geek-highestDegree-el-col el-col-display-Style" style="justify-content: end" :span="9">
-          <div class="geekAIBtm">
-            <spa>AI评估</spa>
-          </div>
-          <div class="geekAINumBtm">
-            <el-text v-if="geekList.score&&geekList.score>=-1" style="font-size: 20px;">{{geekList.score}}</el-text>
-            <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
-          </div>
-        </el-col>
-      </el-row>
+<!--    <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id" @click="userInfoOpen(geekList)">-->
+<!--      &lt;!&ndash;   已读   &ndash;&gt;-->
+<!--      <div v-if="geekList.isRead" class="read-div">-->
+<!--        <el-image :src="'/index/header/searchPage/read.svg'" style="width: 100%;height: 100%"></el-image>-->
+<!--      </div>-->
+<!--      &lt;!&ndash;  头像行    &ndash;&gt;-->
+<!--      <el-row class="geek-img-el-row el-row-width-full" :gutter="10">-->
+<!--        <el-col class="geek-img-el-col el-col-display-Style" :span="18">-->
+<!--          &lt;!&ndash;   头像     &ndash;&gt;-->
+<!--          <el-avatar class="headerIcons" :size="40" :src="`${geekList.genderStr==='男'?'/index/header/icons/geekMan.svg':'/index/header/icons/geekWoman.svg'}`" />-->
+<!--          <el-text class="mx-1 el-button-margin-left" style="font-size: 1rem;font-weight: bold">{{geekList.name}}</el-text>-->
+<!--          <el-text class="mx-1 el-button-margin-left text-gray-color-130">{{geekList.genderStr}} · {{geekList.age}} · 未知</el-text>-->
+<!--          <el-button size="small" disabled round style="margin-left: 1rem;">求职意向:-->
+<!--            <el-text style="margin-left: 5px;color: rgb(31, 35, 41)">{{geekList.intention}}</el-text>-->
+<!--          </el-button>-->
+<!--        </el-col>-->
+<!--        <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="6">-->
+<!--          <el-button text disabled size="small">-->
+<!--            <template v-if="geekList.outId.split('&').length===3">-->
+<!--              <el-image :src="'/index/header/searchPage/zhilian.svg'"></el-image>-->
+<!--              &nbsp;&nbsp;智联招聘-->
+<!--            </template>-->
+<!--            <template v-else>-->
+<!--              <el-image :src="'/index/header/searchPage/boss.ico'"></el-image>-->
+<!--              &nbsp;&nbsp;BOSS直聘-->
+<!--            </template>-->
+<!--          </el-button>-->
+<!--          <el-text style="margin-right: 8px;color: #E0E0E0">|</el-text>-->
+<!--          <el-rate :v-model="geekList.collectOrNot" :max="1"/>-->
+<!--          <el-button disabled text size="small" style="margin-left: -5px">-->
+<!--            收藏-->
+<!--          </el-button>-->
+<!--        </el-col>-->
+<!--      </el-row>-->
+<!--      &lt;!&ndash;  学历行    &ndash;&gt;-->
+<!--      <el-row class="geek-highestDegree-el-row el-row-width-full el-row-margin-top-6px"  :gutter="0">-->
+<!--        <el-col class="geek-highestDegree-el-col el-col-display-Style" :span="15">-->
+<!--          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.educationStr}}</el-button>-->
+<!--          <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear}}年</el-button>-->
+<!--          <el-button style="background-color: #FFF7E6;color: #F79000" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
+<!--            <el-image class="headerIcons" :src="'/index/header/icons/phone.svg'"></el-image>-->
+<!--            12345678910</el-button>-->
+<!--          <el-button style="background-color: #F9F0FF;color: #722ED1" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
+<!--            <el-image class="headerIcons" :src="'/index/header/icons/email.svg'"></el-image>-->
+<!--            12345678910@126.com</el-button>-->
+<!--        </el-col>-->
+<!--        <el-col class="geek-highestDegree-el-col el-col-display-Style" style="justify-content: end" :span="9">-->
+<!--          <div class="geekAIBtm">-->
+<!--            <spa>AI评估</spa>-->
+<!--          </div>-->
+<!--          <div class="geekAINumBtm">-->
+<!--            <el-text v-if="geekList.score&&geekList.score>=-1" style="font-size: 20px;">{{geekList.score}}</el-text>-->
+<!--            <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>-->
+<!--          </div>-->
+<!--        </el-col>-->
+<!--      </el-row>-->
 
-      <!--  工作年龄一行    -->
-      <el-row class="geek-work-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">
-        <el-button text style="background-color: rgba(255,230,230,0);" class="workBtm" size="small" disabled round>
-          <el-image  class="headerIcons" :src="'/index/header/icons/work.svg'" style="margin-right: 10px"></el-image>
-          <el-text>2018.01 - 2020.12   上海力德信息科技有限公司</el-text>
-        </el-button>
-      </el-row>
+<!--      &lt;!&ndash;  工作年龄一行    &ndash;&gt;-->
+<!--      <el-row class="geek-work-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">-->
+<!--        <el-button text style="background-color: rgba(255,230,230,0);" class="workBtm" size="small" disabled round>-->
+<!--          <el-image  class="headerIcons" :src="'/index/header/icons/work.svg'" style="margin-right: 10px"></el-image>-->
+<!--          <el-text>2018.01 - 2020.12   上海力德信息科技有限公司</el-text>-->
+<!--        </el-button>-->
+<!--      </el-row>-->
 
-      <!--  学校一行    -->
-      <el-row class="geek-school-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">
-        <el-button text style="background-color: rgba(255,230,230,0);" class="schoolBtm" size="small" disabled round>
-          <el-image  class="headerIcons" :src="'/index/header/icons/school.svg'" style="margin-right: 10px"></el-image>
-          <el-text>2013.09 - 2017.06   清华大学  视觉传达设计</el-text>
-        </el-button>
-      </el-row>
+<!--      &lt;!&ndash;  学校一行    &ndash;&gt;-->
+<!--      <el-row class="geek-school-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">-->
+<!--        <el-button text style="background-color: rgba(255,230,230,0);" class="schoolBtm" size="small" disabled round>-->
+<!--          <el-image  class="headerIcons" :src="'/index/header/icons/school.svg'" style="margin-right: 10px"></el-image>-->
+<!--          <el-text>2013.09 - 2017.06   清华大学  视觉传达设计</el-text>-->
+<!--        </el-button>-->
+<!--      </el-row>-->
 
-    </el-card>
+<!--    </el-card>-->
+    <!--  列表信息  -->
+    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"></ResumeListInfo>
 
-    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
+    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" :change-close-status="()=>{geekInfoDialog=false;}" ></BossDetial>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -107,6 +109,8 @@ import {ElMessage} from "element-plus";
 import {markResumeBlindReadStatus} from "@/api/jobList/JobListApi";
 import {pluginAllUrls} from "@/components/PluginRequestManager";
 import qs from "qs";
+import {getSortComparisonValue} from "@/config/staticConf/AIConf";
+import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
 
 //store
 const store = useStore();
@@ -119,6 +123,10 @@ const props = defineProps({
 const channelKey = "ALL";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
+//ai排序逻辑 检查符合条件的元素数量
+const validScoreCount = computed(() => {
+  return jobALlData.value.filter((item) => item.score !== undefined && item.score !== null && item.score >= getSortComparisonValue()).length;
+});
 //当前页码数
 const currentPage = ref(1);
 //当前页显示条目数
@@ -129,48 +137,27 @@ const totalNum =ref(10);
 const channel = channelOptions.find(item=>item.eName==="ALL");
 //搜索id
 const searchConditionId = computed(() => store.getters.getSearchConditionId);
+//是否已读
+const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 //用户详细信息
 const geekInfoDialog = ref(false);
-//盲简历id
-const resumeId = ref("");
 //bossDetialRef
 const bossDetialRef = ref(null);
 
-const userInfoOpen = async (userInfo) => {
-  let splitStr = userInfo.outId.split('&');
-  if(splitStr.length===3){
-   openDetail(userInfo);
-  }else{
-    resumeId.value = userInfo.id;
-    geekInfoDialog.value = true;
-    bossDetialRef.value?.childGeekInfoMethod(userInfo);
-    //设置为已读
-    try {
-      let {data} = await markResumeBlindReadStatus([userInfo.id],true);
-      userInfo.isRead = 1;
-    }catch (e){
-      console.log(e);
-      ElMessage.error('服务异常，请联系管理员！');
-    }
+const clickListInfo = async (userInfo) => {
+  geekInfoDialog.value = true;
+  //设置为已读
+  try {
+    let {data} = await markResumeBlindReadStatus([userInfo.id],true);
+    userInfo.isRead = 1;
+  }catch (e){
+    console.log(e);
+    ElMessage.error('服务异常，请联系管理员！');
   }
 }
 
 const openDetail = (listInfo)=>{
-  let split = listInfo.outId.split("&");
-  const requestData ={
-    "t": split[2],
-    "resumeNumber": split[1],
-    "k": split[0]
-  }
-  const url=pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.geekDetailUrl+`?`+qs.stringify(requestData);
-  const name='_blank';                            //网页名称，可为空;
-  const iWidth=window.screen.availWidth *0.7;                          //弹出窗口的宽度;
-  const iHeight=window.screen.availHeight * 0.7;                         //弹出窗口的高度;
-  //获得窗口的垂直位置
-  const iTop = (window.screen.availHeight +30 - iHeight) / 2;
-  //获得窗口的水平位置
-  const iLeft = (window.screen.availWidth - 10 - iWidth) / 2;
-  window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
+
 }
 
 //分页设置触发时
@@ -199,6 +186,7 @@ const search = async (page) => {
   pageSearchRequest.offset=page;
   pageSearchRequest.size =pageSize.value;
   pageSearchRequest.channel = channelConfig.value.desc;
+  pageSearchRequest.filterByRead = filterByRead.value;
   pageSearchRequest.searchConditionId = searchConditionId.value;
   let listResponse = null;
   try {
@@ -234,13 +222,19 @@ const channelSearch = (channelRequestInfo) => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,
+  search,handleCurrentChange
 });
 
 // 如果 props 的值可能会变化，使用 watch 来同步更新 localValue
 // watch(() => props.largeData, (newValue) => {
 //   jobALlData.value = newValue;
 // });
+
+//ai排序逻辑
+// 监听 validScoreCount 的变化，更新 Vuex 的状态
+watch(validScoreCount, (newCount) => {
+      store.commit("changeAiSortSwitch", {key:channelKey,value:newCount > 0});
+    }, { immediate: true });
 </script>
 
 <style scoped lang="scss">
