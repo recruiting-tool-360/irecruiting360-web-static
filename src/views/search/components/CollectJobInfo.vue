@@ -6,7 +6,7 @@
     <!--  列表信息  -->
     <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"></ResumeListInfo>
 
-    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
+    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" :change-close-status="()=>{geekInfoDialog=false;}" ></BossDetial>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -35,6 +35,7 @@ import {markResumeBlindReadStatus} from "@/api/jobList/JobListApi";
 import {pluginAllUrls} from "@/components/PluginRequestManager";
 import qs from "qs";
 import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
+import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 
 //store
 const store = useStore();
@@ -47,6 +48,10 @@ const props = defineProps({
 const channelKey = "Collect";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
+//ai排序逻辑 检查符合条件的元素数量
+const validScoreCount = computed(() => {
+  return jobALlData.value.filter((item) => item.score !== undefined && item.score !== null && item.score >= getSortComparisonValue()).length;
+});
 //当前页码数
 const currentPage = ref(1);
 //当前页显示条目数
@@ -55,6 +60,8 @@ const pageSize = ref(10);
 const totalNum =ref(10);
 //搜索id
 const searchConditionId = computed(() => store.getters.getSearchConditionId);
+//是否已读
+const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 //用户详细信息
 const geekInfoDialog = ref(false);
 //bossDetialRef
@@ -67,7 +74,6 @@ onMounted(async ()=>{
 });
 
 const clickListInfo = async (userInfo) => {
-  resumeId.value = userInfo.id;
   geekInfoDialog.value = true;
   //设置为已读
   try {
@@ -108,6 +114,7 @@ const search = async (page) => {
   pageSearchRequest.offset=page;
   pageSearchRequest.size =pageSize.value;
   pageSearchRequest.channel = channelConfig.value.desc;
+  pageSearchRequest.filterByRead = filterByRead.value;
   pageSearchRequest.searchConditionId = searchConditionId.value;
   let listResponse = null;
   try {
@@ -138,13 +145,18 @@ const search = async (page) => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,
+  search,handleCurrentChange
 });
 
 // 如果 props 的值可能会变化，使用 watch 来同步更新 localValue
 // watch(() => props.largeData, (newValue) => {
 //   jobALlData.value = newValue;
 // });
+//ai排序逻辑
+// 监听 validScoreCount 的变化，更新 Vuex 的状态
+watch(validScoreCount, (newCount) => {
+  store.commit("changeAiSortSwitch", {key:channelKey,value:newCount > 0});
+}, { immediate: true });
 </script>
 
 <style scoped lang="scss">

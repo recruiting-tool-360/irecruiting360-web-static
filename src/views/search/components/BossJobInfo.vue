@@ -45,6 +45,7 @@ import qs from "qs";
 import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
 import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
 import {boosQueueManager} from "@/components/QueueManager/queueManager";
+import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 
 //store
 const store = useStore();
@@ -58,6 +59,10 @@ const props = defineProps({
 const channelKey = "BOSS";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
+//ai排序逻辑 检查符合条件的元素数量
+const validScoreCount = computed(() => {
+  return jobALlData.value.filter((item) => item.score !== undefined && item.score !== null && item.score >= getSortComparisonValue()).length;
+});
 //ai推荐
 const searchStateAIParam = computed(()=>props.searchStateCriteria);
 //当前页码数
@@ -68,6 +73,8 @@ const pageSize = ref(10);
 const totalNum =ref(10);
 //搜索id
 const searchConditionId = computed(() => store.getters.getSearchConditionId);
+//是否已读
+const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 //用户详细信息
 const geekInfoDialog = ref(false);
 //盲简历id
@@ -232,6 +239,7 @@ const search = async (page) => {
   pageSearchRequest.offset=page;
   pageSearchRequest.size =pageSize.value;
   pageSearchRequest.channel = channelConfig.value.desc;
+  pageSearchRequest.filterByRead = filterByRead.value;
   pageSearchRequest.searchConditionId = searchConditionId.value;
   let listResponse = null;
   try {
@@ -289,8 +297,14 @@ const i360Request= async (action,emptyRequestTemplate, timeout = 5000) => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch
+  search,userLoginStatus,channelSearch,handleCurrentChange
 });
+
+//ai排序逻辑
+// 监听 validScoreCount 的变化，更新 Vuex 的状态
+watch(validScoreCount, (newCount) => {
+  store.commit("changeAiSortSwitch", {key:channelKey,value:newCount > 0});
+}, { immediate: true });
 
 </script>
 

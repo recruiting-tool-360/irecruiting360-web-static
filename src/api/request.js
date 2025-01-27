@@ -4,7 +4,7 @@ import store from '@/store';
 
 const service=axios.create({
     baseURL: '/api',
-    timeout:5000,
+    timeout:15000,
 })
 
 // 结果集处理器
