@@ -310,7 +310,7 @@
       <!--   列表部分   -->
       <div class="jobList">
         <el-card class="jobList-card">
-          <el-row class="jobList-top-el-row" :gutter="0" style="border-bottom: 1px solid #E8E8E8;min-height: 3rem;min-width: 350px;margin-bottom: 15px">
+          <el-row class="jobList-top-el-row" :gutter="0" style="border-bottom: 1px solid #E8E8E8;min-height: 3rem;min-width: 450px;margin-bottom: 15px">
             <el-col class="jobList-top-el-col el-col-display-Style topBtm">
               <div class="channelBtms" style="width: 100%">
                 <el-menu
@@ -318,7 +318,7 @@
                     class="el-menu-popper-demo"
                     mode="horizontal"
                     :popper-offset="16"
-                    style=""
+                    :style="{ width: '730px' }"
                     :default-active="jobInfoName"
                     @select="handleMenuSelect"
                 >
@@ -335,7 +335,7 @@
                 </el-menu>
               </div>
               <!--      操作列表        -->
-              <div class="right-btms" style="width: 360px">
+              <div class="right-btms" style="width: 320px">
                 <!--    渠道设置      -->
                 <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
                   <el-checkbox v-model="unreadCheckBoxValue" style="height: 32px;font-size: 13px;margin-right: 16px;" label="仅显示未读" @click="clickUnreadCheck"/>
@@ -352,6 +352,7 @@
           <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JobInfo>
           <BossJobInfo ref="bossJobInfoRef" v-show="jobInfoName==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></BossJobInfo>
           <ZHILIANJobInfo  ref="zhiLianInfoRef" v-show="jobInfoName==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></ZHILIANJobInfo>
+          <LIEPINJobInfo  ref="liePinInfoRef" v-show="jobInfoName==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></LIEPINJobInfo>
           <CollectJobInfo ref="collectInfoRef" v-show="jobInfoName==='Collect'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></CollectJobInfo>
         </el-card>
       </div>
@@ -394,6 +395,7 @@ import {saveJobList} from "@/api/jobList/JobListApi";
 import JobInfo from "@/views/search/components/JobInfo.vue";
 import BossJobInfo from "@/views/search/components/BossJobInfo.vue";
 import ZHILIANJobInfo from "@/views/search/components/ZHILIANJobInfo.vue";
+import LIEPINJobInfo from "@/views/search/components/LIEPINJobInfo.vue";
 import CollectJobInfo from "@/views/search/components/CollectJobInfo.vue";
 import boosQueueManager from "@/components/QueueManager/queueManager";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
@@ -435,6 +437,7 @@ const allResponse = ref({
 const jobInfoRef = ref(null);
 const bossJobInfoRef = ref(null);
 const zhiLianInfoRef = ref(null);
+const liePinInfoRef = ref(null);
 const collectInfoRef = ref(null);
 //所有渠道配置
 const allChannelStatus = computed(() => store.getters.getChannelConf);
@@ -477,6 +480,7 @@ onMounted(async () => {
   store.commit('changeChannelCardInfoRef',{key:"ALL",value:jobInfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"BOSS",value:bossJobInfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"ZHILIAN",value:zhiLianInfoRef.value});
+  store.commit('changeChannelCardInfoRef',{key:"LIEPIN",value:liePinInfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"Collect",value:collectInfoRef.value});
   //加载登陆状态
   allThirdPartyChannelConfig.value.forEach((item)=>{
@@ -493,10 +497,6 @@ onMounted(async ()=>{
   }catch (e){
     ElMessage.error('后端服务异常，请联系管理员');
   }
-});
-//初始化所有ref
-onMounted(async ()=>{
-
 });
 
 // 加载效果
@@ -607,18 +607,12 @@ const searchJobList = async () => {
     console.log(e);
     return;
   }
-  //如果开启测试，不需要查询数据列表
-  // let responseJobListData;
-  // if(store.getters.getTestSwitch){
-  //   responseJobListData = getBoosTestJobList().BOSS;
-  // }else{
-  //
-  // }
   try {
     // 使用 Promise.all 等待两个方法并行执行完毕
     await Promise.all([
       bossJobInfoRef.value.channelSearch(searchRequestData),
       zhiLianInfoRef.value.channelSearch(searchRequestData),
+      liePinInfoRef.value.channelSearch(searchRequestData),
     ]);
 
     // 两个方法执行完毕后，执行 JobInfo 的逻辑
@@ -631,66 +625,6 @@ const searchJobList = async () => {
   } catch (error) {
     console.error('Error during search:', error);
   }
-  // bossJobInfoRef.value.channelSearch(searchRequestData);
-  // zhiLianInfoRef.value.channelSearch(searchRequestData);
-  // if(!responseJobListData){
-  //   return;
-  // }
-  // try {
-  //   responseJobListData = await boosJobList(searchRequestData.channelSearchConditions[0].conditionData);
-  // }catch (e){
-  //   console.log(e);
-  //   loadingClose();
-  //   return;
-  // }
-  // if(!pluginBossResultProcessor(responseJobListData)){
-  //   ElMessage.error('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
-  //   return;
-  // }
-  // //列表存到后端
-  // const boosList = responseJobListData.responseData.data.zpData.geeks;
-  // let saveJobListRequest = saveJobListRequestTemplate();
-  // saveJobListRequest.outId = searchRequestData.requestId;
-  // saveJobListRequest.searchConditionId = searchRequestData.id;
-  // saveJobListRequest.channel = "boss直聘";
-  // saveJobListRequest.resumeList = boosList;
-  // let jobList;
-  // try {
-  //   let {data:jobListData} = await saveJobList(saveJobListRequest);
-  //   jobList = jobListData;
-  // }catch (e){
-  //   ElMessage.error('后端服务异常，请联系管理员');
-  //   console.log(e);
-  //   return;
-  // }
-  // allResponse.value.BOSS =jobList;
-  // console.log("allResponse.value.BOSS",allResponse.value.BOSS)
-  // //处理id
-  // if(!jobList||jobList.length===0){
-  //   return;
-  // }
-  // //查询渠道信息
-  // //生成异步任务
-  // boosList.forEach((item, index) => {
-  //   const match = jobList.find(a => a.rawDataId === item.uniqSign);
-  //   if (match) {
-  //     let jobHunterInfo = item.geekCard;
-  //     const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
-  //     const outId = saveJobListRequest.outId;
-  //     const resumeBlindId = match.id;
-  //     const type ="1";
-  //     const taskRequest = {queryString,outId,resumeBlindId,type};
-  //     if(index<1){
-  //       boosQueueManager.enqueue(taskRequest);
-  //     }
-  //   }
-  // });
-  // //各个渠道列表
-  // if (jobInfoRef.value) {
-  //   jobInfoName.value='ALL';
-  //   // activeButton.value='ALL';
-  //   jobInfoRef.value.search(1);
-  // }
 }
 
 //获取搜索条件

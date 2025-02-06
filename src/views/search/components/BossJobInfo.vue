@@ -216,13 +216,14 @@ const channelSearchList = async (channelRequestInfo) => {
       let jobHunterInfo = item.geekCard;
       const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
       const outId = saveJobListRequest.outId;
+      const channel = channelConfig.value.desc;
       const resumeBlindId = match.id;
       const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
-      const taskRequest = {queryString,outId,resumeBlindId,type};
-      // boosQueueManager.enqueue(taskRequest);
-      if(index<1){
-        boosQueueManager.enqueue(taskRequest);
-      }
+      const taskRequest = {queryString,outId,resumeBlindId,type,channel};
+      boosQueueManager.enqueue(taskRequest);
+      // if(index<1){
+      //   boosQueueManager.enqueue(taskRequest);
+      // }
     }
   });
   //查询第一页数据
@@ -297,7 +298,7 @@ const i360Request= async (action,emptyRequestTemplate, timeout = 5000) => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch,handleCurrentChange
+  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo
 });
 
 //ai排序逻辑

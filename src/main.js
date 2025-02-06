@@ -15,7 +15,11 @@ import { ElMessage } from 'element-plus'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import 'element-plus/dist/index.css'
 import PluginMessenger from "@/api/PluginSendMsg";
-import {getPluginBaseConfig, getPluginCookieBaseConfig} from "@/components/PluginRequestManager";
+import {
+    getPluginBaseConfig,
+    getPluginCookieBaseConfig,
+    getPluginDynamicRulesConfigFn
+} from "@/components/PluginRequestManager";
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
 
 const handlePluginSwitchChange = (payload) => {
@@ -43,8 +47,10 @@ const pluginRequest= async (action,emptyRequestTemplate, timeout = 1000) => {
 const initializePluginConfig = async () => {
     let pluginBaseConfig = getPluginBaseConfig();
     let pluginCookieBaseConfig = getPluginCookieBaseConfig();
+    let pluginDynamicRulesConfig = getPluginDynamicRulesConfigFn();
     let pluginConfigRs = await pluginRequest(pluginBaseConfig.action, pluginBaseConfig);
     let pluginCookieConfigRs = await pluginRequest(pluginCookieBaseConfig.action,pluginCookieBaseConfig);
+    let pluginDynamicRulesConfigRs = await pluginRequest(pluginDynamicRulesConfig.action,pluginDynamicRulesConfig);
 }
 
 

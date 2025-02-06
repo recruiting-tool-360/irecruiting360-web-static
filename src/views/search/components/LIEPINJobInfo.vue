@@ -35,18 +35,22 @@ import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConf
 import {getGeekDetail, querySearch} from "@/api/search/SearchApi";
 import {ElMessage} from "element-plus";
 import {markResumeBlindReadStatus, saveJobList} from "@/api/jobList/JobListApi";
-import {pluginBossResultProcessor, pluginZhiLianResultProcessor} from "@/components/verifyes/PluginProcessor";
+import {
+  pluginBossResultProcessor,
+  pluginLIEPINResultProcessor,
+  pluginZhiLianResultProcessor
+} from "@/components/verifyes/PluginProcessor";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
 import {
   getPluginEmptyRequestTemplate,
-  pluginAllActions,
+  pluginAllActions, pluginAllGroup,
   pluginAllRequestType,
   pluginAllUrls
 } from "@/components/PluginRequestManager";
 import PluginMessenger from "@/api/PluginSendMsg";
 import qs from "qs";
 import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
-import {zhiLianQueueManager} from "@/components/QueueManager/queueManager";
+import {liePinQueueManager, zhiLianQueueManager} from "@/components/QueueManager/queueManager";
 import {
   getZhiLianHeader,
   getZhiLianPageRequestId,
@@ -56,6 +60,8 @@ import {getCookieValue} from "@/util/StringUtil";
 import {getHTMlDom} from "@/api/testRequest/DetialApi";
 import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
+import {exeLIEPINJobInfo, getLIEPINHeader} from "@/components/QueueManager/LIEPINJobInfoManager";
+import _ from "lodash";
 
 //store
 const store = useStore();
@@ -66,7 +72,7 @@ const props = defineProps({
   searchStateCriteria:Object
 });
 //渠道
-const channelKey = "ZHILIAN";
+const channelKey = "LIEPIN";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
 //ai排序逻辑 检查符合条件的元素数量
@@ -94,7 +100,7 @@ const bossDetialRef = ref(null);
 
 //跳转登陆页
 const goToLogin = () => {
-  window.open(pluginAllUrls.ZHILIAN.baseUrl, '_blank');
+  window.open(pluginAllUrls.LIEPIN.loginURL, '_blank');
 };
 //用户登陆状态
 const userLoginStatus = () => {
@@ -103,8 +109,8 @@ const userLoginStatus = () => {
   try {
     store.commit('changeChannelConfLoading',{key:channelKey,value:true});
     setTimeout(async () => {
-      userLoginStatus = await zhiLianUserStatus();
-      const loginStatus = pluginZhiLianResultProcessor(userLoginStatus);
+      userLoginStatus = await liePinUserStatus();
+      const loginStatus = pluginLIEPINResultProcessor(userLoginStatus);
       store.commit('changeChannelConfLogin',{key:channelKey,value:loginStatus});
       store.commit('changeChannelConfLoading',{key:channelKey,value:false});
     }, 2000)
@@ -115,28 +121,20 @@ const userLoginStatus = () => {
   }
 }
 
-//智联 用户登陆状态
-const zhiLianUserStatus = async () => {
-  const headers = await getZhiLianHeader(true);
+//猎聘 用户登陆状态
+const liePinUserStatus = async () => {
+  const headers = await getLIEPINHeader(true);
   if(!headers||headers.length===0){
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
   }
-  let xZpClientId = getCookieValue("x-zp-client-id",headers['Cookie']);
-  let zhiLianPageRequestId = await getZhiLianPageRequestId();
-  if(!(xZpClientId)||!(zhiLianPageRequestId)||!(zhiLianPageRequestId['X-zp-page-request-id'])){
-    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
-  }
-  const requestData ={
-    "_": new Date().getTime(),
-    "x-zp-page-request-id": zhiLianPageRequestId['X-zp-page-request-id'],
-    "x-zp-client-id": xZpClientId
-  }
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+  pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
+  pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
   pluginEmptyRequestTemplate.parameters = null;
   pluginEmptyRequestTemplate.requestHeader = headers;
   pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.userStatus+"?"+qs.stringify(requestData);
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.userStatus;
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
@@ -160,12 +158,7 @@ const openDetail = (listInfo)=>{
   }
 
   const requestParams = JSON.parse(listInfo.originalResumeUrlInfo);
-  const requestData ={
-    "t": requestParams.request.t,
-    "resumeNumber": requestParams.request.resumeNumber,
-    "k": requestParams.request.k
-  }
-  const url=pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.geekDetailUrl+`?`+qs.stringify(requestData);
+  const url=requestParams.request.resumeUrl;
   const name='_blank';                            //网页名称，可为空;
   const iWidth=window.screen.availWidth *0.8;                          //弹出窗口的宽度;
   const iHeight=window.screen.availHeight * 0.8;                         //弹出窗口的高度;
@@ -176,26 +169,19 @@ const openDetail = (listInfo)=>{
   window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
 
   //同步详细简历
-  zhiLianDetailRequest(listInfo);
+  liePinDetailRequest(listInfo);
 }
 
-const zhiLianDetailRequest = async (listInfo) => {
-  if (!listInfo.originalResumeUrlInfo) {
-    return;
-  }
-  let resumeDetail;
-  let request = JSON.parse(listInfo.originalResumeUrlInfo);
-  try {
-    resumeDetail = await searchResumeInfo(request.request);
-  } catch (e) {
-    console.log(e);
-    return;
-  }
-  if (!pluginZhiLianResultProcessor(resumeDetail)) {
-    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！` + (resumeDetail?.responseData?.data?.message))
-    return;
-  }
-  console.log("详细简历：",resumeDetail?.responseData?.data)
+const liePinDetailRequest = async (listInfo) => {
+  const requestParams = JSON.parse(listInfo.originalResumeUrlInfo);
+  const queryString = requestParams.request;
+  const channel = channelConfig.value.desc;
+  const outId = listInfo.outId;
+  const resumeBlindId = listInfo.id;
+  const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
+  const taskRequest = {queryString,outId,resumeBlindId,type,channel};
+  console.log("can",taskRequest)
+  await exeLIEPINJobInfo(taskRequest);
 }
 
 //分页设置触发时
@@ -236,7 +222,7 @@ const channelSearch = async (channelRequestInfo) => {
   // if(props.onLodingClose){
   //   props.onLodingClose();
   // }
-  console.log("zhilian执行完了")
+  console.log("liepin执行完了")
 }
 
 const channelSearchList = async (channelRequestInfo) => {
@@ -254,12 +240,19 @@ const channelSearchList = async (channelRequestInfo) => {
     console.log(e);
     return;
   }
-  if(!pluginZhiLianResultProcessor(responseJobListData)){
+  if(!pluginLIEPINResultProcessor(responseJobListData)){
     ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.message))
     return;
   }
   //列表存到后端
-  const channelList = responseJobListData.responseData.data.data.list;
+  const channelList = responseJobListData.responseData.data.data.cvSearchResultForm.cvSearchListFormList;
+  //包装数据
+  if(channelList&&channelList.length>0){
+    const highLightKey = responseJobListData.responseData.data.data.cvSearchResultForm.highLightKey;
+    channelList.forEach((item)=>{
+      item.highLightKey = highLightKey;
+    })
+  }
   let saveJobListRequest = saveJobListRequestTemplate();
   saveJobListRequest.outId = channelRequestInfo.requestId;
   saveJobListRequest.searchConditionId = channelRequestInfo.id;
@@ -278,12 +271,12 @@ const channelSearchList = async (channelRequestInfo) => {
   if(!jobList||jobList.length===0){
     return;
   }
-  console.log("智联channelList:",channelList)
-  console.log("智联jobList:",jobList)
+  // console.log("猎聘channelList:",channelList)
+  // console.log("猎聘jobList:",jobList)
   //查询渠道信息
   //生成异步任务
   channelList.forEach((item, index) => {
-    const match = jobList.find(a => a.rawDataId === item.resumeNumber);
+    const match = jobList.find(a => a.rawDataId === item.usercId);
     if (match) {
       if(!match.originalResumeUrlInfo){
         console.log("match.originalResumeUrlInfo is null")
@@ -291,15 +284,14 @@ const channelSearchList = async (channelRequestInfo) => {
       }
       const requestParams = JSON.parse(match.originalResumeUrlInfo);
       const queryString = requestParams.request;
-      const outId = saveJobListRequest.outId;
       const channel = channelConfig.value.desc;
+      const outId = saveJobListRequest.outId;
       const resumeBlindId = match.id;
       const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
       const taskRequest = {queryString,outId,resumeBlindId,type,channel};
-      zhiLianQueueManager.enqueue(taskRequest);
-      // if(index<1){
-      //   zhiLianQueueManager.enqueue(taskRequest);
-      // }
+      if(index<1){
+        liePinQueueManager.enqueue(taskRequest);
+      }
     }
   });
   //查询第一页数据
@@ -346,50 +338,43 @@ const search = async (page) => {
 
 //列表查询
 const searchJobList = async (searchConfig) => {
-  const headers = await getZhiLianHeader(true);
+  const headers = await getLIEPINHeader(true);
   if(!headers||headers.length===0){
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
   }
-  let xZpClientId = getCookieValue("x-zp-client-id",headers['Cookie']);
-  let zhiLianPageRequestId = await getZhiLianPageRequestId();
-  if(!(xZpClientId)||!(zhiLianPageRequestId)||!(zhiLianPageRequestId['X-zp-page-request-id'])){
-    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
-  }
-  headers["Content-Type"] = "application/json;charset=UTF-8";
-
-  let requestData = getZhiLianUniversalParams(zhiLianPageRequestId, xZpClientId);
-  searchConfig.pageNo = 1;
-  //访问智联
+  const requestParams = _.cloneDeep(searchConfig);
+  requestParams.cvSearchConditionInputVo.curPage = 0;
+  requestParams.cvSearchConditionInputVo = JSON.stringify(searchConfig.cvSearchConditionInputVo);
+  //访问猎聘
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  pluginEmptyRequestTemplate.parameters = searchConfig;
+  pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
+  pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
+  pluginEmptyRequestTemplate.parameters = qs.stringify(requestParams);
   pluginEmptyRequestTemplate.requestHeader = headers;
   pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.getAllJobList+"?"+qs.stringify(requestData);
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.getAllJobList;
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
 //详细信息查询
 const searchResumeInfo = async (requestParam) => {
-  const headers = await getZhiLianHeader(true);
+  const headers = await getLIEPINHeader(true);
   if(!headers||headers.length===0){
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
   }
-  let xZpClientId = getCookieValue("x-zp-client-id",headers['Cookie']);
-  let zhiLianPageRequestId = await getZhiLianPageRequestId();
-  if(!(xZpClientId)||!(zhiLianPageRequestId)||!(zhiLianPageRequestId['X-zp-page-request-id'])){
-    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
-  }
-  headers["Content-Type"] = "application/json;charset=UTF-8";
-
-  let requestData = getZhiLianUniversalParams(zhiLianPageRequestId, xZpClientId);
-  //访问智联
+  const requestParams = {};
+  requestParams.pageParamDto = JSON.stringify(requestParam);
+  console.log(requestParams)
+  //访问猎聘
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  pluginEmptyRequestTemplate.parameters = requestParam;
+  pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
+  pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
+  pluginEmptyRequestTemplate.parameters = qs.stringify(requestParams);
   pluginEmptyRequestTemplate.requestHeader = headers;
   pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.resumeDetail+"?"+qs.stringify(requestData);
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.geekInfo;
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 

@@ -9,7 +9,8 @@ export const pluginAllRequestType = {
 export const pluginAllGroup = {
     Sys:{
         BASE_CONFIG:"BASE_CONFIG",
-        UNIVERSAL_REQUEST:"UNIVERSAL_REQUEST"
+        UNIVERSAL_REQUEST:"UNIVERSAL_REQUEST",
+        UNIVERSAL_REQUEST_BACKGROUND_MAIN:"UNIVERSAL_REQUEST_BACKGROUND_MAIN"
     }
 }
 //插件所有group
@@ -22,6 +23,7 @@ export const pluginAllActions = {
     Sys:{
         setBaseConfig:"setBaseConfig",
         setCookieConfig:"setCookieConfig",
+        setDynamicRulesConfig:"setDynamicRulesConfig",
         getBaseConfig:"getBaseConfig",
         universalRequest:"universalRequest",
         universalRequestRtText:"universalRequestRtText"
@@ -45,6 +47,13 @@ export const pluginAllUrls = {
         getAllJobList:"/api/talent/search/list",
         geekDetailUrl:"/resume/detail",
         resumeDetail:"/api/resume/detail"
+    },
+    LIEPIN:{
+        loginURL:"https://lpt.liepin.com",
+        baseUrl:"https://api-lpt.liepin.com",
+        userStatus:"/api/com.liepin.tiangong.usere.bpc.get-current-info",
+        getAllJobList:"/api/com.liepin.searchfront4r.b.search",
+        geekInfo:"/api/com.liepin.rresume.usere.pc.get-resume-detail",
     }
 }
 //插件所有key配置
@@ -54,6 +63,8 @@ export const pluginKeys = {
     ZHILIANRequestStorageKey:"ZHILIANRequestStorageKey",
     ZHILIANResponseStorageKey:"ZHILIANResponseStorageKey",
     ZHILIANCookieStorageKey:"ZHILIANCookieStorageKey",
+    LIEPINRequestStorageKey:"LIEPINRequestStorageKey",
+    LIEPINCookieStorageKey:"LIEPINCookieStorageKey",
 }
 //插件请求模版
 export const getPluginEmptyRequestTemplate = () => {
@@ -70,6 +81,7 @@ export const getPluginEmptyRequestTemplate = () => {
       parameters: null,
       requestHeader: null,
       requestPath:null,
+      tabUrl:null,
       requestType:"POST",
       requestCredentials:"include",
       success:false
@@ -98,6 +110,12 @@ export const getPluginBaseConfig = ()=>{
         responseHeaders: ["X-zp-page-request-id"],
         responseFilterType: ['blocking', 'responseHeaders'],
         storageKey: pluginKeys.ZHILIANResponseStorageKey
+    },{
+        type:headerTypes.REQUEST,
+        url: pluginAllUrls.LIEPIN.baseUrl,
+        headers: ["X-Fscp-Bi-Stat","X-Fscp-Std-Info","X-Xsrf-Token"],
+        requestFilterType: ["requestHeaders"],
+        storageKey: pluginKeys.LIEPINRequestStorageKey
     }];
     pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setBaseConfig;
     return pluginEmptyRequestTemplate;
@@ -115,8 +133,40 @@ export const getPluginCookieBaseConfig = ()=>{
         url: pluginAllUrls.ZHILIAN.baseUrl,
         requestFilterType: [],
         cookieStorageKey: pluginKeys.ZHILIANCookieStorageKey
+    },
+    {
+        url: pluginAllUrls.LIEPIN.baseUrl,
+        requestFilterType: [],
+        cookieStorageKey: pluginKeys.LIEPINCookieStorageKey
     }];
     pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setCookieConfig;
+    return pluginEmptyRequestTemplate;
+}
+
+export const getPluginDynamicRulesConfigFn = () => {
+    let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+    pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.BASE_CONFIG;
+    pluginEmptyRequestTemplate.parameters =[
+        {
+            id: 1,
+            priority: 1,
+            action: {
+                type: "modifyHeaders",
+                requestHeaders: [
+                    {
+                        header: "Origin",
+                        operation: "set",
+                        value: pluginAllUrls.ZHILIAN.baseUrl
+                    }
+                ]
+            },
+            condition: {
+                urlFilter: pluginAllUrls.ZHILIAN.baseUrl+"/*",
+                resourceTypes: ["xmlhttprequest"]
+            }
+        }
+    ];
+    pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setDynamicRulesConfig;
     return pluginEmptyRequestTemplate;
 }
 

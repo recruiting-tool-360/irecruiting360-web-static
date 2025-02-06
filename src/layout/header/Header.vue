@@ -3,10 +3,10 @@
     <el-row class="big-el-row" justify="center">
       <el-col :span="12">
         <el-row class="small-el-row-lf" justify="start" align="middle">
-            <el-col :span="2" class="el-avatar-big">
+            <el-col :span="2" class="el-avatar-big" style="min-width: 60px;">
               <el-image class="el-image" :src="'/logo/logo.svg'" :fit="'contain'"/>
             </el-col>
-            <el-col :span="4">
+            <el-col :span="4" style="min-width: 60px;">
               <el-text class="title" size="default">i 快招</el-text>
             </el-col>
         </el-row>
