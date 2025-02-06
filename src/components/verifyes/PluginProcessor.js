@@ -16,3 +16,7 @@ export const pluginBossResultProcessor = (responseData)=>{
 export const pluginZhiLianResultProcessor = (responseData)=>{
     return pluginResultProcessor(responseData)&&responseData.responseData.data.code&&responseData.responseData.data.code===200;
 }
+
+export const pluginLIEPINResultProcessor = (responseData)=>{
+    return pluginResultProcessor(responseData)&&responseData.responseData.data.flag!==undefined&&responseData.responseData.data.flag===1;
+}

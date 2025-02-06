@@ -52,6 +52,14 @@ const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelK
 const validScoreCount = computed(() => {
   return jobALlData.value.filter((item) => item.score !== undefined && item.score !== null && item.score >= getSortComparisonValue()).length;
 });
+//所有渠道配置
+const allChannelStatus = computed(() => store.getters.getChannelConf);
+//所有第三方渠道
+const allThirdPartyChannelConfig = computed(() => {
+  return Object.entries(allChannelStatus.value)
+      .filter(([key, channel]) => !(key==='ALL'||key==='Collect'))
+      .map(([key, channel]) => ({...channel })); // 返回过滤后的对象
+});
 //当前页码数
 const currentPage = ref(1);
 //当前页显示条目数
@@ -74,7 +82,15 @@ onMounted(async ()=>{
 });
 
 const clickListInfo = async (userInfo) => {
-  geekInfoDialog.value = true;
+  let clickChannel = allThirdPartyChannelConfig.value.find((item)=>item.desc===userInfo.channel);
+  if(clickChannel){
+    if(clickChannel.key==="BOSS"){
+      geekInfoDialog.value = true;
+      bossDetialRef.value?.childGeekInfoMethod(userInfo);
+    }else{
+      clickChannel.cardInfoRef.clickListInfo(userInfo);
+    }
+  }
   //设置为已读
   try {
     let {data} = await markResumeBlindReadStatus([userInfo.id],true);
