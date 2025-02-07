@@ -341,7 +341,7 @@
                   <el-checkbox v-model="unreadCheckBoxValue" style="height: 32px;font-size: 13px;margin-right: 16px;" label="仅显示未读" @click="clickUnreadCheck"/>
 <!--                  <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>-->
                   <template v-for="(channel, key) in allChannelStatus" :key="key">
-                    <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName" style="height: 32px" @click="aiSortSearch(channel)">AI排序-{{channel.name}}</el-button>
+                    <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'" style="height: 32px" @click="aiSortSearch(channel)">AI排序-{{channel.name}}</el-button>
                   </template>
                   <el-button class="btm-color" style="margin-left: 16px;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
                 </div>

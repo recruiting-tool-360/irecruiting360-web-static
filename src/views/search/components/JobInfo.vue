@@ -7,7 +7,7 @@
 
 <!--    </el-card>-->
     <!--  列表信息  -->
-    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"></ResumeListInfo>
+    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo" v-model:channel-config="channel"></ResumeListInfo>
 
     <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" :change-close-status="()=>{geekInfoDialog=false;}" ></BossDetial>
     <!--  分页信息  -->

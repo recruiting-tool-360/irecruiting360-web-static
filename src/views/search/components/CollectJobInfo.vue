@@ -4,7 +4,7 @@
       <el-empty description="没有收藏数据" />
     </template>
     <!--  列表信息  -->
-    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"></ResumeListInfo>
+    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"  v-model:channel-config="channelConfig"></ResumeListInfo>
 
     <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" :change-close-status="()=>{geekInfoDialog=false;}" ></BossDetial>
     <!--  分页信息  -->
@@ -146,11 +146,11 @@ const search = async (page) => {
   }
   if(listResponse&&listResponse.data&&listResponse.data.data){
     // jobALlData.value=listResponse.data.data;
-    let scoreList = listResponse.data.data.map(item=>item.id);
+    // let scoreList = listResponse.data.data.map(item=>item.id);
     store.commit('setChannelData',{key:channelKey,value:listResponse.data.data});
-    listResponse.data.data.forEach(item=>{
-      store.commit('addScoreConfigToQueue',{id:item.id,count:0});
-    });
+    // listResponse.data.data.forEach(item=>{
+    //   store.commit('addScoreConfigToQueue',{id:item.id,count:0});
+    // });
   }else{
     // jobALlData.value=[];
     store.commit('setChannelData',{key:channelKey,value:[]})

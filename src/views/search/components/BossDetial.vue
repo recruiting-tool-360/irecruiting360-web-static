@@ -122,6 +122,8 @@ const geekResumeId = computed(()=>props.resumeId);
 const geekListInfo = ref({});
 //查看更多信息部分按钮动画控制开关
 const loadingUserInfoSwitch = ref(false);
+//ai推荐
+const searchStateAIParam = computed(()=>props.searchStateCriteria);
 
 const beforeClose = () => {
   if(props.changeCloseStatus){
@@ -259,9 +261,10 @@ const childGeekInfoMethod = async (cardInfo) => {
         //数据发给后端
         const outId = geekListInfo.value.outId;
         const resumeBlindId = geekListInfo.value.id;
-        const type ="SCORE";
+        const channel = "boss直聘";
+        const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
         const content = geekDetailINfo.value;
-        const detailRequest = {content,outId,resumeBlindId,type};
+        const detailRequest = {content,outId,resumeBlindId,type,channel};
         try {
           await saveResumeDetail(detailRequest);
         }catch (e){

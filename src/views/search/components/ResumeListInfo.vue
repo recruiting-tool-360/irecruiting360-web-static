@@ -14,7 +14,13 @@
           <el-text class="mx-1 el-button-margin-left" style="font-size: 1rem;font-weight: bold">{{geekList.name}}</el-text>
           <el-text class="mx-1 el-button-margin-left text-gray-color-130">{{geekList.genderStr}} · {{geekList.age}} · 未知</el-text>
           <el-button size="small" disabled round style="margin-left: 1rem;">求职意向:
-            <el-text style="margin-left: 5px;color: rgb(31, 35, 41)">{{geekList.intention}}</el-text>
+            <el-tooltip
+                class="box-item"
+                :content="geekList.intention?geekList.intention:'未知'"
+                placement="bottom"
+            >
+              <el-text class="el-text-ellipsis" style="margin-left: 5px;color: rgb(96 98 102)">{{geekList.intention?geekList.intention:'未知'}}</el-text>
+            </el-tooltip>
           </el-button>
         </el-col>
         <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="6">
@@ -34,7 +40,7 @@
             &nbsp;&nbsp;未知渠道
           </el-button>
           <el-text style="margin-right: 8px;color: #E0E0E0">|</el-text>
-          <el-image v-if="geekList.collectOrNot&&geekList.collectOrNot>=1" :src="'/index/header/searchPage/collectTrue.svg'" @click.stop="handleCollectClick(geekList)"></el-image>
+          <el-image v-if="geekList.inCollection" :src="'/index/header/searchPage/collectTrue.svg'" @click.stop="handleCollectClick(geekList)"></el-image>
           <el-image v-else :src="'/index/header/searchPage/collectFalse.svg'" @click.stop="handleCollectClick(geekList)"></el-image>
           <el-button disabled text size="small" style="margin-left: -5px;margin-bottom: 2px" @click.stop="handleCollectClick(geekList)">
             收藏
@@ -44,16 +50,16 @@
       <!--  学历行    -->
       <el-row class="geek-highestDegree-el-row el-row-width-full el-row-margin-top-6px"  :gutter="0">
         <el-col class="geek-highestDegree-el-col el-col-display-Style" :span="15">
-          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.educationStr}}</el-button>
-          <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear}}年</el-button>
-          <el-button style="background-color: #FFF7E6;color: #F79000" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
-            <el-image class="headerIcons" :src="'/index/header/icons/phone.svg'"></el-image>
-            12345678910</el-button>
-          <el-button style="background-color: #F9F0FF;color: #722ED1" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
-            <el-image class="headerIcons" :src="'/index/header/icons/email.svg'"></el-image>
-            12345678910@126.com</el-button>
+          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.educationStr?geekList.educationStr:"学历未知"}}</el-button>
+          <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear&&geekList.experienceYear>=0?geekList.experienceYear+"年":"工作年龄未知"}}</el-button>
+<!--          <el-button style="background-color: #FFF7E6;color: #F79000" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
+<!--            <el-image class="headerIcons" :src="'/index/header/icons/phone.svg'"></el-image>-->
+<!--            12345678910</el-button>-->
+<!--          <el-button style="background-color: #F9F0FF;color: #722ED1" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
+<!--            <el-image class="headerIcons" :src="'/index/header/icons/email.svg'"></el-image>-->
+<!--            12345678910@126.com</el-button>-->
         </el-col>
-        <el-col class="geek-highestDegree-el-col el-col-display-Style" style="justify-content: end" :span="9">
+        <el-col v-if="props.channelConfig&&props.channelConfig.key!=='Collect'" class="geek-highestDegree-el-col el-col-display-Style" style="justify-content: end" :span="9">
           <div class="geekAIBtm">
             <spa>AI评估</spa>
           </div>
@@ -68,7 +74,8 @@
       <el-row class="geek-work-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">
         <el-button text style="background-color: rgba(255,230,230,0);" class="workBtm" size="small" disabled round>
           <el-image  class="headerIcons" :src="'/index/header/icons/work.svg'" style="margin-right: 10px"></el-image>
-          <el-text>2018.01 - 2020.12   上海力德信息科技有限公司</el-text>
+<!--          <el-text>2018.01 - 2020.12   上海力德信息科技有限公司</el-text>-->
+          <el-text>{{geekList.workExp?geekList.workExp:"未知"}}</el-text>
         </el-button>
       </el-row>
 
@@ -76,7 +83,8 @@
       <el-row class="geek-school-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">
         <el-button text style="background-color: rgba(255,230,230,0);" class="schoolBtm" size="small" disabled round>
           <el-image  class="headerIcons" :src="'/index/header/icons/school.svg'" style="margin-right: 10px"></el-image>
-          <el-text>2013.09 - 2017.06   清华大学  视觉传达设计</el-text>
+<!--          <el-text>2013.09 - 2017.06   清华大学  视觉传达设计</el-text>-->
+          <el-text>{{geekList.eduExp?geekList.eduExp:"未知"}}</el-text>
         </el-button>
       </el-row>
 
@@ -97,7 +105,8 @@ const store = useStore();
 // 通过 defineProps 定义 props
 const props = defineProps({
   listData: Object,
-  clickListInfoFn:Function
+  clickListInfoFn:Function,
+  channelConfig:Object
 });
 const jobALlData = computed(()=>props.listData);
 const channelKey = "Collect";
@@ -108,18 +117,19 @@ const clickListInfo = (value) => {
 }
 
 const handleCollectClick = async (listInfo, value) => {
-  if (listInfo.collectOrNot === undefined || listInfo.collectOrNot === null) {
-    listInfo.collectOrNot = 0;
-  }
-  listInfo.collectOrNot = listInfo.collectOrNot === 0 ? 1 : 0;
+  // if (listInfo.collectOrNot === undefined || listInfo.collectOrNot === null) {
+  //   listInfo.collectOrNot = 0;
+  // }
+  // listInfo.inCollection = listInfo.collectOrNot === 0 ? 1 : 0;
   const requestData = {
     userId: 1,
     resumeBlindId: listInfo.id,
-    isSaveOtherDelete: listInfo.collectOrNot === 1
+    isSaveOtherDelete: !listInfo.inCollection
   };
   try {
     let {data} = await userCollectResume(requestData);
     channelConfig.value.cardInfoRef.search(1);
+    listInfo.inCollection = requestData.isSaveOtherDelete;
     ElMessage.success('操作成功！');
   }catch (e){
     console.log(e);
@@ -214,5 +224,16 @@ const handleCollectClick = async (listInfo, value) => {
     margin: 0px 4px;
   }
 
+}
+
+.el-text-ellipsis{
+  //display: -webkit-box !important; /* 必须要设置为 WebKit 的盒模型 */
+  -webkit-box-orient: vertical; /* 设置垂直排列 */
+  -webkit-line-clamp: 2; /* 限制显示的行数 */
+  overflow: hidden; /* 隐藏超出范围的内容 */
+  text-overflow: ellipsis; /* 设置省略号 */
+  word-wrap: break-word; /* 防止长单词撑破布局 */
+  max-width: 100px; /* 根据需要设置最大宽度 */
+  width: 100px;
 }
 </style>
