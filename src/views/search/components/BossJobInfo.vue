@@ -10,7 +10,7 @@
       </el-empty>
     </template>
     <!--  列表信息  -->
-    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"></ResumeListInfo>
+    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo" v-model:channel-config="channelConfig"></ResumeListInfo>
 
     <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
     <!--  分页信息  -->
@@ -88,7 +88,7 @@ const goToLogin = () => {
 };
 //用户登陆状态
 const userLoginStatus = () => {
-  //加载登陆状态
+  // 加载登陆状态
   let userLoginStatus;
   try {
     store.commit('changeChannelConfLoading',{key:channelKey,value:true});
@@ -220,10 +220,10 @@ const channelSearchList = async (channelRequestInfo) => {
       const resumeBlindId = match.id;
       const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
       const taskRequest = {queryString,outId,resumeBlindId,type,channel};
-      boosQueueManager.enqueue(taskRequest);
-      // if(index<1){
-      //   boosQueueManager.enqueue(taskRequest);
-      // }
+      // boosQueueManager.enqueue(taskRequest);
+      if(index<1){
+        boosQueueManager.enqueue(taskRequest);
+      }
     }
   });
   //查询第一页数据

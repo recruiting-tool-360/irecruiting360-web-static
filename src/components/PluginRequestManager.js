@@ -102,13 +102,13 @@ export const getPluginBaseConfig = ()=>{
         type:headerTypes.REQUEST,
         url: pluginAllUrls.ZHILIAN.baseUrl,
         headers: ["X-Zp-Ai-Token","X-Zp-Page-Code","Y-Zp-Business-Type"],
-        requestFilterType: ["requestHeaders", "blocking", "extraHeaders"],
+        requestFilterType: ["requestHeaders"],
         storageKey: pluginKeys.ZHILIANRequestStorageKey
     },{
         type: headerTypes.RESPONSE,
         url: pluginAllUrls.ZHILIAN.baseUrl,
         responseHeaders: ["X-zp-page-request-id"],
-        responseFilterType: ['blocking', 'responseHeaders'],
+        responseFilterType: ['responseHeaders'],
         storageKey: pluginKeys.ZHILIANResponseStorageKey
     },{
         type:headerTypes.REQUEST,
@@ -166,6 +166,7 @@ export const getPluginDynamicRulesConfigFn = () => {
             }
         }
     ];
+    // pluginEmptyRequestTemplate.parameters=[];
     pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setDynamicRulesConfig;
     return pluginEmptyRequestTemplate;
 }

@@ -10,7 +10,7 @@
       </el-empty>
     </template>
     <!--  列表信息  -->
-    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"></ResumeListInfo>
+    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"  v-model:channel-config="channelConfig"></ResumeListInfo>
 
     <!--  分页信息  -->
     <div class="pageConfig">
@@ -180,7 +180,6 @@ const liePinDetailRequest = async (listInfo) => {
   const resumeBlindId = listInfo.id;
   const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
   const taskRequest = {queryString,outId,resumeBlindId,type,channel};
-  console.log("can",taskRequest)
   await exeLIEPINJobInfo(taskRequest);
 }
 

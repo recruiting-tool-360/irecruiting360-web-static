@@ -108,7 +108,6 @@ const searchResumeInfo = async (params) => {
 }
 
 export const exeLIEPINJobInfo = async (data) => {
-    console.log("开始执行")
     let boosJobInfo = await findLIEPINJobDetail(data);
     if(pluginLIEPINResultProcessor(boosJobInfo)){
         data.content = boosJobInfo.responseData.data.data;
