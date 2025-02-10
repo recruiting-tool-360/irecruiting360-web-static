@@ -405,6 +405,7 @@ import SearchCondition from "@/views/search/searchCondition/SearchCondition.vue"
 import ChannelConfig from "@/views/search/channel/ChannelConfig.vue";
 import _ from "lodash";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
+import {getUser, isLogin} from "@/api/user/UserApi";
 
 const store = useStore();
 //新的搜索体
