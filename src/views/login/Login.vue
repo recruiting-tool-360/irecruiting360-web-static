@@ -37,6 +37,8 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/utils/api'
+import {getUser, isLogin, userLogin} from "@/api/user/UserApi";
+import Cookies from 'js-cookie';
 
 const router = useRouter()
 const loginFormRef = ref(null)
@@ -70,7 +72,9 @@ const handleLogin = async () => {
         params.append('pwd', loginForm.password)
 
         const { code, msg } = await api.post('/user/doLogin', params)
-        
+        // await userLogin({name:loginForm.username,pwd:loginForm.password});
+        console.log("coo:",Cookies.get("satoken"))
+        // console.log(code,msg)
         if (code === 200) {
           ElMessage.success('登录成功')
           router.push('/')
@@ -78,6 +82,7 @@ const handleLogin = async () => {
           ElMessage.error(msg || '登录失败，请检查用户名和密码')
         }
       } catch (error) {
+        console.log(error)
         ElMessage.error('登录失败，请稍后重试')
       } finally {
         loading.value = false
