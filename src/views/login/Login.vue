@@ -37,9 +37,10 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/utils/api'
-import {getUser, isLogin, userLogin} from "@/api/user/UserApi";
 import Cookies from 'js-cookie';
+import {useStore} from "vuex";
 
+const store = useStore();
 const router = useRouter()
 const loginFormRef = ref(null)
 const loading = ref(false)
@@ -71,11 +72,12 @@ const handleLogin = async () => {
         params.append('name', loginForm.username)
         params.append('pwd', loginForm.password)
 
-        const { code, msg } = await api.post('/user/doLogin', params)
-        // await userLogin({name:loginForm.username,pwd:loginForm.password});
-        console.log("coo:",Cookies.get("satoken"))
-        // console.log(code,msg)
+        const { code, msg, data } = await api.post('/user/doLogin', params)
+
         if (code === 200) {
+          if(data){
+            Cookies.set('satoken', data, { path: '/', expires: 30 }); // 更新 Cookie
+          }
           ElMessage.success('登录成功')
           router.push('/')
         } else {

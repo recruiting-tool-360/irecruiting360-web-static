@@ -5,8 +5,9 @@ import store from '@/store';
 const service=axios.create({
     baseURL: '/api',
     timeout:15000,
+    withCredentials:true
 })
-service.defaults.withCredentials = true;
+// service.defaults.withCredentials = true;
 
 // 结果集处理器
 service.interceptors.response.use(

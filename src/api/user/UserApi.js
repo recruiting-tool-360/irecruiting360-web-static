@@ -1,13 +1,24 @@
 import request from "../request";
 
-//获取页面搜索条件配置
-export const getUser = () => {
+//查询用户详情
+export const getUserInfo = () => {
     const basseUrl='/user/getUserInfo';
     return request({
-        method:'GET',
+        method:'POST',
         url:basseUrl
     });
 }
+
+
+//退出登陆
+export const userlogout = () => {
+    const basseUrl='/user/logout';
+    return request({
+        method:'POST',
+        url:basseUrl
+    });
+}
+
 
 export const isLogin = () => {
     const basseUrl='/user/isLogin';
