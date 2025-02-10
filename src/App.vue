@@ -6,16 +6,25 @@
 </template>
 
 <script setup>
-import { useRoute } from 'vue-router'
-import { onMounted, onBeforeUnmount } from "vue";
+import { useRoute,useRouter } from 'vue-router'
+import {onMounted, onBeforeUnmount, nextTick} from "vue";
 import {boosQueueManager, liePinQueueManager, zhiLianQueueManager} from "@/components/QueueManager/queueManager";
 import {generateOneUniqueRandomNumber} from "@/util/RandomNum";
 import {exeJobInfo} from "@/components/QueueManager/BoosJobInfoManager";
 import {exeZhiLianJobInfo} from "@/components/QueueManager/ZhiLianJobInfoManager";
 import {exeLIEPINJobInfo} from "@/components/QueueManager/LIEPINJobInfoManager";
+import {getUserInfo} from "@/api/user/UserApi";
+import {useStore} from "vuex";
+import {ElMessage} from "element-plus";
+
+const store = useStore();
 // 获取当前路由信息
-const route = useRoute()
+const route = useRoute();
+const router = useRouter();
 const isMainLayoutRoute = ['home'].includes(route.name)
+
+
+
 // 异步处理器
 function bossFn(val){
   exeJobInfo(val);

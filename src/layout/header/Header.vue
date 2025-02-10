@@ -47,35 +47,68 @@
                   <el-image class="headerIcons" :src="'/index/header/icons/wenhao.svg'" @click="navigateToGuide('guide')" style="width: 18px;height: 18px"></el-image>
                 </el-tooltip>
               </div>
+              <!--       联系我们       -->
+              <div style="height: 100%;display: flex;align-items: center">
+                <el-popover placement="bottom" trigger="hover" popper-style="--el-popover-padding: 0">
+                  <template #reference>
+                    <el-icon class="headerIcons" size="18px" color="white"><Service /></el-icon>
+                  </template>
+                  <el-row style="padding: 12px;background-color: rgb(31 124 255)">
+                    <el-text style="color: white;font-weight: bold;margin-bottom: 5px;width: 100%;text-align: center">联系我们</el-text>
+                    <el-image class="headerIcons" :src="'/index/header/top/vChat.png'" ></el-image>
+                  </el-row>
+                </el-popover>
+              </div>
+              <!--     用户信息         -->
+
               <div style="height: 100%;display: flex;align-items: center;">
 <!--                <el-avatar class="headerIcons" :src="'/index/header/icons/user.png'" style="width: 25px;height: 25px;">-->
-
+                <el-popover placement="bottom" trigger="hover" popper-style="--el-popover-padding: 0">
+                  <template #reference>
+<!--                    <el-icon class="headerIcons" size="18px" color="white"><Service /></el-icon>-->
+                    <img :src="'/index/header/icons/user.png'" alt="" style="margin-left:16px;width: 25px;height: 25px;">
+                  </template>
+                  <el-row justify="center" align="top" style="height: 100%;padding: 12px;background-color: rgb(31 124 255)">
+                    <el-col :span="24" style="display: flex;align-items: center;justify-content: center;height: 30px">
+                      <img :src="'/index/header/icons/user.png'" alt="" style="width: 25px;height: 25px;">
+                    </el-col>
+                    <el-col :span="24" style="display: flex;align-items: center;justify-content: center;height: 30px">
+                      <el-text v-if="userInfo" style="color: white;font-weight: bold">{{userInfo.username}}</el-text>
+                    </el-col>
+                    <el-col :span="24" style="display: flex;align-items: center;justify-content: center;height: 30px">
+                      <el-button :icon="SwitchButton" style="background-color: #FFFFFF;color: rgb(31 35 41 / 67%);font-size: 12px;height: 30px;width: 100px" @click="logout">退出登录</el-button>
+                    </el-col>
+                  </el-row>
+                </el-popover>
 <!--                </el-avatar>-->
-                <div class="headerIcons" style="display: flex;align-items: center;width: 25px;height: 25px;position: relative">
-                  <img :src="'/index/header/icons/user.png'" alt="" style="width: 25px;height: 25px;" @click="popoverVisible=!popoverVisible">
-                  <!-- 悬浮卡片 -->
-                  <div class="el-popover-div" v-if="popoverVisible">
-                    <!--        小三角形            -->
-                    <div class="trigon"></div>
-                    <div class="el-popover-content">
-                      <el-row justify="center" align="top" style="height: 100%;">
-                        <el-col :span="24" style="display: flex;align-items: center;justify-content: center;height: 30px">
-                          <img :src="'/index/header/icons/user.png'" alt="" style="width: 25px;height: 25px;">
-                        </el-col>
-                        <el-col :span="24" style="display: flex;align-items: center;justify-content: center;height: 30px">
-                          <el-button :icon="SwitchButton" style="background-color: #FFFFFF;color: rgb(31 35 41 / 67%);font-size: 12px;height: 30px;width: 100px">退出登录</el-button>
-                        </el-col>
-                      </el-row>
-<!--                      <div style="width: 100%">-->
-<!--                        <img :src="'/index/header/icons/user.png'" alt="" style="width: 25px;height: 25px;">-->
-<!--                      </div>-->
-<!--                      <div style="width: 100%">-->
-<!--                        <el-button type="info">dd</el-button>-->
-<!--                      </div>-->
+<!--                <div class="headerIcons" style="display: flex;align-items: center;width: 25px;height: 25px;position: relative">-->
+<!--                  <img :src="'/index/header/icons/user.png'" alt="" style="width: 25px;height: 25px;" @click="popoverVisible=!popoverVisible">-->
+<!--                  &lt;!&ndash; 悬浮卡片 &ndash;&gt;-->
+<!--                  <div class="el-popover-div" v-if="popoverVisible">-->
+<!--                    &lt;!&ndash;        小三角形            &ndash;&gt;-->
+<!--                    <div class="trigon"></div>-->
+<!--                    <div class="el-popover-content">-->
+<!--                      <el-row justify="center" align="top" style="height: 100%;">-->
+<!--                        <el-col :span="24" style="display: flex;align-items: center;justify-content: center;height: 30px">-->
+<!--                          <img :src="'/index/header/icons/user.png'" alt="" style="width: 25px;height: 25px;">-->
+<!--                        </el-col>-->
+<!--                        <el-col :span="24" style="display: flex;align-items: center;justify-content: center;height: 30px">-->
+<!--                          <el-text v-if="userInfo" style="color: white;font-weight: bold">{{userInfo.username}}</el-text>-->
+<!--                        </el-col>-->
+<!--                        <el-col :span="24" style="display: flex;align-items: center;justify-content: center;height: 30px">-->
+<!--                          <el-button :icon="SwitchButton" style="background-color: #FFFFFF;color: rgb(31 35 41 / 67%);font-size: 12px;height: 30px;width: 100px">退出登录</el-button>-->
+<!--                        </el-col>-->
+<!--                      </el-row>-->
+<!--&lt;!&ndash;                      <div style="width: 100%">&ndash;&gt;-->
+<!--&lt;!&ndash;                        <img :src="'/index/header/icons/user.png'" alt="" style="width: 25px;height: 25px;">&ndash;&gt;-->
+<!--&lt;!&ndash;                      </div>&ndash;&gt;-->
+<!--&lt;!&ndash;                      <div style="width: 100%">&ndash;&gt;-->
+<!--&lt;!&ndash;                        <el-button type="info">dd</el-button>&ndash;&gt;-->
+<!--&lt;!&ndash;                      </div>&ndash;&gt;-->
 
-                    </div>
-                  </div>
-                </div>
+<!--                    </div>-->
+<!--                  </div>-->
+<!--                </div>-->
 
               </div>
 
@@ -90,28 +123,54 @@
 
 <script setup>
 import {useStore} from 'vuex';
-import {ref} from "vue";
-import { SwitchButton } from '@element-plus/icons-vue'
+import {ref, onMounted, nextTick, computed} from "vue";
+import {Service, SwitchButton} from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
+import {ElButton, ElMessage} from "element-plus";
+import {getUserInfo, userlogout} from "@/api/user/UserApi";
+import Cookies from "js-cookie";
 // 获取路由实例
 const router = useRouter()
 const store = useStore();
 const testSwitch = ref(store.getters.getTestSwitch);
-// 处理 switch 切换事件
-const handleSwitchChange = () => {
-  const newWindow = window.open('about:blank', '_blank', 'width=1,height=1,top=-1000,left=-1000,toolbar=0,scrollbars=0,resizable=0');
-  newWindow.document.write('<h1>Processing...</h1>'); // 在新窗口中执行一些后台处理逻辑
-// 你可以通过 newWindow 执行其他操作，然后关闭
-  setTimeout(() => {
-    newWindow.close(); // 执行完后关闭窗口
-  }, 5000);
-};
+const userInfo = computed(() => store.getters.getUserInfo);
 // 控制弹窗显示状态
 const popoverVisible = ref(false);
-
 // 跳转函数
 const navigateToGuide = (route) => {
   router.push({ name: route }) // 跳转到路由名为 guide 的路由
+}
+async function userInfoInit() {
+  try {
+    let {data, success} = await getUserInfo();
+    if (success && success === 'success') {
+      store.commit('changeUserInfo', data);
+    } else {
+      store.commit('changeUserInfo', null);
+      ElMessage.error('用户信息异常，请联系管理员');
+      window.location.href = '/login';
+    }
+  } catch (ex) {
+    store.commit('changeUserInfo', null);
+    ElMessage.error('用户信息异常，请联系管理员');
+    console.log(ex)
+    window.location.href = '/login';
+  }
+}
+
+onMounted(async () => {
+  await userInfoInit();
+})
+
+
+const logout = async () => {
+  Cookies.remove('satoken', {path: '/'});
+  try {
+    await userlogout();
+  } catch (e) {
+    console.log(e)
+  }
+  window.location.href = '/login';
 }
 </script>
 

@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import Cookies from "js-cookie";
 
 const api = axios.create({
   baseURL: 'http://localhost:8087',
@@ -11,7 +12,9 @@ const api = axios.create({
 
 // Response interceptor
 api.interceptors.response.use(
-  response => response.data,
+  response => {
+      return response.data;
+  },
   error => {
     ElMessage.error(error.response?.data?.msg || '请求失败')
     return Promise.reject(error)

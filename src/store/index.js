@@ -4,6 +4,7 @@ import PluginConfig from "@/store/modules/PluginConfig";
 import ChatConfig from "@/store/modules/ChatConfig";
 import AiSerachConfig from "@/store/modules/AiSerachConfig";
 import ChannelConfig from "@/store/modules/ChannelConfig";
+import UserConfig from "@/store/modules/UserConfig";
 import createPersistedState from "vuex-persistedstate";
 
 export default createStore({
@@ -12,7 +13,7 @@ export default createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig
   },
   plugins: [
     createPersistedState({
@@ -24,6 +25,7 @@ export default createStore({
         "ChatConfig.localUserChatId",
         "ChatConfig.searchConditionId",
         "ChatConfig.chatMsg",
+        "UserConfig.userInfo",
       ],
     })
   ],
