@@ -36,6 +36,10 @@
             <el-image :src="'/index/header/searchPage/liepin.svg'"></el-image>
             &nbsp;&nbsp;猎聘
           </el-button>
+          <el-button v-else-if="geekList.channel==='前程无忧'" text disabled size="small">
+            <el-image :src="'/index/header/searchPage/job51.svg'"></el-image>
+            &nbsp;&nbsp;前程无忧
+          </el-button>
           <el-button v-else text disabled size="small">
             &nbsp;&nbsp;未知渠道
           </el-button>

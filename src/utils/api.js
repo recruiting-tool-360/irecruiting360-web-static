@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 import Cookies from "js-cookie";
 
 const api = axios.create({
-  baseURL: 'http://localhost:8087',
+  baseURL: process.env.VUE_APP_API_BASE_URL,
   timeout: 5000,
   headers: {
     'Content-Type': 'application/x-www-form-urlencoded'

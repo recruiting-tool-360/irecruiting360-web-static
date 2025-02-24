@@ -34,17 +34,17 @@ export default {
                 aiSort:false,
                 cardInfoRef:null
             },
-            // LIEPIN:{
-            //     key:"LIEPIN",
-            //     login:false,
-            //     loading:false,
-            //     name:"猎聘",
-            //     desc:"猎聘",
-            //     disable:true,
-            //     dataSize:0,
-            //     aiSort:false,
-            //     cardInfoRef:null
-            // },
+            JOB51:{
+                key:"JOB51",
+                login:false,
+                loading:false,
+                name:"前程无忧",
+                desc:"前程无忧",
+                disable:true,
+                dataSize:0,
+                aiSort:false,
+                cardInfoRef:null
+            },
             Collect:{
                 key:"Collect",
                 name:"我的收藏",

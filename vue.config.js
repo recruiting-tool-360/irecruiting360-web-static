@@ -15,7 +15,7 @@ module.exports = defineConfig({
   devServer:{
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8087/', // 你的后端接口地址
+        target: process.env.VUE_APP_API_BASE_URL+'/', // 你的后端接口地址
         changeOrigin: true,           // 是否更改请求的源地址
         ws: true,                     // 是否启用 WebSocket 代理
         pathRewrite: {

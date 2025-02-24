@@ -352,7 +352,8 @@
           <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JobInfo>
           <BossJobInfo ref="bossJobInfoRef" v-show="jobInfoName==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></BossJobInfo>
           <ZHILIANJobInfo  ref="zhiLianInfoRef" v-show="jobInfoName==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></ZHILIANJobInfo>
-          <LIEPINJobInfo  ref="liePinInfoRef" v-show="jobInfoName==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></LIEPINJobInfo>
+<!--          <LIEPINJobInfo  ref="liePinInfoRef" v-show="jobInfoName==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></LIEPINJobInfo>-->
+          <JOB51  ref="job51InfoRef" v-show="jobInfoName==='JOB51'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></JOB51>
           <CollectJobInfo ref="collectInfoRef" v-show="jobInfoName==='Collect'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></CollectJobInfo>
         </el-card>
       </div>
@@ -396,6 +397,7 @@ import JobInfo from "@/views/search/components/JobInfo.vue";
 import BossJobInfo from "@/views/search/components/BossJobInfo.vue";
 import ZHILIANJobInfo from "@/views/search/components/ZHILIANJobInfo.vue";
 import LIEPINJobInfo from "@/views/search/components/LIEPINJobInfo.vue";
+import JOB51 from "@/views/search/components/JOB51.vue";
 import CollectJobInfo from "@/views/search/components/CollectJobInfo.vue";
 import boosQueueManager from "@/components/QueueManager/queueManager";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
@@ -406,8 +408,11 @@ import ChannelConfig from "@/views/search/channel/ChannelConfig.vue";
 import _ from "lodash";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 import {getUser, isLogin} from "@/api/user/UserApi";
+import {setDefaultPluginRules} from "@/components/BasePluginManager";
 
 const store = useStore();
+//用户信息
+const userInfo = computed(() => store.getters.getUserInfo);
 //新的搜索体
 const searchConditionRequestData = computed(() => store.getters.getSearchConditionRequestData);
 //搜索id
@@ -438,7 +443,8 @@ const allResponse = ref({
 const jobInfoRef = ref(null);
 const bossJobInfoRef = ref(null);
 const zhiLianInfoRef = ref(null);
-const liePinInfoRef = ref(null);
+// const liePinInfoRef = ref(null);
+const job51InfoRef = ref(null);
 const collectInfoRef = ref(null);
 //所有渠道配置
 const allChannelStatus = computed(() => store.getters.getChannelConf);
@@ -481,8 +487,16 @@ onMounted(async () => {
   store.commit('changeChannelCardInfoRef',{key:"ALL",value:jobInfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"BOSS",value:bossJobInfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"ZHILIAN",value:zhiLianInfoRef.value});
-  store.commit('changeChannelCardInfoRef',{key:"LIEPIN",value:liePinInfoRef.value});
+  // store.commit('changeChannelCardInfoRef',{key:"LIEPIN",value:liePinInfoRef.value});
+  store.commit('changeChannelCardInfoRef',{key:"JOB51",value:job51InfoRef.value});
   store.commit('changeChannelCardInfoRef',{key:"Collect",value:collectInfoRef.value});
+  //设置插件规则
+  let ruleConfig = await setDefaultPluginRules();
+  if(!pluginResultProcessor(ruleConfig)){
+    ElMessage.error('插件异常，请联系管理员');
+    return;
+  }
+  console.log("ruleConfig:",ruleConfig)
   //加载登陆状态
   allThirdPartyChannelConfig.value.forEach((item)=>{
     item.cardInfoRef.userLoginStatus();
@@ -493,7 +507,7 @@ onMounted(async () => {
 
 onMounted(async ()=>{
   try {
-    const {data}= await getChatIdByUserId(1);
+    const {data}= await getChatIdByUserId(userInfo.value.id);
     store.commit('changeLocalUserChatId',data);
   }catch (e){
     ElMessage.error('后端服务异常，请联系管理员');
@@ -613,7 +627,8 @@ const searchJobList = async () => {
     await Promise.all([
       bossJobInfoRef.value.channelSearch(searchRequestData),
       zhiLianInfoRef.value.channelSearch(searchRequestData),
-      liePinInfoRef.value.channelSearch(searchRequestData),
+      // liePinInfoRef.value.channelSearch(searchRequestData),
+      job51InfoRef.value.channelSearch(searchRequestData),
     ]);
 
     // 两个方法执行完毕后，执行 JobInfo 的逻辑
@@ -876,7 +891,8 @@ watch(() => searchConditionRequestData.value, async (newValue) => {
         }
 
         .ai-sort-btm{
-          background: linear-gradient(208deg, rgb(255 192 160) 0%, rgb(219 255 119) 11.71%, rgb(252 82 245) 49.68%, rgb(198 84 255) 74.23%, rgb(246 211 60) 90.26%, rgb(217 255 116) 100%) !important;
+          //background: linear-gradient(208deg, rgb(255 192 160) 0%, rgb(219 255 119) 11.71%, rgb(252 82 245) 49.68%, rgb(198 84 255) 74.23%, rgb(246 211 60) 90.26%, rgb(217 255 116) 100%) !important;
+          background:linear-gradient(208deg, rgb(84 128 252) 0%, rgb(119 246 255) 11.71%, rgb(178 178 178) 49.68%, rgb(112 123 253) 74.23%, rgb(64 212 243) 90.26%, rgb(105 125 253) 100%) !important;
         }
       }
     }

@@ -36,7 +36,7 @@ import {getGeekDetail, querySearch} from "@/api/search/SearchApi";
 import {ElMessage} from "element-plus";
 import {markResumeBlindReadStatus, saveJobList} from "@/api/jobList/JobListApi";
 import {
-  pluginBossResultProcessor,
+  pluginBossResultProcessor, pluginJob51ResultProcessor,
   pluginLIEPINResultProcessor,
   pluginZhiLianResultProcessor
 } from "@/components/verifyes/PluginProcessor";
@@ -50,7 +50,7 @@ import {
 import PluginMessenger from "@/api/PluginSendMsg";
 import qs from "qs";
 import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
-import {liePinQueueManager, zhiLianQueueManager} from "@/components/QueueManager/queueManager";
+import {job51QueueManager, liePinQueueManager, zhiLianQueueManager} from "@/components/QueueManager/queueManager";
 import {
   getZhiLianHeader,
   getZhiLianPageRequestId,
@@ -62,6 +62,15 @@ import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 import {exeLIEPINJobInfo, getLIEPINHeader} from "@/components/QueueManager/LIEPINJobInfoManager";
 import _ from "lodash";
+import {
+  exeJob51Info,
+  generateSignature, generateSignatureJob51,
+  getCurrentTimestamp,
+  getJob51Header,
+  getJob51PropertyInfo,
+  getJob51TokenInfo
+} from "@/components/QueueManager/Job51InfoManager";
+import {i360Request} from "@/components/BasePluginManager";
 
 //store
 const store = useStore();
@@ -72,7 +81,7 @@ const props = defineProps({
   searchStateCriteria:Object
 });
 //渠道
-const channelKey = "LIEPIN";
+const channelKey = "JOB51";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
 //ai排序逻辑 检查符合条件的元素数量
@@ -100,7 +109,7 @@ const bossDetialRef = ref(null);
 
 //跳转登陆页
 const goToLogin = () => {
-  window.open(pluginAllUrls.LIEPIN.loginURL, '_blank');
+  window.open(pluginAllUrls.JOB51.loginURL, '_blank');
 };
 //用户登陆状态
 const userLoginStatus = () => {
@@ -109,11 +118,13 @@ const userLoginStatus = () => {
   try {
     store.commit('changeChannelConfLoading',{key:channelKey,value:true});
     setTimeout(async () => {
-      userLoginStatus = await liePinUserStatus();
-      const loginStatus = pluginLIEPINResultProcessor(userLoginStatus);
+      userLoginStatus = await job51UserStatus();
+      console.log("51 userLoginStatus",userLoginStatus)
+      const loginStatus = pluginJob51ResultProcessor(userLoginStatus);
       store.commit('changeChannelConfLogin',{key:channelKey,value:loginStatus});
       store.commit('changeChannelConfLoading',{key:channelKey,value:false});
     }, 2000)
+    return;
   }catch (e){
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     store.commit('changeChannelConfLogin',{key:channelKey,value:false});
@@ -121,22 +132,36 @@ const userLoginStatus = () => {
   }
 }
 
-//猎聘 用户登陆状态
-const liePinUserStatus = async () => {
-  const headers = await getLIEPINHeader(true);
-  if(!headers||headers.length===0){
+//job51 用户登陆状态
+const job51UserStatus = async () => {
+  const headers = await getJob51Header(true);
+  let job51PropertyInfo = await getJob51PropertyInfo();
+  if(!headers||headers.length===0||(!job51PropertyInfo)){
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
   }
-  // let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  // pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
-  // pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
-  // pluginEmptyRequestTemplate.parameters = null;
-  // pluginEmptyRequestTemplate.requestHeader = headers;
-  // pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  // pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.userStatus;
-  // return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
-  return;
+  const propertyInfo = JSON.parse(job51PropertyInfo);
+  if(!propertyInfo.guid||(!headers['Guid'])||(headers['Guid']!==propertyInfo.guid)){
+    return;
+  }
+  let token =headers['Accesstoken'];
+  const requestData ={
+    "timestamp": getCurrentTimestamp(),
+    "pageUrl": "https://ehire.51job.com/Revision/talent/search",
+    "fromPageUrl": "https://ehire.51job.com/Revision/navigate/",
+    "webId": "3",
+    "userType": "0",
+    "property": job51PropertyInfo,
+  }
+  //获取加密
+  let generateSignature = generateSignatureJob51(token,requestData);
+  requestData.sign = generateSignature;
+  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+  pluginEmptyRequestTemplate.parameters = requestData;
+  pluginEmptyRequestTemplate.requestHeader = headers;
+  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.JOB51.baseUrl+pluginAllUrls.JOB51.job51Authority;
+  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
 const clickListInfo = async (listInfo) => {
@@ -159,7 +184,15 @@ const openDetail = (listInfo)=>{
   }
 
   const requestParams = JSON.parse(listInfo.originalResumeUrlInfo);
-  const url=requestParams.request.resumeUrl;
+  const userid=requestParams.request.userid;
+  const requestid=requestParams.request.requestid;
+  const keyWord =requestParams.request.keyWord;
+  const requestData ={
+    resumeId:userid,
+    requestId:requestid,
+    keyword:keyWord
+  }
+  const url=pluginAllUrls.JOB51.geekDetailUrl+`?`+qs.stringify(requestData);
   const name='_blank';                            //网页名称，可为空;
   const iWidth=window.screen.availWidth *0.8;                          //弹出窗口的宽度;
   const iHeight=window.screen.availHeight * 0.8;                         //弹出窗口的高度;
@@ -170,10 +203,10 @@ const openDetail = (listInfo)=>{
   window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
 
   //同步详细简历
-  liePinDetailRequest(listInfo);
+  job51DetailRequest(listInfo);
 }
 
-const liePinDetailRequest = async (listInfo) => {
+const job51DetailRequest = async (listInfo) => {
   const requestParams = JSON.parse(listInfo.originalResumeUrlInfo);
   const queryString = requestParams.request;
   const channel = channelConfig.value.desc;
@@ -181,7 +214,8 @@ const liePinDetailRequest = async (listInfo) => {
   const resumeBlindId = listInfo.id;
   const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
   const taskRequest = {queryString,outId,resumeBlindId,type,channel};
-  await exeLIEPINJobInfo(taskRequest);
+  console.log(taskRequest)
+  await exeJob51Info(taskRequest);
 }
 
 //分页设置触发时
@@ -222,7 +256,7 @@ const channelSearch = async (channelRequestInfo) => {
   // if(props.onLodingClose){
   //   props.onLodingClose();
   // }
-  console.log("liepin执行完了")
+  console.log("job51执行完了")
 }
 
 const channelSearchList = async (channelRequestInfo) => {
@@ -240,17 +274,21 @@ const channelSearchList = async (channelRequestInfo) => {
     console.log(e);
     return;
   }
-  if(!pluginLIEPINResultProcessor(responseJobListData)){
-    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.message))
+  if(!pluginJob51ResultProcessor(responseJobListData)){
+    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.msg))
     return;
   }
+  console.log("数据：",responseJobListData)
   //列表存到后端
-  const channelList = responseJobListData.responseData.data.data.cvSearchResultForm.cvSearchListFormList;
+  const channelList = responseJobListData.responseData.data.data.list;
   //包装数据
   if(channelList&&channelList.length>0){
-    const highLightKey = responseJobListData.responseData.data.data.cvSearchResultForm.highLightKey;
+    const UserRequestId = responseJobListData.responseData.data.data.requestid;
+    const UserCoid = responseJobListData.responseData.data.data.coid;
     channelList.forEach((item)=>{
-      item.highLightKey = highLightKey;
+      item.requestid = UserRequestId;
+      item.coid =UserCoid;
+      item.keyWord=channelSearchCondition.conditionData.keyword;
     })
   }
   let saveJobListRequest = saveJobListRequestTemplate();
@@ -271,12 +309,12 @@ const channelSearchList = async (channelRequestInfo) => {
   if(!jobList||jobList.length===0){
     return;
   }
-  // console.log("猎聘channelList:",channelList)
-  // console.log("猎聘jobList:",jobList)
+  console.log("51job channelList:",channelList)
+  console.log("51job jobList:",jobList)
   //查询渠道信息
   //生成异步任务
   channelList.forEach((item, index) => {
-    const match = jobList.find(a => a.rawDataId === item.usercId);
+    const match = jobList.find(a => a.rawDataId === item.userid);
     if (match) {
       if(!match.originalResumeUrlInfo){
         console.log("match.originalResumeUrlInfo is null")
@@ -290,7 +328,7 @@ const channelSearchList = async (channelRequestInfo) => {
       const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
       const taskRequest = {queryString,outId,resumeBlindId,type,channel};
       if(index<1){
-        liePinQueueManager.enqueue(taskRequest);
+        job51QueueManager.enqueue(taskRequest);
       }
     }
   });
@@ -338,24 +376,30 @@ const search = async (page) => {
 
 //列表查询
 const searchJobList = async (searchConfig) => {
-  const headers = await getLIEPINHeader(true);
-  if(!headers||headers.length===0){
+  const headers = await getJob51Header(true);
+  let job51PropertyInfo = await getJob51PropertyInfo();
+  if(!headers||headers.length===0||(!job51PropertyInfo)){
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
   }
-  const requestParams = _.cloneDeep(searchConfig);
-  requestParams.cvSearchConditionInputVo.curPage = 0;
-  requestParams.cvSearchConditionInputVo = JSON.stringify(searchConfig.cvSearchConditionInputVo);
-  //访问猎聘
-  // let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  // pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
-  // pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
-  // pluginEmptyRequestTemplate.parameters = qs.stringify(requestParams);
-  // pluginEmptyRequestTemplate.requestHeader = headers;
-  // pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  // pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.getAllJobList;
-  // return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
-  return;
+  const propertyInfo = JSON.parse(job51PropertyInfo);
+  if(!propertyInfo.guid||(!headers['Guid'])||(headers['Guid']!==propertyInfo.guid)){
+    return;
+  }
+  searchConfig.property = job51PropertyInfo;
+  let token =headers['Accesstoken'];
+  searchConfig.timestamp = getCurrentTimestamp();
+
+  //获取加密
+  let generateSignature = generateSignatureJob51(token,searchConfig);
+  searchConfig.sign = generateSignature;
+  // console.log("请求是：",searchConfig)
+  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+  pluginEmptyRequestTemplate.parameters = searchConfig;
+  pluginEmptyRequestTemplate.requestHeader = headers;
+  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.JOB51.baseUrl+pluginAllUrls.JOB51.getAllJobList;
+  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
 //详细信息查询

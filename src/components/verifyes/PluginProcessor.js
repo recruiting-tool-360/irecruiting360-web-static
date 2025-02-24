@@ -20,3 +20,7 @@ export const pluginZhiLianResultProcessor = (responseData)=>{
 export const pluginLIEPINResultProcessor = (responseData)=>{
     return pluginResultProcessor(responseData)&&responseData.responseData.data.flag!==undefined&&responseData.responseData.data.flag===1;
 }
+
+export const pluginJob51ResultProcessor = (responseData)=>{
+    return pluginResultProcessor(responseData)&&responseData.responseData.data.code!==undefined&&responseData.responseData.data.code==='200';
+}
