@@ -18,6 +18,7 @@ export default {
             BOSS:[],
             ZHILIAN:[],
             LIEPIN:[],
+            JOB51:[],
             Collect:[]
         },
         searchStateConfig:createSearchState(),

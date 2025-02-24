@@ -21,7 +21,13 @@ const i360Request= async (action, emptyRequestTemplate, timeout = 5000) => {
         console.error('Error:', error.message);
     }
 }
-
+function genUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0
+            , v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
 //猎聘 请求头信息
 export const getLIEPINHeaderInfo = async (flag) => {
     let headers = {};
@@ -33,12 +39,13 @@ export const getLIEPINHeaderInfo = async (flag) => {
         const httpHeader = boosRequestHeader.responseData.data.headersData;
         if(httpHeader){
             headers= httpHeader;
+            // headers=["Accept"]="application/json, text/plain, */*";
             headers["X-Fscp-Version"]="1.1";
             headers["X-Requested-With"]="XMLHttpRequest";
             headers["X-Client-Type"]="web";
             headers["Content-Type"]="application/x-www-form-urlencoded";
-            httpHeader["X-Fscp-Fe-Version"]="";
-            headers["X-Fscp-Trace-Id"]=uuidv4();
+            headers["X-Fscp-Fe-Version"]="";
+            headers["X-Fscp-Trace-Id"]=genUID();
         }
     }else{
         if(flag){

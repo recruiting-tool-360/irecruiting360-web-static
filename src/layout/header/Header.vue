@@ -129,6 +129,7 @@ import { useRouter } from 'vue-router'
 import {ElButton, ElMessage} from "element-plus";
 import {getUserInfo, userlogout} from "@/api/user/UserApi";
 import Cookies from "js-cookie";
+import CryptoJS from 'crypto-js';
 // 获取路由实例
 const router = useRouter()
 const store = useStore();
@@ -167,6 +168,7 @@ const logout = async () => {
   Cookies.remove('satoken', {path: '/'});
   try {
     await userlogout();
+    store.commit('changeUserInfo', null);
   } catch (e) {
     console.log(e)
   }

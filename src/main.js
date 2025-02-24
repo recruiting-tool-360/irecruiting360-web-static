@@ -47,10 +47,10 @@ const pluginRequest= async (action,emptyRequestTemplate, timeout = 1000) => {
 const initializePluginConfig = async () => {
     let pluginBaseConfig = getPluginBaseConfig();
     let pluginCookieBaseConfig = getPluginCookieBaseConfig();
-    let pluginDynamicRulesConfig = getPluginDynamicRulesConfigFn();
+    // let pluginDynamicRulesConfig = getPluginDynamicRulesConfigFn();
     let pluginConfigRs = await pluginRequest(pluginBaseConfig.action, pluginBaseConfig);
     let pluginCookieConfigRs = await pluginRequest(pluginCookieBaseConfig.action,pluginCookieBaseConfig);
-    let pluginDynamicRulesConfigRs = await pluginRequest(pluginDynamicRulesConfig.action,pluginDynamicRulesConfig);
+    // let pluginDynamicRulesConfigRs = await pluginRequest(pluginDynamicRulesConfig.action,pluginDynamicRulesConfig);
 }
 
 

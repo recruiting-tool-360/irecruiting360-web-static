@@ -65,6 +65,8 @@ const props = defineProps({
 });
 // 定义事件
 const emit = defineEmits(['toggleShrink']);
+//用户信息
+const userInfo = computed(() => store.getters.getUserInfo);
 //搜索
 const searchInp = ref("");
 //数据
@@ -79,7 +81,7 @@ onMounted(async ()=>{
   try {
     setTimeout(async () => {
       // loadingStatus.value = true;
-      await store.dispatch("findSearchCondition",1); // 执行任务
+      await store.dispatch("findSearchCondition",userInfo.value.id); // 执行任务
       // loadingStatus.value = false;
     }, 2000);
   }catch (e){
@@ -92,7 +94,7 @@ onMounted(async ()=>{
 const findSearchConditionListByKey = _.debounce(async (value) => {
   store.commit("changeLeftLoadingSwitch", true);
   try {
-    let {data} = await querySearchConditionCollection(1,value);
+    let {data} = await querySearchConditionCollection(userInfo.value.id,value);
     if (data) {
       store.commit('setSearchConditionList',data);
     }else{
@@ -111,7 +113,7 @@ const deleteSearchCondition = async () => {
   try {
     let {data} = await cancelSearchConditionCollection(defaultRow.value.id);
     ElMessage.success('操作成功!');
-    await store.dispatch("findSearchCondition", 1); // 执行任务
+    await store.dispatch("findSearchCondition", userInfo.value.id); // 执行任务
     deleteSearchConditionFlag.value=false;
   } catch (e) {
     ElMessage.error('后台服务异常，请联系管理员！');

@@ -1,6 +1,5 @@
 import axios from "axios";
 import {ElMessage,ElNotification} from "element-plus";
-import store from '@/store';
 
 const service=axios.create({
     baseURL: '/api',

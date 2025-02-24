@@ -56,5 +56,7 @@ const boosQueueManager = new QueueManager();
 const zhiLianQueueManager = new QueueManager();
 
 const liePinQueueManager = new QueueManager();
+
+const job51QueueManager = new QueueManager();
 // 命名导出
-export { boosQueueManager, zhiLianQueueManager, liePinQueueManager };
+export { boosQueueManager, zhiLianQueueManager, liePinQueueManager,job51QueueManager };

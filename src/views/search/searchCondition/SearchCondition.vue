@@ -80,7 +80,8 @@ const props = defineProps({
 });
 //单选值
 const radio = ref('Create');
-
+//用户信息
+const userInfo = computed(() => store.getters.getUserInfo);
 //显示开关
 const centerDialogVisible = computed(()=>props.dialogVisible);
 //搜索条件id
@@ -98,7 +99,7 @@ const conditionOptions = ref([]);
 //加载所有搜索条件
 const searchAllCondition = async () => {
   try {
-    let {data} = await querySearchConditionCollection(1);
+    let {data} = await querySearchConditionCollection(userInfo.value.id);
     conditionOptions.value =data;
   } catch (e) {
     console.log(e)
@@ -129,7 +130,7 @@ const onSubmit = async () => {
 //搜索条件名称校验
 const changeInpVal = async (val) => {
   try {
-    let {data} = await collectedConditionNameExists(searchConditionId.value, val);
+    let {data} = await collectedConditionNameExists(userInfo.value.id, val);
     validateFlag.value = !data;
   } catch (e) {
     validateFlag.value = false;
@@ -148,7 +149,7 @@ const createCondition = async () => {
       try {
         let {data} = await addSearchConditionCollection(searchConditionId.value, conditionName.value);
         ElMessage.success('保存成功!');
-        await store.dispatch("findSearchCondition",1); // 执行任务
+        await store.dispatch("findSearchCondition",userInfo.value.id); // 执行任务
         return true;
       }catch (e){
         ElMessage.error('后台服务异常，请联系管理员！');
@@ -170,9 +171,9 @@ const updateCondition = async () => {
       return false;
     }
     try {
-      let {data} = await updateSearchConditionCollection(1, "nunu",conditionSelectValue.value.id);
+      let {data} = await updateSearchConditionCollection(userInfo.value.id, "nunu",conditionSelectValue.value.id);
       ElMessage.success('修改成功!');
-      await store.dispatch("findSearchCondition",1); // 执行任务
+      await store.dispatch("findSearchCondition",userInfo.value.id); // 执行任务
       return true;
     }catch (e){
       ElMessage.error('后台服务异常，请联系管理员！');

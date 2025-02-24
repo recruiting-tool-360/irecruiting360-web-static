@@ -133,7 +133,7 @@ import {useStore} from 'vuex';
 import { ElButton, ElMessage } from 'element-plus'
 import { vChatScroll } from "vue3-chat-scroll";
 import {fetchStream} from "@/api/chat/ChatUtil2";
-import {clearChatHistory, getChatHistory, getChatIdByUserId, getCurrentConditionByChatId} from "@/api/chat/ChatApi";
+import {clearChatHistory, getChatHistory, getCurrentConditionByChatId} from "@/api/chat/ChatApi";
 import {getChatTemplate} from "@/views/search/dto/chat/ChatTemplate";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 import { v4 as uuidv4 } from 'uuid';
@@ -149,6 +149,8 @@ const props = defineProps({
   }
 });
 const message = ref(''); // 用于存储输入的消息
+//用户信息
+const userInfo = computed(() => store.getters.getUserInfo);
 // 获取聊天容器的引用
 const chatContainer = ref(null);
 const userChatId = computed(() => store.getters.getLocalUserChatId);
@@ -195,6 +197,10 @@ function parseMarkdown(content) {
 
 // 定义消息数据
 const messages = computed(()=>store.getters.getChatMassages?store.getters.getChatMassages:[]);
+// const messages = computed(() => {
+//   const userId = userInfo.value?.id; // 使用可选链操作符
+//   return userId ? store.getters.getUserMessages(userId) : [];
+// });
 
 // 处理按键事件
 const handleKeyDown = (event) => {
@@ -220,7 +226,7 @@ const handleKeyDown = (event) => {
 const findHistoricalDialogue = async () => {
   historyLoading.value=true;
   try {
-    const {data} = await getChatHistory(userChatId.value,1);
+    const {data} = await getChatHistory(userChatId.value,userInfo.value.id);
     chatHistoryList.value = data.chatHistory;
   }catch (e){
     console.log(e);
@@ -232,7 +238,7 @@ const findHistoricalDialogue = async () => {
 
 const clearHistory = async () => {
   try {
-    await clearChatHistory(userChatId.value,1);
+    await clearChatHistory(userChatId.value,userInfo.value.id);
     ElMessage.success('操作成功！');
   }catch (e){
     console.log(e);
@@ -278,7 +284,7 @@ const sentMassage = () =>{
   userMsg.searchConditionId = searchConditionId.value;
   userMsg.created = Math.floor(Date.now() / 1000);
   userMsg.role = "User";
-  userMsg.userId = 1;
+  userMsg.userId = userInfo.value.id;
   store.commit('addMessageToQueue',userMsg);
   //messages.value.push(userMsg);
   message.value = '';
@@ -303,7 +309,7 @@ const invokeChat = (userMsg) => {
   //发送ai 用户消息
   chatFluxStatus.value = true;
   fetchStream(
-      "http://127.0.0.1:8087/ihire/chat/streamChat",
+      process.env.VUE_APP_API_BASE_URL+"/ihire/chat/streamChat",
       aiRequestMsg,
       (message) => {
         try {

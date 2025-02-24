@@ -10,13 +10,15 @@ export const pluginAllGroup = {
     Sys:{
         BASE_CONFIG:"BASE_CONFIG",
         UNIVERSAL_REQUEST:"UNIVERSAL_REQUEST",
-        UNIVERSAL_REQUEST_BACKGROUND_MAIN:"UNIVERSAL_REQUEST_BACKGROUND_MAIN"
+        UNIVERSAL_REQUEST_BACKGROUND_MAIN:"UNIVERSAL_REQUEST_BACKGROUND_MAIN",
+        UPDATE_ROLES_CONFIG:"UPDATE_ROLES_CONFIG"
     }
 }
 //插件所有group
 export const headerTypes = {
     REQUEST:"REQUEST",
-    RESPONSE:"RESPONSE"
+    RESPONSE:"RESPONSE",
+    URL:"URL"
 }
 //插件所有action
 export const pluginAllActions = {
@@ -54,6 +56,15 @@ export const pluginAllUrls = {
         userStatus:"/api/com.liepin.tiangong.usere.bpc.get-current-info",
         getAllJobList:"/api/com.liepin.searchfront4r.b.search",
         geekInfo:"/api/com.liepin.rresume.usere.pc.get-resume-detail",
+    },
+    JOB51:{
+        loginURL:"https://ehire.51job.com/Revision/login",
+        baseUrl:"https://ehirej.51job.com",
+        job51Authority:"/user/authority/check_admin_authority",
+        getAllJobList:"/resume/search/talent_hunt_resume_list",
+        geekInfo:"/api/com.liepin.rresume.usere.pc.get-resume-detail",
+        geekDetailUrl:"https://ehire.51job.com/Revision/talent/resume/detail",
+        resumeDetail:"/resumedtl/getresume"
     }
 }
 //插件所有key配置
@@ -65,6 +76,9 @@ export const pluginKeys = {
     ZHILIANCookieStorageKey:"ZHILIANCookieStorageKey",
     LIEPINRequestStorageKey:"LIEPINRequestStorageKey",
     LIEPINCookieStorageKey:"LIEPINCookieStorageKey",
+    JOB51RequestStorageKey:"JOB51RequestStorageKey",
+    JOB51URLASStorageKey:"JOB51URLASStorageKey",
+    JOB51CookieStorageKey:"JOB51CookieStorageKey",
 }
 //插件请求模版
 export const getPluginEmptyRequestTemplate = () => {
@@ -116,6 +130,18 @@ export const getPluginBaseConfig = ()=>{
         headers: ["X-Fscp-Bi-Stat","X-Fscp-Std-Info","X-Xsrf-Token"],
         requestFilterType: ["requestHeaders"],
         storageKey: pluginKeys.LIEPINRequestStorageKey
+    },{
+        type:headerTypes.REQUEST,
+        url: pluginAllUrls.JOB51.baseUrl,
+        headers: ["Accesstoken","Guid","Terminaltype"],
+        requestFilterType: ["requestHeaders"],
+        storageKey: pluginKeys.JOB51RequestStorageKey
+    },{
+        type:headerTypes.URL,
+        url: pluginAllUrls.JOB51.baseUrl+pluginAllUrls.JOB51.job51Authority,
+        headers: [pluginAllUrls.JOB51.baseUrl+pluginAllUrls.JOB51.job51Authority+"?"],
+        requestFilterType: ["requestHeaders"],
+        storageKey: pluginKeys.JOB51URLASStorageKey
     }];
     pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setBaseConfig;
     return pluginEmptyRequestTemplate;
@@ -138,6 +164,11 @@ export const getPluginCookieBaseConfig = ()=>{
         url: pluginAllUrls.LIEPIN.baseUrl,
         requestFilterType: [],
         cookieStorageKey: pluginKeys.LIEPINCookieStorageKey
+    },
+    {
+        url: pluginAllUrls.JOB51.baseUrl,
+        requestFilterType: [],
+        cookieStorageKey: pluginKeys.JOB51CookieStorageKey
     }];
     pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setCookieConfig;
     return pluginEmptyRequestTemplate;
@@ -145,7 +176,7 @@ export const getPluginCookieBaseConfig = ()=>{
 
 export const getPluginDynamicRulesConfigFn = () => {
     let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-    pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.BASE_CONFIG;
+    pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UPDATE_ROLES_CONFIG;
     pluginEmptyRequestTemplate.parameters =[
         {
             id: 1,
@@ -164,10 +195,28 @@ export const getPluginDynamicRulesConfigFn = () => {
                 urlFilter: pluginAllUrls.ZHILIAN.baseUrl+"/*",
                 resourceTypes: ["xmlhttprequest"]
             }
+        },
+        {
+            id: 2,
+            priority: 1,
+            action: {
+                type: "modifyHeaders",
+                requestHeaders: [
+                    {
+                        header: "Origin",
+                        operation: "set",
+                        value: pluginAllUrls.JOB51.baseUrl
+                    }
+                ]
+            },
+            condition: {
+                urlFilter: pluginAllUrls.JOB51.baseUrl+"/*",
+                resourceTypes: ["xmlhttprequest"]
+            }
         }
     ];
     // pluginEmptyRequestTemplate.parameters=[];
-    pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setDynamicRulesConfig;
+    // pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setDynamicRulesConfig;
     return pluginEmptyRequestTemplate;
 }
 
