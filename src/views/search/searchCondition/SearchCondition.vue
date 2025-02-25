@@ -171,7 +171,7 @@ const updateCondition = async () => {
       return false;
     }
     try {
-      let {data} = await updateSearchConditionCollection(userInfo.value.id, "nunu",conditionSelectValue.value.id);
+      let {data} = await updateSearchConditionCollection(userInfo.value.id, conditionSelectValue.value.collectedName,searchConditionId.value);
       ElMessage.success('修改成功!');
       await store.dispatch("findSearchCondition",userInfo.value.id); // 执行任务
       return true;

@@ -611,6 +611,7 @@ const searchJobListFn = async () => {
  */
 const searchJobList = async () => {
   let searchConditionRequest = getSearchConditionRequest();
+  searchConditionRequest.userId=userInfo.value.id;
   //搜索条件
   let searchRequestData;
   try {
@@ -654,7 +655,7 @@ const getSearchConditionRequest = () => {
   ageElSliderValue[0] = (ageElSliderValue[0] <=15||ageElSliderValue[0] >50) ? ageElSliderValue[0] = -1 : ageElSliderValue[0];
   ageElSliderValue[1] = (ageElSliderValue[1] <=15||ageElSliderValue[1] >50) ? ageElSliderValue[1] = -1 : ageElSliderValue[1];
   //用户id
-  searchState.value.userId=1;
+  // searchState.value.userId=1;
   //处理其他参数
   let searchConditionRequest = convertSearchConditionRequest(searchState.value);
   searchConditionRequest.searchChannels = allThirdPartyChannelConfig.value.filter((channel) => channel.disable&&channel.login).map((item) => (item.name))||[];
