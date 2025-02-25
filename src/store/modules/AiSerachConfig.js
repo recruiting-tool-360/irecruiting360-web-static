@@ -84,6 +84,7 @@ export default {
                         if (map.has(updatedItem.id)) {
                             const item = map.get(updatedItem.id);
                             updatedItem.score = item.score; // 更新 score 值
+                            updatedItem.cc = item;//设置分数对象
                             if(item.score&&item.score>=0){
                                 this.commit("deleteScoreConfigById", updatedItem.id);
                             }else{

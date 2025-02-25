@@ -55,7 +55,7 @@ import {
 import {getCookieValue} from "@/util/StringUtil";
 import {getHTMlDom} from "@/api/testRequest/DetialApi";
 import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
-import {getSortComparisonValue} from "@/config/staticConf/AIConf";
+import {getSortComparisonValue, getSynchronizationDetailsContValue} from "@/config/staticConf/AIConf";
 
 //store
 const store = useStore();
@@ -297,7 +297,7 @@ const channelSearchList = async (channelRequestInfo) => {
       const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
       const taskRequest = {queryString,outId,resumeBlindId,type,channel};
       // zhiLianQueueManager.enqueue(taskRequest);
-      if(index<1){
+      if(index < getSynchronizationDetailsContValue()){
         zhiLianQueueManager.enqueue(taskRequest);
       }
     }

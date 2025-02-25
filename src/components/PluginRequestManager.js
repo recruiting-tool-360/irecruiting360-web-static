@@ -138,8 +138,8 @@ export const getPluginBaseConfig = ()=>{
         storageKey: pluginKeys.JOB51RequestStorageKey
     },{
         type:headerTypes.URL,
-        url: pluginAllUrls.JOB51.baseUrl+pluginAllUrls.JOB51.job51Authority,
-        headers: [pluginAllUrls.JOB51.baseUrl+pluginAllUrls.JOB51.job51Authority+"?"],
+        url: "https://ehirej.51job.com/",
+        headers: ["https://ehirej.51job.com/jobvalueadded/exchange-rights/telescope_authority?","https://ehirej.51job.com/login/dologin/getlastip?", "https://ehirej.51job.com/jobvalueadded/exchange-rights/telescope_authority?"],
         requestFilterType: ["requestHeaders"],
         storageKey: pluginKeys.JOB51URLASStorageKey
     }];

@@ -94,7 +94,7 @@ export const getJob51PropertyInfo = async () => {
     let pluginBaseConfigEmptyDTO = getPluginBaseConfigEmptyDTO();
     pluginBaseConfigEmptyDTO.parameters = pluginKeys.JOB51URLASStorageKey;
     let boosRequestHeader = await i360Request(pluginBaseConfigEmptyDTO.action, pluginBaseConfigEmptyDTO);
-    console.log(boosRequestHeader)
+    console.log("getJob51PropertyInfo:",boosRequestHeader)
     if(pluginResultProcessor(boosRequestHeader)){
         const httpHeader = boosRequestHeader.responseData.data.headersData;
         console.log("51 url header",httpHeader)

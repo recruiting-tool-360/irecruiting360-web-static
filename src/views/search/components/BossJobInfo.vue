@@ -45,7 +45,7 @@ import qs from "qs";
 import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
 import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
 import {boosQueueManager} from "@/components/QueueManager/queueManager";
-import {getSortComparisonValue} from "@/config/staticConf/AIConf";
+import {getSortComparisonValue, getSynchronizationDetailsContValue} from "@/config/staticConf/AIConf";
 
 //store
 const store = useStore();
@@ -221,7 +221,7 @@ const channelSearchList = async (channelRequestInfo) => {
       const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
       const taskRequest = {queryString,outId,resumeBlindId,type,channel};
       // boosQueueManager.enqueue(taskRequest);
-      if(index<1){
+      if(index < getSynchronizationDetailsContValue()){
         boosQueueManager.enqueue(taskRequest);
       }
     }
