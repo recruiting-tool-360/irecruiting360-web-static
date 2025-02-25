@@ -187,5 +187,6 @@ export const convertSearchState = (obj) => {
     searchState.searchChannels = [];
     searchState.criteria = obj.criteria;
     searchState.userId =obj.userId
+    // console.log("新的值：",searchState)
     return searchState;
 }

@@ -18,7 +18,7 @@ export default class PluginMessenger {
                 if (event.source !== window) return;
                 if (event.origin !== window.location.origin) return;
                 const responseId=event.data?event.data.id:undefined;
-                if (event.data.action === ('response'+action) && responseId!==undefined && responseId=== messageId) {
+                if (event.data&&event.data.action === ('response'+action) && responseId!==undefined && responseId=== messageId) {
                     cleanup();
                     resolve(event.data);
                 }

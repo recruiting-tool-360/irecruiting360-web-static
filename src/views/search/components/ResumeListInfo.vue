@@ -12,7 +12,7 @@
           <!--   头像     -->
           <el-avatar class="headerIcons" :size="40" :src="`${geekList.gender===1?'/index/header/icons/geekMan.svg':'/index/header/icons/geekWoman.svg'}`" />
           <el-text class="mx-1 el-button-margin-left" style="font-size: 1rem;font-weight: bold">{{geekList.name}}</el-text>
-          <el-text class="mx-1 el-button-margin-left text-gray-color-130">{{geekList.genderStr}} · {{geekList.age}} · 未知</el-text>
+          <el-text class="mx-1 el-button-margin-left text-gray-color-130">{{geekList.genderStr}} · {{geekList.age}} </el-text>
           <el-button size="small" disabled round style="margin-left: 1rem;">求职意向:
             <el-tooltip
                 class="box-item"
@@ -54,19 +54,36 @@
       <!--  学历行    -->
       <el-row class="geek-highestDegree-el-row el-row-width-full el-row-margin-top-6px"  :gutter="0">
         <el-col class="geek-highestDegree-el-col el-col-display-Style" :span="15">
-          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.educationStr?geekList.educationStr:"学历未知"}}</el-button>
+          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.degree?geekList.degree:"学历未知"}}</el-button>
           <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear&&geekList.experienceYear>=0?geekList.experienceYear+"年":"工作年龄未知"}}</el-button>
+<!--          <el-button style="background-color: #c0bdb6;color: #6c6e6e" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
+<!--            {{geekList.gender===1?'男':'女'}}</el-button>-->
+          <el-button :style="`${geekList.gender === 1?'background-color: #409EFF;color: white':'background-color: #F56C6C;color: white'}`" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
+            {{ geekList.gender === 1 ? '男' : '女' }}
+          </el-button>
 <!--          <el-button style="background-color: #FFF7E6;color: #F79000" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
 <!--            <el-image class="headerIcons" :src="'/index/header/icons/phone.svg'"></el-image>-->
-<!--            12345678910</el-button>-->
+<!--            {{geekList.gender===1?'男':'女'}}</el-button>-->
 <!--          <el-button style="background-color: #F9F0FF;color: #722ED1" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
 <!--            <el-image class="headerIcons" :src="'/index/header/icons/email.svg'"></el-image>-->
 <!--            12345678910@126.com</el-button>-->
         </el-col>
         <el-col v-if="props.channelConfig&&props.channelConfig.key!=='Collect'" class="geek-highestDegree-el-col el-col-display-Style" style="justify-content: end" :span="9">
-          <div class="geekAIBtm">
-            <spa>AI评估</spa>
-          </div>
+<!--          <div class="geekAIBtm">-->
+<!--            <spa>AI评估</spa>-->
+<!--          </div>-->
+          <el-popover placement="top" trigger="hover" width="500">
+            <template #reference>
+              <div class="geekAIBtm">
+                <spa>AI评估</spa>
+              </div>
+            </template>
+            <el-row justify="center" align="top">
+              <el-text>
+                {{geekList.cc}}
+              </el-text>
+            </el-row>
+          </el-popover>
           <div class="geekAINumBtm">
             <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{geekList.score}}</el-text>
             <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
@@ -101,8 +118,9 @@
 import {onMounted,computed,ref,watch,defineExpose} from "vue";
 import {useStore} from "vuex";
 import {userCollectResume} from "@/api/jobList/JobListApi";
-import {ElMessage} from "element-plus";
+import {ElButton, ElMessage} from "element-plus";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
+import {SwitchButton} from "@element-plus/icons-vue";
 
 //store
 const store = useStore();
@@ -239,5 +257,14 @@ const handleCollectClick = async (listInfo, value) => {
   word-wrap: break-word; /* 防止长单词撑破布局 */
   max-width: 100px; /* 根据需要设置最大宽度 */
   width: 100px;
+}
+
+.male-btn {
+  background-color: #409EFF;
+  color: white;
+}
+.female-btn {
+  background-color: #F56C6C;
+  color: white;
 }
 </style>

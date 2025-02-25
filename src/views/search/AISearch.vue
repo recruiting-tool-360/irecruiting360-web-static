@@ -706,7 +706,7 @@ const resetSearchConnect = ()=>{
 
 //监听搜索体
 watch(() => searchConditionRequestData.value, async (newValue) => {
-  console.log(newValue)
+  // console.log(newValue)
   if(newValue){
     searchAreaLoadingSwitch.value = true;
     try {
@@ -715,7 +715,18 @@ watch(() => searchConditionRequestData.value, async (newValue) => {
     } catch (e){
       console.log(e)
     }
-    searchState.value = convertSearchState(newValue);
+    let convertSearchStateVal = convertSearchState(newValue);
+    //处理工作年限边界
+    const workElSliderValue = convertSearchStateVal.workElSliderValue;
+    workElSliderValue[0] = (workElSliderValue[0] <=0) ? 0 : workElSliderValue[0];
+    workElSliderValue[1] = (workElSliderValue[1] <=0) ? 11 : workElSliderValue[1];
+    convertSearchStateVal.workElSliderValue = workElSliderValue;
+    //处理年龄边界
+    const ageElSliderValue = convertSearchStateVal.ageElSliderValue;
+    ageElSliderValue[0] = (ageElSliderValue[0] <=15) ? 15: ageElSliderValue[0];
+    ageElSliderValue[1] = (ageElSliderValue[1] <=15) ? 51: ageElSliderValue[1];
+    convertSearchStateVal.ageElSliderValue = ageElSliderValue;
+    searchState.value = convertSearchStateVal;
     searchAreaLoadingSwitch.value = false;
     store.commit('changeSearchConditionRequestData',null);
   }

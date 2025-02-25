@@ -59,7 +59,7 @@ import {
 import {getCookieValue} from "@/util/StringUtil";
 import {getHTMlDom} from "@/api/testRequest/DetialApi";
 import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
-import {getSortComparisonValue} from "@/config/staticConf/AIConf";
+import {getSortComparisonValue, getSynchronizationDetailsContValue} from "@/config/staticConf/AIConf";
 import {exeLIEPINJobInfo, getLIEPINHeader} from "@/components/QueueManager/LIEPINJobInfoManager";
 import _ from "lodash";
 import {
@@ -135,7 +135,9 @@ const userLoginStatus = () => {
 //job51 用户登陆状态
 const job51UserStatus = async () => {
   const headers = await getJob51Header(true);
+  console.log("51 headers",headers)
   let job51PropertyInfo = await getJob51PropertyInfo();
+  console.log("51 job51PropertyInfo",job51PropertyInfo)
   if(!headers||headers.length===0||(!job51PropertyInfo)){
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
@@ -327,7 +329,7 @@ const channelSearchList = async (channelRequestInfo) => {
       const resumeBlindId = match.id;
       const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
       const taskRequest = {queryString,outId,resumeBlindId,type,channel};
-      if(index<1){
+      if(index < getSynchronizationDetailsContValue()){
         job51QueueManager.enqueue(taskRequest);
       }
     }
