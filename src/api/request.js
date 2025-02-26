@@ -2,11 +2,12 @@ import axios from "axios";
 import {ElMessage,ElNotification} from "element-plus";
 
 const service=axios.create({
-    baseURL: '/api',
-    timeout:15000,
-    withCredentials:true
+    baseURL: process.env.VUE_APP_API_BASE_URL,
+    timeout:15000
 })
 // service.defaults.withCredentials = true;
+//withCredentials:true
+//    baseURL: '/api',
 
 // 结果集处理器
 service.interceptors.response.use(

@@ -13,9 +13,7 @@ import {generateOneUniqueRandomNumber} from "@/util/RandomNum";
 import {exeJobInfo} from "@/components/QueueManager/BoosJobInfoManager";
 import {exeZhiLianJobInfo} from "@/components/QueueManager/ZhiLianJobInfoManager";
 import {exeLIEPINJobInfo} from "@/components/QueueManager/LIEPINJobInfoManager";
-import {getUserInfo} from "@/api/user/UserApi";
 import {useStore} from "vuex";
-import {ElMessage} from "element-plus";
 import {exeJob51Info} from "@/components/QueueManager/Job51InfoManager";
 
 const store = useStore();
