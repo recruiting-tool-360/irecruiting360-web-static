@@ -505,15 +505,6 @@ onMounted(async () => {
   // zhiLianInfoRef.value.userLoginStatus();
 })
 
-onMounted(async ()=>{
-  try {
-    const {data}= await getChatIdByUserId(userInfo.value.id);
-    store.commit('changeLocalUserChatId',data);
-  }catch (e){
-    ElMessage.error('后端服务异常，请联系管理员');
-  }
-});
-
 // 加载效果
 const handleMenuSelect = async (index) => {
   loadingOpen();
@@ -730,6 +721,7 @@ watch(() => searchConditionRequestData.value, async (newValue) => {
     searchState.value = convertSearchStateVal;
     searchAreaLoadingSwitch.value = false;
     store.commit('changeSearchConditionRequestData',null);
+    await searchJobListFn();
   }
 });
 

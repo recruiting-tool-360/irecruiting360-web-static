@@ -5,6 +5,11 @@ const service=axios.create({
     baseURL: process.env.VUE_APP_API_BASE_URL,
     timeout:15000
 })
+// const service=axios.create({
+//     baseURL: '/api',
+//     withCredentials:true,
+//     timeout:15000
+// })
 // service.defaults.withCredentials = true;
 //withCredentials:true
 //    baseURL: '/api',

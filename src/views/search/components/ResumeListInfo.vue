@@ -55,7 +55,7 @@
       <el-row class="geek-highestDegree-el-row el-row-width-full el-row-margin-top-6px"  :gutter="0">
         <el-col class="geek-highestDegree-el-col el-col-display-Style" :span="15">
           <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.degree?geekList.degree:"学历未知"}}</el-button>
-          <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear&&geekList.experienceYear>=0?geekList.experienceYear+"年":"工作年龄未知"}}</el-button>
+          <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear&&geekList.experienceYear>=0?geekList.experienceYear+"年":((geekList.experienceYear&&geekList.experienceYear===-1)?'应届生':'工作年龄未知')}}</el-button>
 <!--          <el-button style="background-color: #c0bdb6;color: #6c6e6e" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
 <!--            {{geekList.gender===1?'男':'女'}}</el-button>-->
           <el-button :style="`${geekList.gender === 1?'background-color: #409EFF;color: white':'background-color: #F56C6C;color: white'}`" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
@@ -137,14 +137,15 @@ const sortComparisonValue = getSortComparisonValue();
 const clickListInfo = (value) => {
   props.clickListInfoFn(value);
 }
-
+//用户信息
+const userInfo = computed(() => store.getters.getUserInfo);
 const handleCollectClick = async (listInfo, value) => {
   // if (listInfo.collectOrNot === undefined || listInfo.collectOrNot === null) {
   //   listInfo.collectOrNot = 0;
   // }
   // listInfo.inCollection = listInfo.collectOrNot === 0 ? 1 : 0;
   const requestData = {
-    userId: 1,
+    userId: userInfo.value.id,
     resumeBlindId: listInfo.id,
     isSaveOtherDelete: !listInfo.inCollection
   };

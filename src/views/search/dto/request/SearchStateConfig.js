@@ -23,7 +23,7 @@ export const createSearchState = ()=>{
          * 年龄选择范围
          * @type {Array<number>}
          */
-        ageElSliderValue : [18, 35],
+        ageElSliderValue : [18, 45],
 
         // 学历属性
         /**

@@ -117,15 +117,16 @@ const userLoginStatus = () => {
 
 //智联 用户登陆状态
 const zhiLianUserStatus = async () => {
-  const headers = await getZhiLianHeader(true);
+  const headers = await getZhiLianHeader(false);
   if(!headers||headers.length===0){
-    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+    // ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
   }
   let xZpClientId = getCookieValue("x-zp-client-id",headers['Cookie']);
   let zhiLianPageRequestId = await getZhiLianPageRequestId();
   if(!(xZpClientId)||!(zhiLianPageRequestId)||!(zhiLianPageRequestId['X-zp-page-request-id'])){
-    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+    // ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+    return ;
   }
   const requestData ={
     "_": new Date().getTime(),

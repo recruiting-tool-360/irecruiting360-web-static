@@ -1,3 +1,6 @@
+# 这个工作流将会使用 npm 构建 Vue.js 项目，并将其部署到服务器
+# 更多信息请参见：https://docs.github.com/en/actions/automating-builds-and-tests/creating-a-nodejs-workflow
+
 name: Frontend CI/CD with Vue + ElementPlus
 
 on:
@@ -7,32 +10,32 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  pull-requests: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # 检出仓库代码
       - uses: actions/checkout@v4
 
+      # 设置 Node.js 环境，使用版本 18.20.3
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18.20.3'
 
+      # 安装依赖
       - name: Install dependencies
         run: |
           npm install
 
+      # 构建 Vue.js 项目
       - name: Build Vue.js project
         run: |
           npm run build
 
+      # 设置 SSH 密钥用于部署
       - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
@@ -43,33 +46,19 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Test SSH connection
-        run: |
-          ssh -v -o StrictHostKeyChecking=no root@124.220.47.104 'echo "SSH connection successful"'
-
+      # 通过 SSH 部署到 CentOS 服务器
       - name: Deploy to CentOS Server via SSH
         run: |
-          set -e
           ssh -v -o StrictHostKeyChecking=no root@124.220.47.104 << 'EOF'
-            set -e
-            echo "Starting deployment..."
-          
-            cd /deploy/web || exit 1
-            echo "Changed to directory: $(pwd)"
-          
-            echo "Pulling latest code..."
-            git pull origin main
-          
-            echo "Removing old dist directory..."
+            
+            cd /deploy/web
+
+            git pull https://Simple96:$GITHUB_TOKEN@github.com:recruiting-tool-360/irecruiting360-web-static.git
+
             rm -rf /deploy/web/dist
-          
-            echo "Copying new dist files..."
             cp -r $GITHUB_WORKSPACE/dist /deploy/web
-          
-            echo "Restarting PM2..."
+
             pm2 restart your-vue-app
-          
-            echo "Deployment completed successfully!"
           EOF
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }}

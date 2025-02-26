@@ -49,14 +49,16 @@
     <el-row class="el-row-100-percent-w" style="height: 72vh">
       <div class="chat-container" v-chat-scroll ref="chatContainer">
         <div v-for="message in messages" :key="message.id">
-          <div v-if="message.role ==='User'" style="display: flex;justify-content: end;padding: 8px;margin: 10px 0;">
+          <div v-if="message.role ==='user'" style="display: flex;justify-content: end;padding: 8px;margin: 10px 0;">
             <div class="rightContainer chatContainer">
               <div class="dataCont">{{getFormatData(message.created)}}</div>
+<!--              <div class="dataCont">{{message.timestamp}}</div>-->
               <div class="content">{{ message.content }}</div>
             </div>
           </div>
-          <div v-else-if="message.role ==='AI'" style="display: flex;flex-wrap:wrap;justify-content: start;padding: 8px;margin: 10px 0;">
+          <div v-else-if="message.role ==='assistant'" style="display: flex;flex-wrap:wrap;justify-content: start;padding: 8px;margin: 10px 0;">
             <div class="dataCont" style="width: 100%">{{getFormatData(message.created)}}</div>
+<!--            <div class="dataCont">{{message.timestamp}}</div>-->
             <div class="leftContainer chatContainer">
               <div class="contentBox">
 <!--                <div class="content">{{ message.content }}</div>-->
@@ -174,6 +176,25 @@ let isComposing = ref(false);
 
 //初始化
 onMounted(async ()=>{
+  //查询聊天记录，切换聊天记录
+  try {
+    const {data} = await getChatHistory(userChatId.value,userInfo.value.id);
+    if(data&&data.chatHistory&&data.chatHistory.length>0){
+      store.commit('clearChatMessage');
+      data.chatHistory.forEach((item,index)=>{
+        const msg = getChatTemplate();
+        msg.content = item.content;
+        msg.id =uuidv4();
+        msg.created = item.timestamp?Math.floor(new Date(item.timestamp).getTime() / 1000):Math.floor(Date.now() / 1000);
+        msg.timestamp=item.timestamp;
+        msg.role = item.role;
+        store.commit('addMessageToQueue',msg);
+      });
+    }
+  }catch (e){
+    console.log(e);
+  }
+
   scrollToBottom();  // 调用滚动到底部的函数
 });
 
@@ -197,6 +218,7 @@ function parseMarkdown(content) {
 
 // 定义消息数据
 const messages = computed(()=>store.getters.getChatMassages?store.getters.getChatMassages:[]);
+// console.log(messages)
 // const messages = computed(() => {
 //   const userId = userInfo.value?.id; // 使用可选链操作符
 //   return userId ? store.getters.getUserMessages(userId) : [];
@@ -238,7 +260,9 @@ const findHistoricalDialogue = async () => {
 
 const clearHistory = async () => {
   try {
-    await clearChatHistory(userChatId.value,userInfo.value.id);
+    const {data} = await clearChatHistory(userChatId.value,userInfo.value.id);
+    store.commit('changeLocalUserChatId',data);
+    store.commit('clearChatMessage');
     ElMessage.success('操作成功！');
   }catch (e){
     console.log(e);
@@ -283,7 +307,7 @@ const sentMassage = () =>{
   userMsg.chatId =userChatId.value;
   userMsg.searchConditionId = searchConditionId.value;
   userMsg.created = Math.floor(Date.now() / 1000);
-  userMsg.role = "User";
+  userMsg.role = "user";
   userMsg.userId = userInfo.value.id;
   store.commit('addMessageToQueue',userMsg);
   //messages.value.push(userMsg);
@@ -294,10 +318,10 @@ const sentMassage = () =>{
 
 // 发送对话
 const invokeChat = (userMsg) => {
-  if(!searchConditionId.value){
-    ElMessage.error('系统无法监测到有效的搜索数据！');
-    return;
-  }
+  // if(!searchConditionId.value){
+  //   ElMessage.error('系统无法监测到有效的搜索数据！');
+  //   return;
+  // }
   const aiRequestMsg = {
     chatId: userMsg.chatId,
     userId: userMsg.userId,
@@ -356,7 +380,10 @@ const setMsgContainer = (msg) => {
       chatTemplate.model =msg.model;
       chatTemplate.object =msg.object;
       chatTemplate.created = msg.created;
-      chatTemplate.role = "AI";
+      chatTemplate.role = "assistant";
+      if(!userChatId.value){
+        store.commit('changeLocalUserChatId',msg.chatId);
+      }
       //messages.value.push(chatTemplate);
       store.commit('addMessageToQueue',chatTemplate);
     }

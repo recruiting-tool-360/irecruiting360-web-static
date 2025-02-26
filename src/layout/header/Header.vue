@@ -130,6 +130,7 @@ import {ElButton, ElMessage} from "element-plus";
 import {getUserInfo, userlogout} from "@/api/user/UserApi";
 import Cookies from "js-cookie";
 import CryptoJS from 'crypto-js';
+import {getChatIdByUserId} from "@/api/chat/ChatApi";
 // 获取路由实例
 const router = useRouter()
 const store = useStore();
@@ -146,6 +147,13 @@ async function userInfoInit() {
     let {data, success} = await getUserInfo();
     if (success && success === 'success') {
       store.commit('changeUserInfo', data);
+      try {
+        const {data:chatData}= await getChatIdByUserId(data.id);
+        store.commit('changeLocalUserChatId',chatData);
+      }catch (e){
+        console.log(e)
+        ElMessage.error('后端服务异常，请联系管理员');
+      }
     } else {
       store.commit('changeUserInfo', null);
       ElMessage.error('用户信息异常，请联系管理员');
@@ -169,6 +177,7 @@ const logout = async () => {
   try {
     await userlogout();
     store.commit('changeUserInfo', null);
+    store.commit('clearSearchConditionId');
   } catch (e) {
     console.log(e)
   }
