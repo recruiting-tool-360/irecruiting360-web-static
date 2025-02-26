@@ -13,6 +13,9 @@ export default {
         changeSearchConditionId(state,conditionId) {
             state.searchConditionId = conditionId;
         },
+        clearSearchConditionId(state) {
+            state.searchConditionId = null;
+        },
         addMessageToQueue(state,msg) {
             if (state.chatMsg.length >= 50) {
                 // 队列满了，移除队首元素
@@ -20,6 +23,9 @@ export default {
             }
             // 添加新消息到队尾
             state.chatMsg.push(msg);
+        },
+        clearChatMessage(state) {
+            state.chatMsg = [];
         },
     },
     actions: {},

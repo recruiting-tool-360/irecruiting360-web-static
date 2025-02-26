@@ -99,7 +99,7 @@ const userLoginStatus = () => {
       store.commit('changeChannelConfLoading',{key:channelKey,value:false});
     }, 2000)
   }catch (e){
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
+    ElMessage.warning('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
     store.commit('changeChannelConfLogin',{key:channelKey,value:false});
     store.commit('changeChannelConfLoading',{key:channelKey,value:false});
   }
@@ -107,9 +107,9 @@ const userLoginStatus = () => {
 
 //boos 用户登陆状态
 const boosUserStatus = async () => {
-  const headers = await getBoosHeader(true);
+  const headers = await getBoosHeader(false);
   if(!headers){
-    ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
+    // ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
     return;
   }
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();

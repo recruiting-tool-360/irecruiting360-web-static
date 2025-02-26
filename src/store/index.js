@@ -24,7 +24,6 @@ export default createStore({
         "PluginConfig.pluginSwitch",
         "ChatConfig.localUserChatId",
         "ChatConfig.searchConditionId",
-        "ChatConfig.chatMsg",
         "UserConfig.userInfo",
       ],
     })

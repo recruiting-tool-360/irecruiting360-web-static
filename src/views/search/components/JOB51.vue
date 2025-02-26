@@ -119,7 +119,6 @@ const userLoginStatus = () => {
     store.commit('changeChannelConfLoading',{key:channelKey,value:true});
     setTimeout(async () => {
       userLoginStatus = await job51UserStatus();
-      console.log("51 userLoginStatus",userLoginStatus)
       const loginStatus = pluginJob51ResultProcessor(userLoginStatus);
       store.commit('changeChannelConfLogin',{key:channelKey,value:loginStatus});
       store.commit('changeChannelConfLoading',{key:channelKey,value:false});
@@ -134,12 +133,12 @@ const userLoginStatus = () => {
 
 //job51 用户登陆状态
 const job51UserStatus = async () => {
-  const headers = await getJob51Header(true);
-  console.log("51 headers",headers)
+  const headers = await getJob51Header(false);
+  // console.log("51 headers",headers)
   let job51PropertyInfo = await getJob51PropertyInfo();
-  console.log("51 job51PropertyInfo",job51PropertyInfo)
+  // console.log("51 job51PropertyInfo",job51PropertyInfo)
   if(!headers||headers.length===0||(!job51PropertyInfo)){
-    ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+    // ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
   }
   const propertyInfo = JSON.parse(job51PropertyInfo);
