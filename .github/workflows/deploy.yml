@@ -1,0 +1,64 @@
+# 这个工作流将会使用 npm 构建 Vue.js 项目，并将其部署到服务器
+# 更多信息请参见：https://docs.github.com/en/actions/automating-builds-and-tests/creating-a-nodejs-workflow
+
+name: Frontend CI/CD with Vue + ElementPlus
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 检出仓库代码
+      - uses: actions/checkout@v4
+
+      # 设置 Node.js 环境，使用版本 18.20.3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.20.3'
+
+      # 安装依赖
+      - name: Install dependencies
+        run: |
+          npm install
+
+      # 构建 Vue.js 项目
+      - name: Build Vue.js project
+        run: |
+          npm run build
+
+      # 设置 SSH 密钥用于部署
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          eval $(ssh-agent -s)
+          ssh-add ~/.ssh/id_rsa
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # 通过 SSH 部署到 CentOS 服务器
+      - name: Deploy to CentOS Server via SSH
+        run: |
+          ssh -v -o StrictHostKeyChecking=no root@124.220.47.104 << 'EOF'
+            
+            cd /deploy/web
+
+            git pull https://Simple96:$GITHUB_TOKEN@github.com:recruiting-tool-360/irecruiting360-web-static.git
+
+            rm -rf /deploy/web/dist
+            cp -r $GITHUB_WORKSPACE/dist /deploy/web
+
+            pm2 restart your-vue-app
+          EOF
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
