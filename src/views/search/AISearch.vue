@@ -25,7 +25,7 @@
               <!--     搜索按钮       -->
               <el-button class="btm-color-white btm-bg-color" @click="searchJobListFn">搜索</el-button>
               <!--     AI人才搜索       -->
-              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color" @click="aiChatDialogFlag=true">
+              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color" @click="openChat">
                 <el-image :src="'/index/header/icons/aiBtm.svg'" style="margin-right: 8px"></el-image>
                 AI人才搜索</el-button>
             </el-col>
@@ -360,7 +360,11 @@
       <!--   渠道配置   -->
       <ChannelConfig v-model:dialogVisible="channelDialogFlag" :change-close-status="()=>channelDialogFlag=false" :on-confirm="onChannelConfig"></ChannelConfig>
       <!--   聊天chat   -->
-      <AIChat2 :dialog-flag="aiChatDialogFlag" :on-close-click="()=>aiChatDialogFlag=false"></AIChat2>
+      <AIChat2 
+        :dialog-flag="aiChatDialogFlag" 
+        :chat-id="currentChatId"
+        :on-close-click="handleCloseChat"
+      />
       <!--  插件安装提示    -->
       <PluginInfo></PluginInfo>
       <!--   保存搜索条件   -->
@@ -370,7 +374,7 @@
     </div>
 </template>
 <script setup>
-import {computed, onMounted, ref, watch} from 'vue'
+import {computed, onMounted, ref, watch, defineExpose} from 'vue'
 import {CircleClose, ArrowUp,ArrowDown,Close} from '@element-plus/icons-vue'
 import AIChat2 from "@/views/search/chat/AIChat2.vue";
 import {convertSearchState, createSearchState} from "@/views/search/dto/request/SearchStateConfig";
@@ -476,6 +480,7 @@ const jobStatusOptionsVal = ref(jobStatusOptions);
 //学历状态
 const degreeOptionsVal = ref(degreeOptions);
 
+const currentChatId = ref('')
 
 //onMounted 生命周期函数
 onMounted(async () => {
@@ -725,6 +730,22 @@ watch(() => searchConditionRequestData.value, async (newValue) => {
   }
 });
 
+const openChat = (chatId = '') => {
+  console.log('Opening chat with ID:', chatId)
+  currentChatId.value = chatId
+  aiChatDialogFlag.value = true
+}
+
+const handleCloseChat = () => {
+  aiChatDialogFlag.value = false
+  currentChatId.value = ''
+}
+
+// 暴露属性和方法给父组件
+defineExpose({
+  aiChatDialogFlag,
+  openChat
+})
 </script>
 <style scoped lang="scss">
   .aiSearchPage{

@@ -1,9 +1,12 @@
 import axios from "axios";
 import {ElMessage,ElNotification} from "element-plus";
 
-const service=axios.create({
-    baseURL: process.env.VUE_APP_API_BASE_URL,
-    timeout:15000
+const service = axios.create({
+    baseURL: process.env.NODE_ENV === 'development' 
+        ? '/api'
+        : process.env.VUE_APP_API_BASE_URL,
+    timeout: 15000,
+    withCredentials: process.env.NODE_ENV === 'development'
 })
 // const service=axios.create({
 //     baseURL: '/api',

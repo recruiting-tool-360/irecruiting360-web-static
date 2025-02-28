@@ -13,15 +13,15 @@ module.exports = defineConfig({
     ]
   },
   devServer:{
-    proxy: {
-      // '/api': {
-      //   target: process.env.VUE_APP_API_BASE_URL+'/', // 你的后端接口地址
-      //   changeOrigin: true,           // 是否更改请求的源地址
-      //   ws: true,                     // 是否启用 WebSocket 代理
-      //   pathRewrite: {
-      //     '^/api': '',                // 重写路径，将 /api 去除
-      //   },
-      // },
-    },
+    proxy: process.env.NODE_ENV === 'development' ? {
+      '/api': {
+        target: process.env.VUE_APP_API_BASE_URL,
+        changeOrigin: true,
+        ws: true,
+        pathRewrite: {
+          '^/api': ''
+        }
+      }
+    } : {}
   },
 })
