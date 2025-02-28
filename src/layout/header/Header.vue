@@ -147,13 +147,6 @@ async function userInfoInit() {
     let {data, success} = await getUserInfo();
     if (success && success === 'success') {
       store.commit('changeUserInfo', data);
-      try {
-        const {data:chatData}= await getChatIdByUserId(data.id);
-        store.commit('changeLocalUserChatId',chatData);
-      }catch (e){
-        console.log(e)
-        ElMessage.error('后端服务异常，请联系管理员');
-      }
     } else {
       store.commit('changeUserInfo', null);
       ElMessage.error('用户信息异常，请联系管理员');
