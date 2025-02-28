@@ -360,11 +360,16 @@
       <!--   渠道配置   -->
       <ChannelConfig v-model:dialogVisible="channelDialogFlag" :change-close-status="()=>channelDialogFlag=false" :on-confirm="onChannelConfig"></ChannelConfig>
       <!--   聊天chat   -->
-      <ChatDrawer
-        :visible="aiChatDialogFlag"
-        :chat-id="currentChatId"
-        :on-close="handleCloseChat"
-      />
+<!--      <ChatDrawer-->
+<!--        :visible="aiChatDialogFlag"-->
+<!--        :chat-id="currentChatId"-->
+<!--        :on-close="handleCloseChat"-->
+<!--        :on-edit="()=>console.log('uuuuu')"-->
+<!--      ></ChatDrawer>-->
+<!--      <TestV :visible="aiChatDialogFlag"-->
+<!--             :chat-id="currentChatId"-->
+<!--             :on-close="handleCloseChat"-->
+<!--             :on-edit="()=>console.log('uuuuu')"></TestV>-->
       <!--  插件安装提示    -->
       <PluginInfo></PluginInfo>
       <!--   保存搜索条件   -->
@@ -375,8 +380,7 @@
 </template>
 <script setup>
 import {computed, onMounted, ref, watch, defineExpose} from 'vue'
-import {CircleClose, ArrowUp,ArrowDown,Close} from '@element-plus/icons-vue'
-import ChatDrawer from './chat/ChatDrawer.vue'
+import {ArrowUp,ArrowDown,Close} from '@element-plus/icons-vue'
 import {convertSearchState, createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "@/domain/request/SaveSearchRequest";
 import {
@@ -384,34 +388,23 @@ import {
   genderOptions,
   salaryConfig,
   citiesConfig,
-  jobStatusOptions,
-  topChannelBtmOptions, schoolLevelOptions
+  jobStatusOptions, schoolLevelOptions
 } from "@/views/search/dto/SearchPageConfig";
-import {getSearchConditionDefaultDicts, querySearch, saveCondition} from "@/api/search/SearchApi";
-import PluginMessenger from "@/api/PluginSendMsg";
+import {getSearchConditionDefaultDicts, saveCondition} from "@/api/search/SearchApi";
 import {ElLoading, ElMessage} from 'element-plus';
-import {getPluginBaseConfigEmptyDTO,getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls, pluginKeys
-} from "@/components/PluginRequestManager";
-import {pluginBossResultProcessor, pluginResultProcessor} from "@/components/verifyes/PluginProcessor";
-import qs from "qs";
+import {pluginResultProcessor} from "@/components/verifyes/PluginProcessor";
 import {useStore} from "vuex";
-import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
-import {saveJobList} from "@/api/jobList/JobListApi";
 import JobInfo from "@/views/search/components/JobInfo.vue";
 import BossJobInfo from "@/views/search/components/BossJobInfo.vue";
 import ZHILIANJobInfo from "@/views/search/components/ZHILIANJobInfo.vue";
-import LIEPINJobInfo from "@/views/search/components/LIEPINJobInfo.vue";
 import JOB51 from "@/views/search/components/JOB51.vue";
+import TestV from '@/views/search/chat/TestV2.vue'
 import CollectJobInfo from "@/views/search/components/CollectJobInfo.vue";
-import boosQueueManager from "@/components/QueueManager/queueManager";
-import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
 import PluginInfo from "@/views/search/components/PluginInfo.vue";
-import {getChatIdByUserId} from "@/api/chat/ChatApi";
 import SearchCondition from "@/views/search/searchCondition/SearchCondition.vue";
 import ChannelConfig from "@/views/search/channel/ChannelConfig.vue";
 import _ from "lodash";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
-import {getUser, isLogin} from "@/api/user/UserApi";
 import {setDefaultPluginRules} from "@/components/BasePluginManager";
 
 const store = useStore();
@@ -701,34 +694,59 @@ const resetSearchConnect = ()=>{
   searchState.value = createSearchState();
 }
 
+//替换搜索条件
+function replaceSearchConditionRequest(data) {
+  console.log("lll:", data)
+  searchAreaLoadingSwitch.value = true;
+  // try {
+  //   // 模拟数据加载
+  //   await new Promise((resolve) => setTimeout(resolve, 150));
+  // } catch (e) {
+  //   console.log(e)
+  // }
+  let convertSearchStateVal = convertSearchState(data);
+  //处理工作年限边界
+  const workElSliderValue = convertSearchStateVal.workElSliderValue;
+  workElSliderValue[0] = (workElSliderValue[0] <= 0) ? 0 : workElSliderValue[0];
+  workElSliderValue[1] = (workElSliderValue[1] <= 0) ? 11 : workElSliderValue[1];
+  convertSearchStateVal.workElSliderValue = workElSliderValue;
+  //处理年龄边界
+  const ageElSliderValue = convertSearchStateVal.ageElSliderValue;
+  ageElSliderValue[0] = (ageElSliderValue[0] <= 15) ? 15 : ageElSliderValue[0];
+  ageElSliderValue[1] = (ageElSliderValue[1] <= 15) ? 51 : ageElSliderValue[1];
+  convertSearchStateVal.ageElSliderValue = ageElSliderValue;
+  searchState.value = convertSearchStateVal;
+  searchAreaLoadingSwitch.value = false;
+}
+
 //监听搜索体
-watch(() => searchConditionRequestData.value, async (newValue) => {
-  // console.log(newValue)
-  if(newValue){
-    searchAreaLoadingSwitch.value = true;
-    try {
-      // 模拟数据加载
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    } catch (e){
-      console.log(e)
-    }
-    let convertSearchStateVal = convertSearchState(newValue);
-    //处理工作年限边界
-    const workElSliderValue = convertSearchStateVal.workElSliderValue;
-    workElSliderValue[0] = (workElSliderValue[0] <=0) ? 0 : workElSliderValue[0];
-    workElSliderValue[1] = (workElSliderValue[1] <=0) ? 11 : workElSliderValue[1];
-    convertSearchStateVal.workElSliderValue = workElSliderValue;
-    //处理年龄边界
-    const ageElSliderValue = convertSearchStateVal.ageElSliderValue;
-    ageElSliderValue[0] = (ageElSliderValue[0] <=15) ? 15: ageElSliderValue[0];
-    ageElSliderValue[1] = (ageElSliderValue[1] <=15) ? 51: ageElSliderValue[1];
-    convertSearchStateVal.ageElSliderValue = ageElSliderValue;
-    searchState.value = convertSearchStateVal;
-    searchAreaLoadingSwitch.value = false;
-    store.commit('changeSearchConditionRequestData',null);
-    await searchJobListFn();
-  }
-});
+// watch(() => searchConditionRequestData.value, async (newValue) => {
+//   // console.log(newValue)
+//   if(newValue){
+//     searchAreaLoadingSwitch.value = true;
+//     try {
+//       // 模拟数据加载
+//       await new Promise((resolve) => setTimeout(resolve, 150));
+//     } catch (e){
+//       console.log(e)
+//     }
+//     let convertSearchStateVal = convertSearchState(newValue);
+//     //处理工作年限边界
+//     const workElSliderValue = convertSearchStateVal.workElSliderValue;
+//     workElSliderValue[0] = (workElSliderValue[0] <=0) ? 0 : workElSliderValue[0];
+//     workElSliderValue[1] = (workElSliderValue[1] <=0) ? 11 : workElSliderValue[1];
+//     convertSearchStateVal.workElSliderValue = workElSliderValue;
+//     //处理年龄边界
+//     const ageElSliderValue = convertSearchStateVal.ageElSliderValue;
+//     ageElSliderValue[0] = (ageElSliderValue[0] <=15) ? 15: ageElSliderValue[0];
+//     ageElSliderValue[1] = (ageElSliderValue[1] <=15) ? 51: ageElSliderValue[1];
+//     convertSearchStateVal.ageElSliderValue = ageElSliderValue;
+//     searchState.value = convertSearchStateVal;
+//     searchAreaLoadingSwitch.value = false;
+//     store.commit('changeSearchConditionRequestData',null);
+//     await searchJobListFn();
+//   }
+// });
 
 const openChat = (chatId = '') => {
   console.log('Opening chat with ID:', chatId)
@@ -746,6 +764,7 @@ defineExpose({
   aiChatDialogFlag,
   openChat
 })
+
 </script>
 <style scoped lang="scss">
   .aiSearchPage{

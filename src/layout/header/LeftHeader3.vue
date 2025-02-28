@@ -11,7 +11,7 @@
       </div>
 
       <!-- 条件列表 -->
-      <div class="conditions-list" v-loading="loading" v-if="!isShrunk">
+      <div class="conditions-list" v-if="!isShrunk">
         <el-scrollbar height="calc(100vh - 40px)">
           <!-- 新建按钮 -->
           <div class="new-chat-btn">
@@ -21,53 +21,56 @@
           </div>
 
           <!-- 分组显示聊天列表 -->
-          <template v-for="(chats, groupKey) in groupedChats" :key="groupKey">
-            <div v-if="chats.length > 0" class="chat-group">
-              <div class="group-title">{{ groupTitles[groupKey] }}</div>
-              <!-- 聊天项列表 -->
-              <div v-for="item in chats" :key="item.id" class="condition-item" :class="{ 'active': item.id === currentChatId }">
-                <div class="item-left">
-                  <el-image :src="'/index/left/condition.svg'" class="item-icon"></el-image>
-                </div>
-                <div class="item-content" @click="handleItemClick(item)">
-                  <el-tooltip 
-                    :content="item.name" 
-                    placement="top"
-                    :show-after="1000"
-                    :hide-after="0"
-                  >
-                    <div class="item-name">{{ item.name }}</div>
-                  </el-tooltip>
-                  <div class="item-time">{{ item.createTime }}</div>
-                </div>
-                
-                <!-- 操作按钮 -->
-                <div class="item-right">
-                  <el-dropdown trigger="click" @command="(command) => handleCommand(command, item)">
-                    <el-button link class="action-btn">
-                      <el-icon><More /></el-icon>
-                    </el-button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-<!--                        <el-dropdown-item command="share">-->
-<!--                          <el-icon><Share /></el-icon> 共享-->
-<!--                        </el-dropdown-item>-->
-                        <el-dropdown-item command="rename">
-                          <el-icon><Edit /></el-icon> 重命名
-                        </el-dropdown-item>
-<!--                        <el-dropdown-item command="archive">-->
-<!--                          <el-icon><Files /></el-icon> 归档-->
-<!--                        </el-dropdown-item>-->
-                        <el-dropdown-item command="delete" divided>
-                          <el-icon><Delete /></el-icon> 删除
-                        </el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
+          <div v-loading="loading" v-if="!isShrunk" style="min-height: 100vh">
+            <template v-for="(chats, groupKey) in groupedChats" :key="groupKey">
+              <div v-if="chats.length > 0" class="chat-group">
+                <div class="group-title">{{ groupTitles[groupKey] }}</div>
+                <!-- 聊天项列表 -->
+                <div v-for="item in chats" :key="item.id" class="condition-item" :class="{ 'active': item.id === currentChatId }">
+                  <div class="item-left">
+                    <el-image :src="'/index/left/condition.svg'" class="item-icon"></el-image>
+                  </div>
+                  <div class="item-content" @click="handleItemClick(item)">
+                    <el-tooltip
+                        :content="item.name"
+                        placement="top"
+                        :show-after="1000"
+                        :hide-after="0"
+                    >
+                      <div class="item-name">{{ item.name }}</div>
+                    </el-tooltip>
+                    <div class="item-time">{{ item.createTime }}</div>
+                  </div>
+
+                  <!-- 操作按钮 -->
+                  <div class="item-right">
+                    <el-dropdown trigger="click" @command="(command) => handleCommand(command, item)">
+                      <el-button link class="action-btn">
+                        <el-icon><More /></el-icon>
+                      </el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <!--                        <el-dropdown-item command="share">-->
+                          <!--                          <el-icon><Share /></el-icon> 共享-->
+                          <!--                        </el-dropdown-item>-->
+                          <el-dropdown-item command="rename">
+                            <el-icon><Edit /></el-icon> 重命名
+                          </el-dropdown-item>
+                          <!--                        <el-dropdown-item command="archive">-->
+                          <!--                          <el-icon><Files /></el-icon> 归档-->
+                          <!--                        </el-dropdown-item>-->
+                          <el-dropdown-item command="delete" divided>
+                            <el-icon><Delete /></el-icon> 删除
+                          </el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </div>
                 </div>
               </div>
-            </div>
-          </template>
+            </template>
+          </div>
+
         </el-scrollbar>
       </div>
   
