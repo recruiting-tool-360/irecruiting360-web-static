@@ -61,7 +61,6 @@ import {getHTMlDom} from "@/api/testRequest/DetialApi";
 import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
 import {getSortComparisonValue, getSynchronizationDetailsContValue} from "@/config/staticConf/AIConf";
 import {exeLIEPINJobInfo, getLIEPINHeader} from "@/components/QueueManager/LIEPINJobInfoManager";
-import _ from "lodash";
 import {
   exeJob51Info,
   generateSignature, generateSignatureJob51,

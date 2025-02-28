@@ -25,7 +25,7 @@
             <div v-if="chats.length > 0" class="chat-group">
               <div class="group-title">{{ groupTitles[groupKey] }}</div>
               <!-- 聊天项列表 -->
-              <div v-for="item in chats" :key="item.id" class="condition-item">
+              <div v-for="item in chats" :key="item.id" class="condition-item" :class="{ 'active': item.id === currentChatId }">
                 <div class="item-left">
                   <el-image :src="'/index/left/condition.svg'" class="item-icon"></el-image>
                 </div>
@@ -85,6 +85,13 @@
           </span>
         </template>
       </el-dialog>
+
+      <ChatDrawer
+        v-if="showChatDrawer"
+        :chatId="currentChatId"
+        :visible="showChatDrawer"
+        :onClose="handleCloseChatDrawer"
+      />
     </div>
   </template>
   
@@ -93,8 +100,8 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { DArrowLeft, DArrowRight, Search, Plus, More, Edit, Files, Share, Delete } from '@element-plus/icons-vue'
   import store from "@/store"
-  import _ from 'lodash'
   import { getChatList, deleteChat, renameChat } from '@/api/chat/ChatApi'  // 添加 renameChat 导入
+  import ChatDrawer from '@/views/search/chat/ChatDrawer.vue'
   
   // Props 定义
   const props = defineProps({
@@ -283,20 +290,49 @@
     ElMessage.success('归档功能开发中...')
   }
   
-  // 修改点击项目的处理函数
-  const handleItemClick = (item) => {
-    emit('openChat', {
-      chatId: item.id,
-      name: item.name,
-      createTime: item.createTime
-    })
+  // 修改新建聊天处理函数
+  const handleNewChat = () => {
+    // 如果已经有聊天窗口打开，先关闭它
+    if (showChatDrawer.value) {
+      handleCloseChatDrawer()
+    }
+    
+    // 然后再打开新的聊天窗口
+    currentChatId.value = ''
+    showChatDrawer.value = true
   }
   
+  // 修改关闭聊天窗口的处理函数
+  const handleCloseChatDrawer = () => {
+    showChatDrawer.value = false
+    currentChatId.value = ''
+    store.commit('SET_ACTIVE_CHAT_ID', '') // 清空当前激活的聊天 ID
+  }
+  
+  // 修改点击项目的处理函数
+  const handleItemClick = (item) => {
+    // 如果已经有聊天窗口打开，先关闭它
+    if (showChatDrawer.value) {
+      handleCloseChatDrawer()
+    }
+    
+    // 然后再打开新的聊天窗口
+    currentChatId.value = item?.id || ''
+    showChatDrawer.value = true
+  }
+  
+  // 监听 vuex 中的 activeChatId
+  watch(() => store.getters.getActiveChatId, (newChatId) => {
+    if (newChatId) {
+      currentChatId.value = newChatId
+    }
+  })
+  
   // 监听 vuex 中的刷新状态
-  watch(() => store.getters.getNeedRefreshChatList, async (needRefresh) => {
+  watch(() => store.getters.getNeedRefreshList, async (needRefresh) => {
     if (needRefresh) {
       await loadChatList()
-      store.commit('SET_NEED_REFRESH_CHAT_LIST', false)
+      store.commit('SET_NEED_REFRESH_LIST', false)
     }
   })
   
@@ -305,15 +341,13 @@
     emit('toggleShrink')
   }
   
-  // 修改新建聊天处理函数
-  const handleNewChat = () => {
-    emit('openChat', null) // 新建聊天时传 null
-  }
-  
   // 组件挂载时加载数据
   onMounted(async () => {
     await loadChatList()
   })
+
+  const showChatDrawer = ref(false)
+  const currentChatId = ref('')
   </script>
   
   <style scoped>
@@ -360,9 +394,15 @@
     height: 63px;
   }
   
+  .condition-item.active {
+    background: rgba(31, 124, 255, 0.1);
+    border-color: rgba(31, 124, 255, 0.5);
+    color: #1F7CFF;
+  }
+  
   .condition-item:hover {
-    background: rgba(250, 250, 250, 1);
-    color: rgba(31, 124, 255, 1);
+    background: rgba(31, 124, 255, 0.05);
+    color: #1F7CFF;
   }
   
   .item-left {

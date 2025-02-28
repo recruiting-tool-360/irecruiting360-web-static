@@ -1,13 +1,15 @@
 const state = {
-  // ... 其他状态
-  needRefreshChatList: false,
+  activeChatId: '', // 当前激活的聊天 ID
+  needRefreshList: false, // 是否需要刷新列表
 }
 
 const mutations = {
-  // ... 其他 mutations
-  SET_NEED_REFRESH_CHAT_LIST(state, value) {
-    state.needRefreshChatList = value
+  SET_ACTIVE_CHAT_ID(state, chatId) {
+    state.activeChatId = chatId
   },
+  SET_NEED_REFRESH_LIST(state, status) {
+    state.needRefreshList = status
+  }
 }
 
 const actions = {
@@ -15,8 +17,8 @@ const actions = {
 }
 
 const getters = {
-  // ... 其他 getters
-  getNeedRefreshChatList: state => state.needRefreshChatList,
+  getActiveChatId: state => state.activeChatId,
+  getNeedRefreshList: state => state.needRefreshList,
 }
 
 export default {
