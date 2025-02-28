@@ -25,7 +25,7 @@
               <!--     搜索按钮       -->
               <el-button class="btm-color-white btm-bg-color" @click="searchJobListFn">搜索</el-button>
               <!--     AI人才搜索       -->
-              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color" @click="openChat">
+              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color" @click="openChat('')">
                 <el-image :src="'/index/header/icons/aiBtm.svg'" style="margin-right: 8px"></el-image>
                 AI人才搜索</el-button>
             </el-col>
@@ -360,10 +360,10 @@
       <!--   渠道配置   -->
       <ChannelConfig v-model:dialogVisible="channelDialogFlag" :change-close-status="()=>channelDialogFlag=false" :on-confirm="onChannelConfig"></ChannelConfig>
       <!--   聊天chat   -->
-      <AIChat2 
-        :dialog-flag="aiChatDialogFlag" 
+      <ChatDrawer
+        :visible="aiChatDialogFlag"
         :chat-id="currentChatId"
-        :on-close-click="handleCloseChat"
+        :on-close="handleCloseChat"
       />
       <!--  插件安装提示    -->
       <PluginInfo></PluginInfo>
@@ -376,7 +376,7 @@
 <script setup>
 import {computed, onMounted, ref, watch, defineExpose} from 'vue'
 import {CircleClose, ArrowUp,ArrowDown,Close} from '@element-plus/icons-vue'
-import AIChat2 from "@/views/search/chat/AIChat2.vue";
+import ChatDrawer from './chat/ChatDrawer.vue'
 import {convertSearchState, createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "@/domain/request/SaveSearchRequest";
 import {
