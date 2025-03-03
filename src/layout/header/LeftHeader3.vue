@@ -94,6 +94,8 @@
         :chatId="currentChatId"
         :visible="showChatDrawer"
         :onClose="handleCloseChatDrawer"
+        :on-edit="chatOnEdit"
+        :on-search="handleChatOnSearch"
       />
     </div>
   </template>
@@ -117,7 +119,7 @@
   })
   
   // Emits 定义
-  const emit = defineEmits(['toggleShrink', 'openChat'])
+  const emit = defineEmits(['toggleShrink', 'openChat','onChatEdit','chatOnSearch'])
   
   // Store 相关
   const userInfo = computed(() => store.getters.getUserInfo)
@@ -322,6 +324,14 @@
     // 然后再打开新的聊天窗口
     currentChatId.value = item?.id || ''
     showChatDrawer.value = true
+  }
+  // 聊天框内点击编辑
+  const chatOnEdit = (data) => {
+    emit('onChatEdit',data)
+  }
+  ////聊天框内点击搜索
+  const handleChatOnSearch =(data,searchSwitch)=>{
+    emit('chatOnSearch',data,searchSwitch)
   }
   
   // 监听 vuex 中的 activeChatId
