@@ -126,7 +126,7 @@ const initWechatLogin = () => {
           id: 'wechat-login-qrcode', 
           appid: 'wxff34cd8fe2c0a6e8', // 需要替换为实际的AppID
           scope: 'snsapi_login',
-          redirect_uri: encodeURIComponent(window.location.origin + '/api/wechat/callback'), // 回调地址
+          redirect_uri: encodeURIComponent(window.location.origin + '/user/wechat/callback'), // 回调地址
           state: generateRandomState(), // 生成随机字符串作为state
           style: 'black',
           href: '' // 可以自定义样式
