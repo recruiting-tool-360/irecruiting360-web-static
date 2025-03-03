@@ -210,6 +210,10 @@ const props = defineProps({
   onEdit: {
     type: Function,
     required: true
+  },
+  onSearch: {
+    type: Function,
+    required: true
   }
 })
 
@@ -435,10 +439,7 @@ const handleClose = () => {
   props.onClose()
 }
 
-const handleSearch = () => {
-  // TODO: 实现聚合搜索
-  ElMessage.info('聚合搜索功能开发中...')
-}
+
 
 // 修改拖动处理函数
 const startResize = (e) => {
@@ -529,7 +530,6 @@ const handleCopy = async (content) => {
 const handleEdit = async () => {
   try {
     const data = await getChatConditionRequest()
-    console.log("ytt:", data)
     if (data) {
       // 关闭对话框
       handleClose()
@@ -542,10 +542,24 @@ const handleEdit = async () => {
   }
 }
 
+const handleSearch = async () => {
+  try {
+    const data = await getChatConditionRequest()
+    if (data) {
+      // 关闭对话框
+      handleClose()
+      // 直接调用 prop 方法
+      props.onSearch(data,true)
+    }
+  } catch (e) {
+    console.error('处理聚合搜索失败:', e)
+    ElMessage.error('处理聚合搜索失败，请稍后重试')
+  }
+}
+
 const getChatConditionRequest = async () => {
   try {
     let {data} = await getCurrentConditionByChatId(currentChatId.value);
-    console.log("fff:",data)
     return data;
   } catch (e) {
     console.log(e);

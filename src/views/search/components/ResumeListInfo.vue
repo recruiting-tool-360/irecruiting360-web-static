@@ -72,18 +72,9 @@
 <!--          <div class="geekAIBtm">-->
 <!--            <spa>AI评估</spa>-->
 <!--          </div>-->
-          <el-popover placement="top" trigger="hover" width="500">
-            <template #reference>
-              <div class="geekAIBtm">
-                <spa>AI评估</spa>
-              </div>
-            </template>
-            <el-row justify="center" align="top">
-              <el-text>
-                {{geekList.cc}}
-              </el-text>
-            </el-row>
-          </el-popover>
+          <div class="geekAIBtm" @click.stop="showAIEvaluation(geekList)">
+            <spa>AI评估</spa>
+          </div>
           <div class="geekAINumBtm">
             <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{geekList.score}}</el-text>
             <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
@@ -111,6 +102,14 @@
 
     </el-card>
 
+    <AIEvaluationCard 
+      v-if="showAIDialog" 
+      :visible="showAIDialog" 
+      :evaluation-data="currentEvaluation" 
+      :dimension-map="dimensionMap"
+      :dimension-items="currentEvaluation ? getDimensionItems(currentEvaluation) : {}"
+      @update:visible="(val) => showAIDialog = val" :on-user-info="clickListInfo">
+    </AIEvaluationCard>
   </div>
 </template>
 
@@ -121,6 +120,7 @@ import {userCollectResume} from "@/api/jobList/JobListApi";
 import {ElButton, ElMessage} from "element-plus";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 import {SwitchButton} from "@element-plus/icons-vue";
+import AIEvaluationCard from './AIEvaluationCard.vue';
 
 //store
 const store = useStore();
@@ -139,6 +139,133 @@ const clickListInfo = (value) => {
 }
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);
+
+// AI评估相关
+const showAIDialog = ref(false);
+const currentEvaluation = ref(null);
+
+// 定义维度映射
+const dimensionMap = {
+  '专业技能': 'professional',
+  '工作经历': 'experience',
+  '软实力': 'softSkills'
+};
+
+// 定义标准评估维度数组
+const standardDimensions = [
+  {
+    groupKey: '专业技能',
+    items: [
+      {
+        name: '技术栈',
+        requirement: '岗位所需技术栈',
+        candidateField: 'skills',
+        candidateFallback: '未提供技术栈信息',
+        matchCondition: (geek) => geek.skills,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      },
+      {
+        name: '专业知识',
+        requirement: '相关专业知识',
+        candidateField: 'professionalKnowledge',
+        candidateFallback: '未详细说明',
+        matchCondition: (geek) => geek.professionalKnowledge,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      }
+    ]
+  },
+  {
+    groupKey: '工作经历',
+    items: [
+      {
+        name: '工作年限',
+        requirement: '3年以上相关经验',
+        candidateField: 'experienceYear',
+        candidateFormatter: (geek) => `${geek.experienceYear >= 0 ? geek.experienceYear + '年经验' : '经验未知'}`,
+        matchCondition: (geek) => geek.experienceYear > 3,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      },
+      {
+        name: '项目经验',
+        requirement: '有相关项目经验',
+        candidateField: 'workExp',
+        candidateFallback: '未详细说明',
+        matchCondition: (geek) => geek.workExp,
+        matchResult: { match: '匹配', noMatch: '不匹配' }
+      }
+    ]
+  },
+  {
+    groupKey: '软实力',
+    items: [
+      {
+        name: '沟通能力',
+        requirement: '良好的沟通能力',
+        candidateField: 'communicationSkill',
+        candidateFormatter: (geek) => geek.communicationSkill ? '具备良好沟通能力' : '未评估',
+        matchCondition: (geek) => geek.communicationSkill,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      },
+      {
+        name: '团队协作',
+        requirement: '良好的团队协作能力',
+        candidateField: 'teamwork',
+        candidateFormatter: (geek) => geek.teamwork ? '具备团队协作能力' : '未评估',
+        matchCondition: (geek) => geek.teamwork,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      }
+    ]
+  }
+];
+
+// 将标准维度数组转换为原始格式的函数
+const getDimensionItems = (geek) => {
+  const result = {};
+  
+  standardDimensions.forEach(dimension => {
+    result[dimension.groupKey] = dimension.items.map(item => {
+      let candidateValue;
+      
+      if (item.candidateFormatter) {
+        candidateValue = item.candidateFormatter(geek);
+      } else if (geek[item.candidateField]) {
+        candidateValue = geek[item.candidateField];
+      } else {
+        candidateValue = item.candidateFallback || '未知';
+      }
+      
+      const isMatch = item.matchCondition(geek);
+      const matchValue = isMatch ? item.matchResult.match : item.matchResult.noMatch;
+      
+      return {
+        name: item.name,
+        requirement: item.requirement,
+        candidate: candidateValue,
+        match: matchValue
+      };
+    });
+  });
+  
+  return result;
+};
+
+const showAIEvaluation = (geek) => {
+  // 从候选人数据中获取评估数据
+  // 如果候选人数据中已有评估分数则使用，否则从其他属性中计算或使用默认值
+  const professional = geek.professionalScore || (geek.skills ? 75 : 60);
+  const experience = geek.experienceScore || (geek.experienceYear > 3 ? 85 : 65);
+  const softSkills = geek.softSkillsScore || (geek.communicationSkill ? 80 : 50);
+  
+  currentEvaluation.value = {
+    ...geek,
+    scores: {
+      professional,
+      experience,
+      softSkills
+    }
+  };
+  showAIDialog.value = true;
+};
 const handleCollectClick = async (listInfo, value) => {
   // if (listInfo.collectOrNot === undefined || listInfo.collectOrNot === null) {
   //   listInfo.collectOrNot = 0;

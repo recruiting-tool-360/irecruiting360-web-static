@@ -18,13 +18,12 @@
                   </div>
                 </template>
               </el-input>
-              <!--     搜索按钮       -->
-              <el-button class="btm-color-white btm-bg-color" @click="searchJobListFn">搜索</el-button>
               <!--      重置筛选项      -->
               <el-button class="btm-color btm-border-blue-style" @click="resetSearchConnect">重置筛选项</el-button>
               <!--     保存搜索条件       -->
 <!--              <el-button class="btm-color btm-border-blue-style" @click="searchConditionDialog=true">保存搜索条件</el-button>-->
-
+              <!--     搜索按钮       -->
+              <el-button class="btm-color-white btm-bg-color" @click="searchJobListFn">搜索</el-button>
               <!--     AI人才搜索       -->
 <!--              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color" @click="openChat('')">-->
 <!--                <el-image :src="'/index/header/icons/aiBtm.svg'" style="margin-right: 8px"></el-image>-->
@@ -288,13 +287,23 @@
             </el-col>
           </el-row>
         <!--    AI推荐部分      -->
-          <AIRecommendation
-            v-if="searchState.criteria && Object.keys(searchState.criteria).length > 0"
-            v-model:criteria="searchState.criteria"
-            @clear="deleteAIConditionFlag=true"
-            class="height-btm-row"
-            style="margin-top: 12px"
-          />
+          <el-row v-if="searchState.criteria && Object.keys(searchState.criteria).length > 0" class="height-btm-row" style="margin-top: 12px">
+            <el-col :span="24" style="display: flex;justify-content: flex-start;align-items: center;flex-wrap: wrap">
+              <el-text class="mx-1 el-text-margin-rg-style" style="margin-bottom: 6px">AI推荐:</el-text>
+              <template v-if="searchState.criteria">
+                <template v-for="(obj,key) in searchState.criteria" :key="key">
+                  <template v-if="obj">
+                    <template v-for="(item,index) in obj" :key="index">
+                      <el-tag closable :type="['success', 'warning', 'success', 'info'][item.length%index]" style="margin-right: 6px;margin-bottom: 6px">
+                        {{ item }}
+                      </el-tag>
+                    </template>
+                  </template>
+                </template>
+              </template>
+              <el-button class="recommended-btm" type="primary" link style="margin-top: -6px;" @click="deleteAIConditionFlag=true">清空</el-button>
+            </el-col>
+          </el-row>
         </el-card>
       </div>
 
@@ -385,7 +394,6 @@ import ChannelConfig from "@/views/search/channel/ChannelConfig.vue";
 import _ from "lodash";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 import {setDefaultPluginRules} from "@/components/BasePluginManager";
-import AIRecommendation from "@/views/search/components/AIRecommendation.vue";
 
 const store = useStore();
 //用户信息

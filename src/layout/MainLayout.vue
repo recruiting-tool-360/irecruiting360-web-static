@@ -12,6 +12,8 @@
             :ai-search-ref="aiSearchRef"
             @toggleShrink="toggleShrink"
             @openChat="handleOpenChat"
+            @onChatEdit="handleOnChatEdit"
+            @chatOnSearch="chatOnSearch"
           ></LeftHeader>
         </el-aside>
         <el-main class="el-main" style="background-color: #ffffff">
@@ -46,6 +48,16 @@ const handleOpenChat = (chatInfo) => {
   if (aiSearchRef.value) {
     aiSearchRef.value.openChat(chatInfo?.chatId || '')
   }
+}
+
+//聊天框内点击编辑
+const handleOnChatEdit = (data) => {
+  aiSearchRef.value.replaceSearchConditionRequest(data);
+}
+
+//聊天框内点击搜索
+const chatOnSearch = (data,searchSwitch) => {
+  aiSearchRef.value.replaceSearchConditionRequest(data,searchSwitch);
 }
 
 // 页面加载完成时触发
