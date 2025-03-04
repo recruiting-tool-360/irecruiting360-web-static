@@ -222,7 +222,7 @@ const handleCurrentChange = (value) => {
 }
 
 //渠道查询
-const channelSearch = async (channelRequestInfo) => {
+const channelSearch = async (channelRequestInfo, channelPage = 1, page = 1) => {
   if(!(channelConfig.value&&channelConfig.value.login&&channelConfig.value.disable)){
     return;
   }
@@ -230,7 +230,7 @@ const channelSearch = async (channelRequestInfo) => {
   //   props.onLodingOpen();
   // }
   try {
-    await channelSearchList(channelRequestInfo);
+    await channelSearchList(channelRequestInfo,channelPage,page);
   }catch (e){
     console.log(e);
   }
@@ -240,7 +240,7 @@ const channelSearch = async (channelRequestInfo) => {
   console.log("zhilian执行完了")
 }
 
-const channelSearchList = async (channelRequestInfo) => {
+const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) => {
   if(!(channelRequestInfo&&channelRequestInfo.channelSearchConditions&&channelRequestInfo.channelSearchConditions.length>0)){
     return;
   }
@@ -248,6 +248,9 @@ const channelSearchList = async (channelRequestInfo) => {
   if(!channelSearchCondition&&channelSearchCondition.conditionData){
     return;
   }
+  let channelSearchConfig =channelRequestInfo.config.find((item)=>item.channelKey===channelKey);
+  channelSearchCondition = JSON.parse(JSON.stringify(channelSearchCondition));
+  channelSearchCondition.conditionData.pageNo = channelPage;
   let responseJobListData;
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData);
@@ -259,6 +262,11 @@ const channelSearchList = async (channelRequestInfo) => {
     ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.message))
     return;
   }
+  channelSearchConfig.channelPage = channelPage;
+  channelSearchConfig.channelDataTotal = responseJobListData.responseData.data.data.total;
+  channelSearchConfig.channelCountSize = channelSearchCondition.conditionData.pageSize;
+  // 更新channelSearchConfig到Vuex
+  store.commit('setSearchChannelConditionConfigData', {key:channelKey, config:channelSearchConfig});
   //列表存到后端
   const channelList = responseJobListData.responseData.data.data.list;
   let saveJobListRequest = saveJobListRequestTemplate();
@@ -346,7 +354,7 @@ const search = async (page) => {
 }
 
 //列表查询
-const searchJobList = async (searchConfig) => {
+const searchJobList = async (searchConfig, channelPage = 1) => {
   const headers = await getZhiLianHeader(true);
   if(!headers||headers.length===0){
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
@@ -360,7 +368,7 @@ const searchJobList = async (searchConfig) => {
   headers["Content-Type"] = "application/json;charset=UTF-8";
 
   let requestData = getZhiLianUniversalParams(zhiLianPageRequestId, xZpClientId);
-  searchConfig.pageNo = 1;
+  // searchConfig.pageNo = channelPage;
   //访问智联
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
   pluginEmptyRequestTemplate.parameters = searchConfig;
