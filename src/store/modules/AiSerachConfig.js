@@ -7,7 +7,7 @@ import {createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 export default {
     state: () => ({
         leftLoadingSwitch:false,
-        searchConditionRequestData:null,
+        searchConditionChannelRequestData:null,
         allChannelCount: 0,
         bossChannelCount: 0,
         scoreList:[],
@@ -28,8 +28,25 @@ export default {
         changeLeftLoadingSwitch(state,payload) {
             state.leftLoadingSwitch = payload;
         },
-        changeSearchConditionRequestData(state,payload) {
-            state.searchConditionRequestData = payload;
+        changeSearchChannelConditionRequestData(state,payload) {
+            state.searchConditionChannelRequestData = payload;
+        },
+        setSearchChannelConditionConfigData(state, {key, config}) {
+            if (!state.searchConditionChannelRequestData) {
+                return;
+            }
+            const getTotalPages = (totalItems, itemsPerPage) => {
+                return Math.ceil(totalItems / itemsPerPage);
+            };
+            if (config && state.searchConditionChannelRequestData.config) {
+                const channelConfig = state.searchConditionChannelRequestData.config.find(item => item.channelKey === key);
+                if (channelConfig) {
+                    channelConfig.totalPage = getTotalPages(config.channelDataTotal, config.channelCountSize);
+                    channelConfig.channelDataTotal = config.channelDataTotal;
+                    channelConfig.channelPage = config.channelPage;
+                    channelConfig.channelCountSize = config.channelCountSize;
+                }
+            }
         },
         changeAllChannelCount(state,payload) {
             state.allChannelCount = payload;
@@ -164,8 +181,8 @@ export default {
         getLeftLoadingSwitch(state) {
             return state.leftLoadingSwitch;
         },
-        getSearchConditionRequestData(state) {
-            return state.searchConditionRequestData;
+        getSearchChannelConditionRequestData(state) {
+            return state.searchConditionChannelRequestData;
         },
         getAllChannelCount(state) {
             return state.allChannelCount;

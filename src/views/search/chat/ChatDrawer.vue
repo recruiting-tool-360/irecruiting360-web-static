@@ -136,7 +136,7 @@
               v-model="inputMessage"
               class="custom-input"
               style="width: 100%"
-              :autosize="{minRows: 3}"
+              :autosize="{minRows: 3,maxRows: 6}"
               resize="none"
               type="textarea"
               @keydown.enter.prevent="handleSend"

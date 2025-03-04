@@ -309,7 +309,7 @@
                     class="el-menu-popper-demo"
                     mode="horizontal"
                     :popper-offset="16"
-                    :style="{ width: '730px' }"
+                    :style="{ width: '630px' }"
                     :default-active="jobInfoName"
                     @select="handleMenuSelect"
                 >
@@ -326,13 +326,22 @@
                 </el-menu>
               </div>
               <!--      操作列表        -->
-              <div class="right-btms" style="width: 320px">
+              <div class="right-btms" style="width: 420px">
                 <!--    渠道设置      -->
                 <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
                   <el-checkbox v-model="unreadCheckBoxValue" style="height: 32px;font-size: 13px;margin-right: 16px;" label="仅显示未读" @click="clickUnreadCheck"/>
 <!--                  <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>-->
                   <template v-for="(channel, key) in allChannelStatus" :key="key">
-                    <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'" style="height: 32px" @click="aiSortSearch(channel)">AI排序-{{channel.name}}</el-button>
+                    <el-badge v-if="key===jobInfoName&&key!=='Collect'" :value="channel.name" class="item" type="warning">
+                      <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'" style="height: 32px;" @click="aiSortSearch(channel)">
+<!--                        <el-icon style="color: #0b76f1"><MagicStick /></el-icon>-->
+                        AI排序</el-button>
+                    </el-badge>
+                  </template>
+                  <template v-for="(channel, index) in allThirdPartyChannelConfig" :key="index">
+                    <el-badge v-if="channel.key===jobInfoName&&channel.key!=='Collect'&&channel.pageSearch" :value="channel.name" class="item" color="green">
+                      <el-button :disabled="!channel.login" type="primary" v-if="channel.key===jobInfoName&&channel.key!=='Collect'" style="height: 32px;margin-left: 16px;" @click="pageSearch(channel)">加载更多数据</el-button>
+                    </el-badge>
                   </template>
                   <el-button class="btm-color" style="margin-left: 16px;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
                 </div>
@@ -360,7 +369,7 @@
 </template>
 <script setup>
 import {computed, onMounted, ref, watch, defineExpose} from 'vue'
-import {ArrowUp,ArrowDown,Close} from '@element-plus/icons-vue'
+import {ArrowUp,ArrowDown,Close,MagicStick} from '@element-plus/icons-vue'
 import {convertSearchState, createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "@/domain/request/SaveSearchRequest";
 import {
@@ -390,12 +399,10 @@ import AIRecommendation from "@/views/search/components/AIRecommendation.vue";
 const store = useStore();
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);
-//新的搜索体
-const searchConditionRequestData = computed(() => store.getters.getSearchConditionRequestData);
 //搜索id
 const searchConditionId = computed(() => store.getters.getSearchConditionId);
-//是否过滤已读
-const unreadCheckBoxV = computed(() => store.getters.getUnreadCheckBoxV);
+//渠道历史查询参数
+const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);
 const unreadCheckBoxValue = ref(false);
 //搜索区域loading
 const searchAreaLoadingSwitch = ref(false);
@@ -406,16 +413,6 @@ const searchState = ref(searchStateConfig);
 let loadingBig ;
 //结果集渲染模版名称
 const jobInfoName = ref("ALL");
-const activeButton = ref('ALL');
-//渠道值
-const channelValue = ref('ALL');
-//聚合数据数量
-const allChannelDataSize = computed(() => store.getters.getAllChannelCount);
-//结果集
-const allResponse = ref({
-  ALL:{},
-  BOSS:{},
-});
 //ref
 const jobInfoRef = ref(null);
 const bossJobInfoRef = ref(null);
@@ -585,7 +582,20 @@ const searchJobList = async () => {
   let searchRequestData;
   try {
     const {data} = await saveCondition(searchConditionRequest);
+    data.config=[];
     searchRequestData = data;
+    if(data.channelSearchConditions){
+      data.channelSearchConditions.forEach((item)=>{
+        data.config.push({
+          channelDataTotal:0,
+          channelPage:0,
+          channelCountSize:0,
+          totalPage:0,
+          channelKey:item.channel
+        })
+      })
+    }
+    store.commit('changeSearchChannelConditionRequestData',data);
     store.commit('changeSearchConditionId',searchRequestData.id);
   }catch (e){
     ElMessage.error('后端服务异常，请联系管理员');
@@ -611,6 +621,43 @@ const searchJobList = async () => {
   } catch (error) {
     console.error('Error during search:', error);
   }
+}
+
+const pageSearch = async (channel) => {
+  if (!channel.login) {
+    ElMessage.warning(channel.name + '渠道没有登陆');
+    return;
+  }
+  if (!allSearchChannelConditionRequestData.value) {
+    ElMessage.warning('请先搜索，再加载' + channel.name + '渠道更多数据');
+    return;
+  }
+  let channelSearchCondition = allSearchChannelConditionRequestData.value.channelSearchConditions.find((item) => item.channel === channel.key);
+  if (!channelSearchCondition && channelSearchCondition.conditionData) {
+    ElMessage.warning(channel.name + '渠道无法查到搜索条件');
+    return;
+  }
+  let channelSearchConfig = allSearchChannelConditionRequestData.value.config.find((item) => item.channelKey === channel.key);
+  if (!channelSearchConfig) {
+    ElMessage.warning(channel.name + '渠道无法查到分页搜索条件');
+    return;
+  }
+  const newChannelPage = channelSearchConfig.channelPage + 1;
+  if (newChannelPage > channelSearchConfig.totalPage) {
+    ElMessage.warning(channel.name + '渠道没有更多的数据');
+    return;
+  }
+  try {
+    loadingOpen();
+    await Promise.all([
+      channel.cardInfoRef.channelSearch(allSearchChannelConditionRequestData.value, newChannelPage)
+    ]);
+    await jobInfoRef.value.search(1);
+  }catch (e){
+    console.log(e);
+    loadingClose();
+  }
+  loadingClose();
 }
 
 //获取搜索条件

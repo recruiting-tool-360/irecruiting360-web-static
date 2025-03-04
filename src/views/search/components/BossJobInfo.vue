@@ -157,19 +157,19 @@ const handleCurrentChange = (value) => {
 }
 
 //渠道查询
-const channelSearch = async (channelRequestInfo) => {
+const channelSearch = async (channelRequestInfo, channelPage = 1, page = 1) => {
   if(!(channelConfig.value&&channelConfig.value.login&&channelConfig.value.disable)){
     return;
   }
   try {
-    await channelSearchList(channelRequestInfo);
+    await channelSearchList(channelRequestInfo,channelPage,page);
   }catch (e){
     console.log(e);
   }
   console.log("boos执行完了")
 }
 
-const channelSearchList = async (channelRequestInfo) => {
+const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) => {
   if(!(channelRequestInfo&&channelRequestInfo.channelSearchConditions&&channelRequestInfo.channelSearchConditions.length>0)){
     return;
   }
@@ -177,9 +177,10 @@ const channelSearchList = async (channelRequestInfo) => {
   if(!channelSearchCondition&&channelSearchCondition.conditionData){
     return;
   }
+  let channelSearchConfig =channelRequestInfo.config.find((item)=>item.channelKey===channelKey);
   let responseJobListData;
   try {
-    responseJobListData = await boosJobList(channelSearchCondition.conditionData);
+    responseJobListData = await boosJobList(channelSearchCondition.conditionData,channelPage);
   }catch (e){
     console.log(e);
     return;
@@ -188,6 +189,12 @@ const channelSearchList = async (channelRequestInfo) => {
     ElMessage.error('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
     return;
   }
+  channelSearchConfig.channelPage = responseJobListData.responseData.data.zpData.page;
+  channelSearchConfig.channelDataTotal = responseJobListData.responseData.data.zpData.totalCount;
+  channelSearchConfig.channelCountSize = 15;
+  // 更新channelSearchConfig到Vuex
+  store.commit('setSearchChannelConditionConfigData', {key:channelKey, config:channelSearchConfig});
+  // console.log("boos数据：",responseJobListData)
   //列表存到后端
   const boosList = responseJobListData.responseData.data.zpData.geeks;
   let saveJobListRequest = saveJobListRequestTemplate();
@@ -269,13 +276,13 @@ const search = async (page) => {
 }
 
 //boss列表查询
-const boosJobList = async (searchConfig) => {
+const boosJobList = async (searchConfig, channelPage = 1) => {
   const headers = await getBoosHeader(true);
   if(!headers){
     ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
     throw new Error("系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！");
   }
-  searchConfig.page = 1;
+  searchConfig.page = channelPage;
   const queryString = qs.stringify(searchConfig);
   //访问Boos
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();

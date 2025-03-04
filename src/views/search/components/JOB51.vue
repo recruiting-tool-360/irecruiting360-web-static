@@ -241,7 +241,7 @@ const handleCurrentChange = (value) => {
 }
 
 //渠道查询
-const channelSearch = async (channelRequestInfo) => {
+const channelSearch = async (channelRequestInfo, channelPage = 1, page = 1) => {
   if(!(channelConfig.value&&channelConfig.value.login&&channelConfig.value.disable)){
     return;
   }
@@ -249,7 +249,7 @@ const channelSearch = async (channelRequestInfo) => {
   //   props.onLodingOpen();
   // }
   try {
-    await channelSearchList(channelRequestInfo);
+    await channelSearchList(channelRequestInfo,channelPage,page);
   }catch (e){
     console.log(e);
   }
@@ -259,7 +259,7 @@ const channelSearch = async (channelRequestInfo) => {
   console.log("job51执行完了")
 }
 
-const channelSearchList = async (channelRequestInfo) => {
+const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) => {
   if(!(channelRequestInfo&&channelRequestInfo.channelSearchConditions&&channelRequestInfo.channelSearchConditions.length>0)){
     return;
   }
@@ -267,6 +267,10 @@ const channelSearchList = async (channelRequestInfo) => {
   if(!channelSearchCondition&&channelSearchCondition.conditionData){
     return;
   }
+  let channelSearchConfig =channelRequestInfo.config.find((item)=>item.channelKey===channelKey);
+  channelSearchCondition = JSON.parse(JSON.stringify(channelSearchCondition));
+  channelSearchCondition.conditionData.page_index = channelPage;
+  console.log("sgaggag:",channelSearchCondition)
   let responseJobListData;
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData);
@@ -278,7 +282,12 @@ const channelSearchList = async (channelRequestInfo) => {
     ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.msg))
     return;
   }
-  console.log("数据：",responseJobListData)
+  channelSearchConfig.channelPage = channelPage;
+  channelSearchConfig.channelDataTotal = responseJobListData.responseData.data.data.total;
+  channelSearchConfig.channelCountSize = channelSearchCondition.conditionData.page_size;
+  // 更新channelSearchConfig到Vuex
+  store.commit('setSearchChannelConditionConfigData', {key:channelKey, config:channelSearchConfig});
+  console.log("数据51：",responseJobListData,responseJobListData.responseData.data.data.total,channelSearchCondition.conditionData)
   //列表存到后端
   const channelList = responseJobListData.responseData.data.data.list;
   //包装数据
@@ -393,7 +402,7 @@ const searchJobList = async (searchConfig) => {
   //获取加密
   let generateSignature = generateSignatureJob51(token,searchConfig);
   searchConfig.sign = generateSignature;
-  // console.log("请求是：",searchConfig)
+  console.log("请求是：",searchConfig)
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
   pluginEmptyRequestTemplate.parameters = searchConfig;
   pluginEmptyRequestTemplate.requestHeader = headers;
