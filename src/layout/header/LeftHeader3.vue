@@ -27,9 +27,9 @@
                 <div class="group-title">{{ groupTitles[groupKey] }}</div>
                 <!-- 聊天项列表 -->
                 <div v-for="item in chats" :key="item.id" class="condition-item" :class="{ 'active': item.id === currentChatId }">
-                  <div class="item-left">
-                    <el-image :src="'/index/left/condition.svg'" class="item-icon"></el-image>
-                  </div>
+<!--                  <div class="item-left">-->
+<!--                    <el-image :src="'/index/left/condition.svg'" class="item-icon"></el-image>-->
+<!--                  </div>-->
                   <div class="item-content" @click="handleItemClick(item)">
                     <el-tooltip
                         :content="item.name"
@@ -400,7 +400,8 @@
     padding: 8px 16px;
     margin: 8px;
     cursor: pointer;
-    border: 1px solid rgba(47, 112, 250, 0.3);
+    //border: 1px solid rgba(47, 112, 250, 0.3);
+    border: 1px solid rgb(184 184 184 / 30%);
     border-radius: 6px;
     background: white;
     transition: all 0.3s;
@@ -467,7 +468,7 @@
   .action-btn {
     color: #999;
     padding: 4px;
-    margin-bottom: 20px;
+    //margin-bottom: 20px;
   }
   
   .action-btn:hover {
