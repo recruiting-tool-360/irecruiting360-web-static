@@ -34,7 +34,7 @@
                     content="下载插件"
                     placement="bottom"
                 >
-                  <el-image class="headerIcons" :src="'/index/header/icons/a1.svg'" style="width: 16px;height: 16px"></el-image>
+                  <el-image class="headerIcons" :src="'/index/header/icons/a1.svg'" style="width: 16px;height: 16px" @click="downloadZip"></el-image>
                 </el-tooltip>
               </div>
               <div style="height: 100%;display: flex;align-items: center">
@@ -127,7 +127,7 @@ import {ref, onMounted, nextTick, computed} from "vue";
 import {Service, SwitchButton} from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import {ElButton, ElMessage} from "element-plus";
-import {getUserInfo, userlogout} from "@/api/user/UserApi";
+import {getDownloadUrl, getUserInfo, userlogout} from "@/api/user/UserApi";
 import Cookies from "js-cookie";
 import CryptoJS from 'crypto-js';
 import {getChatIdByUserId} from "@/api/chat/ChatApi";
@@ -158,6 +158,11 @@ async function userInfoInit() {
     console.log(ex)
     window.location.href = '/login';
   }
+}
+
+const downloadZip = async () => {
+  let {data} = await getDownloadUrl();
+  console.log("下载路径",data)
 }
 
 onMounted(async () => {
