@@ -1,34 +1,59 @@
 <template>
   <div class="login-container">
+    <div class="logo">
+      <img src="/logo/ikuaizhaologo.jpg" alt="i快招logo" />
+    </div>
     <el-card class="login-card">
       <h2 class="title">登录</h2>
-      <el-form :model="loginForm" :rules="rules" ref="loginFormRef">
-        <el-form-item prop="username">
-          <el-input 
-            v-model="loginForm.username" 
-            prefix-icon="User"
-            placeholder="用户名" />
-        </el-form-item>
-        
-        <el-form-item prop="password">
-          <el-input 
-            v-model="loginForm.password" 
-            prefix-icon="Lock"
-            type="password" 
-            placeholder="密码"
-            @keyup.enter="handleLogin" />
-        </el-form-item>
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="账号密码登录" name="account">
+          <div class="account-login">
+            <el-form :model="loginForm" :rules="rules" ref="loginFormRef">
+              <el-form-item prop="username">
+                <el-input 
+                  v-model="loginForm.username" 
+                  prefix-icon="User"
+                  placeholder="用户名"
+                  size="large" />
+              </el-form-item>
+              
+              <el-form-item prop="password">
+                <el-input 
+                  v-model="loginForm.password" 
+                  prefix-icon="Lock"
+                  type="password" 
+                  placeholder="密码"
+                  size="large"
+                  @keyup.enter="handleLogin" />
+              </el-form-item>
 
-        <div class="button-group">
-          <el-button type="primary" :loading="loading" @click="handleLogin">
-            登录
-          </el-button>
-          <el-button @click="$router.push('/register')">
-            注册账号
-          </el-button>
-        </div>
-      </el-form>
+              <el-form-item>
+                <el-checkbox v-model="loginForm.agreement">
+                  已阅读并接受《<router-link to="/user-agreement" target="_blank">i快招用户服务协议</router-link>》
+                </el-checkbox>
+              </el-form-item>
+
+              <div class="button-group">
+                <el-button type="primary" :loading="loading" @click="handleLogin" size="large" class="login-btn">
+                  登录
+                </el-button>
+              </div>
+
+              <div class="register-tip">
+                还没有i快招系统账号？<router-link to="/register">免费注册</router-link>
+              </div>
+            </el-form>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="微信登录" name="wechat">
+          <div class="wechat-login">
+            <el-image src="/wechat-qr.png" class="qr-code"></el-image>
+            <p>请使用微信扫码登录</p>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
+    <div class="copyright">Copyright © 2025 上海智寻才信息科技有限公司</div>
   </div>
 </template>
 
@@ -44,10 +69,12 @@ const store = useStore();
 const router = useRouter()
 const loginFormRef = ref(null)
 const loading = ref(false)
+const activeTab = ref('account')
 
 const loginForm = reactive({
   username: '',
-  password: ''
+  password: '',
+  agreement: false
 })
 
 const rules = {
@@ -63,6 +90,16 @@ const rules = {
 
 const handleLogin = async () => {
   if (!loginFormRef.value) return
+
+  if (!loginForm.agreement) {
+    ElMessage({
+      message: '请先同意并勾选用户服务协议',
+      type: 'warning',
+      duration: 3000,
+      center: true
+    })
+    return
+  }
   
   await loginFormRef.value.validate(async (valid) => {
     if (valid) {
@@ -101,6 +138,17 @@ const handleLogin = async () => {
   justify-content: center;
   align-items: center;
   background-color: #f5f7fa;
+  position: relative;
+
+  .logo {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    
+    img {
+      height: 40px;
+    }
+  }
 }
 
 .login-card {
@@ -116,7 +164,61 @@ const handleLogin = async () => {
   .button-group {
     margin-top: 20px;
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
+
+    .login-btn {
+      width: 100%;
+    }
   }
+
+  .register-tip {
+    text-align: center;
+    margin-top: 15px;
+    color: #606266;
+    font-size: 14px;
+
+    a {
+      color: #409EFF;
+      text-decoration: none;
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+
+  .account-login {
+    min-height: 235px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 20px 0;
+  }
+
+  .wechat-login {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 0;
+
+    .qr-code {
+      width: 200px;
+      height: 200px;
+      margin-bottom: 15px;
+    }
+
+    p {
+      color: #606266;
+      font-size: 14px;
+    }
+  }
+}
+
+.copyright {
+  position: absolute;
+  bottom: 20px;
+  width: 100%;
+  text-align: center;
+  color: #909399;
+  font-size: 14px;
 }
 </style>
