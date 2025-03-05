@@ -60,6 +60,22 @@
         </div>
       </div>
 
+      <!-- 添加标签信息展示 -->
+      <div v-if="props.evaluationData.apiData?.tagArray && props.evaluationData.apiData.tagArray.length > 0" class="tag-information">
+        <div class="tags-container">
+          <el-tag
+            v-for="(tag, index) in props.evaluationData.apiData.tagArray"
+            :key="index"
+            :type="getTagType(tag.type)"
+            effect="light"
+            class="info-tag"
+            size="small"
+          >
+            {{ tag.content }}
+          </el-tag>
+        </div>
+      </div>
+
       <!-- 评估维度表格 - 改为简约表格，垂直排列所有维度 -->
       <div class="evaluation-tables-container">
         <!-- 遍历所有维度并垂直排列 -->
@@ -277,6 +293,17 @@ const viewDetails = () => {
   props.onUserInfo(props.evaluationData);
 };
 
+const getTagType = (type) => {
+  switch (type) {
+    case 'soft_skill_highlight':
+      return 'success';
+    case 'experience_risk':
+      return 'danger';
+    default:
+      return 'info';
+  }
+};
+
 </script>
 
 <style scoped lang="scss">
@@ -286,7 +313,7 @@ const viewDetails = () => {
 
 /* 调整对话框位置 */
 :deep(.el-dialog) {
-  margin-top: 5vh !important;
+  margin-top: 6vh !important;
 }
 
 .ai-evaluation-container {
@@ -403,6 +430,24 @@ const viewDetails = () => {
     justify-content: center;
     margin-top: 20px;
     padding: 10px 0;
+  }
+
+  // 添加标签信息样式
+  .tag-information {
+    margin: 15px 0;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    
+    .tags-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      
+      .info-tag {
+        margin-right: 0;
+      }
+    }
   }
 }
 

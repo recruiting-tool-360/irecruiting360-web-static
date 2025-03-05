@@ -10,7 +10,7 @@
               v-for="(item, index) in criteria.professional_skills.slice(0, 2)"
               :key="'skill-' + index"
               closable
-              type="success"
+              type="primary"
               @close="removeItem('professional_skills', index)"
             >
               <el-tooltip :content="item" placement="top" :show-after="200">
@@ -97,7 +97,7 @@
               :key="'edit-skill-' + index"
               class="edit-tag"
               closable
-              type="success"
+              type="primary"
               @close="removeEditItem('professional_skills', index)"
             >
               <el-input
@@ -107,7 +107,7 @@
                 placeholder="输入专业技能"
               />
             </el-tag>
-            <el-button class="add-tag-btn" type="success" plain @click="addItem('professional_skills')">
+            <el-button class="add-tag-btn" type="primary" plain @click="addItem('professional_skills')">
               <el-icon><Plus /></el-icon> 添加专业技能
             </el-button>
           </div>
