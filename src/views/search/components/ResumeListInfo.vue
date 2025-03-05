@@ -116,7 +116,7 @@
 <script setup>
 import {onMounted,computed,ref,watch,defineExpose} from "vue";
 import {useStore} from "vuex";
-import {userCollectResume} from "@/api/jobList/JobListApi";
+import {userCollectResume, getScoreListDetailed} from "@/api/jobList/JobListApi";
 import {ElButton, ElMessage} from "element-plus";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 import {SwitchButton} from "@element-plus/icons-vue";
@@ -218,8 +218,115 @@ const standardDimensions = [
   }
 ];
 
-// 将标准维度数组转换为原始格式的函数
+// 显示AI评估对话框
+const showAIEvaluation = async (geek) => {
+  try {
+    // 调用API获取评估数据
+    const { data } = await getScoreListDetailed([geek.id]); // 传递geekList.id作为参数
+    
+    if (data && data.length > 0) {
+      const evaluationData = data[0];
+      
+      // 计算每个维度的平均分
+      const dimensionScores = {
+        professional: 0,
+        experience: 0,
+        softSkills: 0
+      };
+      
+      // 默认初始化成基础分数
+      dimensionScores.professional = 70;
+      dimensionScores.experience = 70;
+      dimensionScores.softSkills = 70;
+      
+      // 如果有详细评分，根据matched项来调整每个维度的分数
+      evaluationData.standardDimensions.forEach(dimension => {
+        if (dimension.items && dimension.items.length > 0) {
+          const matchCount = dimension.items.filter(item => item.matchResult === "匹配").length;
+          const totalCount = dimension.items.length;
+          
+          if (totalCount > 0) {
+            const matchPercentage = (matchCount / totalCount) * 100;
+            
+            if (dimension.groupKey === "专业技能") {
+              dimensionScores.professional = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+            } else if (dimension.groupKey === "工作经历") {
+              dimensionScores.experience = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+            } else if (dimension.groupKey === "软实力") {
+              dimensionScores.softSkills = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+            }
+          }
+        }
+      });
+      
+      // 构建完整的评估对象
+      currentEvaluation.value = {
+        ...geek,
+        scores: dimensionScores,
+        apiData: evaluationData
+      };
+      
+      showAIDialog.value = true;
+    } else {
+      // 如果API没有返回数据，使用基础信息展示
+      const professional = geek.professionalScore || 70;
+      const experience = geek.experienceScore || 70;
+      const softSkills = geek.softSkillsScore || 70;
+      
+      currentEvaluation.value = {
+        ...geek,
+        scores: {
+          professional,
+          experience,
+          softSkills
+        },
+        apiData: null
+      };
+      
+      showAIDialog.value = true;
+    }
+  } catch (error) {
+    console.error("获取AI评估数据失败:", error);
+    
+    // 发生错误时使用基础评估数据
+    const professional = geek.professionalScore || 70;
+    const experience = geek.experienceScore || 70;
+    const softSkills = geek.softSkillsScore || 70;
+    
+    currentEvaluation.value = {
+      ...geek,
+      scores: {
+        professional,
+        experience,
+        softSkills
+      },
+      apiData: null
+    };
+    
+    showAIDialog.value = true;
+  }
+};
+
+// 使用API数据获取维度项目
 const getDimensionItems = (geek) => {
+  // 如果有API数据，使用API数据
+  if (geek.apiData) {
+    const apiDimensions = geek.apiData.standardDimensions;
+    const result = {};
+    
+    apiDimensions.forEach(dimension => {
+      result[dimension.groupKey] = dimension.items.map(item => ({
+        name: item.name,
+        requirement: item.requirement,
+        candidate: item.candidateFallback || '未知',
+        match: item.matchResult
+      }));
+    });
+    
+    return result;
+  }
+  
+  // 否则使用默认数据（保留原有逻辑作为备选）
   const result = {};
   
   standardDimensions.forEach(dimension => {
@@ -249,23 +356,6 @@ const getDimensionItems = (geek) => {
   return result;
 };
 
-const showAIEvaluation = (geek) => {
-  // 从候选人数据中获取评估数据
-  // 如果候选人数据中已有评估分数则使用，否则从其他属性中计算或使用默认值
-  const professional = geek.professionalScore || (geek.skills ? 75 : 60);
-  const experience = geek.experienceScore || (geek.experienceYear > 3 ? 85 : 65);
-  const softSkills = geek.softSkillsScore || (geek.communicationSkill ? 80 : 50);
-  
-  currentEvaluation.value = {
-    ...geek,
-    scores: {
-      professional,
-      experience,
-      softSkills
-    }
-  };
-  showAIDialog.value = true;
-};
 const handleCollectClick = async (listInfo, value) => {
   // if (listInfo.collectOrNot === undefined || listInfo.collectOrNot === null) {
   //   listInfo.collectOrNot = 0;
