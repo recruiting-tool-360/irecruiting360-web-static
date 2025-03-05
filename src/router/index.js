@@ -36,6 +36,15 @@ const routes = [
     }
   },
   {
+    path: '/user-agreement',
+    name: 'UserAgreement',
+    component: () => import('@/views/login/userAgreement.vue'),
+    meta: {
+      title: 'i快招用户服务及隐私保护协议',
+      noAuth: true // 不需要登录验证
+    }
+  },
+  {
     path:'/:catchAll(.*)',
     component:()=>import('@/views/error-page/404')
   }
