@@ -365,7 +365,7 @@ const viewDetails = () => {
             font-size: 18px;
             font-weight: bold;
             color: #333;
-            width: 40px;
+            width: 55px;
             text-align: center;
           }
         }

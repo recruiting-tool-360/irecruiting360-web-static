@@ -245,22 +245,25 @@ const showAIEvaluation = async (geek) => {
       }
       // 如果有详细评分，根据matched项来调整每个维度的分数
       evaluationData.standardDimensions.forEach(dimension => {
-        if (dimension.items && dimension.items.length > 0) {
-          const matchCount = dimension.items.filter(item => item.matchResult === "匹配").length;
-          const totalCount = dimension.items.length;
-          
-          if (totalCount > 0) {
-            const matchPercentage = (matchCount / totalCount) * 100;
-            
+        // if (dimension.items && dimension.items.length > 0) {
+          // const matchCount = dimension.items.filter(item => item.matchResult === "匹配").length;
+          // const totalCount = dimension.items.length;
+          //
+          // if (totalCount > 0) {
+          //   const matchPercentage = (matchCount / totalCount) * 100;
+          //
             if (dimension.groupKey === "专业技能") {
-              dimensionScores.professional = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              // dimensionScores.professional = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              dimensionScores.professional = parseFloat(dimension.score.toFixed(2))
             } else if (dimension.groupKey === "工作经历") {
-              dimensionScores.experience = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              // dimensionScores.experience = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              dimensionScores.experience = parseFloat(dimension.score.toFixed(2))
             } else if (dimension.groupKey === "软实力") {
-              dimensionScores.softSkills = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              // dimensionScores.softSkills = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              dimensionScores.softSkills = parseFloat(dimension.score.toFixed(2))
             }
-          }
-        }
+          // }
+        // }
       });
       
       // 构建完整的评估对象
