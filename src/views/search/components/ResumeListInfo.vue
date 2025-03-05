@@ -235,10 +235,14 @@ const showAIEvaluation = async (geek) => {
       };
       
       // 默认初始化成基础分数
-      dimensionScores.professional = 70;
-      dimensionScores.experience = 70;
-      dimensionScores.softSkills = 70;
-      
+      // dimensionScores.professional = 70;
+      // dimensionScores.experience = 70;
+      // dimensionScores.softSkills = 70;
+      console.log("evaluationData",evaluationData)
+      if(!evaluationData.standardDimensions){
+        ElMessage.warning('无法查到AI评估详情信息');
+        return;
+      }
       // 如果有详细评分，根据matched项来调整每个维度的分数
       evaluationData.standardDimensions.forEach(dimension => {
         if (dimension.items && dimension.items.length > 0) {
@@ -269,41 +273,13 @@ const showAIEvaluation = async (geek) => {
       showAIDialog.value = true;
     } else {
       // 如果API没有返回数据，使用基础信息展示
-      const professional = geek.professionalScore || 70;
-      const experience = geek.experienceScore || 70;
-      const softSkills = geek.softSkillsScore || 70;
-      
-      currentEvaluation.value = {
-        ...geek,
-        scores: {
-          professional,
-          experience,
-          softSkills
-        },
-        apiData: null
-      };
-      
-      showAIDialog.value = true;
+      ElMessage.warning('无法查到AI评估详情信息');
+      return
     }
   } catch (error) {
     console.error("获取AI评估数据失败:", error);
-    
-    // 发生错误时使用基础评估数据
-    const professional = geek.professionalScore || 70;
-    const experience = geek.experienceScore || 70;
-    const softSkills = geek.softSkillsScore || 70;
-    
-    currentEvaluation.value = {
-      ...geek,
-      scores: {
-        professional,
-        experience,
-        softSkills
-      },
-      apiData: null
-    };
-    
-    showAIDialog.value = true;
+    ElMessage.error('获取AI评估数据失败，请联系管理员');
+    return
   }
 };
 
