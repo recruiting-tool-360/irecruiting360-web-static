@@ -244,6 +244,7 @@ const addItem = (category) => {
       color: #606266;
       font-size: 14px;
       line-height: 32px;
+      font-weight: 400;
     }
 
     .tag-container {

@@ -443,13 +443,14 @@
   }
   
   .item-name {
-    font-size: 13px;
-    color: #1e1f24c2;
+    font-size: 14px;
+    color: #000000a8;
     margin-bottom: 4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     width: 100%; /* 确保宽度填满父容器 */
+    font-weight: 400;
   }
   
   .item-time {

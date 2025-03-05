@@ -301,15 +301,14 @@
       <!--   列表部分   -->
       <div class="jobList">
         <el-card class="jobList-card">
-          <el-row class="jobList-top-el-row" :gutter="0" style="border-bottom: 1px solid #E8E8E8;min-height: 3rem;min-width: 450px;margin-bottom: 15px">
-            <el-col class="jobList-top-el-col el-col-display-Style topBtm">
-              <div class="channelBtms" style="width: 100%">
+          <el-row class="jobList-top-el-row" :gutter="0" style="border-bottom: 1px solid #E8E8E8;min-height: 3rem;margin-bottom: 15px">
+            <el-col :xs="24" :sm="24" :md="24" :lg="24" :xl="24" class="jobList-top-el-col el-col-display-Style topBtm">
+              <div class="menu-container">
                 <el-menu
                     ellipsis
                     class="el-menu-popper-demo"
                     mode="horizontal"
                     :popper-offset="16"
-                    :style="{ width: '630px' }"
                     :default-active="jobInfoName"
                     @select="handleMenuSelect"
                 >
@@ -325,25 +324,36 @@
                   </template>
                 </el-menu>
               </div>
+              
               <!--      操作列表        -->
-              <div class="right-btms" style="width: 420px">
-                <!--    渠道设置      -->
-                <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
-                  <el-checkbox v-model="unreadCheckBoxValue" style="height: 32px;font-size: 13px;margin-right: 16px;" label="仅显示未读" @click="clickUnreadCheck"/>
-<!--                  <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>-->
-                  <template v-for="(channel, key) in allChannelStatus" :key="key">
-                    <el-badge v-if="key===jobInfoName&&key!=='Collect'" :value="channel.name" class="item" type="warning">
-                      <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'" style="height: 32px;" @click="aiSortSearch(channel)">
-<!--                        <el-icon style="color: #0b76f1"><MagicStick /></el-icon>-->
-                        AI排序</el-button>
-                    </el-badge>
-                  </template>
-                  <template v-for="(channel, index) in allThirdPartyChannelConfig" :key="index">
-                    <el-badge v-if="channel.key===jobInfoName&&channel.key!=='Collect'&&channel.pageSearch" :value="channel.name" class="item" color="green">
-                      <el-button :disabled="!channel.login" type="primary" v-if="channel.key===jobInfoName&&channel.key!=='Collect'" style="height: 32px;margin-left: 16px;" @click="pageSearch(channel)">加载更多数据</el-button>
-                    </el-badge>
-                  </template>
-                  <el-button class="btm-color" style="margin-left: 16px;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
+              <div class="action-buttons">
+                <div class="action-buttons-wrapper">
+                  <el-checkbox v-model="unreadCheckBoxValue" class="unread-checkbox" label="仅显示未读" @click="clickUnreadCheck"/>
+                  <div class="buttons-group">
+                    <template v-for="(channel, key) in allChannelStatus" :key="key">
+<!--                      <el-badge v-if="key===jobInfoName&&key!=='Collect'" :value="channel.name" class="item" type="warning">-->
+                        <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'" class="action-button" @click="aiSortSearch(channel)">
+                          渠道AI排序
+                        </el-button>
+<!--                      </el-badge>-->
+                    </template>
+                    
+                    <template v-for="(channel, index) in allThirdPartyChannelConfig" :key="index">
+<!--                      <el-badge v-if="channel.key===jobInfoName&&channel.key!=='Collect'&&channel.pageSearch" :value="channel.name" class="item" color="green">-->
+                        <el-button 
+                          :disabled="!channel.login"
+                          v-if="channel.key===jobInfoName&&channel.key!=='Collect'"
+                          color="rgb(31, 124, 255)"
+                          class="action-button load-more-button"
+                          @click="pageSearch(channel)"
+                        >
+                          渠道加载更多数据
+                        </el-button>
+<!--                      </el-badge>-->
+                    </template>
+                    
+                    <el-button class="btm-color action-button settings-button" @click="channelDialogFlag=true">渠道设置</el-button>
+                  </div>
                 </div>
               </div>
             </el-col>
@@ -1016,5 +1026,91 @@ defineExpose({
   overflow: hidden; /* 防止内容溢出 */
   height: 0; /* 默认高度为 0 */
   transition: height 0.3s ease; /* 平滑过渡效果 */
+}
+
+.jobList-top-el-row {
+  flex-wrap: wrap;
+}
+
+.jobList-top-el-col {
+  flex-direction: column;
+  
+  @media (min-width: 768px) {
+    flex-direction: row;
+  }
+}
+
+.menu-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.el-menu-popper-demo {
+  min-width: 300px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.action-buttons {
+  width: 100%;
+  margin-top: 8px;
+  
+  @media (min-width: 768px) {
+    margin-top: 0;
+  }
+}
+
+.action-buttons-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  
+  @media (min-width: 768px) {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+}
+
+.unread-checkbox {
+  height: 32px;
+  font-size: 13px;
+  margin-right: 16px;
+  margin-bottom: 8px;
+  
+  @media (min-width: 768px) {
+    margin-bottom: 0;
+  }
+}
+
+.buttons-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  
+  @media (min-width: 768px) {
+    width: auto;
+    justify-content: flex-end;
+  }
+}
+
+.action-button {
+  height: 32px;
+}
+
+.load-more-button {
+  margin-left: 0;
+  
+  @media (min-width: 768px) {
+    margin-left: 16px;
+  }
+}
+
+.settings-button {
+  margin-left: 0;
+  
+  @media (min-width: 768px) {
+    margin-left: 16px;
+  }
 }
 </style>

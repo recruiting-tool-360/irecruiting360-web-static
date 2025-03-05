@@ -59,5 +59,14 @@ export const userCollectResume = (data)=>{
     });
 }
 
+//获取ai评估
+export const getScoreListDetailed = (resumeBlindIds) => {
+    return request({
+        method: 'POST',
+        url: '/resume/getScoreListDetailed',
+        data: resumeBlindIds
+    });
+}
+
 
 

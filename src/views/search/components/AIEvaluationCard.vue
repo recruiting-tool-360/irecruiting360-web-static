@@ -5,8 +5,9 @@
     width="800px"
     :close-on-click-modal="false"
     :show-close="true"
-    style="background:linear-gradient(181deg, rgb(90, 191, 255) 0%, rgb(255, 255, 255) 240px, rgb(255, 255, 255) 100%)"
+    style="background-color: white"
     class="ai-evaluation-dialog"
+    top="6vh"
   >
     <div class="ai-evaluation-container">
       <!-- 顶部个人信息 -->
@@ -59,43 +60,58 @@
         </div>
       </div>
 
-      <!-- 评估维度表格 -->
-      <div class="evaluation-table">
-        <el-collapse>
-          <el-collapse-item v-for="(dimension, index) in ['专业技能', '工作经历', '软实力']" :key="index" :title="dimension">
-            <template #title>
-              <div class="dimension-header">
-                <span>{{ dimension }}</span>
-                <el-tag size="small" :type="getScoreStatus(props.evaluationData.scores[getDimensionKey(dimension)]).type" style="margin-left: 10px">
-                  {{ props.evaluationData.scores[getDimensionKey(dimension)] }}分
+      <!-- 评估维度表格 - 改为简约表格，垂直排列所有维度 -->
+      <div class="evaluation-tables-container">
+        <!-- 遍历所有维度并垂直排列 -->
+        <div v-for="(dimension, index) in ['专业技能', '工作经历', '软实力']" :key="index" class="dimension-section">
+          <div class="dimension-header">
+            <span class="dimension-title">{{ dimension }}</span>
+            <el-tag size="small" :type="getScoreStatus(props.evaluationData.scores[getDimensionKey(dimension)]).type" style="margin-left: 10px">
+              {{ props.evaluationData.scores[getDimensionKey(dimension)] }}分
+            </el-tag>
+          </div>
+          
+          <el-empty v-if="getDimensionItems(dimension).length === 0" description="暂无评估数据" />
+          
+          <el-table 
+            v-else
+            :data="getDimensionItems(dimension)" 
+            border 
+            style="width: 100%; margin-top: 10px; margin-bottom: 20px"
+            stripe
+          >
+            <el-table-column label="评估项目" width="120">
+              <template #default="scope">
+                <span>{{ scope.row.name }}</span>
+              </template>
+            </el-table-column>
+            
+            <el-table-column label="招聘要求">
+              <template #default="scope">
+                <span>{{ scope.row.requirement }}</span>
+              </template>
+            </el-table-column>
+            
+            <el-table-column label="候选人条件">
+              <template #default="scope">
+                <span>{{ scope.row.candidate }}</span>
+              </template>
+            </el-table-column>
+            
+            <el-table-column label="匹配度" width="100" align="center">
+              <template #default="scope">
+                <el-tag size="small" :type="getMatchType(scope.row.match)">
+                  {{ scope.row.match }}
                 </el-tag>
-              </div>
-            </template>
-            <div class="dimension-details">
-              <div v-for="(item, idx) in getDimensionItems(dimension)" :key="idx" class="detail-item">
-                <div class="detail-header">
-                  <span class="detail-title">{{ item.name }}</span>
-                  <el-tag size="small" :type="getMatchType(item.match)">{{ item.match }}</el-tag>
-                </div>
-                <div class="detail-content">
-                  <div class="requirement">
-                    <span class="label">招聘要求：</span>
-                    <span>{{ item.requirement }}</span>
-                  </div>
-                  <div class="candidate">
-                    <span class="label">候选人条件：</span>
-                    <span>{{ item.candidate }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </el-collapse-item>
-        </el-collapse>
-        
-        <!-- 查看详情按钮 -->
-        <div class="detail-button-container">
-          <el-button type="primary" @click="viewDetails">查看详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
+      </div>
+      
+      <!-- 查看详情按钮 -->
+      <div class="detail-button-container">
+        <el-button color="rgba(31, 124, 255, 1)" @click="viewDetails">查看简历详情</el-button>
       </div>
     </div>
   </el-dialog>
@@ -238,10 +254,10 @@ const radarOption = computed(() => ({
 }));
 
 // 设置背景图
-const img = new Image();
-img.src = '/logo/logo.svg';
-radarOption.value.backgroundColor.image = img;
-
+// const img = new Image();
+// img.src = '/logo/logo.svg';
+// radarOption.value.backgroundColor.image = img;
+radarOption.value.backgroundColor = 'rgba(255, 255, 255, 0.8)';
 // 在script setup中添加以下函数
 const getDimensionKey = (dimension) => {
   return props.dimensionMap[dimension];
@@ -262,6 +278,15 @@ const viewDetails = () => {
 </script>
 
 <style scoped lang="scss">
+.ai-evaluation-dialog .el-dialog__header{
+  padding-bottom: 0px;
+}
+
+/* 调整对话框位置 */
+:deep(.el-dialog) {
+  margin-top: 5vh !important;
+}
+
 .ai-evaluation-container {
   padding: 0 20px;
 
@@ -309,8 +334,8 @@ const viewDetails = () => {
       gap: 20px;
 
       .radar-chart-container {
-        width: 200px;
-        height: 200px;
+        width: 130px;
+        height: 130px;
         
         .radar-chart {
           width: 100%;
@@ -346,10 +371,36 @@ const viewDetails = () => {
     }
   }
 
-  .evaluation-table {
-    .match-status {
-      text-align: center;
+  .evaluation-tables-container {
+    //margin-top: 20px;
+    
+    .dimension-section {
+      margin-bottom: 20px;
+      
+      &:last-child {
+        margin-bottom: 0;
+      }
     }
+    
+    .dimension-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+      border-left: 4px solid #1296DB;
+      padding-left: 10px;
+      
+      .dimension-title {
+        font-size: 16px;
+        font-weight: bold;
+      }
+    }
+  }
+
+  .detail-button-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+    padding: 10px 0;
   }
 }
 
@@ -376,7 +427,7 @@ const viewDetails = () => {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
+      //margin-bottom: 10px;
 
       .detail-title {
         font-weight: bold;

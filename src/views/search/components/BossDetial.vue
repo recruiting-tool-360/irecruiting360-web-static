@@ -7,7 +7,7 @@
       title="人才信息"
       :close-on-click-modal="false"
       :show-close="true"
-      style="background:linear-gradient(181deg, #b7c3f0 0%, rgb(255, 255, 255) 240px, rgb(255, 255, 255) 100%)"
+      style="background-color:white"
       :before-close="beforeClose"
     >
       <div class="talent-info-container">
@@ -27,6 +27,20 @@
                 <el-tag class="tag" type="info" effect="plain">{{ geekDetailINfo.geekDetail.geekBaseInfo.degreeCategory }}</el-tag>
                 <el-tag class="tag" type="success" effect="plain">{{ geekDetailINfo.geekDetail.geekBaseInfo.workYearDesc }}</el-tag>
               </div>
+              
+              <!-- 添加性格优点到个人信息部分 -->
+              <div class="personality-row">
+                <el-tag
+                  v-for="(point, index) in ['进取务实', '做人真诚', '热爱学习']"
+                  :key="index"
+                  class="personality-tag"
+                  effect="plain"
+                  type="warning"
+                  size="small"
+                >
+                  {{ point }}
+                </el-tag>
+              </div>
             </div>
           </div>
           <div class="right-status">
@@ -37,76 +51,78 @@
           </div>
         </div>
 
-        <!-- 具备工作能力 -->
+        <!-- 具备工作能力 - 修改为只显示部分内容并添加渐变效果 -->
         <div class="section-container" v-if="geekDetailINfo && Object.keys(geekDetailINfo).length > 0">
           <div class="section-title">
             <div class="title-icon"><el-icon><Suitcase /></el-icon></div>
             <span>具备工作能力</span>
           </div>
-          <div class="section-content">
-            <el-text class="description-text">{{ geekDetailINfo.geekDetail.geekBaseInfo.userDescription }}</el-text>
+          <div class="section-content description-container">
+            <div class="description-text truncated">{{ geekDetailINfo.geekDetail.geekBaseInfo.userDescription }}</div>
+            <div class="description-gradient"></div>
+            <div class="learn-more-button-container">
+              <el-button 
+                type="primary" 
+                class="learn-more-button bounce-animation" 
+                @click="openDetail"
+              >
+                了解更多信息
+                <el-icon class="arrow-down-icon"><ArrowDown /></el-icon>
+              </el-button>
+            </div>
           </div>
         </div>
 
         <!-- 掌握技能 -->
-        <div class="section-container">
-          <div class="section-title">
-            <div class="title-icon"><el-icon><Connection /></el-icon></div>
-            <span>掌握技能</span>
-          </div>
-          <div class="section-content skills-content">
-<!--            <el-tag-->
-<!--              v-for="(skill, index) in geekDetailINfo?.geekDetail?.professionalSkill || []"-->
-<!--              :key="index"-->
-<!--              class="skill-tag"-->
-<!--              effect="plain"-->
-<!--              type="success"-->
-<!--            >-->
-<!--              {{ skill }}-->
-<!--            </el-tag>-->
-            <div v-if="!geekDetailINfo?.geekDetail?.professionalSkill || geekDetailINfo?.geekDetail?.professionalSkill.length === 0" class="no-data">
-              暂无技能信息
-            </div>
-            <div class="yes-data" v-else>
-              {{ geekDetailINfo?.geekDetail?.professionalSkill }}
-            </div>
-          </div>
-        </div>
+<!--        <div class="section-container">-->
+<!--          <div class="section-title">-->
+<!--            <div class="title-icon"><el-icon><Connection /></el-icon></div>-->
+<!--            <span>掌握技能</span>-->
+<!--          </div>-->
+<!--          <div class="section-content skills-content">-->
+<!--&lt;!&ndash;            <el-tag&ndash;&gt;-->
+<!--&lt;!&ndash;              v-for="(skill, index) in geekDetailINfo?.geekDetail?.professionalSkill || []"&ndash;&gt;-->
+<!--&lt;!&ndash;              :key="index"&ndash;&gt;-->
+<!--&lt;!&ndash;              class="skill-tag"&ndash;&gt;-->
+<!--&lt;!&ndash;              effect="plain"&ndash;&gt;-->
+<!--&lt;!&ndash;              type="success"&ndash;&gt;-->
+<!--&lt;!&ndash;            >&ndash;&gt;-->
+<!--&lt;!&ndash;              {{ skill }}&ndash;&gt;-->
+<!--&lt;!&ndash;            </el-tag>&ndash;&gt;-->
+<!--            <div v-if="!geekDetailINfo?.geekDetail?.professionalSkill || geekDetailINfo?.geekDetail?.professionalSkill.length === 0" class="no-data">-->
+<!--              暂无技能信息-->
+<!--            </div>-->
+<!--            <div class="yes-data" v-else>-->
+<!--              {{ geekDetailINfo?.geekDetail?.professionalSkill }}-->
+<!--            </div>-->
+<!--          </div>-->
+<!--        </div>-->
 
         <!-- 性格优点 -->
-        <div class="section-container">
-          <div class="section-title">
-            <div class="title-icon"><el-icon><Star /></el-icon></div>
-            <span>性格优点</span>
-          </div>
-          <div class="section-content">
-            <div class="personality-points">
-              <el-tag
-                v-for="(point, index) in ['进取务实', '做人真诚', '热爱学习']"
-                :key="index"
-                class="personality-tag"
-                effect="plain"
-                type="warning"
-              >
-                {{ index + 1 }}. {{ point }}
-              </el-tag>
-            </div>
-          </div>
-        </div>
+<!--        <div class="section-container">-->
+<!--          <div class="section-title">-->
+<!--            <div class="title-icon"><el-icon><Star /></el-icon></div>-->
+<!--            <span>性格优点</span>-->
+<!--          </div>-->
+<!--          <div class="section-content">-->
+<!--            <div class="personality-points">-->
+<!--              <el-tag-->
+<!--                v-for="(point, index) in ['进取务实', '做人真诚', '热爱学习']"-->
+<!--                :key="index"-->
+<!--                class="personality-tag"-->
+<!--                effect="plain"-->
+<!--                type="warning"-->
+<!--              >-->
+<!--                {{ index + 1 }}. {{ point }}-->
+<!--              </el-tag>-->
+<!--            </div>-->
+<!--          </div>-->
+<!--        </div>-->
 
         <!-- 底部按钮 -->
         <div class="action-buttons">
           <el-button
-            type="primary"
-            class="action-button"
-            :disabled="!(geekDetailINfo && Object.keys(geekDetailINfo).length > 0)"
-            @click="openDetail"
-          >
-            <el-icon><Document /></el-icon>
-            了解更多信息
-          </el-button>
-          <el-button
-            type="success"
+            color="rgba(31, 124, 255, 1)"
             class="action-button"
             :disabled="!(geekDetailINfo && Object.keys(geekDetailINfo).length > 0)"
             @click="openInteraction"
@@ -127,7 +143,8 @@ import {
   Document,
   Message,
   Connection,
-  Star
+  Star,
+  ArrowDown
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import PluginMessenger from "@/api/PluginSendMsg";
@@ -304,7 +321,7 @@ defineExpose({
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 20px;
+    //margin-bottom: 20px;
     padding: 20px;
     background: rgba(255, 255, 255, 0.8);
     border-radius: 8px;
@@ -336,8 +353,20 @@ defineExpose({
         .contact-row {
           display: flex;
           gap: 8px;
+          margin-bottom: 8px;
 
           .tag {
+            font-size: 12px;
+          }
+        }
+        
+        // 添加性格优点行样式
+        .personality-row {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          
+          .personality-tag {
             font-size: 12px;
           }
         }
@@ -359,8 +388,9 @@ defineExpose({
   .section-container {
     background: white;
     border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 16px;
+    padding: 16px 16px 0;
+
+    //margin-bottom: 16px;
 
     .section-title {
       display: flex;
@@ -385,43 +415,75 @@ defineExpose({
     .section-content {
       color: #666;
       line-height: 1.6;
-
-      &.skills-content {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-
-        .skill-tag {
-          margin: 0;
+      
+      // 修改工作能力描述部分样式
+      &.description-container {
+        position: relative;
+        max-height: 200px;
+        overflow: hidden;
+        
+        .description-text {
+          white-space: pre-wrap;
+          
+          &.truncated {
+            max-height: 160px;
+            overflow: hidden;
+          }
         }
-      }
-
-      .personality-points {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-
-        .personality-tag {
-          margin: 0;
+        
+        .description-gradient {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 100%;
+          background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgb(255 255 255 / 39%) 15%, rgb(255, 255, 255)) 100%;
+          pointer-events: none;
         }
-      }
-
-      .no-data {
-        color: #999;
-        font-size: 14px;
-      }
-
-      .description-text {
-        white-space: pre-wrap;
+        
+        .learn-more-button-container {
+          position: absolute;
+          bottom: 0px;
+          left: 0;
+          right: 0;
+          display: flex;
+          justify-content: center;
+          
+          .learn-more-button {
+            border-radius: 20px;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background-color: transparent;
+            color: rgba(31, 124, 255, 1);
+            border: none;
+            box-shadow: none;
+            
+            .arrow-down-icon {
+              margin-left: 5px;
+            }
+          }
+          
+          .bounce-animation {
+            animation: bounce 2s infinite;
+          }
+          
+          @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+            40% {transform: translateY(-5px);}
+            60% {transform: translateY(-3px);}
+          }
+        }
       }
     }
   }
 
   .action-buttons {
     display: flex;
-    justify-content: center;
+    justify-content: flex-end;
     gap: 16px;
-    margin-top: 24px;
+    //margin-top: 40px; // 增加上边距，为了给"了解更多信息"按钮留出空间
 
     .action-button {
       min-width: 120px;
