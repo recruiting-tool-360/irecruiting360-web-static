@@ -359,7 +359,7 @@
             </el-col>
           </el-row>
           <!--    不同模版      -->
-          <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JobInfo>
+          <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></JobInfo>
           <BossJobInfo ref="bossJobInfoRef" v-show="jobInfoName==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></BossJobInfo>
           <ZHILIANJobInfo  ref="zhiLianInfoRef" v-show="jobInfoName==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></ZHILIANJobInfo>
 <!--          <LIEPINJobInfo  ref="liePinInfoRef" v-show="jobInfoName==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></LIEPINJobInfo>-->

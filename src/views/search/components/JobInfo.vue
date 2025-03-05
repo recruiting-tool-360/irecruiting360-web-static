@@ -9,7 +9,7 @@
     <!--  列表信息  -->
     <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo" v-model:channel-config="channel"></ResumeListInfo>
 
-    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" :change-close-status="()=>{geekInfoDialog=false;}" ></BossDetial>
+    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" :change-close-status="()=>{geekInfoDialog=false;}" v-model:search-state-criteria="searchStateAIParam"></BossDetial>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -46,11 +46,14 @@ const store = useStore();
 const props = defineProps({
   onLodingOpen: Function,
   onLodingClose: Function,
-  thirdPartyChannelConfig:Array
+  thirdPartyChannelConfig:Array,
+  searchStateCriteria:Object
 });
 const channelKey = "ALL";
 const jobALlData =computed(()=>store.getters.getChannelALlData(channelKey));
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
+//ai推荐
+const searchStateAIParam = computed(()=>props.searchStateCriteria);
 //ai排序逻辑 检查符合条件的元素数量
 const validScoreCount = computed(() => {
   return jobALlData.value.filter((item) => item.score !== undefined && item.score !== null && item.score >= getSortComparisonValue()).length;
