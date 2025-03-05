@@ -71,10 +71,12 @@
             </el-tag>
           </div>
           
-          <el-empty v-if="getDimensionItems(dimension).length === 0" description="暂无评估数据" />
-          
+<!--          <el-empty v-if="getDimensionItems(dimension).length === 0" description="暂无评估数据" />-->
+          <div v-if="getDimensionItems(dimension).length === 0" style="width: 100%;padding-left: 15px" >
+            <el-text>暂无评估数据</el-text>
+          </div>
           <el-table 
-            v-else
+            v-if="getDimensionItems(dimension).length> 0"
             :data="getDimensionItems(dimension)" 
             border 
             style="width: 100%; margin-top: 10px; margin-bottom: 20px"
