@@ -238,7 +238,7 @@ const showAIEvaluation = async (geek) => {
       // dimensionScores.professional = 70;
       // dimensionScores.experience = 70;
       // dimensionScores.softSkills = 70;
-      console.log("evaluationData",evaluationData)
+      // console.log("evaluationData",evaluationData)
       if(!evaluationData.standardDimensions){
         ElMessage.warning('无法查到AI评估详情信息');
         return;

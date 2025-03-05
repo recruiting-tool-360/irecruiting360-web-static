@@ -12,7 +12,7 @@
     <!--  列表信息  -->
     <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo" v-model:channel-config="channelConfig"></ResumeListInfo>
 
-    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
+    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" v-model:search-state-criteria="searchStateAIParam"></BossDetial>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -123,6 +123,7 @@ const boosUserStatus = async () => {
 const clickListInfo = async (listInfo) => {
   resumeId.value = listInfo.id;
   geekInfoDialog.value = true;
+  console.log("searchStateAIParam:",searchStateAIParam)
   bossDetialRef.value?.childGeekInfoMethod(listInfo);
   //设置为已读
   try {
