@@ -151,11 +151,11 @@ const search = async (page) => {
   }
   if(listResponse&&listResponse.data&&listResponse.data.data){
     // jobALlData.value=listResponse.data.data;
-    let scoreList = listResponse.data.data.map(item=>item.id);
+    // let scoreList = listResponse.data.data.map(item=>item.id);
     store.commit('setChannelData',{key:channelKey,value:listResponse.data.data});
-    listResponse.data.data.forEach(item=>{
-      store.commit('addScoreConfigToQueue',{id:item.id,count:0});
-    });
+    // listResponse.data.data.forEach(item=>{
+    //   store.commit('addScoreConfigToQueue',{id:item.id,count:0});
+    // });
   }else{
     // jobALlData.value=[];
     store.commit('setChannelData',{key:channelKey,value:[]})
@@ -164,14 +164,17 @@ const search = async (page) => {
 }
 
 
-//渠道查询
-const channelSearch = (channelRequestInfo) => {
-
+const updateScore = (val) => {
+  jobALlData.value.forEach((item)=>{
+    if(item.id===val.resumeId){
+      item.score = val.score;
+    }
+  })
 }
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,handleCurrentChange
+  search,handleCurrentChange,updateScore
 });
 
 // 如果 props 的值可能会变化，使用 watch 来同步更新 localValue

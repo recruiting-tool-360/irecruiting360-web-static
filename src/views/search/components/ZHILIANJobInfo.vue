@@ -341,11 +341,11 @@ const search = async (page) => {
   }
   if(listResponse&&listResponse.data&&listResponse.data.data){
     // jobALlData.value=listResponse.data.data;
-    let scoreList = listResponse.data.data.map(item=>item.id);
+    // let scoreList = listResponse.data.data.map(item=>item.id);
     store.commit('setChannelData',{key:channelKey,value:listResponse.data.data});
-    listResponse.data.data.forEach(item=>{
-      store.commit('addScoreConfigToQueue',{id:item.id,count:0});
-    });
+    // listResponse.data.data.forEach(item=>{
+    //   store.commit('addScoreConfigToQueue',{id:item.id,count:0});
+    // });
   }else{
     // jobALlData.value=[];
     store.commit('setChannelData',{key:channelKey,value:[]})
@@ -412,9 +412,20 @@ const i360Request= async (action,emptyRequestTemplate, timeout = 5000) => {
   }
 }
 
+//修改分数
+const updateScore = (val) => {
+  if(jobALlData.value&&jobALlData.value.length>0){
+    jobALlData.value.forEach((item)=>{
+      if(item.id===val.resumeId){
+        item.score = val.score;
+      }
+    })
+  }
+}
+
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo
+  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore
 });
 
 //ai排序逻辑
