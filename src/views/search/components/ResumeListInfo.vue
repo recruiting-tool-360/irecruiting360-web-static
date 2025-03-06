@@ -76,7 +76,7 @@
             <spa>AI评估</spa>
           </div>
           <div class="geekAINumBtm">
-            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{geekList.score}}</el-text>
+            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{parseFloat(geekList.score.toFixed(2))}}</el-text>
             <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
           </div>
         </el-col>
