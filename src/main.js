@@ -64,15 +64,15 @@ window.addEventListener('load', () => {
     initializePluginConfig();
 });
 
-async function periodicFetch() {
-    try {
-        await store.dispatch("fetchAndUpdateScore"); // 执行任务
-    } catch (error) {
-        console.error("Fetch failed:", error); // 记录错误
-    }
-    setTimeout(periodicFetch, 10000); // 再次设置定时器
-}
-periodicFetch(); // 启动任务
+// async function periodicFetch() {
+//     try {
+//         await store.dispatch("fetchAndUpdateScore"); // 执行任务
+//     } catch (error) {
+//         console.error("Fetch failed:", error); // 记录错误
+//     }
+//     setTimeout(periodicFetch, 10000); // 再次设置定时器
+// }
+// periodicFetch(); // 启动任务
 
 
 

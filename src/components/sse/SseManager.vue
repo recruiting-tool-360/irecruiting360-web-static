@@ -11,8 +11,9 @@ import sseClient from '@/api/sse.js'
 import { getUserInfo, userlogout } from "@/api/user/UserApi"
 import Cookies from 'js-cookie'
 
-const store = useStore()
-const userInfo = computed(() => store.getters.getUserInfo)
+const store = useStore();
+const userInfo = computed(() => store.getters.getUserInfo);
+const allChannel = computed(() => store.getters.getChannelConf);
 
 // 处理认证错误 - 自动退出登录
 async function handleAuthError(data) {
@@ -40,6 +41,16 @@ async function handleAuthError(data) {
   
   // 执行退出登录流程
   await logout()
+}
+
+//更新ai分数
+const updateChannelScore = (msg) => {
+  let valueElement = allChannel.value[msg.channel];
+  if(valueElement){
+    let allJob = allChannel.value['ALL'];
+    valueElement.cardInfoRef.updateScore(msg);
+    allJob.cardInfoRef.updateScore(msg);
+  }
 }
 
 // 退出登录函数 - 从Header.vue复制过来的逻辑
@@ -133,15 +144,18 @@ function handleSseConnect(data) {
   }
 }
 
-function handleSseBroadcast(data) {
+//收到SSE广播
+async function handleSseBroadcast(data) {
   try {
     // 解析广播消息
     const message = typeof data === 'string' ? JSON.parse(data) : data;
     console.log('收到SSE广播:', message);
-    
+
     // 如果是新格式消息，取出场景和数据
     if (message.scenario && message.data !== undefined) {
       // 根据场景处理不同的广播消息
+      console.log(typeof message.scenario)
+      console.log(message.scenario)
       switch (message.scenario) {
         case 'notification':
           ElMessage.info({
@@ -166,6 +180,7 @@ function handleSseBroadcast(data) {
   }
 }
 
+//收到SSE消息 个人
 function handleSseMessage(data) {
   try {
     // 解析个人消息
@@ -187,6 +202,10 @@ function handleSseMessage(data) {
             type: 'info',
             duration: 5000
           });
+          break;
+        case 'RESUME_SCORE':
+          // 处理系统通知
+          updateChannelScore(message.data);
           break;
         default:
           console.log(`未知场景(${message.scenario})的消息:`, message.data);

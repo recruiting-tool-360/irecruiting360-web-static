@@ -14,6 +14,31 @@ class SseClient {
     this.isConnectionFailed = false
     this.lastMessageTime = 0
     this.healthCheckInterval = null
+    this.lastHeartbeatSeq = null
+
+    // 监听网络状态变化
+    window.addEventListener('online', () => {
+      console.log('网络已恢复连接');
+      if (this.isConnectionFailed) {
+        console.log('检测到网络重新连接，尝试恢复SSE连接');
+        this.reconnect();
+      }
+    });
+    
+    // 监听页面可见性变化，在页面重新变为可见时尝试恢复连接
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && 
+          (!this.eventSource || this.eventSource.readyState === 2)) {
+        console.log('页面重新可见，检查SSE连接状态');
+        // 检查连接是否已经断开
+        const now = Date.now();
+        const elapsed = now - this.lastMessageTime;
+        if (elapsed > 60000 || !this.eventSource) {
+          console.log('SSE连接已失效或不存在，尝试重新连接');
+          this.reconnect();
+        }
+      }
+    });
   }
 
   // 连接SSE，允许传入用户ID
@@ -104,19 +129,50 @@ class SseClient {
 
     // 普通消息事件
     this.eventSource.addEventListener('MESSAGE', (event) => {
-      this.lastMessageTime = Date.now()  // 更新最后消息时间
-      console.log('收到消息:', event.data)
-      if (this.listeners['message']) {
+      console.log('收到消息事件:', event);
+      
+      try {
+        // 记录最后收到消息的时间
+        this.lastMessageTime = Date.now();
+        
+        // 解析消息内容
+        const messageData = event.data;
+        console.log('消息数据:', messageData);
+        
+        // 处理消息，确保即使解析失败也不会中断
         try {
-          // 尝试解析JSON，如果失败则作为字符串处理
-          const parsedData = typeof event.data === 'string' && event.data.trim().startsWith('{') 
-            ? JSON.parse(event.data) 
-            : event.data
-          this.listeners['message'].forEach(callback => callback(parsedData))
-        } catch (e) {
-          console.warn('无法解析消息为JSON，作为字符串处理:', e)
-          this.listeners['message'].forEach(callback => callback(event.data))
+          // 尝试解析JSON
+          const jsonData = JSON.parse(messageData);
+          
+          // 触发消息回调
+          if (this.listeners['message']) {
+            this.listeners['message'].forEach(callback => {
+              try {
+                callback(jsonData);
+              } catch (callbackError) {
+                console.error('消息回调执行错误:', callbackError);
+              }
+            });
+          }
+          
+          // 尝试发送确认（如果后端支持）
+          this.sendMessageAck(jsonData);
+          
+        } catch (parseError) {
+          console.warn('解析消息失败:', parseError);
+          // 即使解析失败，仍然尝试调用回调（使用原始数据）
+          if (this.listeners['message']) {
+            this.listeners['message'].forEach(callback => {
+              try {
+                callback(messageData);
+              } catch (callbackError) {
+                console.error('消息回调执行错误:', callbackError);
+              }
+            });
+          }
         }
+      } catch (e) {
+        console.error('处理MESSAGE事件出错:', e);
       }
     })
 
@@ -137,6 +193,34 @@ class SseClient {
         this.listeners['broadcast'].forEach(callback => callback(parsedData))
       }
     })
+
+    // 心跳消息事件监听
+    this.eventSource.addEventListener('HEARTBEAT', (event) => {
+      this.lastMessageTime = Date.now();  // 更新最后消息时间
+      console.log('收到心跳消息:', event.data, 'eventId:', event.lastEventId);
+      
+      // 记录最后接收的心跳ID
+      try {
+        const heartbeat = JSON.parse(event.data);
+        if (heartbeat && heartbeat.data && heartbeat.data.seq !== undefined) {
+          this.lastHeartbeatSeq = heartbeat.data.seq;
+          console.log(`心跳序列号: ${this.lastHeartbeatSeq}`);
+        }
+      } catch (e) {
+        console.warn('解析心跳消息失败:', e);
+      }
+      
+      // 触发心跳回调
+      if (this.listeners['heartbeat']) {
+        this.listeners['heartbeat'].forEach(callback => {
+          try {
+            callback(event.data);
+          } catch (e) {
+            console.error('心跳回调执行错误:', e);
+          }
+        });
+      }
+    });
 
     // 连接错误处理 - 修改以避免在认证错误后重试
     this.eventSource.onerror = (event) => {
@@ -251,33 +335,124 @@ class SseClient {
     return true
   }
 
-  // 添加健康检查方法
+  // 增强健康检查
   startHealthCheck() {
-    // 清除可能存在的旧健康检查
+    // 清除可能存在的旧计时器
     if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval)
+      clearInterval(this.healthCheckInterval);
     }
     
-    // 每30秒检查一次连接状态
     this.healthCheckInterval = setInterval(() => {
-      // 如果超过2分钟没有收到任何消息
-      if (Date.now() - this.lastMessageTime > 120000) {
-        console.warn('SSE连接可能已断开，超过2分钟未收到消息')
-        
-        // 尝试关闭并重新连接
-        if (this.eventSource) {
-          this.disconnect()
-          
-          // 获取用户ID并重连
-          const userInfo = store.getters.getUserInfo
-          const userId = userInfo?.id
-          if (userId) {
-            console.log('尝试重新建立SSE连接...')
-            this.connect(userId)
-          }
-        }
+      // 检查连接状态
+      if (!this.eventSource) {
+        console.log('SSE连接不存在，跳过健康检查');
+        return;
       }
-    }, 30000)
+      
+      // 增加对EventSource readyState的检查
+      if (this.eventSource.readyState === 2) { // CLOSED
+        console.warn('SSE连接已关闭 (readyState=2)，将尝试重新连接');
+        this.reconnectAfterFailure();
+        return;
+      }
+      
+      // 检查最后消息时间
+      const now = Date.now();
+      const elapsed = now - this.lastMessageTime;
+      
+      console.log(`SSE健康检查: 上次消息距今 ${Math.round(elapsed/1000)} 秒, readyState=${this.eventSource.readyState}`);
+      
+      // 更积极的重连策略：当60秒未收到消息，就重新连接
+      if (elapsed > 60000) {
+        console.warn('SSE连接可能已失效，超过60秒未收到消息，准备重连');
+        this.reconnectAfterFailure();
+      }
+    }, 20000); // 更频繁地检查
+  }
+
+  // 新增重连方法
+  reconnectAfterFailure() {
+    // 记录重连前状态
+    const wasConnected = this.eventSource !== null;
+    
+    // 尝试关闭并重新连接
+    this.disconnect();
+    
+    // 报告连接问题
+    if (this.listeners['connectionIssue']) {
+      this.listeners['connectionIssue'].forEach(callback => {
+        try {
+          callback({type: 'silent_disconnect'});
+        } catch (e) {
+          console.error('连接问题回调执行错误:', e);
+        }
+      });
+    }
+    
+    // 只有之前是连接状态才重连
+    if (wasConnected) {
+      console.log('重新建立SSE连接...');
+      // 获取用户ID并重连
+      const userInfo = store.getters.getUserInfo;
+      const userId = userInfo?.id;
+      if (userId) {
+        // 延迟1秒后重连，给服务器一些恢复时间
+        setTimeout(() => {
+          this.connect(userId);
+        }, 1000);
+      }
+    }
+  }
+
+  // 发送ping请求检查连接
+  sendPing() {
+    try {
+      // 使用环境变量中配置的API基础URL
+      const apiBaseUrl = process.env.VUE_APP_API_BASE_URL || '';
+      fetch(`${apiBaseUrl}/sseManager/ping`, {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      })
+      .then(response => {
+        if (response.ok) {
+          console.log('Ping成功，连接正常');
+          // 更新最后活动时间（虽然不是通过SSE接收的消息）
+          this.lastMessageTime = Date.now() - 30000; // 减去30秒作为安全边际
+        } else {
+          console.warn('Ping失败，状态码:', response.status);
+        }
+      })
+      .catch(error => {
+        console.error('Ping请求失败:', error);
+      });
+    } catch (e) {
+      console.error('发送ping请求出错:', e);
+    }
+  }
+
+  // 添加消息确认方法
+  sendMessageAck(message) {
+    // 如果后端支持消息确认，可以在这里实现
+    // 例如通过API调用告知后端消息已收到
+    if (message && message.id) {
+      try {
+        // 使用环境变量中配置的API基础URL
+        const apiBaseUrl = process.env.VUE_APP_API_BASE_URL || '';
+        fetch(`${apiBaseUrl}/sseManager/ack`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messageId: message.id
+          })
+        }).catch(e => console.warn('发送消息确认失败:', e));
+      } catch (e) {
+        console.warn('准备消息确认请求失败:', e);
+      }
+    }
   }
 }
 

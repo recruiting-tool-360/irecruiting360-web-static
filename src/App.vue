@@ -62,11 +62,11 @@ onMounted(() => {
   zhiLianQueueManager.start(runTime,zhiLianFn);
 });
 // 在组件挂载时执行
-onMounted(() => {
-  const runTime = generateOneUniqueRandomNumber(2000,3000);
-  // 开始定时器
-  liePinQueueManager.start(runTime,liePinFn);
-});
+// onMounted(() => {
+//   const runTime = generateOneUniqueRandomNumber(2000,3000);
+//   // 开始定时器
+//   liePinQueueManager.start(runTime,liePinFn);
+// });
 // 在组件挂载时执行
 onMounted(() => {
   const runTime = generateOneUniqueRandomNumber(2000,3000);
