@@ -127,10 +127,11 @@ import {ref, onMounted, nextTick, computed} from "vue";
 import {Service, SwitchButton} from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import {ElButton, ElMessage} from "element-plus";
-import {getDownloadUrl, getUserInfo, userlogout} from "@/api/user/UserApi";
+import {getDownloadUrl, userlogout} from "@/api/user/UserApi";
 import Cookies from "js-cookie";
 import CryptoJS from 'crypto-js';
 import {getChatIdByUserId} from "@/api/chat/ChatApi";
+
 // 获取路由实例
 const router = useRouter()
 const store = useStore();
@@ -138,26 +139,10 @@ const testSwitch = ref(store.getters.getTestSwitch);
 const userInfo = computed(() => store.getters.getUserInfo);
 // 控制弹窗显示状态
 const popoverVisible = ref(false);
+
 // 跳转函数
 const navigateToGuide = (route) => {
   router.push({ name: route }) // 跳转到路由名为 guide 的路由
-}
-async function userInfoInit() {
-  try {
-    let {data, success} = await getUserInfo();
-    if (success && success === 'success') {
-      store.commit('changeUserInfo', data);
-    } else {
-      store.commit('changeUserInfo', null);
-      ElMessage.error('用户信息异常，请联系管理员');
-      window.location.href = '/login';
-    }
-  } catch (ex) {
-    store.commit('changeUserInfo', null);
-    ElMessage.error('用户信息异常，请联系管理员');
-    console.log(ex)
-    window.location.href = '/login';
-  }
 }
 
 const downloadZip = async () => {
@@ -165,10 +150,9 @@ const downloadZip = async () => {
   console.log("下载路径",data)
 }
 
-onMounted(async () => {
-  await userInfoInit();
+onMounted(() => {
+  // 不再需要初始化用户信息，由SseManager组件完成
 })
-
 
 const logout = async () => {
   Cookies.remove('satoken', {path: '/'});

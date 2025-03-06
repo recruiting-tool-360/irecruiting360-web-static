@@ -21,6 +21,9 @@
         </el-main>
       </el-container>
     </el-container>
+    
+    <!-- 无UI的SSE管理组件 -->
+    <SseManager ref="sseManagerRef"></SseManager>
   </div>
 </template>
 
@@ -29,7 +32,11 @@ import { ref } from "vue";
 import Header from "@/layout/header/Header.vue";
 import LeftHeader from "@/layout/header/LeftHeader3.vue";
 import AISearch from "@/views/search/AISearch.vue"
+import SseManager from "@/components/sse/SseManager.vue";
 import { onMounted } from 'vue';
+
+// SSE管理器引用
+const sseManagerRef = ref(null);
 
 // 创建 AISearch 组件的 ref
 const aiSearchRef = ref(null);
@@ -62,9 +69,12 @@ const chatOnSearch = (data,searchSwitch) => {
 
 // 页面加载完成时触发
 onMounted(() => {
+  // 页面加载完成后展开侧边栏
   window.addEventListener('load', () => {
     isShrunk.value = false;
   });
+  
+  // 注意：不需要在这里初始化用户信息，SseManager组件会自己处理
 });
 </script>
 
