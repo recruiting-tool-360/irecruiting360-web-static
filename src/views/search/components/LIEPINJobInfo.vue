@@ -324,11 +324,11 @@ const search = async (page) => {
   }
   if(listResponse&&listResponse.data&&listResponse.data.data){
     // jobALlData.value=listResponse.data.data;
-    let scoreList = listResponse.data.data.map(item=>item.id);
+    // let scoreList = listResponse.data.data.map(item=>item.id);
     store.commit('setChannelData',{key:channelKey,value:listResponse.data.data});
-    listResponse.data.data.forEach(item=>{
-      store.commit('addScoreConfigToQueue',{id:item.id,count:0});
-    });
+    // listResponse.data.data.forEach(item=>{
+    //   store.commit('addScoreConfigToQueue',{id:item.id,count:0});
+    // });
   }else{
     // jobALlData.value=[];
     store.commit('setChannelData',{key:channelKey,value:[]})

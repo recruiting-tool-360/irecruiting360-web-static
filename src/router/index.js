@@ -25,6 +25,19 @@ const routes = [
     path: '/login/sso',
     name: 'LoginSSO',
     component: () => import('@/views/login/LoginSSO.vue'),
+    meta: {
+      requiresAuth: false,
+      title: '单点登录'
+    }
+  },
+  {
+    path: '/wechat/callback',
+    name: 'WechatCallback',
+    component: () => import('@/views/login/LoginWechat.vue'),
+    meta: {
+      requiresAuth: false,
+      title: '微信登录处理'
+    }
   },
   {
     path: '/register',

@@ -72,20 +72,11 @@
 <!--          <div class="geekAIBtm">-->
 <!--            <spa>AI评估</spa>-->
 <!--          </div>-->
-          <el-popover placement="top" trigger="hover" width="500">
-            <template #reference>
-              <div class="geekAIBtm">
-                <spa>AI评估</spa>
-              </div>
-            </template>
-            <el-row justify="center" align="top">
-              <el-text>
-                {{geekList.cc}}
-              </el-text>
-            </el-row>
-          </el-popover>
+          <div class="geekAIBtm" @click.stop="showAIEvaluation(geekList)">
+            <spa>AI评估</spa>
+          </div>
           <div class="geekAINumBtm">
-            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{geekList.score}}</el-text>
+            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{parseFloat(geekList.score.toFixed(2))}}</el-text>
             <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
           </div>
         </el-col>
@@ -111,16 +102,25 @@
 
     </el-card>
 
+    <AIEvaluationCard 
+      v-if="showAIDialog" 
+      :visible="showAIDialog" 
+      :evaluation-data="currentEvaluation" 
+      :dimension-map="dimensionMap"
+      :dimension-items="currentEvaluation ? getDimensionItems(currentEvaluation) : {}"
+      @update:visible="(val) => showAIDialog = val" :on-user-info="clickListInfo">
+    </AIEvaluationCard>
   </div>
 </template>
 
 <script setup>
 import {onMounted,computed,ref,watch,defineExpose} from "vue";
 import {useStore} from "vuex";
-import {userCollectResume} from "@/api/jobList/JobListApi";
+import {userCollectResume, getScoreListDetailed} from "@/api/jobList/JobListApi";
 import {ElButton, ElMessage} from "element-plus";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 import {SwitchButton} from "@element-plus/icons-vue";
+import AIEvaluationCard from './AIEvaluationCard.vue';
 
 //store
 const store = useStore();
@@ -139,6 +139,202 @@ const clickListInfo = (value) => {
 }
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);
+
+// AI评估相关
+const showAIDialog = ref(false);
+const currentEvaluation = ref(null);
+
+// 定义维度映射
+const dimensionMap = {
+  '专业技能': 'professional',
+  '工作经历': 'experience',
+  '软实力': 'softSkills'
+};
+
+// 定义标准评估维度数组
+const standardDimensions = [
+  {
+    groupKey: '专业技能',
+    items: [
+      {
+        name: '技术栈',
+        requirement: '岗位所需技术栈',
+        candidateField: 'skills',
+        candidateFallback: '未提供技术栈信息',
+        matchCondition: (geek) => geek.skills,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      },
+      {
+        name: '专业知识',
+        requirement: '相关专业知识',
+        candidateField: 'professionalKnowledge',
+        candidateFallback: '未详细说明',
+        matchCondition: (geek) => geek.professionalKnowledge,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      }
+    ]
+  },
+  {
+    groupKey: '工作经历',
+    items: [
+      {
+        name: '工作年限',
+        requirement: '3年以上相关经验',
+        candidateField: 'experienceYear',
+        candidateFormatter: (geek) => `${geek.experienceYear >= 0 ? geek.experienceYear + '年经验' : '经验未知'}`,
+        matchCondition: (geek) => geek.experienceYear > 3,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      },
+      {
+        name: '项目经验',
+        requirement: '有相关项目经验',
+        candidateField: 'workExp',
+        candidateFallback: '未详细说明',
+        matchCondition: (geek) => geek.workExp,
+        matchResult: { match: '匹配', noMatch: '不匹配' }
+      }
+    ]
+  },
+  {
+    groupKey: '软实力',
+    items: [
+      {
+        name: '沟通能力',
+        requirement: '良好的沟通能力',
+        candidateField: 'communicationSkill',
+        candidateFormatter: (geek) => geek.communicationSkill ? '具备良好沟通能力' : '未评估',
+        matchCondition: (geek) => geek.communicationSkill,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      },
+      {
+        name: '团队协作',
+        requirement: '良好的团队协作能力',
+        candidateField: 'teamwork',
+        candidateFormatter: (geek) => geek.teamwork ? '具备团队协作能力' : '未评估',
+        matchCondition: (geek) => geek.teamwork,
+        matchResult: { match: '匹配', noMatch: '部分匹配' }
+      }
+    ]
+  }
+];
+
+// 显示AI评估对话框
+const showAIEvaluation = async (geek) => {
+  try {
+    // 调用API获取评估数据
+    const { data } = await getScoreListDetailed([geek.id]); // 传递geekList.id作为参数
+    
+    if (data && data.length > 0) {
+      const evaluationData = data[0];
+      
+      // 计算每个维度的平均分
+      const dimensionScores = {
+        professional: 0,
+        experience: 0,
+        softSkills: 0
+      };
+      
+      // 默认初始化成基础分数
+      // dimensionScores.professional = 70;
+      // dimensionScores.experience = 70;
+      // dimensionScores.softSkills = 70;
+      // console.log("evaluationData",evaluationData)
+      if(!evaluationData.standardDimensions){
+        ElMessage.warning('无法查到AI评估详情信息');
+        return;
+      }
+      // 如果有详细评分，根据matched项来调整每个维度的分数
+      evaluationData.standardDimensions.forEach(dimension => {
+        // if (dimension.items && dimension.items.length > 0) {
+          // const matchCount = dimension.items.filter(item => item.matchResult === "匹配").length;
+          // const totalCount = dimension.items.length;
+          //
+          // if (totalCount > 0) {
+          //   const matchPercentage = (matchCount / totalCount) * 100;
+          //
+            if (dimension.groupKey === "专业技能") {
+              // dimensionScores.professional = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              dimensionScores.professional = parseFloat(dimension.score.toFixed(2))
+            } else if (dimension.groupKey === "工作经历") {
+              // dimensionScores.experience = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              dimensionScores.experience = parseFloat(dimension.score.toFixed(2))
+            } else if (dimension.groupKey === "软实力") {
+              // dimensionScores.softSkills = Math.min(Math.max(60 + matchPercentage * 0.4, 60), 95);
+              dimensionScores.softSkills = parseFloat(dimension.score.toFixed(2))
+            }
+          // }
+        // }
+      });
+      
+      // 构建完整的评估对象
+      currentEvaluation.value = {
+        ...geek,
+        scores: dimensionScores,
+        apiData: evaluationData
+      };
+      
+      showAIDialog.value = true;
+    } else {
+      // 如果API没有返回数据，使用基础信息展示
+      ElMessage.warning('无法查到AI评估详情信息');
+      return
+    }
+  } catch (error) {
+    console.error("获取AI评估数据失败:", error);
+    ElMessage.error('获取AI评估数据失败，请联系管理员');
+    return
+  }
+};
+
+// 使用API数据获取维度项目
+const getDimensionItems = (geek) => {
+  // 如果有API数据，使用API数据
+  if (geek.apiData) {
+    const apiDimensions = geek.apiData.standardDimensions;
+    const result = {};
+    
+    apiDimensions.forEach(dimension => {
+      result[dimension.groupKey] = dimension.items.map(item => ({
+        name: item.name,
+        requirement: item.requirement,
+        candidate: item.candidateFallback || '未知',
+        match: item.matchResult
+      }));
+    });
+    
+    return result;
+  }
+  
+  // 否则使用默认数据（保留原有逻辑作为备选）
+  const result = {};
+  
+  standardDimensions.forEach(dimension => {
+    result[dimension.groupKey] = dimension.items.map(item => {
+      let candidateValue;
+      
+      if (item.candidateFormatter) {
+        candidateValue = item.candidateFormatter(geek);
+      } else if (geek[item.candidateField]) {
+        candidateValue = geek[item.candidateField];
+      } else {
+        candidateValue = item.candidateFallback || '未知';
+      }
+      
+      const isMatch = item.matchCondition(geek);
+      const matchValue = isMatch ? item.matchResult.match : item.matchResult.noMatch;
+      
+      return {
+        name: item.name,
+        requirement: item.requirement,
+        candidate: candidateValue,
+        match: matchValue
+      };
+    });
+  });
+  
+  return result;
+};
+
 const handleCollectClick = async (listInfo, value) => {
   // if (listInfo.collectOrNot === undefined || listInfo.collectOrNot === null) {
   //   listInfo.collectOrNot = 0;

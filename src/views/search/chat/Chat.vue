@@ -47,7 +47,7 @@
     </el-row>
     <!--  内容部分    -->
     <el-row class="el-row-100-percent-w" style="height: 72vh">
-      <div class="chat-container" v-chat-scroll ref="chatContainer">
+      <div class="chat-container" v-chat-scroll ref="chatContainer" v-loading="chatLoading">
         <div v-for="message in messages" :key="message.id">
           <div v-if="message.role ==='user'" style="display: flex;justify-content: end;padding: 8px;margin: 10px 0;">
             <div class="rightContainer chatContainer">
@@ -64,7 +64,7 @@
 <!--                <div class="content">{{ message.content }}</div>-->
 <!--                <div v-html="md.render(markdownContent)"></div>-->
                 <div class="content" v-html="parseMarkdown(message.content)"></div>
-                <el-button class="contentButton" @click="aiSearchFlag=true">聚合搜索</el-button>
+                <div style="width: 100%;display: flex;justify-content: center"><el-button class="contentButton" @click="aiSearchFlag=true">聚合搜索</el-button></div>
               </div>
             </div>
           </div>
@@ -148,6 +148,10 @@ const props = defineProps({
   onCloseClick: {
     type: Function,
     required: true
+  },
+  chatId: {
+    type: String,
+    default: '' // 默认为空字符串
   }
 });
 const message = ref(''); // 用于存储输入的消息
@@ -172,31 +176,64 @@ const aiSearchFlag = ref(false);
 // 标记是否在输入法状态中
 let isComposing = ref(false);
 
+// 本地 chatId 状态
+const localChatId = ref(props.chatId)
+console.log("初始 chat id:", localChatId.value)
 
+// 监听 props.chatId 的变化
+watch(() => props.chatId, (newChatId) => {
+  console.log("props chatId changed:", newChatId)
+  localChatId.value = newChatId
+})
 
-//初始化
-onMounted(async ()=>{
-  //查询聊天记录，切换聊天记录
+// 添加 loading 状态
+const chatLoading = ref(false)
+
+// 修改加载聊天历史记录函数
+const loadChatHistory = async (chatId) => {
+  if (!chatId) return // 如果没有 chatId 就直接返回
+  
+  chatLoading.value = true // 开始加载
   try {
-    const {data} = await getChatHistory(userChatId.value,userInfo.value.id);
-    if(data&&data.chatHistory&&data.chatHistory.length>0){
-      store.commit('clearChatMessage');
-      data.chatHistory.forEach((item,index)=>{
-        const msg = getChatTemplate();
-        msg.content = item.content;
-        msg.id =uuidv4();
-        msg.created = item.timestamp?Math.floor(new Date(item.timestamp).getTime() / 1000):Math.floor(Date.now() / 1000);
-        msg.timestamp=item.timestamp;
-        msg.role = item.role;
-        store.commit('addMessageToQueue',msg);
-      });
+    const { data } = await getChatHistory(chatId, userInfo.value.id)
+    if (data && data.chatHistory && data.chatHistory.length > 0) {
+      store.commit('clearChatMessage')
+      data.chatHistory.forEach((item) => {
+        const msg = getChatTemplate()
+        msg.content = item.content
+        msg.id = uuidv4()
+        msg.created = item.timestamp 
+          ? Math.floor(new Date(item.timestamp).getTime() / 1000)
+          : Math.floor(Date.now() / 1000)
+        msg.timestamp = item.timestamp
+        msg.role = item.role
+        store.commit('addMessageToQueue', msg)
+      })
     }
-  }catch (e){
-    console.log(e);
+  } catch (e) {
+    console.error('加载聊天历史失败:', e)
+    ElMessage.warning('加载聊天历史失败，请稍等再试！');
+  } finally {
+    chatLoading.value = false // 结束加载
+    scrollToBottom() // 调用滚动到底部的函数
   }
+}
 
-  scrollToBottom();  // 调用滚动到底部的函数
-});
+// 监听 localChatId 的变化
+watch(localChatId, (newChatId) => {
+  console.log("localChatId changed:", newChatId)
+  if (newChatId) {
+    // 加载聊天历史
+    loadChatHistory(newChatId)
+    // 触发 chatList 刷新
+    store.commit('SET_NEED_REFRESH_CHAT_LIST', true)
+  }
+})
+
+// 组件挂载时加载历史记录
+onMounted(async () => {
+  await loadChatHistory(localChatId.value)
+})
 
 const md = new MarkdownIt({
   highlight: function (str, lang) {
@@ -248,7 +285,7 @@ const handleKeyDown = (event) => {
 const findHistoricalDialogue = async () => {
   historyLoading.value=true;
   try {
-    const {data} = await getChatHistory(userChatId.value,userInfo.value.id);
+    const {data} = await getChatHistory(localChatId.value,userInfo.value.id);
     chatHistoryList.value = data.chatHistory;
   }catch (e){
     console.log(e);
@@ -304,7 +341,7 @@ const sentMassage = () =>{
   const userMsg = getChatTemplate();
   userMsg.content = message.value;
   userMsg.id =uuidv4();
-  userMsg.chatId =userChatId.value;
+  userMsg.chatId =localChatId.value;
   userMsg.searchConditionId = searchConditionId.value;
   userMsg.created = Math.floor(Date.now() / 1000);
   userMsg.role = "user";
@@ -328,8 +365,6 @@ const invokeChat = (userMsg) => {
     searchConditionId: userMsg.searchConditionId,
     prompt: userMsg.content,
   }
-  //chatRequest.chatId = userChatId.value;
-  //chatRequest.searchConditionId = searchConditionId.value;
   //发送ai 用户消息
   chatFluxStatus.value = true;
   fetchStream(
@@ -381,11 +416,14 @@ const setMsgContainer = (msg) => {
       chatTemplate.object =msg.object;
       chatTemplate.created = msg.created;
       chatTemplate.role = "assistant";
-      if(!userChatId.value){
-        store.commit('changeLocalUserChatId',msg.chatId);
+      
+      // 如果收到服务端返回的 chatId，更新 localChatId
+      if (msg.chatId && !localChatId.value) {
+        localChatId.value = msg.chatId
+        store.commit('changeLocalUserChatId', msg.chatId);
       }
-      //messages.value.push(chatTemplate);
-      store.commit('addMessageToQueue',chatTemplate);
+      
+      store.commit('addMessageToQueue', chatTemplate);
     }
   }
 }
@@ -446,6 +484,7 @@ const getFormatData =(timestamp)=>{
 
 <style scoped lang="scss">
 .chat-container {
+  position: relative; /* 确保 loading 遮罩层定位正确 */
   height: 100%;
   width: 100%;
   //box-shadow: inset 1px 1px 20px 20px #dadada33;
@@ -508,7 +547,7 @@ const getFormatData =(timestamp)=>{
       }
 
       .contentButton{
-        width: 100%;
+        max-width: 70%;
         border-radius: 13px;
         background: linear-gradient(234.2deg, #C7A0FF 0%, #8777FF 11.71%, #5280FC 49.68%, #54A4FF 74.23%, #3CD1F6 90.26%, #74FFCD 100%);
         height: 26px;

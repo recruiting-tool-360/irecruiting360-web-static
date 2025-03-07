@@ -12,7 +12,7 @@
       >
         <!-- 抽屉内容 -->
         <div class="content">
-          <Chat :on-close-click="()=>isDrawerVisible=false"></Chat>
+          <Chat :chat-id="chatId" :on-close-click="()=>isDrawerVisible=false"></Chat>
           <!-- 关闭按钮 -->
 <!--          <el-button type="danger" @click="closeDrawer">关闭抽屉</el-button>-->
         </div>
@@ -31,10 +31,15 @@
 <script setup>
 import {ref, reactive, onMounted, watch} from "vue";
 import Chat from "@/views/search/chat/Chat.vue";
+
 const props = defineProps({
   dialogFlag: {
     type: Boolean,
     default:false
+  },
+  chatId: {
+    type: String,
+    default: ''
   },
   onCloseClick: {
     type: Function,

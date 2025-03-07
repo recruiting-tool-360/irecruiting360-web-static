@@ -12,7 +12,7 @@
     <!--  列表信息  -->
     <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo" v-model:channel-config="channelConfig"></ResumeListInfo>
 
-    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" ></BossDetial>
+    <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" v-model:search-state-criteria="searchStateAIParam"></BossDetial>
     <!--  分页信息  -->
     <div class="pageConfig">
       <el-pagination
@@ -30,13 +30,13 @@
 </template>
 
 <script setup>
-import {ref,computed,watch,defineExpose} from "vue";
+import {ref,computed,watch,defineExpose,onMounted,nextTick} from "vue";
 import {useStore} from "vuex";
 import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConfig";
 import {getGeekDetail, querySearch} from "@/api/search/SearchApi";
 import BossDetial from "@/views/search/components/BossDetial.vue";
 import {ElMessage} from "element-plus";
-import {markResumeBlindReadStatus, saveJobList} from "@/api/jobList/JobListApi";
+import {markResumeBlindReadStatus, saveJobList, getScoreList, queryScoreList} from "@/api/jobList/JobListApi";
 import {pluginBossResultProcessor} from "@/components/verifyes/PluginProcessor";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
 import {getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls} from "@/components/PluginRequestManager";
@@ -82,6 +82,15 @@ const resumeId = ref("");
 //bossDetialRef
 const bossDetialRef = ref(null);
 
+//新增: 控制评分更新定时器
+const scoreUpdateTimer = ref(null);
+//新增: 标记是否有评分正在更新中
+const isUpdatingScores = ref(false);
+//新增: 最后一次批量更新评分的时间
+const lastScoreUpdateTime = ref(0);
+const scoreUpdateTimerCount = ref(0);
+const refreshTime = ref(15000);
+
 //跳转登陆页
 const goToLogin = () => {
   window.open(pluginAllUrls.BOSS.baseUrl, '_blank');
@@ -123,6 +132,7 @@ const boosUserStatus = async () => {
 const clickListInfo = async (listInfo) => {
   resumeId.value = listInfo.id;
   geekInfoDialog.value = true;
+  console.log("searchStateAIParam:",searchStateAIParam)
   bossDetialRef.value?.childGeekInfoMethod(listInfo);
   //设置为已读
   try {
@@ -157,19 +167,19 @@ const handleCurrentChange = (value) => {
 }
 
 //渠道查询
-const channelSearch = async (channelRequestInfo) => {
+const channelSearch = async (channelRequestInfo, channelPage = 1, page = 1) => {
   if(!(channelConfig.value&&channelConfig.value.login&&channelConfig.value.disable)){
     return;
   }
   try {
-    await channelSearchList(channelRequestInfo);
+    await channelSearchList(channelRequestInfo,channelPage,page);
   }catch (e){
     console.log(e);
   }
   console.log("boos执行完了")
 }
 
-const channelSearchList = async (channelRequestInfo) => {
+const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) => {
   if(!(channelRequestInfo&&channelRequestInfo.channelSearchConditions&&channelRequestInfo.channelSearchConditions.length>0)){
     return;
   }
@@ -177,9 +187,10 @@ const channelSearchList = async (channelRequestInfo) => {
   if(!channelSearchCondition&&channelSearchCondition.conditionData){
     return;
   }
+  let channelSearchConfig =channelRequestInfo.config.find((item)=>item.channelKey===channelKey);
   let responseJobListData;
   try {
-    responseJobListData = await boosJobList(channelSearchCondition.conditionData);
+    responseJobListData = await boosJobList(channelSearchCondition.conditionData,channelPage);
   }catch (e){
     console.log(e);
     return;
@@ -188,6 +199,12 @@ const channelSearchList = async (channelRequestInfo) => {
     ElMessage.error('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
     return;
   }
+  channelSearchConfig.channelPage = responseJobListData.responseData.data.zpData.page;
+  channelSearchConfig.channelDataTotal = responseJobListData.responseData.data.zpData.totalCount;
+  channelSearchConfig.channelCountSize = 15;
+  // 更新channelSearchConfig到Vuex
+  store.commit('setSearchChannelConditionConfigData', {key:channelKey, config:channelSearchConfig});
+  // console.log("boos数据：",responseJobListData)
   //列表存到后端
   const boosList = responseJobListData.responseData.data.zpData.geeks;
   let saveJobListRequest = saveJobListRequestTemplate();
@@ -256,11 +273,14 @@ const search = async (page) => {
   }
   if(listResponse&&listResponse.data&&listResponse.data.data){
     // jobALlData.value=listResponse.data.data;
-    let scoreList = listResponse.data.data.map(item=>item.id);
+    // let scoreList = listResponse.data.data.map(item=>item.id);
     store.commit('setChannelData',{key:channelKey,value:listResponse.data.data});
-    listResponse.data.data.forEach(item=>{
-      store.commit('addScoreConfigToQueue',{id:item.id,count:0});
-    });
+    // listResponse.data.data.forEach(item=>{
+    //   store.commit('addScoreConfigToQueue',{id:item.id,count:0});
+    // });
+    scoreUpdateTimerCount.value = 0;
+    // 在数据更新后处理评分
+    startScoreUpdateTimer();
   }else{
     // jobALlData.value=[];
     store.commit('setChannelData',{key:channelKey,value:[]})
@@ -269,13 +289,13 @@ const search = async (page) => {
 }
 
 //boss列表查询
-const boosJobList = async (searchConfig) => {
+const boosJobList = async (searchConfig, channelPage = 1) => {
   const headers = await getBoosHeader(true);
   if(!headers){
     ElMessage.error('系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！');
     throw new Error("系统无法监测到Boos直聘网站认证信息！如果问题还没解决请联系管理员！");
   }
-  searchConfig.page = 1;
+  searchConfig.page = channelPage;
   const queryString = qs.stringify(searchConfig);
   //访问Boos
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
@@ -296,9 +316,102 @@ const i360Request= async (action,emptyRequestTemplate, timeout = 5000) => {
   }
 }
 
+//启动评分更新定时器
+const startScoreUpdateTimer = () => {
+  const itemsNeedingScore = jobALlData.value.filter(item =>
+      item.score === undefined || item.score === null || item.score === -1
+  );
+  // 清除可能已存在的定时器
+  if(scoreUpdateTimer.value) {
+    clearTimeout(scoreUpdateTimer.value);
+    scoreUpdateTimer.value = null;
+  }
+
+  if(itemsNeedingScore.length===0||scoreUpdateTimerCount.value>=5){
+    clearTimeout(scoreUpdateTimer.value);
+    scoreUpdateTimer.value = null;
+    return;
+  }
+  
+  // 设置新的定时器，每30秒检查一次未更新的评分
+  scoreUpdateTimer.value = setTimeout(() => {
+    scoreUpdateTimerCount.value=scoreUpdateTimerCount.value+1;
+    const now = Date.now();
+    // 如果距离上次更新超过30秒，且不在更新过程中
+    if(now - lastScoreUpdateTime.value > refreshTime.value && !isUpdatingScores.value) {
+      fetchPendingScores();
+    }
+    // 继续定时检查
+    startScoreUpdateTimer();
+  }, refreshTime.value);
+};
+
+//获取待处理评分
+const fetchPendingScores = async () => {
+  // 标记开始更新
+  isUpdatingScores.value = true;
+  try {
+    // 获取所有待处理项目的ID
+    // const ids = pendingScoreItems.value.map(item => item.id);
+    const ids = jobALlData.value.filter(item =>
+        item.score === undefined || item.score === null || item.score === -1
+    ).map(item => item.id);
+    
+    // 调用API获取评分
+    const { data } = await queryScoreList({resumeBlindIds:ids,channel:channelKey});
+    
+    if(data && data.length > 0) {
+      
+      // 更新本地数据
+      data.forEach(scoreData => {
+        // 更新总列表中的评分
+        updateLocalScore(scoreData);
+      });
+      // 记录最后更新时间
+      lastScoreUpdateTime.value = Date.now();
+    }
+  } catch(error) {
+    console.error('获取评分时出错:', error);
+  } finally {
+    // 标记更新结束
+    isUpdatingScores.value = false;
+  }
+};
+
+//更新本地数据的评分 (既用于SSE消息也用于API响应)
+const updateLocalScore = (scoreData) => {
+  if(!scoreData) return;
+  // 确定ID字段 - API返回的是resumeBlindId，而SSE消息可能使用resumeId
+  const id = scoreData.resumeId || scoreData.resumeBlindId;
+  if(!id) {
+    return;
+  }
+  // 在jobALlData中查找并更新对应项
+  if(jobALlData.value && jobALlData.value.length > 0) {
+    jobALlData.value.forEach((item) => {
+      if(item.id === id) {
+        item.score = scoreData.score;
+      }
+    });
+  }
+};
+
+//重写原有的updateScore方法，使用统一的本地更新逻辑
+const updateScore = (val) => {
+  updateLocalScore(val);
+};
+
+//组件卸载时清理定时器
+onMounted(() => {
+  if(scoreUpdateTimer.value) {
+    clearTimeout(scoreUpdateTimer.value);
+    scoreUpdateTimer.value = null;
+  }
+});
+
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo
+  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore
 });
 
 //ai排序逻辑

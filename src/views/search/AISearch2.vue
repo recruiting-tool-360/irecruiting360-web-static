@@ -18,13 +18,12 @@
                   </div>
                 </template>
               </el-input>
-              <!--     搜索按钮       -->
-              <el-button class="btm-color-white btm-bg-color" @click="searchJobListFn">搜索</el-button>
               <!--      重置筛选项      -->
               <el-button class="btm-color btm-border-blue-style" @click="resetSearchConnect">重置筛选项</el-button>
               <!--     保存搜索条件       -->
 <!--              <el-button class="btm-color btm-border-blue-style" @click="searchConditionDialog=true">保存搜索条件</el-button>-->
-
+              <!--     搜索按钮       -->
+              <el-button class="btm-color-white btm-bg-color" @click="searchJobListFn">搜索</el-button>
               <!--     AI人才搜索       -->
 <!--              <el-button class="btm-color-white btm-color btm-ai-btm-bg-color" @click="openChat('')">-->
 <!--                <el-image :src="'/index/header/icons/aiBtm.svg'" style="margin-right: 8px"></el-image>-->
@@ -288,27 +287,38 @@
             </el-col>
           </el-row>
         <!--    AI推荐部分      -->
-          <AIRecommendation
-            v-if="searchState.criteria && Object.keys(searchState.criteria).length > 0"
-            v-model:criteria="searchState.criteria"
-            @clear="deleteAIConditionFlag=true"
-            class="height-btm-row"
-            style="margin-top: 12px"
-          />
+          <el-row v-if="searchState.criteria && Object.keys(searchState.criteria).length > 0" class="height-btm-row" style="margin-top: 12px">
+            <el-col :span="24" style="display: flex;justify-content: flex-start;align-items: center;flex-wrap: wrap">
+              <el-text class="mx-1 el-text-margin-rg-style" style="margin-bottom: 6px">AI推荐:</el-text>
+              <template v-if="searchState.criteria">
+                <template v-for="(obj,key) in searchState.criteria" :key="key">
+                  <template v-if="obj">
+                    <template v-for="(item,index) in obj" :key="index">
+                      <el-tag closable :type="['success', 'warning', 'success', 'info'][item.length%index]" style="margin-right: 6px;margin-bottom: 6px">
+                        {{ item }}
+                      </el-tag>
+                    </template>
+                  </template>
+                </template>
+              </template>
+              <el-button class="recommended-btm" type="primary" link style="margin-top: -6px;" @click="deleteAIConditionFlag=true">清空</el-button>
+            </el-col>
+          </el-row>
         </el-card>
       </div>
 
       <!--   列表部分   -->
       <div class="jobList">
         <el-card class="jobList-card">
-          <el-row class="jobList-top-el-row" :gutter="0" style="border-bottom: 1px solid #E8E8E8;min-height: 3rem;margin-bottom: 15px">
-            <el-col :xs="24" :sm="24" :md="24" :lg="24" :xl="24" class="jobList-top-el-col el-col-display-Style topBtm">
-              <div class="menu-container">
+          <el-row class="jobList-top-el-row" :gutter="0" style="border-bottom: 1px solid #E8E8E8;min-height: 3rem;min-width: 450px;margin-bottom: 15px">
+            <el-col class="jobList-top-el-col el-col-display-Style topBtm">
+              <div class="channelBtms" style="width: 100%">
                 <el-menu
                     ellipsis
                     class="el-menu-popper-demo"
                     mode="horizontal"
                     :popper-offset="16"
+                    :style="{ width: '730px' }"
                     :default-active="jobInfoName"
                     @select="handleMenuSelect"
                 >
@@ -324,42 +334,22 @@
                   </template>
                 </el-menu>
               </div>
-              
               <!--      操作列表        -->
-              <div class="action-buttons">
-                <div class="action-buttons-wrapper">
-                  <el-checkbox v-model="unreadCheckBoxValue" class="unread-checkbox" label="仅显示未读" @click="clickUnreadCheck"/>
-                  <div class="buttons-group">
-                    <template v-for="(channel, key) in allChannelStatus" :key="key">
-<!--                      <el-badge v-if="key===jobInfoName&&key!=='Collect'" :value="channel.name" class="item" type="warning">-->
-                        <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'" class="action-button" @click="aiSortSearch(channel)">
-                          渠道AI排序
-                        </el-button>
-<!--                      </el-badge>-->
-                    </template>
-                    
-                    <template v-for="(channel, index) in allThirdPartyChannelConfig" :key="index">
-<!--                      <el-badge v-if="channel.key===jobInfoName&&channel.key!=='Collect'&&channel.pageSearch" :value="channel.name" class="item" color="green">-->
-                        <el-button 
-                          :disabled="!channel.login"
-                          v-if="channel.key===jobInfoName&&channel.key!=='Collect'"
-                          color="rgb(31, 124, 255)"
-                          class="action-button load-more-button"
-                          @click="pageSearch(channel)"
-                        >
-                          渠道加载更多数据
-                        </el-button>
-<!--                      </el-badge>-->
-                    </template>
-                    
-                    <el-button class="btm-color action-button settings-button" @click="channelDialogFlag=true">渠道设置</el-button>
-                  </div>
+              <div class="right-btms" style="width: 320px">
+                <!--    渠道设置      -->
+                <div style="display: flex;justify-content: end;margin-left: 20px;width: 100%">
+                  <el-checkbox v-model="unreadCheckBoxValue" style="height: 32px;font-size: 13px;margin-right: 16px;" label="仅显示未读" @click="clickUnreadCheck"/>
+<!--                  <el-checkbox v-model="searchState.aiSortCheckBoxValue" style="height: 32px;font-size: 13px" label="根据AI评估排序"/>-->
+                  <template v-for="(channel, key) in allChannelStatus" :key="key">
+                    <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'" style="height: 32px" @click="aiSortSearch(channel)">AI排序-{{channel.name}}</el-button>
+                  </template>
+                  <el-button class="btm-color" style="margin-left: 16px;height: 32px" @click="channelDialogFlag=true">渠道设置</el-button>
                 </div>
               </div>
             </el-col>
           </el-row>
           <!--    不同模版      -->
-          <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></JobInfo>
+          <JobInfo ref="jobInfoRef" v-show="jobInfoName==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JobInfo>
           <BossJobInfo ref="bossJobInfoRef" v-show="jobInfoName==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></BossJobInfo>
           <ZHILIANJobInfo  ref="zhiLianInfoRef" v-show="jobInfoName==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></ZHILIANJobInfo>
 <!--          <LIEPINJobInfo  ref="liePinInfoRef" v-show="jobInfoName==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></LIEPINJobInfo>-->
@@ -379,7 +369,7 @@
 </template>
 <script setup>
 import {computed, onMounted, ref, watch, defineExpose} from 'vue'
-import {ArrowUp,ArrowDown,Close,MagicStick} from '@element-plus/icons-vue'
+import {ArrowUp,ArrowDown,Close} from '@element-plus/icons-vue'
 import {convertSearchState, createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "@/domain/request/SaveSearchRequest";
 import {
@@ -404,15 +394,16 @@ import ChannelConfig from "@/views/search/channel/ChannelConfig.vue";
 import _ from "lodash";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 import {setDefaultPluginRules} from "@/components/BasePluginManager";
-import AIRecommendation from "@/views/search/components/AIRecommendation.vue";
 
 const store = useStore();
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);
+//新的搜索体
+const searchConditionRequestData = computed(() => store.getters.getSearchConditionRequestData);
 //搜索id
 const searchConditionId = computed(() => store.getters.getSearchConditionId);
-//渠道历史查询参数
-const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);
+//是否过滤已读
+const unreadCheckBoxV = computed(() => store.getters.getUnreadCheckBoxV);
 const unreadCheckBoxValue = ref(false);
 //搜索区域loading
 const searchAreaLoadingSwitch = ref(false);
@@ -423,6 +414,16 @@ const searchState = ref(searchStateConfig);
 let loadingBig ;
 //结果集渲染模版名称
 const jobInfoName = ref("ALL");
+const activeButton = ref('ALL');
+//渠道值
+const channelValue = ref('ALL');
+//聚合数据数量
+const allChannelDataSize = computed(() => store.getters.getAllChannelCount);
+//结果集
+const allResponse = ref({
+  ALL:{},
+  BOSS:{},
+});
 //ref
 const jobInfoRef = ref(null);
 const bossJobInfoRef = ref(null);
@@ -481,7 +482,7 @@ onMounted(async () => {
     ElMessage.error('插件异常，请联系管理员');
     return;
   }
-  // console.log("ruleConfig:",ruleConfig)
+  console.log("ruleConfig:",ruleConfig)
   //加载登陆状态
   allThirdPartyChannelConfig.value.forEach((item)=>{
     item.cardInfoRef.userLoginStatus();
@@ -592,20 +593,7 @@ const searchJobList = async () => {
   let searchRequestData;
   try {
     const {data} = await saveCondition(searchConditionRequest);
-    data.config=[];
     searchRequestData = data;
-    if(data.channelSearchConditions){
-      data.channelSearchConditions.forEach((item)=>{
-        data.config.push({
-          channelDataTotal:0,
-          channelPage:0,
-          channelCountSize:0,
-          totalPage:0,
-          channelKey:item.channel
-        })
-      })
-    }
-    store.commit('changeSearchChannelConditionRequestData',data);
     store.commit('changeSearchConditionId',searchRequestData.id);
   }catch (e){
     ElMessage.error('后端服务异常，请联系管理员');
@@ -631,43 +619,6 @@ const searchJobList = async () => {
   } catch (error) {
     console.error('Error during search:', error);
   }
-}
-
-const pageSearch = async (channel) => {
-  if (!channel.login) {
-    ElMessage.warning(channel.name + '渠道没有登陆');
-    return;
-  }
-  if (!allSearchChannelConditionRequestData.value) {
-    ElMessage.warning('请先搜索，再加载' + channel.name + '渠道更多数据');
-    return;
-  }
-  let channelSearchCondition = allSearchChannelConditionRequestData.value.channelSearchConditions.find((item) => item.channel === channel.key);
-  if (!channelSearchCondition && channelSearchCondition.conditionData) {
-    ElMessage.warning(channel.name + '渠道无法查到搜索条件');
-    return;
-  }
-  let channelSearchConfig = allSearchChannelConditionRequestData.value.config.find((item) => item.channelKey === channel.key);
-  if (!channelSearchConfig) {
-    ElMessage.warning(channel.name + '渠道无法查到分页搜索条件');
-    return;
-  }
-  const newChannelPage = channelSearchConfig.channelPage + 1;
-  if (newChannelPage > channelSearchConfig.totalPage) {
-    ElMessage.warning(channel.name + '渠道没有更多的数据');
-    return;
-  }
-  try {
-    loadingOpen();
-    await Promise.all([
-      channel.cardInfoRef.channelSearch(allSearchChannelConditionRequestData.value, newChannelPage)
-    ]);
-    await jobInfoRef.value.search(1);
-  }catch (e){
-    console.log(e);
-    loadingClose();
-  }
-  loadingClose();
 }
 
 //获取搜索条件
@@ -1026,91 +977,5 @@ defineExpose({
   overflow: hidden; /* 防止内容溢出 */
   height: 0; /* 默认高度为 0 */
   transition: height 0.3s ease; /* 平滑过渡效果 */
-}
-
-.jobList-top-el-row {
-  flex-wrap: wrap;
-}
-
-.jobList-top-el-col {
-  flex-direction: column;
-  
-  @media (min-width: 768px) {
-    flex-direction: row;
-  }
-}
-
-.menu-container {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.el-menu-popper-demo {
-  min-width: 300px;
-  width: 100%;
-  max-width: 100%;
-}
-
-.action-buttons {
-  width: 100%;
-  margin-top: 8px;
-  
-  @media (min-width: 768px) {
-    margin-top: 0;
-  }
-}
-
-.action-buttons-wrapper {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  
-  @media (min-width: 768px) {
-    flex-direction: row;
-    justify-content: flex-end;
-  }
-}
-
-.unread-checkbox {
-  height: 32px;
-  font-size: 13px;
-  margin-right: 16px;
-  margin-bottom: 8px;
-  
-  @media (min-width: 768px) {
-    margin-bottom: 0;
-  }
-}
-
-.buttons-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  width: 100%;
-  
-  @media (min-width: 768px) {
-    width: auto;
-    justify-content: flex-end;
-  }
-}
-
-.action-button {
-  height: 32px;
-}
-
-.load-more-button {
-  margin-left: 0;
-  
-  @media (min-width: 768px) {
-    margin-left: 16px;
-  }
-}
-
-.settings-button {
-  margin-left: 0;
-  
-  @media (min-width: 768px) {
-    margin-left: 16px;
-  }
 }
 </style>
