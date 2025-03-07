@@ -36,7 +36,7 @@ import {createPageSearchRequest} from "@/views/search/dto/request/PageSearchConf
 import {getGeekDetail, querySearch} from "@/api/search/SearchApi";
 import BossDetial from "@/views/search/components/BossDetial.vue";
 import {ElMessage} from "element-plus";
-import {markResumeBlindReadStatus, saveJobList, getScoreList} from "@/api/jobList/JobListApi";
+import {markResumeBlindReadStatus, saveJobList, getScoreList, queryScoreList} from "@/api/jobList/JobListApi";
 import {pluginBossResultProcessor} from "@/components/verifyes/PluginProcessor";
 import {getBoosHeader} from "@/components/QueueManager/BoosJobInfoManager";
 import {getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls} from "@/components/PluginRequestManager";
@@ -89,6 +89,7 @@ const isUpdatingScores = ref(false);
 //新增: 最后一次批量更新评分的时间
 const lastScoreUpdateTime = ref(0);
 const scoreUpdateTimerCount = ref(0);
+const refreshTime = ref(15000);
 
 //跳转登陆页
 const goToLogin = () => {
@@ -326,7 +327,7 @@ const startScoreUpdateTimer = () => {
     scoreUpdateTimer.value = null;
   }
 
-  if(itemsNeedingScore.length===0||scoreUpdateTimerCount.value>3){
+  if(itemsNeedingScore.length===0||scoreUpdateTimerCount.value>=5){
     clearTimeout(scoreUpdateTimer.value);
     scoreUpdateTimer.value = null;
     return;
@@ -337,12 +338,12 @@ const startScoreUpdateTimer = () => {
     scoreUpdateTimerCount.value=scoreUpdateTimerCount.value+1;
     const now = Date.now();
     // 如果距离上次更新超过30秒，且不在更新过程中
-    if(now - lastScoreUpdateTime.value > 15000 && !isUpdatingScores.value) {
+    if(now - lastScoreUpdateTime.value > refreshTime.value && !isUpdatingScores.value) {
       fetchPendingScores();
     }
     // 继续定时检查
     startScoreUpdateTimer();
-  }, 15000);
+  }, refreshTime.value);
 };
 
 //获取待处理评分
@@ -357,7 +358,7 @@ const fetchPendingScores = async () => {
     ).map(item => item.id);
     
     // 调用API获取评分
-    const { data } = await getScoreList(ids);
+    const { data } = await queryScoreList({resumeBlindIds:ids,channel:channelKey});
     
     if(data && data.length > 0) {
       

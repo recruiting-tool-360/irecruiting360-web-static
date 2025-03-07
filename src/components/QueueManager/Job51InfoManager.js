@@ -94,10 +94,10 @@ export const getJob51PropertyInfo = async () => {
     let pluginBaseConfigEmptyDTO = getPluginBaseConfigEmptyDTO();
     pluginBaseConfigEmptyDTO.parameters = pluginKeys.JOB51URLASStorageKey;
     let boosRequestHeader = await i360Request(pluginBaseConfigEmptyDTO.action, pluginBaseConfigEmptyDTO);
-    console.log("getJob51PropertyInfo:",boosRequestHeader)
+    // console.log("getJob51PropertyInfo:",boosRequestHeader)
     if(pluginResultProcessor(boosRequestHeader)){
         const httpHeader = boosRequestHeader.responseData.data.headersData;
-        console.log("51 url header",httpHeader)
+        // console.log("51 url header",httpHeader)
         if(httpHeader&&httpHeader['url']){
             let urlData = httpHeader['url'];
             // 解析URL

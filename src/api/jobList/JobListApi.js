@@ -27,6 +27,14 @@ export const getScoreList = (data) => {
     });
 }
 
+export const queryScoreList = (data) => {
+    return request({
+        method:'POST',
+        url:'/resume/queryScoreList',
+        data:data
+    });
+}
+
 //查询搜详细简历
 export const getGeekDetail = (id) => {
     const basseUrl='/resume/queryResumeDetailByResumeBlindId?resumeBlindId=';

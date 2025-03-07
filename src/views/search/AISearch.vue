@@ -481,7 +481,7 @@ onMounted(async () => {
     ElMessage.error('插件异常，请联系管理员');
     return;
   }
-  console.log("ruleConfig:",ruleConfig)
+  // console.log("ruleConfig:",ruleConfig)
   //加载登陆状态
   allThirdPartyChannelConfig.value.forEach((item)=>{
     item.cardInfoRef.userLoginStatus();
