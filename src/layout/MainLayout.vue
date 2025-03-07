@@ -28,12 +28,11 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, nextTick, onMounted } from "vue";
 import Header from "@/layout/header/Header.vue";
 import LeftHeader from "@/layout/header/LeftHeader3.vue";
 import AISearch from "@/views/search/AISearch.vue"
 import SseManager from "@/components/sse/SseManager.vue";
-import { onMounted } from 'vue';
 
 // SSE管理器引用
 const sseManagerRef = ref(null);
@@ -71,12 +70,23 @@ const chatOnSearch = (data,searchSwitch) => {
 
 // 页面加载完成时触发
 onMounted(() => {
-  // 页面加载完成后展开侧边栏
+  // 移除对window.load事件的依赖，直接在onMounted中展开侧边栏
+  isShrunk.value = false;
+  
+  // 使用nextTick确保DOM更新后再调用handleNewChat
+  nextTick(() => {
+    if (leftHeaderRef.value) {
+      leftHeaderRef.value.handleNewChat();
+    }
+  });
+  
+  // 保留window.load事件作为备份方案
   window.addEventListener('load', () => {
     isShrunk.value = false;
-    leftHeaderRef.value.handleNewChat();
+    if (leftHeaderRef.value) {
+      leftHeaderRef.value.handleNewChat();
+    }
   });
-
 });
 </script>
 
