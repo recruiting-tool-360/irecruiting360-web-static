@@ -230,7 +230,7 @@ const userInfo = computed(() => store.getters.getUserInfo)
 
 // 先定义 maxWidth 计算属性
 const maxWidth = computed(() => {
-  return window.innerWidth - 290 // 窗口宽度减去 290px
+  return window.innerWidth - 284 // 窗口宽度减去 290px
 })
 
 // 然后再定义 width
@@ -572,7 +572,7 @@ const getChatConditionRequest = async () => {
 <style lang="scss" scoped>
 .chat-drawer-container {
   position: fixed;
-  top: 0;
+  top: 44px;
   right: 0;
   bottom: 0;
   background: #fff;

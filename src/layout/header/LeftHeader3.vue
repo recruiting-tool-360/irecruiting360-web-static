@@ -101,7 +101,7 @@
   </template>
   
   <script setup>
-  import { ref, computed, onMounted, watch } from 'vue'
+  import {ref, computed, onMounted, watch, defineExpose} from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { DArrowLeft, DArrowRight, Search, Plus, More, Edit, Files, Share, Delete } from '@element-plus/icons-vue'
   import store from "@/store"
@@ -357,6 +357,10 @@
   // 组件挂载时加载数据
   onMounted(async () => {
     await loadChatList()
+  })
+
+  defineExpose({
+    handleNewChat
   })
 
   const showChatDrawer = ref(false)

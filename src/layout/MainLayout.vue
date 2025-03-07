@@ -6,7 +6,7 @@
       </el-header>
       <el-container class="el-container-main">
         <el-aside class="el-aside-main" :style="{ overflow:'hidden',width: isShrunk ? '42px' : leftSize, transition: 'width 0.3s ease' }">
-          <LeftHeader 
+          <LeftHeader ref="leftHeaderRef"
             :isShrunk="isShrunk" 
             :left-size="leftSize" 
             :ai-search-ref="aiSearchRef"
@@ -41,6 +41,8 @@ const sseManagerRef = ref(null);
 // 创建 AISearch 组件的 ref
 const aiSearchRef = ref(null);
 
+const leftHeaderRef = ref(null);
+
 //收缩按钮开关
 const isShrunk = ref(true);
 const leftSize = ref("280px");
@@ -72,9 +74,9 @@ onMounted(() => {
   // 页面加载完成后展开侧边栏
   window.addEventListener('load', () => {
     isShrunk.value = false;
+    leftHeaderRef.value.handleNewChat();
   });
-  
-  // 注意：不需要在这里初始化用户信息，SseManager组件会自己处理
+
 });
 </script>
 
