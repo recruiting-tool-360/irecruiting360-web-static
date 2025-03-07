@@ -317,9 +317,9 @@
                     <el-menu-item v-if="key==='ALL'||key==='Collect'" class="menuItems" :index="key" @click="clickMenu(channel)">{{channel.name}}({{channel.dataSize}})</el-menu-item>
                     <el-menu-item v-else-if="channel.disable" class="menuItems" :index="key" @click="clickMenu(channel)">
                       {{key==='BOSS'?'BOSS':channel.name}}({{channel.dataSize}})&nbsp;
-                      <el-text v-if="channel.login" class="" type="success">已登陆</el-text>
+                      <el-text v-if="channel.login" class="" type="success">已登录</el-text>
                       <el-text v-else-if="channel.loading" class="" type="warning">检测中...</el-text>
-                      <el-text v-else class="" type="danger">未登陆</el-text>
+                      <el-text v-else class="" type="danger">未登录</el-text>
                     </el-menu-item>
                   </template>
                 </el-menu>
