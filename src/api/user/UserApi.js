@@ -37,3 +37,13 @@ export const userLogin = (data) => {
     });
 }
 
+
+//下载插件
+export const getDownloadUrl = () => {
+    const basseUrl='/plugin/getDownloadUrl';
+    return request({
+        method:'GET',
+        url:basseUrl
+    });
+}
+

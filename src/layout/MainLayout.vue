@@ -1,4 +1,3 @@
-
 <template>
   <div class="common-layout">
     <el-container class="el-container">
@@ -7,36 +6,78 @@
       </el-header>
       <el-container class="el-container-main">
         <el-aside class="el-aside-main" :style="{ overflow:'hidden',width: isShrunk ? '42px' : leftSize, transition: 'width 0.3s ease' }">
-          <LeftHeader2 :isShrunk="isShrunk" :left-size="leftSize" @toggleShrink="toggleShrink"></LeftHeader2>
+          <LeftHeader ref="leftHeaderRef"
+            :isShrunk="isShrunk" 
+            :left-size="leftSize" 
+            :ai-search-ref="aiSearchRef"
+            @toggleShrink="toggleShrink"
+            @openChat="handleOpenChat"
+            @onChatEdit="handleOnChatEdit"
+            @chatOnSearch="chatOnSearch"
+          ></LeftHeader>
         </el-aside>
         <el-main class="el-main" style="background-color: #ffffff">
-          <AISearch></AISearch>
+          <AISearch ref="aiSearchRef"></AISearch>
         </el-main>
       </el-container>
     </el-container>
+    
+    <!-- 无UI的SSE管理组件 -->
+    <SseManager ref="sseManagerRef"></SseManager>
   </div>
 </template>
 
 <script setup>
-import {ref} from "vue";
+import { ref } from "vue";
 import Header from "@/layout/header/Header.vue";
-import LeftHeader2 from "@/layout/header/LeftHeader2.vue";
+import LeftHeader from "@/layout/header/LeftHeader3.vue";
 import AISearch from "@/views/search/AISearch.vue"
+import SseManager from "@/components/sse/SseManager.vue";
 import { onMounted } from 'vue';
+
+// SSE管理器引用
+const sseManagerRef = ref(null);
+
+// 创建 AISearch 组件的 ref
+const aiSearchRef = ref(null);
+
+const leftHeaderRef = ref(null);
+
 //收缩按钮开关
-const isShrunk = ref(true); // 控制宽度收缩
+const isShrunk = ref(true);
 const leftSize = ref("280px");
+
 // 切换宽度逻辑
 const toggleShrink = () => {
   isShrunk.value = !isShrunk.value;
 };
+
+// 处理打开聊天
+const handleOpenChat = (chatInfo) => {
+  if (aiSearchRef.value) {
+    aiSearchRef.value.openChat(chatInfo?.chatId || '')
+  }
+}
+
+//聊天框内点击编辑
+const handleOnChatEdit = (data) => {
+  aiSearchRef.value.replaceSearchConditionRequest(data);
+}
+
+//聊天框内点击搜索
+const chatOnSearch = (data,searchSwitch) => {
+  aiSearchRef.value.replaceSearchConditionRequest(data,searchSwitch);
+}
+
 // 页面加载完成时触发
 onMounted(() => {
+  // 页面加载完成后展开侧边栏
   window.addEventListener('load', () => {
     isShrunk.value = false;
+    leftHeaderRef.value.handleNewChat();
   });
-});
 
+});
 </script>
 
 <style scoped lang="scss">
