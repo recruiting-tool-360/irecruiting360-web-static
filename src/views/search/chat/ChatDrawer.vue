@@ -8,8 +8,8 @@
     <div class="main-content">
       <div class="chat-header">
         <div class="header-left">
-          <el-image class="header-icon" :src="'/index/header/chat/ai.svg'" />
-          <span class="header-title" style="color: rgb(18, 150, 219)">AI搜索人才</span>
+          <el-image class="header-icon" :src="'/index/header/chat/ai2.svg'" />
+          <span class="header-title" style="color: rgb(31 124 255)">AI搜索人才</span>
         </div>
         <div class="header-right">
           <el-button class="close-btn" link @click="handleClose">
@@ -52,59 +52,70 @@
             <!-- 用户消息 -->
             <div v-if="message.role === 'user'" class="message user-message">
               <div class="message-content">
-                <p>{{ message.content }}</p>
+                <p style="font-size: 15px;color: rgb(64, 64, 64);">{{ message.content }}</p>
               </div>
               <div class="message-time">{{ formatTime(message.created) }}</div>
             </div>
             
             <!-- AI 消息 -->
             <div v-else class="message ai-message">
-              <div class="message-content">
-                <div v-html="parseMarkdown(message.content.replace('[&AI_SEARCH&]', ''))"></div>
-                <!-- 添加 AI 输出中的动画 -->
-                <div v-if="chatFluxStatus && index === messages.length - 1" class="typing-indicator">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+              <div style="display: flex;
+              flex-wrap: nowrap;
+              justify-content: flex-start;
+              align-items: flex-start;">
+                <div class="message-avatar" style="padding-right:10px">
+                  <el-image style="width: 32px;" class="header-icon" :src="'/logo/logo2.svg'" />
                 </div>
-                <div class="action-buttons">
-                  <div class="right-actions">
-                    <el-tooltip
-                      content="复制内容"
-                      placement="top"
-                      effect="light"
-                      :z-index="11000"
-                      popper-class="chat-tooltip"
-                    >
-                      <el-button 
-                        type="info"
-                        link
-                        @click="handleCopy(message.content.replace('[&AI_SEARCH&]', ''))"
-                      >
-                        <el-icon class="copy-icon"><Document /></el-icon>
-                      </el-button>
-                    </el-tooltip>
-                    <el-button 
-                      v-if="message.content.includes('[&AI_SEARCH&]')"
-                      class="contentButton2"
-                      size="small" 
-                      @click="handleEdit"
-                    >
-                      <el-icon class="edit-icon"><Edit /></el-icon>
-                      编辑
-                    </el-button>
-                    <el-button 
-                      v-if="message.content.includes('[&AI_SEARCH&]')"
-                      class="contentButton"
-                      size="small" 
-                      @click="handleSearch"
-                    >
-                      聚合搜索
-                    </el-button>
+                <div style="height: 100%">
+                  <div class="message-content">
+                    <div style="font-size: 15px;color: rgb(64, 64, 64);" v-html="parseMarkdown(message.content.replace('[&AI_SEARCH&]', ''))"></div>
+                    <!-- 添加 AI 输出中的动画 -->
+                    <div v-if="chatFluxStatus && index === messages.length - 1" class="typing-indicator">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                    <div class="action-buttons">
+                      <div class="right-actions">
+                        <el-tooltip
+                            content="复制内容"
+                            placement="top"
+                            effect="light"
+                            :z-index="11000"
+                            popper-class="chat-tooltip"
+                        >
+                          <el-button
+                              type="info"
+                              link
+                              @click="handleCopy(message.content.replace('[&AI_SEARCH&]', ''))"
+                          >
+                            <el-icon class="copy-icon"><Document /></el-icon>
+                          </el-button>
+                        </el-tooltip>
+                        <el-button
+                            v-if="message.content.includes('[&AI_SEARCH&]')"
+                            class="contentButton2"
+                            size="small"
+                            @click="handleEdit"
+                        >
+                          <el-icon class="edit-icon"><Edit /></el-icon>
+                          编辑
+                        </el-button>
+                        <el-button
+                            v-if="message.content.includes('[&AI_SEARCH&]')"
+                            class="contentButton"
+                            size="small"
+                            @click="handleSearch"
+                        >
+                          聚合搜索
+                        </el-button>
+                      </div>
+                    </div>
                   </div>
+                  <div class="message-time">{{ formatTime(message.created) }}</div>
                 </div>
               </div>
-              <div class="message-time">{{ formatTime(message.created) }}</div>
+
             </div>
           </template>
         </div>
@@ -633,7 +644,7 @@ const getChatConditionRequest = async () => {
 .chat-messages {
   flex: 1;
   overflow: hidden;
-  padding: 20px;
+  padding: 10px;
   background: #f9f9f9;
   
   .message-list {
