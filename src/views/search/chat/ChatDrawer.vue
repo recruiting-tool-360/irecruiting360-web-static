@@ -26,17 +26,14 @@
       >
         <el-image 
           class="welcome-logo" 
-          :src="'/index/header/chat/ai.svg'" 
+          :src="'/logo/logo2.svg'"
           fit="contain"
         />
         <h2 class="welcome-title">AI 智能招聘助手</h2>
         <div class="welcome-desc">
-          <p>我是您的智能招聘助手，可以帮您：</p>
-          <ul>
+          <ul class="feature-list">
             <li>快速筛选合适的候选人</li>
             <li>分析简历要点和技能匹配度</li>
-            <li>生成面试问题和评估建议</li>
-            <li>提供招聘市场洞察和建议</li>
           </ul>
         </div>
       </div>
@@ -139,16 +136,14 @@
               :autosize="{minRows: 3,maxRows: 6}"
               resize="none"
               type="textarea"
-              @keydown.enter.prevent="handleSend"
-              @compositionstart="isComposing = true"
-              @compositionend="isComposing = false"
+              @keydown.enter.exact.prevent="handleSend"
               placeholder="给 [i快招] AI发送消息"
             >
             </el-input>
             <el-row class="el-row-100-percent-w" style="overflow: hidden">
               <el-col style="display:flex;align-items: center;justify-content: end">
                 <div class="helper-text" style="color: rgba(0,0,0,0.25);font-size: 12px;margin-right: 10px">
-                  <span>Enter 发送，Ctrl+Enter 换行</span>
+                  <span>Enter 发送，Shift+Enter 换行</span>
                 </div>
                 <el-button
                   class="send-button"
@@ -577,7 +572,7 @@ const getChatConditionRequest = async () => {
   bottom: 0;
   background: #fff;
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
-  z-index: 10000;
+  z-index: 10;
   display: flex;
   transition: width 0.3s ease;
 }
@@ -937,39 +932,53 @@ const getChatConditionRequest = async () => {
   .welcome-logo {
     width: 80px;
     height: 80px;
-    margin-bottom: 20px;
+    margin-bottom: 0px;
   }
   
   .welcome-title {
-    color: #1F7CFF;
-    font-size: 24px;
-    margin-bottom: 20px;
+    //font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-family: Serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: #4b5b6c;
+    margin: 24px 0 16px;
+    letter-spacing: 0.5px;
   }
   
   .welcome-desc {
-    text-align: center;
-    color: #666;
-    
-    p {
-      margin-bottom: 16px;
-      font-size: 16px;
-    }
-    
-    ul {
-      list-style: none;
-      padding: 0;
-      
-      li {
-        margin: 8px 0;
-        font-size: 14px;
-        
-        &:before {
-          content: "•";
-          color: #1F7CFF;
-          margin-right: 8px;
-        }
-      }
-    }
+    font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    color: #5a6c84;
+    line-height: 1.6;
+    padding: 0 24px;
+  }
+  
+  .welcome-intro {
+    font-size: 16px;
+    margin-bottom: 16px;
+    font-weight: 500;
+  }
+  
+  .feature-list {
+    padding-left: 20px;
+    margin: 0;
+  }
+  
+  .feature-list li {
+    margin-bottom: 12px;
+    font-size: 15px;
+    position: relative;
+    padding-left: 8px;
+  }
+  
+  .feature-list li::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: linear-gradient(208deg, #5280FC 0%, #54A4FF 50%, #3CD1F6 100%);
   }
 }
 

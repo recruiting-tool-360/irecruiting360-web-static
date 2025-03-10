@@ -38,7 +38,7 @@ const pluginRequest= async (action,emptyRequestTemplate, timeout = 1000) => {
         handlePluginSwitchChange(true)
         return response;
     } catch (error) {
-        ElMessage.error('系统监测到【i快找】浏览器插件异常，请及时安装最新插件！如果问题还没解决请联系管理员！')
+        // ElMessage.error('系统监测到【i快找】浏览器插件异常，请及时安装最新插件！如果问题还没解决请联系管理员！')
         console.error('Error:', error.message);
         handlePluginSwitchChange(false)
     }
@@ -73,6 +73,4 @@ window.addEventListener('load', () => {
 //     setTimeout(periodicFetch, 10000); // 再次设置定时器
 // }
 // periodicFetch(); // 启动任务
-
-
 

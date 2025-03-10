@@ -305,9 +305,12 @@
             <el-col :xs="24" :sm="24" :md="24" :lg="24" :xl="24" class="jobList-top-el-col el-col-display-Style topBtm">
               <div class="menu-container">
                 <el-menu
+                    v-if="isMenuReady"
+                    ref="menuRef"
                     ellipsis
                     class="el-menu-popper-demo"
                     mode="horizontal"
+                    :class="menuWidthClass"
                     :popper-offset="16"
                     :default-active="jobInfoName"
                     @select="handleMenuSelect"
@@ -378,7 +381,7 @@
     </div>
 </template>
 <script setup>
-import {computed, onMounted, ref, watch, defineExpose} from 'vue'
+import {computed, onMounted, ref, watch, defineExpose, nextTick} from 'vue'
 import {ArrowUp,ArrowDown,Close,MagicStick} from '@element-plus/icons-vue'
 import {convertSearchState, createSearchState} from "@/views/search/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "@/domain/request/SaveSearchRequest";
@@ -405,6 +408,7 @@ import _ from "lodash";
 import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 import {setDefaultPluginRules} from "@/components/BasePluginManager";
 import AIRecommendation from "@/views/search/components/AIRecommendation.vue";
+import {debounce} from 'lodash-es';
 
 const store = useStore();
 //用户信息
@@ -462,6 +466,10 @@ const degreeOptionsVal = ref(degreeOptions);
 
 const currentChatId = ref('')
 
+//控制菜单渲染的状态
+const isMenuReady = ref(false)
+const menuRef = ref(null)
+
 //onMounted 生命周期函数
 onMounted(async () => {
   //搜索区域初始高度
@@ -488,6 +496,32 @@ onMounted(async () => {
   })
   // bossJobInfoRef.value.userLoginStatus();
   // zhiLianInfoRef.value.userLoginStatus();
+
+  // 在DOM更新后延迟一些时间再显示菜单
+  nextTick(() => {
+    setTimeout(() => {
+      isMenuReady.value = true
+      
+      // 在菜单渲染后再次使用nextTick确保尺寸稳定
+      nextTick(() => {
+        if (menuRef.value) {
+          // 使用MutationObserver替代ResizeObserver监听菜单变化
+          const observer = new MutationObserver(
+            debounce(() => {
+              // 菜单内容变化时的处理逻辑
+              console.log('Menu content updated')
+            }, 200)
+          )
+          
+          observer.observe(menuRef.value.$el, {
+            childList: true,
+            subtree: true,
+            attributes: true
+          })
+        }
+      })
+    }, 50) // 延迟50ms，避免初始渲染的计算冲突
+  })
 })
 
 // 加载效果
@@ -508,7 +542,9 @@ const clickMenu = (obj) => {
 //仅显示已读
 const clickUnreadCheck = () => {
   store.commit('changeUnreadCheckBoxV',!unreadCheckBoxValue.value);
-
+  if (!allSearchChannelConditionRequestData.value){
+    allChannelStatus.value[jobInfoName.value].cardInfoRef.handleCurrentChange(1);
+  }
 }
 
 //加载所有配置
@@ -807,6 +843,13 @@ defineExpose({
   replaceSearchConditionRequest
 })
 
+// 添加菜单宽度的计算属性
+const menuWidthClass = computed(() => {
+  return (jobInfoName.value === 'ALL' || jobInfoName.value === 'Collect') 
+    ? 'wide-menu' 
+    : 'narrow-menu'
+})
+
 </script>
 <style scoped lang="scss">
   .aiSearchPage{
@@ -1042,7 +1085,6 @@ defineExpose({
 
 .menu-container {
   width: 100%;
-  overflow-x: auto;
 }
 
 .el-menu-popper-demo {
@@ -1112,5 +1154,37 @@ defineExpose({
   @media (min-width: 768px) {
     margin-left: 16px;
   }
+}
+
+// 使用固定的类替代动态内联样式
+.wide-menu {
+  min-width: 755px !important;
+}
+
+.narrow-menu {
+  min-width: 585px !important;
+}
+
+// 菜单占位符样式
+.menu-placeholder {
+  height: 32px;
+  background-color: transparent;
+}
+
+// 使用固定的类替代动态内联样式
+.wide-menu {
+  min-width: 755px !important;
+  width: 755px !important; // 添加固定宽度
+}
+
+.narrow-menu {
+  min-width: 585px !important;
+  width: 585px !important; // 添加固定宽度
+}
+
+// 添加更强的样式覆盖
+.el-menu-popper-demo {
+  transition: none !important; // 禁用过渡效果
+  overflow: visible !important;
 }
 </style>
