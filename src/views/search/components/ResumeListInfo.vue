@@ -16,10 +16,10 @@
           <el-button size="small" disabled round style="margin-left: 1rem;">求职意向:
             <el-tooltip
                 class="box-item"
-                :content="geekList.intention?geekList.intention:'未知'"
+                :content="geekList.status?geekList.status:'未知'"
                 placement="bottom"
             >
-              <el-text class="el-text-ellipsis" style="margin-left: 5px;color: rgb(96 98 102)">{{geekList.intention?geekList.intention:'未知'}}</el-text>
+              <el-text class="el-text-ellipsis" style="margin-left: 5px;color: rgb(96 98 102)">{{geekList.status?geekList.status:'未知'}}</el-text>
             </el-tooltip>
           </el-button>
         </el-col>

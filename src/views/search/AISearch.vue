@@ -542,7 +542,7 @@ const clickMenu = (obj) => {
 //仅显示已读
 const clickUnreadCheck = () => {
   store.commit('changeUnreadCheckBoxV',!unreadCheckBoxValue.value);
-  if (!allSearchChannelConditionRequestData.value){
+  if (allSearchChannelConditionRequestData.value){
     allChannelStatus.value[jobInfoName.value].cardInfoRef.handleCurrentChange(1);
   }
 }
