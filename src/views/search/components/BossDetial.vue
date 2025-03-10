@@ -14,7 +14,7 @@
         <!-- 顶部个人信息 -->
         <div class="personal-info" v-if="geekDetailINfo && Object.keys(geekDetailINfo).length > 0" v-loading="loadingUserInfoSwitch">
           <div class="left-info">
-            <el-avatar :size="60" :src="geekDetailINfo.geekDetail.geekBaseInfo.large" />
+            <el-avatar :size="60" :src="`${geekDetailINfo.geekDetail.geekBaseInfo.gender === 1?'/index/header/icons/geekMan.svg':'/index/header/icons/geekWoman.svg'}`" />
             <div class="info-text">
               <div class="name-row">
                 <span class="name">{{ geekDetailINfo.geekDetail.geekBaseInfo.name }}</span>
@@ -59,44 +59,33 @@
           </div>
           <div class="section-content description-container">
             <div class="description-text truncated">{{ geekDetailINfo.geekDetail.geekBaseInfo.userDescription }}</div>
-            <div class="description-gradient"></div>
-            <div class="learn-more-button-container">
-              <el-button 
-                type="primary" 
-                class="learn-more-button bounce-animation" 
-                @click="openDetail"
-              >
-                了解更多信息
-                <el-icon class="arrow-down-icon"><ArrowDown /></el-icon>
-              </el-button>
-            </div>
           </div>
         </div>
 
         <!-- 掌握技能 -->
-<!--        <div class="section-container">-->
-<!--          <div class="section-title">-->
-<!--            <div class="title-icon"><el-icon><Connection /></el-icon></div>-->
-<!--            <span>掌握技能</span>-->
-<!--          </div>-->
-<!--          <div class="section-content skills-content">-->
-<!--&lt;!&ndash;            <el-tag&ndash;&gt;-->
-<!--&lt;!&ndash;              v-for="(skill, index) in geekDetailINfo?.geekDetail?.professionalSkill || []"&ndash;&gt;-->
-<!--&lt;!&ndash;              :key="index"&ndash;&gt;-->
-<!--&lt;!&ndash;              class="skill-tag"&ndash;&gt;-->
-<!--&lt;!&ndash;              effect="plain"&ndash;&gt;-->
-<!--&lt;!&ndash;              type="success"&ndash;&gt;-->
-<!--&lt;!&ndash;            >&ndash;&gt;-->
-<!--&lt;!&ndash;              {{ skill }}&ndash;&gt;-->
-<!--&lt;!&ndash;            </el-tag>&ndash;&gt;-->
-<!--            <div v-if="!geekDetailINfo?.geekDetail?.professionalSkill || geekDetailINfo?.geekDetail?.professionalSkill.length === 0" class="no-data">-->
-<!--              暂无技能信息-->
-<!--            </div>-->
-<!--            <div class="yes-data" v-else>-->
-<!--              {{ geekDetailINfo?.geekDetail?.professionalSkill }}-->
-<!--            </div>-->
-<!--          </div>-->
-<!--        </div>-->
+        <div class="section-container">
+          <div class="section-title">
+            <div class="title-icon"><el-icon><Connection /></el-icon></div>
+            <span>掌握技能</span>
+          </div>
+          <div class="section-content skills-content">
+<!--            <el-tag-->
+<!--              v-for="(skill, index) in geekDetailINfo?.geekDetail?.professionalSkill || []"-->
+<!--              :key="index"-->
+<!--              class="skill-tag"-->
+<!--              effect="plain"-->
+<!--              type="success"-->
+<!--            >-->
+<!--              {{ skill }}-->
+<!--            </el-tag>-->
+            <div v-if="!geekDetailINfo?.geekDetail?.professionalSkill || geekDetailINfo?.geekDetail?.professionalSkill.length === 0" class="no-data">
+              暂无技能信息
+            </div>
+            <div class="yes-data" v-else>
+              {{ geekDetailINfo?.geekDetail?.professionalSkill }}
+            </div>
+          </div>
+        </div>
 
         <!-- 性格优点 -->
 <!--        <div class="section-container">-->
@@ -121,6 +110,14 @@
 
         <!-- 底部按钮 -->
         <div class="action-buttons">
+          <el-button
+              color="rgba(31, 124, 255, 1)"
+              class="learn-more-button bounce-animation"
+              @click="openDetail"
+          >
+            了解更多信息
+            <el-icon class="arrow-down-icon"><ArrowDown /></el-icon>
+          </el-button>
           <el-button
             color="rgba(31, 124, 255, 1)"
             class="action-button"
@@ -483,7 +480,7 @@ defineExpose({
     display: flex;
     justify-content: flex-end;
     gap: 16px;
-    //margin-top: 40px; // 增加上边距，为了给"了解更多信息"按钮留出空间
+    margin-top: 40px; // 增加上边距，为了给"了解更多信息"按钮留出空间
 
     .action-button {
       min-width: 120px;

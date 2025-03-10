@@ -13,6 +13,12 @@ module.exports = defineConfig({
     ]
   },
   devServer:{
+    client: {
+      overlay: {
+        warnings: false,
+        errors: false
+      }
+    },
     proxy: process.env.NODE_ENV === 'development' ? {
       '/api': {
         target: process.env.VUE_APP_API_BASE_URL,

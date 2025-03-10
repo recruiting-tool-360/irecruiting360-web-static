@@ -10,7 +10,7 @@
         </div>
         <div style="width: 100%;height: 100%;position: relative">
           <img :src="'/index/header/searchPage/chajian.svg'" alt="">
-          <el-button class="plugin-btm" type="primary">安装插件</el-button>
+          <el-button class="plugin-btm" type="primary" @click="downloadZip">安装插件</el-button>
         </div>
       </div>
     </template>
@@ -20,13 +20,23 @@
 <script setup>
 import {useStore} from 'vuex';
 import {computed, ref} from "vue";
+import {ElMessage} from "element-plus";
 //store
 const store = useStore();
 //const visibleSwitch = ref(store.getters.getPluginSwitch);
 // 使用 computed 绑定 getter
 const visibleSwitch = computed(() => !store.getters.getPluginSwitch);
 
-
+// 点击下载按钮的功能
+const downloadZip = () => {
+  // 使用已保存在Vuex中的下载地址
+  const url = store.getters.getDownloadUrl;
+  if (url) {
+    window.open(url, '_blank');
+  } else {
+    ElMessage.warning('下载地址无效，请稍后再试');
+  }
+}
 </script>
 
 <style scoped lang="scss">

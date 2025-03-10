@@ -18,56 +18,69 @@
     <div class="logo">
       <img src="/logo/logo2.svg" alt="i快招logo" />
     </div>
+    
     <el-card class="login-card glass-effect">
-      <h2 class="title">登录</h2>
-      <el-tabs v-model="activeTab">
-        <el-tab-pane label="账号密码登录" name="account">
-          <div class="account-login">
-            <el-form :model="loginForm" :rules="rules" ref="loginFormRef">
-              <el-form-item prop="username">
-                <el-input
-                    v-model="loginForm.username"
-                    prefix-icon="User"
-                    placeholder="用户名"
-                    size="large" />
-              </el-form-item>
+      <!-- 条件渲染：显示登录表单或注册表单 -->
+      <template v-if="showLoginForm">
+        <h2 class="title">登录</h2>
+        <el-tabs v-model="activeTab">
+          <el-tab-pane label="账号密码登录" name="account">
+            <div class="account-login">
+              <el-form :model="loginForm" :rules="rules" ref="loginFormRef">
+                <el-form-item prop="username">
+                  <el-input
+                      v-model="loginForm.username"
+                      prefix-icon="User"
+                      placeholder="用户名"
+                      size="large" />
+                </el-form-item>
 
-              <el-form-item prop="password">
-                <el-input
-                    v-model="loginForm.password"
-                    prefix-icon="Lock"
-                    type="password"
-                    placeholder="密码"
-                    size="large"
-                    @keyup.enter="handleLogin" />
-              </el-form-item>
+                <el-form-item prop="password">
+                  <el-input
+                      v-model="loginForm.password"
+                      prefix-icon="Lock"
+                      type="password"
+                      placeholder="密码"
+                      size="large"
+                      @keyup.enter="handleLogin" />
+                </el-form-item>
 
-              <el-form-item>
-                <el-checkbox v-model="loginForm.agreement">
-                  已阅读并接受《<router-link to="/user-agreement" target="_blank">i快招用户服务协议</router-link>》
-                </el-checkbox>
-              </el-form-item>
+                <el-form-item>
+                  <el-checkbox v-model="loginForm.agreement">
+                    已阅读并接受《<router-link to="/user-agreement" target="_blank">i快招用户服务协议</router-link>》
+                  </el-checkbox>
+                </el-form-item>
 
-              <div class="button-group">
-                <el-button color="rgba(31, 124, 255, 1)" :loading="loading" @click="handleLogin" size="large" class="login-btn">
-                  登录
-                </el-button>
-              </div>
+                <div class="button-group">
+                  <el-button color="rgba(31, 124, 255, 1)" :loading="loading" @click="handleLogin" size="large" class="login-btn">
+                    登录
+                  </el-button>
+                </div>
 
-              <div class="register-tip">
-                还没有i快招系统账号？<router-link to="/register">免费注册</router-link>
-              </div>
-            </el-form>
-          </div>
-        </el-tab-pane>
-        <el-tab-pane label="微信登录" name="wechat">
-          <div class="wechat-login">
-            <el-image src="/wechat-qr.png" class="qr-code"></el-image>
-            <p>请使用微信扫码登录</p>
-          </div>
-        </el-tab-pane>
-      </el-tabs>
+                <div class="register-tip">
+                  还没有i快招系统账号？<a href="javascript:;" @click="switchToRegister">免费注册</a>
+                </div>
+              </el-form>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="微信登录" name="wechat">
+            <div class="wechat-login">
+              <el-image src="/wechat-qr.png" class="qr-code"></el-image>
+              <p>请使用微信扫码登录</p>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+      </template>
+      
+      <!-- 注册表单组件 -->
+      <RegisterForm 
+        v-else 
+        @switch-to-login="switchToLogin" 
+        @register-success="handleRegisterSuccess"
+        ref="registerFormRef" 
+      />
     </el-card>
+    
     <div class="footer-container">
       <div class="copyright">Copyright © 2025 上海智寻才信息科技有限公司</div>
       <div class="icp-footer">
@@ -86,12 +99,15 @@ import {ElMessage} from 'element-plus'
 import api from '@/utils/api'
 import Cookies from 'js-cookie'
 import {useStore} from "vuex"
+import RegisterForm from '@/components/login/RegisterForm.vue'
 
 const store = useStore();
 const router = useRouter()
 const loginFormRef = ref(null)
+const registerFormRef = ref(null)
 const loading = ref(false)
 const activeTab = ref('account')
+const showLoginForm = ref(true) // 控制显示登录还是注册表单
 
 const loginForm = reactive({
   username: '',
@@ -150,6 +166,30 @@ const handleLogin = async () => {
       }
     }
   })
+}
+
+// 处理注册成功
+const handleRegisterSuccess = () => {
+  // 可以在这里做一些额外处理，例如填充登录表单
+  // 注册成功会自动切换到登录表单
+}
+
+// 切换到注册表单
+const switchToRegister = () => {
+  showLoginForm.value = false
+  // 重置表单
+  if (registerFormRef.value) {
+    registerFormRef.value.resetForm()
+  }
+}
+
+// 切换到登录表单
+const switchToLogin = () => {
+  showLoginForm.value = true
+  // 重置表单
+  if (loginFormRef.value) {
+    loginFormRef.value.resetFields()
+  }
 }
 </script>
 
