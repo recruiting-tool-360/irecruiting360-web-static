@@ -99,6 +99,7 @@ const isUpdatingScores = ref(false);
 //新增: 最后一次批量更新评分的时间
 const lastScoreUpdateTime = ref(0);
 const scoreUpdateTimerCount = ref(0);
+const maxRefreshCount = ref(10);
 const refreshTime = ref(15000);
 
 //跳转登陆页
@@ -296,8 +297,10 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
   if(!jobList||jobList.length===0){
     return;
   }
-  console.log("智联channelList:",channelList)
-  console.log("智联jobList:",jobList)
+  // console.log("智联channelList:",channelList)
+  // console.log("智联jobList:",jobList)
+  //清掉异步任务
+  zhiLianQueueManager.stopAndClear();
   //查询渠道信息
   //生成异步任务
   channelList.forEach((item, index) => {
@@ -435,7 +438,7 @@ const startScoreUpdateTimer = () => {
     scoreUpdateTimer.value = null;
   }
 
-  if(itemsNeedingScore.length===0||scoreUpdateTimerCount.value>=5){
+  if(itemsNeedingScore.length===0||scoreUpdateTimerCount.value>=maxRefreshCount.value){
     clearTimeout(scoreUpdateTimer.value);
     scoreUpdateTimer.value = null;
     return;

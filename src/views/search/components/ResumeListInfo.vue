@@ -44,11 +44,15 @@
             &nbsp;&nbsp;未知渠道
           </el-button>
           <el-text style="margin-right: 8px;color: #E0E0E0">|</el-text>
-          <el-image v-if="geekList.inCollection" :src="'/index/header/searchPage/collectTrue.svg'" @click.stop="handleCollectClick(geekList)"></el-image>
-          <el-image v-else :src="'/index/header/searchPage/collectFalse.svg'" @click.stop="handleCollectClick(geekList)"></el-image>
-          <el-button disabled text size="small" style="margin-left: -5px;margin-bottom: 2px" @click.stop="handleCollectClick(geekList)">
-            收藏
-          </el-button>
+
+          <!-- 收藏按钮改为响应式设计 -->
+          <div class="collect-container" @click.stop="handleCollectClick(geekList)">
+            <el-image 
+              :src="geekList.inCollection ? '/index/header/searchPage/collectTrue.svg' : '/index/header/searchPage/collectFalse.svg'"
+              class="collect-icon"
+            ></el-image>
+            <span class="collect-text">收藏</span>
+          </div>
         </el-col>
       </el-row>
       <!--  学历行    -->
@@ -463,5 +467,75 @@ const handleCollectClick = async (listInfo, value) => {
 .female-btn {
   background-color: #F56C6C;
   color: white;
+}
+
+/* 收藏按钮容器 */
+.collect-container {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+  
+  .collect-icon {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.2s ease;
+  }
+  
+  &:hover .collect-icon {
+    transform: scale(1.1);
+  }
+  
+  .collect-text {
+    margin-left: 4px;
+    color: #a8abb2;
+    font-size: 12px;
+    
+    /* 在小屏幕上隐藏文字 */
+    @media (max-width: 1200px) {
+      display: none;
+    }
+  }
+}
+
+/* 在更小的屏幕上调整图标大小 */
+@media (max-width: 768px) {
+  .collect-container {
+    padding: 4px;
+    
+    .collect-icon {
+      width: 10px;
+      height: 10px;
+    }
+  }
+}
+
+/* 在极小的屏幕上进一步调整 */
+@media (max-width: 576px) {
+  .collect-container {
+    padding: 2px;
+  }
+  
+  /* 调整渠道显示 */
+  .geek-img-el-col {
+    .el-button {
+      padding: 4px;
+      
+      .el-image {
+        margin-right: 0;
+      }
+      
+      /* 隐藏渠道文字 */
+      &::after {
+        content: none;
+      }
+    }
+  }
 }
 </style>

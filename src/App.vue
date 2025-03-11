@@ -49,7 +49,7 @@ function handleVisibilityChange() {
 
 // 在组件挂载时执行
 onMounted(() => {
-  const runTime = generateOneUniqueRandomNumber(2000,3000);
+  const runTime = generateOneUniqueRandomNumber(3000,5000);
   // 开始定时器
   boosQueueManager.start(runTime,bossFn);
   // 监听标签页可见性变化
@@ -57,7 +57,7 @@ onMounted(() => {
 });
 // 在组件挂载时执行
 onMounted(() => {
-  const runTime = generateOneUniqueRandomNumber(2000,3000);
+  const runTime = generateOneUniqueRandomNumber(3000,5000);
   // 开始定时器
   zhiLianQueueManager.start(runTime,zhiLianFn);
 });
@@ -69,7 +69,7 @@ onMounted(() => {
 // });
 // 在组件挂载时执行
 onMounted(() => {
-  const runTime = generateOneUniqueRandomNumber(2000,3000);
+  const runTime = generateOneUniqueRandomNumber(3000,5000);
   // 开始定时器
   job51QueueManager.start(runTime,job51Fn);
 });

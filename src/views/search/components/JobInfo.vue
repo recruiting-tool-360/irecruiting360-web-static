@@ -89,6 +89,7 @@ const scoreUpdateTimer = ref(null);
 const isUpdatingScores = ref(false);
 //新增: 最后一次批量更新评分的时间
 const lastScoreUpdateTime = ref(0);
+const maxRefreshCount = ref(10);
 const scoreUpdateTimerCount = ref(0);
 const refreshTime = ref(15000);
 
@@ -188,7 +189,7 @@ const startScoreUpdateTimer = () => {
     scoreUpdateTimer.value = null;
   }
 
-  if(itemsNeedingScore.length===0||scoreUpdateTimerCount.value>=5){
+  if(itemsNeedingScore.length===0||scoreUpdateTimerCount.value>=maxRefreshCount.value){
     clearTimeout(scoreUpdateTimer.value);
     scoreUpdateTimer.value = null;
     return;

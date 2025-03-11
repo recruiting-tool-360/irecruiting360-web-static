@@ -327,7 +327,7 @@
                   </template>
                 </el-menu>
               </div>
-              
+
               <!--      操作列表        -->
               <div class="action-buttons">
                 <div class="action-buttons-wrapper">
@@ -340,10 +340,10 @@
                         </el-button>
 <!--                      </el-badge>-->
                     </template>
-                    
+
                     <template v-for="(channel, index) in allThirdPartyChannelConfig" :key="index">
 <!--                      <el-badge v-if="channel.key===jobInfoName&&channel.key!=='Collect'&&channel.pageSearch" :value="channel.name" class="item" color="green">-->
-                        <el-button 
+                        <el-button
                           :disabled="!channel.login"
                           v-if="channel.key===jobInfoName&&channel.key!=='Collect'"
                           color="rgb(31, 124, 255)"
@@ -354,7 +354,7 @@
                         </el-button>
 <!--                      </el-badge>-->
                     </template>
-                    
+
                     <el-button class="btm-color action-button settings-button" @click="channelDialogFlag=true">渠道设置</el-button>
                   </div>
                 </div>
@@ -501,7 +501,7 @@ onMounted(async () => {
   nextTick(() => {
     setTimeout(() => {
       isMenuReady.value = true
-      
+
       // 在菜单渲染后再次使用nextTick确保尺寸稳定
       nextTick(() => {
         if (menuRef.value) {
@@ -512,7 +512,7 @@ onMounted(async () => {
               console.log('Menu content updated')
             }, 200)
           )
-          
+
           observer.observe(menuRef.value.$el, {
             childList: true,
             subtree: true,
@@ -789,7 +789,7 @@ function replaceSearchConditionRequest(data, triggerSearch = false) {
   convertSearchStateVal.ageElSliderValue = ageElSliderValue;
   searchState.value = convertSearchStateVal;
   searchAreaLoadingSwitch.value = false;
-  
+
   // 如果triggerSearch为true，自动触发搜索
   if (triggerSearch) {
     searchJobListFn();
@@ -845,8 +845,8 @@ defineExpose({
 
 // 添加菜单宽度的计算属性
 const menuWidthClass = computed(() => {
-  return (jobInfoName.value === 'ALL' || jobInfoName.value === 'Collect') 
-    ? 'wide-menu' 
+  return (jobInfoName.value === 'ALL' || jobInfoName.value === 'Collect')
+    ? 'wide-menu'
     : 'narrow-menu'
 })
 

@@ -185,7 +185,15 @@ export const convertSearchState = (obj) => {
     searchState.schoolInpValue = obj.school;
     searchState.professionInpValue = obj.major;
     searchState.searchChannels = [];
-    searchState.criteria = obj.criteria;
+    let newCriteria = null;
+    if(obj.criteria&&obj.criteria['professional_skills']&&obj.criteria['professional_skills'].length===0&&
+        obj.criteria['soft_skills']&&obj.criteria['soft_skills'].length===0&&obj.criteria['work_experience']&&obj.criteria['work_experience'].length===0){
+        newCriteria = null;
+    }else{
+        newCriteria = obj.criteria;
+    }
+
+    searchState.criteria = newCriteria;
     searchState.userId =obj.userId
     // console.log("新的值：",searchState)
     return searchState;
