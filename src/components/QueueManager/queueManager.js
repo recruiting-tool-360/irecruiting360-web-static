@@ -16,6 +16,16 @@ class QueueManager {
         }
     }
 
+    // 停止定时器并清理数据
+    stopAndClear() {
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.queue = [];
+            this.timer = null;
+            this.isRunning = false;
+        }
+    }
+
     // 向队列添加数据
     enqueue(data) {
         if (this.queue.length > 1000){

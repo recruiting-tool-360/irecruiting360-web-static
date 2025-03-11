@@ -273,6 +273,8 @@ const channelSearchList = async (channelRequestInfo) => {
   }
   // console.log("猎聘channelList:",channelList)
   // console.log("猎聘jobList:",jobList)
+  //清掉异步任务
+  liePinQueueManager.stopAndClear();
   //查询渠道信息
   //生成异步任务
   channelList.forEach((item, index) => {
