@@ -486,7 +486,7 @@ onMounted(async () => {
   //设置插件规则
   let ruleConfig = await setDefaultPluginRules();
   if(!pluginResultProcessor(ruleConfig)){
-    ElMessage.error('插件异常，请联系管理员');
+    // ElMessage.error('插件异常，请联系管理员');
     return;
   }
   // console.log("ruleConfig:",ruleConfig)
@@ -984,6 +984,7 @@ const menuWidthClass = computed(() => {
         }
         .topBtm{
           justify-content: space-between;
+          //flex-wrap: wrap;
           //大元素配置
           ::v-deep(.el-descriptions__table tbody tr){
             display: flex;
@@ -1012,6 +1013,7 @@ const menuWidthClass = computed(() => {
             --el-menu-active-color:rgba(31, 124, 255, 1);
             --el-menu-hover-bg-color: #f5f6f9;
             --el-menu-text-color: none;
+            padding: 8px;
             border:none;
             font-size:14px;
             font-weight:500;
@@ -1178,12 +1180,12 @@ const menuWidthClass = computed(() => {
 
 // 使用固定的类替代动态内联样式
 .wide-menu {
-  min-width: 755px !important;
+  max-width: 755px !important;
   width: 755px !important; // 添加固定宽度
 }
 
 .narrow-menu {
-  min-width: 585px !important;
+  max-width: 585px !important;
   width: 585px !important; // 添加固定宽度
 }
 

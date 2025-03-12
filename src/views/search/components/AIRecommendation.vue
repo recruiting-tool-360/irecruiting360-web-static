@@ -17,7 +17,7 @@
                 <span class="tag-text">{{ item }}</span>
               </el-tooltip>
             </el-tag>
-            <el-tag v-if="criteria.professional_skills.length > 2" type="success">
+            <el-tag v-if="criteria.professional_skills.length > 2" type="primary">
               <el-tooltip :content="criteria.professional_skills.slice(2).join('、')" placement="top" :show-after="200">
                 <span>...</span>
               </el-tooltip>
@@ -107,7 +107,7 @@
                 placeholder="输入专业技能"
               />
             </el-tag>
-            <el-button class="add-tag-btn" type="primary" plain @click="addItem('professional_skills')">
+            <el-button class="add-tag-btn" type="primary" plain @click="addItem('professional_skills','专业技能')">
               <el-icon><Plus /></el-icon> 添加专业技能
             </el-button>
           </div>
@@ -132,7 +132,7 @@
                 placeholder="输入软实力"
               />
             </el-tag>
-            <el-button class="add-tag-btn" type="warning" plain @click="addItem('soft_skills')">
+            <el-button class="add-tag-btn" type="warning" plain @click="addItem('soft_skills','软实力')">
               <el-icon><Plus /></el-icon> 添加软实力
             </el-button>
           </div>
@@ -157,7 +157,7 @@
                 placeholder="输入工作经验"
               />
             </el-tag>
-            <el-button class="add-tag-btn" type="info" plain @click="addItem('work_experience')">
+            <el-button class="add-tag-btn" type="info" plain @click="addItem('work_experience','工作经验')">
               <el-icon><Plus /></el-icon> 添加工作经验
             </el-button>
           </div>
@@ -178,6 +178,7 @@
 import { ref, defineProps, defineEmits, watch } from 'vue'
 import _ from 'lodash'
 import { Delete, Tools, Star, Briefcase, Plus } from '@element-plus/icons-vue'
+import {ElMessage} from "element-plus";
 
 const props = defineProps({
   criteria: {
@@ -227,7 +228,11 @@ const removeEditItem = (category, index) => {
 }
 
 // 添加新项目
-const addItem = (category) => {
+const addItem = (category,name) => {
+  if(editableCriteria.value[category]&&editableCriteria.value[category].length>=5){
+    ElMessage.warning('['+name+'] '+'搜索条件最多只能添加5个，请重新操作');
+    return;
+  }
   editableCriteria.value[category].push('')
 }
 </script>

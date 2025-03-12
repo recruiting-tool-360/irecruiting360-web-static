@@ -531,9 +531,12 @@ const updateLocalScore = (scoreData) => {
   }
   // 在jobALlData中查找并更新对应项
   if(jobALlData.value && jobALlData.value.length > 0) {
+    // console.log("更新前：",jobALlData.value)
     jobALlData.value.forEach((item) => {
       if(item.id === id) {
+        // console.log("改前：",item,scoreData)
         item.score = scoreData.score;
+        // console.log("改后：",item,scoreData)
       }
     });
   }
@@ -541,6 +544,7 @@ const updateLocalScore = (scoreData) => {
 
 //重写原有的updateScore方法，使用统一的本地更新逻辑
 const updateScore = (val) => {
+  // console.log("51,",val)
   updateLocalScore(val);
 };
 
