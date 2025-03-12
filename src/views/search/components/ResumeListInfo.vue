@@ -8,7 +8,7 @@
       </div>
       <!--  头像行    -->
       <el-row class="geek-img-el-row el-row-width-full" :gutter="10">
-        <el-col class="geek-img-el-col el-col-display-Style" :span="18">
+        <el-col class="geek-img-el-col el-col-display-Style" :span="14">
           <!--   头像     -->
           <el-avatar class="headerIcons" :size="40" :src="`${geekList.gender===1?'/index/header/icons/geekMan.svg':'/index/header/icons/geekWoman.svg'}`" />
           <el-text class="mx-1 el-button-margin-left" style="font-size: 1rem;font-weight: bold">{{geekList.name}}</el-text>
@@ -23,7 +23,7 @@
             </el-tooltip>
           </el-button>
         </el-col>
-        <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="6">
+        <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="10">
           <el-button v-if="geekList.channel==='boss直聘'" text disabled size="small">
             <el-image :src="'/index/header/searchPage/boss.ico'"></el-image>
             &nbsp;&nbsp;BOSS直聘
@@ -80,7 +80,7 @@
             <spa>AI评估</spa>
           </div>
           <div class="geekAINumBtm">
-            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{parseFloat(geekList.score.toFixed(2))}}</el-text>
+            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{parseFloat(geekList.score.toFixed(0))}}</el-text>
             <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
           </div>
         </el-col>
@@ -498,9 +498,9 @@ const handleCollectClick = async (listInfo, value) => {
     font-size: 12px;
     
     /* 在小屏幕上隐藏文字 */
-    @media (max-width: 1200px) {
-      display: none;
-    }
+    //@media (max-width: 1200px) {
+    //  display: none;
+    //}
   }
 }
 

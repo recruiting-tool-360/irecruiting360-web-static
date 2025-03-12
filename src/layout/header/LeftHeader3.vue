@@ -198,7 +198,7 @@
         // 转换数据格式
         savedConditions.value = data.map(item => ({
           id: item.chatId,
-          name: item.name || `AI对话 ${item.chatId.slice(0, 8)}`, // 如果没有名称则使用 chatId 前8位
+          name: item.name || `未知对话`, //name: item.name || `AI对话 ${item.chatId.slice(0, 8)}`, // 如果没有名称则使用 chatId 前8位
           createTime: item.updateAt.slice(0, 16).replace('T', ' ') // 格式化时间
         }))
       }

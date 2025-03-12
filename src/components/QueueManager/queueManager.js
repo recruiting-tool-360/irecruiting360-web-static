@@ -4,6 +4,7 @@ class QueueManager {
         this.timer = null; // 定时器
         this.interval = 3000; // 定时器间隔，默认3秒
         this.isRunning = false; // 定时器状态
+        this.isJobRunning = false;//任务执行状态
         this.fn = null;
     }
 
@@ -13,6 +14,7 @@ class QueueManager {
             clearInterval(this.timer);
             this.timer = null;
             this.isRunning = false;
+            this.isJobRunning = false;
         }
     }
 
@@ -23,6 +25,7 @@ class QueueManager {
             this.queue = [];
             this.timer = null;
             this.isRunning = false;
+            this.isJobRunning = false;
         }
     }
 
@@ -39,13 +42,21 @@ class QueueManager {
     }
 
     // 从队列中取数据并处理
-    dequeueAndProcess() {
+    async dequeueAndProcess() {
+        if(this.isJobRunning){
+            return;
+        }
         if (this.queue.length > 0) {
+            this.isJobRunning = true;
             const item = this.queue.shift(); // 获取队列头部数据
-            if(this.fn!=null){
-                this.fn(item);
+            if (this.fn != null) {
+                try {
+                    await this.fn(item);
+                }finally {
+                    this.isJobRunning = false;
+                }
             }
-        }else{
+        } else {
             this.stop();
         }
     }
@@ -56,6 +67,7 @@ class QueueManager {
         this.interval = interval;
         this.fn = fn;
         this.isRunning = true;
+        this.isJobRunning = false;
         this.timer = setInterval(() => this.dequeueAndProcess(this.fn), this.interval);
     }
 
