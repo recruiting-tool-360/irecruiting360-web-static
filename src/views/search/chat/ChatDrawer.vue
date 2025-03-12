@@ -645,7 +645,7 @@ const getChatConditionRequest = async () => {
   flex: 1;
   overflow: hidden;
   padding: 10px;
-  background: #f9f9f9;
+  background-color: white;
   
   .message-list {
     height: 100%;
@@ -685,7 +685,7 @@ const getChatConditionRequest = async () => {
     align-self: flex-start;
     
     .message-content {
-      background: #fff;
+      background-color: #f3f4f6;
       border-radius: 0 8px 8px 8px;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       
@@ -891,6 +891,7 @@ const getChatConditionRequest = async () => {
   border: none !important; /* 去除外部容器的边框 */
   box-shadow: none !important; /* 去除阴影 */
 
+
   :hover{
     box-shadow: none !important;
   }
@@ -900,6 +901,8 @@ const getChatConditionRequest = async () => {
 }
 ::v-deep(.custom-input .el-textarea__inner) {
   box-shadow: none !important;
+  background-color: #f3f4f6 !important;
+  border-radius: 24px;
 }
 .headerIcons {
   width: 16px;
@@ -908,9 +911,12 @@ const getChatConditionRequest = async () => {
 .chat-container-send{
   padding-right: 12px;
   padding-bottom: 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 1);
-  border: 1px solid rgba(121, 96, 255, 1);
+  //border-radius: 6px;
+  //background: rgba(255, 255, 255, 1);
+  //border: 1px solid rgba(121, 96, 255, 1);
+  background: #f3f4f6;
+  box-shadow: 0px 0px 0px .5px var(--dsr-input-border);
+  border-radius: 24px;
 }
 .send-button {
   display: flex;

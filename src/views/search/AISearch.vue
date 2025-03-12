@@ -543,7 +543,12 @@ const clickMenu = (obj) => {
 const clickUnreadCheck = () => {
   store.commit('changeUnreadCheckBoxV',!unreadCheckBoxValue.value);
   if (allSearchChannelConditionRequestData.value){
-    allChannelStatus.value[jobInfoName.value].cardInfoRef.handleCurrentChange(1);
+    let newVar = allThirdPartyChannelConfig.value.filter((channel) => channel.disable&&channel.login).map((item) => (item))||[];
+    newVar.push(allChannelStatus.value['ALL']);
+    newVar.forEach((item) => {
+      item.cardInfoRef.handleCurrentChange(1);
+    });
+    // allChannelStatus.value['ALL'].cardInfoRef.handleCurrentChange(1);
   }
 }
 

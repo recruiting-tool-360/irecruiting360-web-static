@@ -213,9 +213,9 @@ const getScoreStatus = (score) => {
 const radarOption = computed(() => ({
   radar: {
     indicator: [
-      { name: '专业技能', max: 100 },
-      { name: '工作经历', max: 100 },
-      { name: '软实力', max: 100 }
+      { name: '专业技能', max: 50 },
+      { name: '工作经历', max: 50 },
+      { name: '软实力', max: 30 }
     ],
     center: ['50%', '50%'],
     radius: '70%',
@@ -225,7 +225,7 @@ const radarOption = computed(() => ({
     axisName: {
       color: '#333',
       fontSize: 12,
-      padding: [-20, -40], // 添加内边距，使文字与图
+      padding: [-15, -35], // 添加内边距，使文字与图
 
     },
     splitArea: {
