@@ -34,7 +34,7 @@
                     content="下载插件"
                     placement="bottom"
                 >
-                  <el-image class="headerIcons" :src="'/index/header/icons/a1.svg'" style="width: 16px;height: 16px" @click="downloadZip"></el-image>
+                  <el-image class="headerIcons" :src="'/index/header/icons/a1.svg'" style="width: 16px;height: 16px" @click="navigateToGuide('guide')"></el-image>
                 </el-tooltip>
               </div>
               <div style="height: 100%;display: flex;align-items: center">
@@ -44,7 +44,7 @@
                     content="操作指南"
                     placement="bottom"
                 >
-                  <el-image class="headerIcons" :src="'/index/header/icons/wenhao.svg'" @click="navigateToGuide('guide')" style="width: 18px;height: 18px"></el-image>
+                  <el-image class="headerIcons" :src="'/index/header/icons/wenhao.svg'" @click="navigateToYuQue" style="width: 18px;height: 18px"></el-image>
                 </el-tooltip>
               </div>
               <!--       联系我们       -->
@@ -149,16 +149,21 @@ const navigateToGuide = (route) => {
   router.push({ name: route }) // 跳转到路由名为 guide 的路由
 }
 
-// 点击下载按钮的功能
-const downloadZip = () => {
-  // 使用已保存在Vuex中的下载地址
-  const url = store.getters.getDownloadUrl;
-  if (url) {
-    window.open(url, '_blank');
-  } else {
-    ElMessage.warning('下载地址无效，请稍后再试');
-  }
+const navigateToYuQue = (route) => {
+  const url = "https://ihr360.yuque.com/ihr360/tla84c/pb6p7077n9y6bngn";
+  window.open(url, '_blank');
 }
+
+// 点击下载按钮的功能
+// const downloadZip = () => {
+//   // 使用已保存在Vuex中的下载地址
+//   const url = store.getters.getDownloadUrl;
+//   if (url) {
+//     window.open(url, '_blank');
+//   } else {
+//     ElMessage.warning('下载地址无效，请稍后再试');
+//   }
+// }
 
 // 获取下载URL并保存到Vuex
 const fetchDownloadUrl = async () => {
