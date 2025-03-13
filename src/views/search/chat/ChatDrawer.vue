@@ -247,6 +247,7 @@ const currentChatId = ref('')
 
 // Markdown 配置
 const md = new MarkdownIt({
+  html: true,
   highlight: (str, lang) => {
     if (lang && hljs.getLanguage(lang)) {
       try {
