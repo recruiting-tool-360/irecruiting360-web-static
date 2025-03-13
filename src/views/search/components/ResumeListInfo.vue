@@ -79,8 +79,11 @@
           <div class="geekAIBtm" @click.stop="showAIEvaluation(geekList)">
             <spa>AI评估</spa>
           </div>
-          <div class="geekAINumBtm">
-            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;">{{parseFloat(geekList.score.toFixed(0))}}</el-text>
+          <div class="geekAINumBtm" @click.stop="showAIEvaluation(geekList)">
+            <el-text v-if="geekList.score!==undefined&&geekList.score!==null&&geekList.score>=sortComparisonValue" style="font-size: 20px;display: flex;align-items: center">
+              <span :style="`color: ${parseFloat(geekList.score.toFixed(0)) > 50 ? 'rgba(31, 35, 41, 1)' : 'rgba(250, 173, 20, 1)'}`">{{parseFloat(geekList.score.toFixed(0))}}</span>
+              <el-icon class="ScoreArrowRight" color="#a9abb2" style="font-size: 14px;margin-left: 4px"><ArrowRight /></el-icon>
+            </el-text>
             <el-image v-else class="rotating" :src="'/index/header/searchPage/quanquan.svg'" style="width: 18px;height: 18px"></el-image>
           </div>
         </el-col>
@@ -123,7 +126,7 @@ import {useStore} from "vuex";
 import {userCollectResume, getScoreListDetailed} from "@/api/jobList/JobListApi";
 import {ElButton, ElMessage} from "element-plus";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
-import {SwitchButton} from "@element-plus/icons-vue";
+import {ArrowRight, SwitchButton} from "@element-plus/icons-vue";
 import AIEvaluationCard from './AIEvaluationCard.vue';
 
 //store
@@ -418,6 +421,7 @@ const handleCollectClick = async (listInfo, value) => {
   justify-content: center;
   align-items: center;
   font-size: 20px;
+  padding-left: 8px;
 }
 
 .pageConfig{

@@ -171,11 +171,11 @@ export const convertSearchState = (obj) => {
     searchState.educationLevel = obj.educationLevel;
     searchState.sexValue =obj.gender*1;
 
-    searchState.currentSalaryStartValue =obj.currentSalaryFrom?(obj.currentSalaryFrom<=0?null:obj.currentSalaryFrom):null;
-    searchState.currentSalaryEndValue =obj.currentSalaryTo?(obj.currentSalaryTo<=0?null:obj.currentSalaryTo):null;
-    searchState.expectedSalaryStartValue =obj.expectedSalaryFrom?(obj.expectedSalaryFrom<=0?null:obj.expectedSalaryFrom):null;
+    searchState.currentSalaryStartValue =obj.currentSalaryFrom?(obj.currentSalaryFrom<=0?null:obj.currentSalaryFrom+""):null;
+    searchState.currentSalaryEndValue =obj.currentSalaryTo?(obj.currentSalaryTo<=0?null:obj.currentSalaryTo+""):null;
+    searchState.expectedSalaryStartValue =obj.expectedSalaryFrom?(obj.expectedSalaryFrom<=0?null:obj.expectedSalaryFrom+""):null;
 
-    searchState.expectedSalaryEndValue =obj.expectedSalaryTo?(obj.expectedSalaryTo<=0?null:obj.expectedSalaryTo):null;
+    searchState.expectedSalaryEndValue =obj.expectedSalaryTo?(obj.expectedSalaryTo<=0?null:obj.expectedSalaryTo+""):null;
     searchState.currentWorkPlaceValue = obj.currentLocations;
     searchState.expectedWorkLocationValue = (obj.expectedLocations&&obj.expectedLocations.length==2)?obj.expectedLocations:searchState.expectedWorkLocationValue;
     searchState.jobSeekingStatusInpValue = obj.availabilityStatus;
