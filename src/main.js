@@ -23,6 +23,7 @@ import {
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
 
 const handlePluginSwitchChange = (payload) => {
+    // console.log("chajian:",payload)
     store.commit('changePluginSwitch',payload);
 };
 

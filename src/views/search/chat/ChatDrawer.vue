@@ -148,7 +148,7 @@
               resize="none"
               type="textarea"
               @keydown.enter.exact.prevent="handleSend"
-              placeholder="给 [i快招] AI发送消息"
+              placeholder=" 给[i快招]AI发送消息，示例：发送一段招聘JD"
             >
             </el-input>
             <el-row class="el-row-100-percent-w" style="overflow: hidden">

@@ -373,7 +373,7 @@
       <!--   渠道配置   -->
       <ChannelConfig v-model:dialogVisible="channelDialogFlag" :change-close-status="()=>channelDialogFlag=false" :on-confirm="onChannelConfig"></ChannelConfig>
       <!--  插件安装提示    -->
-      <PluginInfo></PluginInfo>
+      <PluginInfo ref="pluginInfoRef"></PluginInfo>
       <!--   保存搜索条件   -->
       <SearchCondition v-model:dialogVisible="searchConditionDialog" :change-close-status="()=>searchConditionDialog=false" :on-condition-request="getSearchConditionRequest"></SearchCondition>
       <!--  删除ai推荐  -->
@@ -411,6 +411,8 @@ import AIRecommendation from "@/views/search/components/AIRecommendation.vue";
 import {debounce} from 'lodash-es';
 
 const store = useStore();
+//插件安装状态
+const pluginInstallStatus = computed(() => store.getters.getPluginSwitch);
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);
 //搜索id
@@ -427,6 +429,8 @@ const searchState = ref(searchStateConfig);
 let loadingBig ;
 //结果集渲染模版名称
 const jobInfoName = ref("ALL");
+//插件ref
+const pluginInfoRef = ref(null);
 //ref
 const jobInfoRef = ref(null);
 const bossJobInfoRef = ref(null);
@@ -774,6 +778,11 @@ const resetSearchConnect = ()=>{
 
 //替换搜索条件
 function replaceSearchConditionRequest(data, triggerSearch = false) {
+  if(!pluginInstallStatus.value){
+    pluginInfoRef.value.openPlugin();
+    ElMessage.warning('请先安装插件');
+    return;
+  }
   searchAreaLoadingSwitch.value = true;
   // try {
   //   // 模拟数据加载
