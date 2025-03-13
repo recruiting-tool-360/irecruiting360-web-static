@@ -1,6 +1,6 @@
 <template>
-  <el-dialog v-model="visibleSwitch"
-             :show-close="false" width="500" :close-on-click-modal="false"
+  <el-dialog v-model="localPluginVisible"
+             :show-close="false" width="500" :close-on-click-modal="handlePluginClose"
              style="background-color: transparent;box-shadow: none">
     <template #header="{ close, titleId, titleClass }">
       <div class="my-header" style="width: 500px;height: 280px">
@@ -10,7 +10,7 @@
         </div>
         <div style="width: 100%;height: 100%;position: relative">
           <img :src="'/index/header/searchPage/chajian.svg'" alt="">
-          <el-button class="plugin-btm" type="primary" @click="downloadZip">安装插件</el-button>
+          <el-button class="plugin-btm" type="primary" @click="navigateToGuide('guide')">安装插件</el-button>
         </div>
       </div>
     </template>
@@ -19,24 +19,44 @@
 
 <script setup>
 import {useStore} from 'vuex';
-import {computed, ref} from "vue";
+import {computed, defineExpose, ref, watch} from "vue";
 import {ElMessage} from "element-plus";
+import {useRouter} from "vue-router";
+const router = useRouter()
 //store
 const store = useStore();
 //const visibleSwitch = ref(store.getters.getPluginSwitch);
 // 使用 computed 绑定 getter
-const visibleSwitch = computed(() => !store.getters.getPluginSwitch);
+const visibleSwitch = computed(() => store.getters.getPluginSwitch);
+// AISearch.vue 的 setups
+const localPluginVisible = ref(false);
 
-// 点击下载按钮的功能
-const downloadZip = () => {
-  // 使用已保存在Vuex中的下载地址
-  const url = store.getters.getDownloadUrl;
-  if (url) {
-    window.open(url, '_blank');
-  } else {
-    ElMessage.warning('下载地址无效，请稍后再试');
-  }
+const openPlugin = () => {
+  localPluginVisible.value = true;
+};
+
+const handlePluginClose = () => {
+  localPluginVisible.value = false;
+};
+
+// 跳转函数
+const navigateToGuide = (route) => {
+  router.push({ name: route }) // 跳转到路由名为 guide 的路由
 }
+
+// 监听 visibleSwitch 的变化
+watch(visibleSwitch, (newVal, oldVal) => {
+  console.log('visibleSwitch changed:', newVal);
+  if(!newVal){
+    openPlugin();
+  }else{
+    handlePluginClose();
+  }
+}, { immediate: true });
+
+defineExpose({
+  openPlugin
+})
 </script>
 
 <style scoped lang="scss">
