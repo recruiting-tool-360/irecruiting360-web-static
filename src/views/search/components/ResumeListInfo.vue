@@ -244,7 +244,7 @@ const showAIEvaluation = async (geek) => {
       // dimensionScores.softSkills = 70;
       // console.log("evaluationData",evaluationData)
       if(!evaluationData.standardDimensions){
-        ElMessage.warning('无法查到AI评估详情信息');
+        ElMessage.warning('AI正在评估中，请稍后查看');
         return;
       }
       // 如果有详细评分，根据matched项来调整每个维度的分数
@@ -280,7 +280,7 @@ const showAIEvaluation = async (geek) => {
       showAIDialog.value = true;
     } else {
       // 如果API没有返回数据，使用基础信息展示
-      ElMessage.warning('无法查到AI评估详情信息');
+      ElMessage.warning('AI正在评估中，请稍后查看');
       return
     }
   } catch (error) {
