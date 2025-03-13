@@ -224,12 +224,13 @@ const runCollect = async () => {
   pluginEmptyRequestTemplate.parameters = null;
   pluginEmptyRequestTemplate.requestHeader = headers;
   pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl + pluginAllUrls.BOSS.delCollect + "?" + qs.stringify(requestData);
-  let deleteCollect = await i360Request(pluginEmptyRequestTemplate.action, pluginEmptyRequestTemplate);
-  if(!pluginBossResultProcessor(deleteCollect)){
-    ElMessage.error('系统异常，请联系管理员！');
-    return null;
-  }
+  //取消收藏先关闭
+  // pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl + pluginAllUrls.BOSS.delCollect + "?" + qs.stringify(requestData);
+  // let deleteCollect = await i360Request(pluginEmptyRequestTemplate.action, pluginEmptyRequestTemplate);
+  // if(!pluginBossResultProcessor(deleteCollect)){
+  //   ElMessage.error('系统异常，请联系管理员！');
+  //   return null;
+  // }
   pluginEmptyRequestTemplate.requestPath = pluginAllUrls.BOSS.baseUrl + pluginAllUrls.BOSS.addCollect + "?" + qs.stringify(requestData);
   return await i360Request(pluginEmptyRequestTemplate.action, pluginEmptyRequestTemplate);
 }
