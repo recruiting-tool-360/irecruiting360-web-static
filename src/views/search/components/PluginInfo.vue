@@ -46,7 +46,7 @@ const navigateToGuide = (route) => {
 
 // 监听 visibleSwitch 的变化
 watch(visibleSwitch, (newVal, oldVal) => {
-  console.log('visibleSwitch changed:', newVal);
+  // console.log('visibleSwitch changed:', newVal);
   if(!newVal){
     openPlugin();
   }else{

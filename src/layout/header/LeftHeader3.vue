@@ -96,6 +96,7 @@
         :onClose="handleCloseChatDrawer"
         :on-edit="chatOnEdit"
         :on-search="handleChatOnSearch"
+        :on-clear-data="clearSearchData"
       />
     </div>
   </template>
@@ -117,9 +118,10 @@
       default: null
     }
   })
-  
+  const collectChannelKey = "Collect";
+  const collectChannelConfig =computed(()=>store.getters.getChannelConfByChannel(collectChannelKey));
   // Emits 定义
-  const emit = defineEmits(['toggleShrink', 'openChat','onChatEdit','chatOnSearch'])
+  const emit = defineEmits(['toggleShrink', 'openChat','onChatEdit','chatOnSearch','onSearchClearData'])
   
   // Store 相关
   const userInfo = computed(() => store.getters.getUserInfo)
@@ -310,7 +312,7 @@
   // 修改关闭聊天窗口的处理函数
   const handleCloseChatDrawer = () => {
     showChatDrawer.value = false
-    currentChatId.value = ''
+    // currentChatId.value = ''
     store.commit('SET_ACTIVE_CHAT_ID', '') // 清空当前激活的聊天 ID
   }
   
@@ -324,6 +326,12 @@
     // 然后再打开新的聊天窗口
     currentChatId.value = item?.id || ''
     showChatDrawer.value = true
+
+    //调用收藏
+    collectChannelConfig.value.cardInfoRef.search(1);
+
+    //清掉数据
+    clearSearchData();
   }
   // 聊天框内点击编辑
   const chatOnEdit = (data) => {
@@ -332,6 +340,11 @@
   ////聊天框内点击搜索
   const handleChatOnSearch =(data,searchSwitch)=>{
     emit('chatOnSearch',data,searchSwitch)
+  }
+
+  //清掉search数据
+  const clearSearchData = () => {
+    emit('onSearchClearData')
   }
   
   // 监听 vuex 中的 activeChatId
@@ -364,7 +377,12 @@
   })
 
   const showChatDrawer = ref(false)
-  const currentChatId = ref('')
+  const currentChatId = ref('');
+
+  // 监听 vuex 中的 currentChatId
+  watch(() => currentChatId, (newChatId) => {
+    store.commit('SET_LATEST_CHAT_ID', newChatId)
+  }, { immediate: true })
   </script>
   
   <style scoped>

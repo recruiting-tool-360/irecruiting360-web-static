@@ -81,6 +81,8 @@ const validScoreCount = computed(() => {
 });
 //ai推荐
 const searchStateAIParam = computed(()=>props.searchStateCriteria);
+const searchStateAiParamStatus = computed(() => {return (searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";});
+const searchStateAiParamStatusFlag = computed(() => searchStateAiParamStatus.value === "JDMATCH");
 //当前页码数
 const currentPage = ref(1);
 //当前页显示条目数
@@ -277,25 +279,27 @@ const channelSearchList = async (channelRequestInfo) => {
   liePinQueueManager.stopAndClear();
   //查询渠道信息
   //生成异步任务
-  channelList.forEach((item, index) => {
-    const match = jobList.find(a => a.rawDataId === item.usercId);
-    if (match) {
-      if(!match.originalResumeUrlInfo){
-        console.log("match.originalResumeUrlInfo is null")
-        ElMessage.error('服务异常，请联系管理员！');
+  if(searchStateAiParamStatusFlag.value){
+    channelList.forEach((item, index) => {
+      const match = jobList.find(a => a.rawDataId === item.usercId);
+      if (match) {
+        if(!match.originalResumeUrlInfo){
+          console.log("match.originalResumeUrlInfo is null")
+          ElMessage.error('服务异常，请联系管理员！');
+        }
+        const requestParams = JSON.parse(match.originalResumeUrlInfo);
+        const queryString = requestParams.request;
+        const channel = channelConfig.value.desc;
+        const outId = saveJobListRequest.outId;
+        const resumeBlindId = match.id;
+        const type =searchStateAiParamStatus.value;
+        const taskRequest = {queryString,outId,resumeBlindId,type,channel};
+        if(index<1){
+          liePinQueueManager.enqueue(taskRequest);
+        }
       }
-      const requestParams = JSON.parse(match.originalResumeUrlInfo);
-      const queryString = requestParams.request;
-      const channel = channelConfig.value.desc;
-      const outId = saveJobListRequest.outId;
-      const resumeBlindId = match.id;
-      const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
-      const taskRequest = {queryString,outId,resumeBlindId,type,channel};
-      if(index<1){
-        liePinQueueManager.enqueue(taskRequest);
-      }
-    }
-  });
+    });
+  }
   //查询第一页数据
   await search(1);
 }
@@ -391,10 +395,17 @@ const searchJobList = async (searchConfig) => {
 //     console.error('Error:', error.message);
 //   }
 // }
-
+//清理列表
+const clearData = () => {
+  store.commit('setChannelData',{key:channelKey,value:[]})
+  store.commit('changeChannelConfDataSize',{key:channelKey,value:0});
+  currentPage.value = 1;
+  pageSize.value = 10;
+  totalNum.value =10;
+}
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo
+  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,clearData
 });
 
 //ai排序逻辑

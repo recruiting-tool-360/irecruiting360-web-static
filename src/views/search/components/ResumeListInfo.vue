@@ -43,10 +43,10 @@
           <el-button v-else text disabled size="small">
             &nbsp;&nbsp;未知渠道
           </el-button>
-          <el-text style="margin-right: 8px;color: #E0E0E0">|</el-text>
+          <el-text v-if="chatId" style="margin-right: 8px;color: #E0E0E0">|</el-text>
 
           <!-- 收藏按钮改为响应式设计 -->
-          <div class="collect-container" @click.stop="handleCollectClick(geekList)">
+          <div v-if="chatId" class="collect-container" @click.stop="handleCollectClick(geekList)">
             <el-image 
               :src="geekList.inCollection ? '/index/header/searchPage/collectTrue.svg' : '/index/header/searchPage/collectFalse.svg'"
               class="collect-icon"
@@ -72,7 +72,7 @@
 <!--            <el-image class="headerIcons" :src="'/index/header/icons/email.svg'"></el-image>-->
 <!--            12345678910@126.com</el-button>-->
         </el-col>
-        <el-col v-if="props.channelConfig&&props.channelConfig.key!=='Collect'" class="geek-highestDegree-el-col el-col-display-Style" style="justify-content: end" :span="9">
+        <el-col v-if="props.channelConfig&&props.channelConfig.key!=='Collect'&&searchStateAiParamStatusFlag" class="geek-highestDegree-el-col el-col-display-Style" style="justify-content: end" :span="9">
 <!--          <div class="geekAIBtm">-->
 <!--            <spa>AI评估</spa>-->
 <!--          </div>-->
@@ -135,7 +135,11 @@ const store = useStore();
 const props = defineProps({
   listData: Object,
   clickListInfoFn:Function,
-  channelConfig:Object
+  channelConfig:Object,
+  searchStateCriteria: {
+    type: Object,
+    default: () => ({})
+  }
 });
 const jobALlData = computed(()=>props.listData);
 const channelKey = "Collect";
@@ -146,6 +150,12 @@ const clickListInfo = (value) => {
 }
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);
+//ai推荐
+const searchStateAIParam = computed(()=>props.searchStateCriteria);
+const searchStateAiParamStatus = computed(() => {return (searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";});
+const searchStateAiParamStatusFlag = computed(() => searchStateAiParamStatus.value === "JDMATCH");
+//当前chat id
+const chatId = computed(() => store.getters.getLatestChatId);
 
 // AI评估相关
 const showAIDialog = ref(false);
@@ -350,7 +360,8 @@ const handleCollectClick = async (listInfo, value) => {
   const requestData = {
     userId: userInfo.value.id,
     resumeBlindId: listInfo.id,
-    isSaveOtherDelete: !listInfo.inCollection
+    isSaveOtherDelete: !listInfo.inCollection,
+    chatId:chatId.value
   };
   try {
     let {data} = await userCollectResume(requestData);

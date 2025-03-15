@@ -7,7 +7,7 @@
 
 <!--    </el-card>-->
     <!--  列表信息  -->
-    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo" v-model:channel-config="channel"></ResumeListInfo>
+    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo" v-model:channel-config="channel" v-model:search-state-criteria="searchStateAIParam"></ResumeListInfo>
 
     <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" :change-close-status="()=>{geekInfoDialog=false;}" v-model:search-state-criteria="searchStateAIParam"></BossDetial>
     <!--  分页信息  -->
@@ -262,6 +262,14 @@ const updateLocalScore = (scoreData) => {
 const updateScore = (val) => {
   updateLocalScore(val);
 };
+//清理列表
+const clearData = () => {
+  store.commit('setChannelData',{key:channelKey,value:[]})
+  store.commit('changeChannelConfDataSize',{key:channelKey,value:0});
+  currentPage.value = 1;
+  pageSize.value = 10;
+  totalNum.value =10;
+}
 
 //组件卸载时清理定时器
 onMounted(() => {
@@ -273,7 +281,7 @@ onMounted(() => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,handleCurrentChange,updateScore
+  search,handleCurrentChange,updateScore,clearData
 });
 
 // 如果 props 的值可能会变化，使用 watch 来同步更新 localValue

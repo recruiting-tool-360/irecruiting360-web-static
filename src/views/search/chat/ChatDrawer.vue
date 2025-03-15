@@ -12,7 +12,7 @@
           <span class="header-title" style="color: rgb(31 124 255)">AI搜索人才</span>
         </div>
         <div class="header-right">
-          <el-button class="close-btn" link @click="handleClose">
+          <el-button class="close-btn" link @click="handleEdit">
             <el-icon><Close /></el-icon>
           </el-button>
         </div>
@@ -76,7 +76,7 @@
                       <span></span>
                     </div>
                     <div class="action-buttons">
-                      <div class="right-actions">
+                      <div class="right-actions" v-if="!(chatFluxStatus && index === messages.length - 1)">
                         <el-tooltip
                             content="复制内容"
                             placement="top"
@@ -218,6 +218,10 @@ const props = defineProps({
     required: true
   },
   onSearch: {
+    type: Function,
+    required: true
+  },
+  onClearData: {
     type: Function,
     required: true
   }
@@ -457,7 +461,7 @@ const startResize = (e) => {
   const handleMouseMove = (e) => {
     const delta = startX - e.clientX
     width.value = Math.min(
-      Math.max(startWidth + delta, 600), // 最小宽度 600px
+      Math.max(startWidth + delta, 330), // 最小宽度 330px
       maxWidth.value // 最大宽度为窗口宽度-290px
     )
   }
@@ -537,11 +541,13 @@ const handleCopy = async (content) => {
 const handleEdit = async () => {
   try {
     const data = await getChatConditionRequest()
+    // 关闭对话框
+    handleClose()
     if (data) {
-      // 关闭对话框
-      handleClose()
       // 直接调用 prop 方法
       props.onEdit(data)
+    }else{
+      props.onClearData();
     }
   } catch (e) {
     console.error('处理编辑失败:', e)
@@ -566,6 +572,7 @@ const handleSearch = async () => {
 
 const getChatConditionRequest = async () => {
   try {
+    // console.log("chatId",currentChatId.value)
     let {data} = await getCurrentConditionByChatId(currentChatId.value);
     return data;
   } catch (e) {

@@ -74,12 +74,14 @@ const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 const geekInfoDialog = ref(false);
 //bossDetialRef
 const bossDetialRef = ref(null);
+//chatId
+const chatId = computed(() => store.getters.getLatestChatId);
 
 
 //初始化所有ref
-onMounted(async ()=>{
-  handleCurrentChange(1);
-});
+// onMounted(async ()=>{
+//   handleCurrentChange(1);
+// });
 
 const clickListInfo = async (userInfo) => {
   let clickChannel = allThirdPartyChannelConfig.value.find((item)=>item.desc===userInfo.channel);
@@ -132,6 +134,7 @@ const search = async (page) => {
   pageSearchRequest.channel = channelConfig.value.desc;
   pageSearchRequest.filterByRead = filterByRead.value;
   pageSearchRequest.searchConditionId = searchConditionId.value;
+  pageSearchRequest.chatId = chatId.value;
   let listResponse = null;
   try {
     listResponse = await querySearch(pageSearchRequest);

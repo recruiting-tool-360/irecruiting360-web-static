@@ -10,7 +10,7 @@
       </el-empty>
     </template>
     <!--  列表信息  -->
-    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"  v-model:channel-config="channelConfig"></ResumeListInfo>
+    <ResumeListInfo v-model:list-data="jobALlData" :click-list-info-fn="clickListInfo"  v-model:channel-config="channelConfig" v-model:search-state-criteria="searchStateAIParam"></ResumeListInfo>
 
     <!--  分页信息  -->
     <div class="pageConfig">
@@ -89,6 +89,8 @@ const validScoreCount = computed(() => {
 });
 //ai推荐
 const searchStateAIParam = computed(()=>props.searchStateCriteria);
+const searchStateAiParamStatus = computed(() => {return (searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";});
+const searchStateAiParamStatusFlag = computed(() => searchStateAiParamStatus.value === "JDMATCH");
 //当前页码数
 const currentPage = ref(1);
 //当前页显示条目数
@@ -334,25 +336,27 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
   job51QueueManager.stopAndClear();
   //查询渠道信息
   //生成异步任务
-  channelList.forEach((item, index) => {
-    const match = jobList.find(a => a.rawDataId === item.userid);
-    if (match) {
-      if(!match.originalResumeUrlInfo){
-        console.log("match.originalResumeUrlInfo is null")
-        ElMessage.error('服务异常，请联系管理员！');
+  if(searchStateAiParamStatusFlag.value){
+    channelList.forEach((item, index) => {
+      const match = jobList.find(a => a.rawDataId === item.userid);
+      if (match) {
+        if(!match.originalResumeUrlInfo){
+          console.log("match.originalResumeUrlInfo is null")
+          ElMessage.error('服务异常，请联系管理员！');
+        }
+        const requestParams = JSON.parse(match.originalResumeUrlInfo);
+        const queryString = requestParams.request;
+        const channel = channelConfig.value.desc;
+        const outId = saveJobListRequest.outId;
+        const resumeBlindId = match.id;
+        const type =searchStateAiParamStatus.value;
+        const taskRequest = {queryString,outId,resumeBlindId,type,channel};
+        if(index < getSynchronizationDetailsContValue()){
+          job51QueueManager.enqueue(taskRequest);
+        }
       }
-      const requestParams = JSON.parse(match.originalResumeUrlInfo);
-      const queryString = requestParams.request;
-      const channel = channelConfig.value.desc;
-      const outId = saveJobListRequest.outId;
-      const resumeBlindId = match.id;
-      const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
-      const taskRequest = {queryString,outId,resumeBlindId,type,channel};
-      if(index < getSynchronizationDetailsContValue()){
-        job51QueueManager.enqueue(taskRequest);
-      }
-    }
-  });
+    });
+  }
   //查询第一页数据
   await search(1);
 }
@@ -548,6 +552,15 @@ const updateScore = (val) => {
   updateLocalScore(val);
 };
 
+//清理列表
+const clearData = () => {
+  store.commit('setChannelData',{key:channelKey,value:[]})
+  store.commit('changeChannelConfDataSize',{key:channelKey,value:0});
+  currentPage.value = 1;
+  pageSize.value = 10;
+  totalNum.value =10;
+}
+
 //组件卸载时清理定时器
 onMounted(() => {
   if(scoreUpdateTimer.value) {
@@ -558,7 +571,7 @@ onMounted(() => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore
+  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore,clearData
 });
 
 //ai排序逻辑

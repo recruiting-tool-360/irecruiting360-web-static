@@ -28,6 +28,14 @@
           size="large" />
       </el-form-item>
 
+      <el-form-item prop="invitationCode">
+        <el-input 
+          v-model="registerForm.invitationCode" 
+          prefix-icon="Ticket"
+          placeholder="请输入邀请码"
+          size="large" />
+      </el-form-item>
+
       <el-form-item prop="agreement">
         <el-checkbox v-model="registerForm.agreement">
           已阅读并接受《<router-link to="/user-agreement" target="_blank">i快招用户服务协议</router-link>》
@@ -58,6 +66,7 @@ const registerForm = reactive({
   username: '',
   password: '',
   confirmPassword: '',
+  invitationCode: '',
   agreement: false
 })
 
@@ -81,6 +90,9 @@ const rules = {
   confirmPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },
     { validator: validatePass2, trigger: 'blur' }
+  ],
+  invitationCode: [
+    { required: true, message: '请输入邀请码', trigger: 'blur' }
   ],
   agreement: [
     { required: true, message: '请阅读并接受用户服务协议', trigger: 'change' }
@@ -107,6 +119,7 @@ const handleRegister = async () => {
         const params = new URLSearchParams()
         params.append('name', registerForm.username)
         params.append('pwd', registerForm.password)
+        params.append('invitationCode', registerForm.invitationCode)
 
         const { code, msg } = await api.post('/user/doSignup', params)
         

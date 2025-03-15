@@ -317,8 +317,8 @@
                 >
                   <!--         渠道配置           -->
                   <template v-for="(channel, key) in allChannelStatus" :key="key">
-                    <el-menu-item v-if="key==='ALL'||key==='Collect'" class="menuItems" :index="key" @click="clickMenu(channel)">{{channel.name}}({{channel.dataSize}})</el-menu-item>
-                    <el-menu-item v-else-if="channel.disable" class="menuItems" :index="key" @click="clickMenu(channel)">
+                    <el-menu-item v-if="key==='ALL'||(key==='Collect'&&chatId)" class="menuItems" :index="key" @click="clickMenu(channel)">{{channel.name}}({{channel.dataSize}})</el-menu-item>
+                    <el-menu-item v-else-if="(key!=='Collect')&&channel.disable" class="menuItems" :index="key" @click="clickMenu(channel)">
                       {{key==='BOSS'?'BOSS':channel.name}}({{channel.dataSize}})&nbsp;
                       <el-text v-if="channel.login" class="" type="success">已登录</el-text>
                       <el-text v-else-if="channel.loading" class="" type="warning">检测中...</el-text>
@@ -331,30 +331,33 @@
               <!--      操作列表        -->
               <div class="action-buttons">
                 <div class="action-buttons-wrapper">
-                  <el-checkbox v-model="unreadCheckBoxValue" class="unread-checkbox" label="仅显示未读" @click="clickUnreadCheck"/>
+                  <div>
+                    <el-checkbox v-model="unreadCheckBoxValue" class="unread-checkbox" label="仅显示未读" @click="clickUnreadCheck"/>
+                  </div>
                   <div class="buttons-group">
                     <template v-for="(channel, key) in allChannelStatus" :key="key">
-<!--                      <el-badge v-if="key===jobInfoName&&key!=='Collect'" :value="channel.name" class="item" type="warning">-->
-                        <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'" class="action-button" @click="aiSortSearch(channel)">
-                          渠道AI排序
-                        </el-button>
-<!--                      </el-badge>-->
+                      <!--                      <el-badge v-if="key===jobInfoName&&key!=='Collect'" :value="channel.name" class="item" type="warning">-->
+                      <el-button :disabled="!channel.aiSort" :class="channel.aiSort?'btm-color-white ai-sort-btm':''" v-if="key===jobInfoName&&key!=='Collect'&&searchStateAiParamStatusFlag" class="action-button" @click="aiSortSearch(channel)">
+                        AI排序
+                      </el-button>
+                      <!--                      </el-badge>-->
                     </template>
-
-                    <template v-for="(channel, index) in allThirdPartyChannelConfig" :key="index">
-<!--                      <el-badge v-if="channel.key===jobInfoName&&channel.key!=='Collect'&&channel.pageSearch" :value="channel.name" class="item" color="green">-->
-                        <el-button
-                          :disabled="!channel.login"
-                          v-if="channel.key===jobInfoName&&channel.key!=='Collect'"
-                          color="rgb(31, 124, 255)"
+                  </div>
+                  <div class="buttons-group">
+                    <template v-for="(channel, key) in allChannelStatus" :key="key">
+                      <!--                      <el-badge v-if="key===jobInfoName&&key!=='Collect'" :value="channel.name" class="item" type="warning">-->
+                      <el-button
+                          :disabled="key==='ALL'?false:!channel.login"
                           class="action-button load-more-button"
-                          @click="pageSearch(channel)"
-                        >
-                          渠道加载更多数据
-                        </el-button>
-<!--                      </el-badge>-->
+                          v-if="key===jobInfoName&&key!=='Collect'"
+                          color="rgb(31, 124, 255)"
+                          @click="pageSearch(channel)">
+                        加载数据
+                      </el-button>
+                      <!--                      </el-badge>-->
                     </template>
-
+                  </div>
+                  <div>
                     <el-button class="btm-color action-button settings-button" @click="channelDialogFlag=true">渠道设置</el-button>
                   </div>
                 </div>
@@ -425,6 +428,9 @@ const searchAreaLoadingSwitch = ref(false);
 //固定条件搜索属性
 let searchStateConfig =createSearchState();
 const searchState = ref(searchStateConfig);
+//ai推荐状态
+const searchStateAiParamStatus = computed(() => {return (searchState.value&&searchState.value.criteria && Object.keys(searchState.value.criteria).length > 0)?"JDMATCH":"SCORE";});
+const searchStateAiParamStatusFlag = computed(() => searchStateAiParamStatus.value === "JDMATCH");
 //加载 loading
 let loadingBig ;
 //结果集渲染模版名称
@@ -467,6 +473,9 @@ const schoolLevelOptionsVal = ref(schoolLevelOptions);
 const jobStatusOptionsVal = ref(jobStatusOptions);
 //学历状态
 const degreeOptionsVal = ref(degreeOptions);
+//当前chat id
+const chatId = computed(() => store.getters.getLatestChatId);
+
 
 const currentChatId = ref('')
 
@@ -513,7 +522,7 @@ onMounted(async () => {
           const observer = new MutationObserver(
             debounce(() => {
               // 菜单内容变化时的处理逻辑
-              console.log('Menu content updated')
+              // console.log('Menu content updated')
             }, 200)
           )
 
@@ -677,8 +686,22 @@ const searchJobList = async () => {
     console.error('Error during search:', error);
   }
 }
-
+//渠道分页查询
 const pageSearch = async (channel) => {
+  if(channel.key === 'ALL'){
+    let newVar = allThirdPartyChannelConfig.value.filter((channel) => channel.disable&&channel.login).map((item) => (item))||[];
+    if(newVar){
+      for (const item of newVar) {
+        await pageSearchChannel(item);
+      }
+    }
+  }else{
+    await pageSearchChannel(channel);
+  }
+}
+
+//渠道分页查询
+const pageSearchChannel = async (channel) => {
   if (!channel.login) {
     ElMessage.warning(channel.name + '渠道没有登陆');
     return;
@@ -776,6 +799,19 @@ const resetSearchConnect = ()=>{
   searchState.value = createSearchState();
 }
 
+const clearChannelData =() => {
+  let newVar = allThirdPartyChannelConfig.value.filter((channel) => channel.disable&&channel.login).map((item) => (item))||[];
+  newVar.push(allChannelStatus.value['ALL']);
+  newVar.forEach((item)=>{
+    item.cardInfoRef.clearData();
+  })
+}
+
+const clearALlChannelDataAndCondition = () => {
+  resetSearchConnect();
+  clearChannelData();
+}
+
 //替换搜索条件
 function replaceSearchConditionRequest(data, triggerSearch = false) {
   if(!pluginInstallStatus.value){
@@ -783,6 +819,8 @@ function replaceSearchConditionRequest(data, triggerSearch = false) {
     ElMessage.warning('请先安装插件');
     return;
   }
+  //清理渠道数据
+  clearChannelData();
   searchAreaLoadingSwitch.value = true;
   // try {
   //   // 模拟数据加载
@@ -854,7 +892,7 @@ const handleCloseChat = () => {
 defineExpose({
   aiChatDialogFlag,
   openChat,
-  replaceSearchConditionRequest
+  replaceSearchConditionRequest,clearALlChannelDataAndCondition
 })
 
 // 添加菜单宽度的计算属性
@@ -1140,17 +1178,17 @@ const menuWidthClass = computed(() => {
   }
 }
 
-.buttons-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  width: 100%;
-  
-  @media (min-width: 768px) {
-    width: auto;
-    justify-content: flex-end;
-  }
-}
+//.buttons-group {
+//  display: flex;
+//  flex-wrap: wrap;
+//  gap: 8px;
+//  width: 100%;
+//
+//  @media (min-width: 768px) {
+//    width: auto;
+//    justify-content: flex-end;
+//  }
+//}
 
 .action-button {
   height: 32px;
@@ -1174,7 +1212,7 @@ const menuWidthClass = computed(() => {
 
 // 使用固定的类替代动态内联样式
 .wide-menu {
-  min-width: 755px !important;
+  min-width: 655px !important;
 }
 
 .narrow-menu {
@@ -1189,8 +1227,8 @@ const menuWidthClass = computed(() => {
 
 // 使用固定的类替代动态内联样式
 .wide-menu {
-  max-width: 755px !important;
-  width: 755px !important; // 添加固定宽度
+  max-width: 655px !important;
+  width: 655px !important; // 添加固定宽度
 }
 
 .narrow-menu {
