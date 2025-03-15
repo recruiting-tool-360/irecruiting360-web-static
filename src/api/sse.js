@@ -34,7 +34,7 @@ class SseClient {
         const now = Date.now();
         const elapsed = now - this.lastMessageTime;
         if (elapsed > 60000 || !this.eventSource) {
-          console.log('SSE连接已失效或不存在，尝试重新连接');
+          // console.log('SSE连接已失效或不存在，尝试重新连接');
           this.reconnect();
         }
       }
@@ -73,7 +73,7 @@ class SseClient {
       url += `?${params.toString()}`
     }
     
-    console.log('正在连接SSE服务:', url.replace(satoken, '******')) // 日志中隐藏token值
+    // console.log('正在连接SSE服务:', url.replace(satoken, '******')) // 日志中隐藏token值
     this.eventSource = new EventSource(url)
 
     // 设置最后收到消息的时间
@@ -85,7 +85,7 @@ class SseClient {
     // 连接成功事件
     this.eventSource.addEventListener('CONNECT', (event) => {
       this.lastMessageTime = Date.now()  // 更新最后消息时间
-      console.log('SSE连接成功:', event.data)
+      // console.log('SSE连接成功:', event.data)
       this.retryCount = 0
       if (this.listeners['connect']) {
         this.listeners['connect'].forEach(callback => callback(event.data))
@@ -94,7 +94,7 @@ class SseClient {
 
     // 添加认证错误事件监听
     this.eventSource.addEventListener('AUTH_ERROR', (event) => {
-      console.error('SSE认证错误:', event.data)
+      // console.error('SSE认证错误:', event.data)
       
       // 关闭SSE连接
       this.disconnect()
@@ -129,7 +129,7 @@ class SseClient {
 
     // 普通消息事件
     this.eventSource.addEventListener('MESSAGE', (event) => {
-      console.log('收到消息事件:', event);
+      // console.log('收到消息事件:', event);
       
       try {
         // 记录最后收到消息的时间
@@ -137,7 +137,7 @@ class SseClient {
         
         // 解析消息内容
         const messageData = event.data;
-        console.log('消息数据:', messageData);
+        // console.log('消息数据:', messageData);
         
         // 处理消息，确保即使解析失败也不会中断
         try {
@@ -159,7 +159,7 @@ class SseClient {
           this.sendMessageAck(jsonData);
           
         } catch (parseError) {
-          console.warn('解析消息失败:', parseError);
+          // console.warn('解析消息失败:', parseError);
           // 即使解析失败，仍然尝试调用回调（使用原始数据）
           if (this.listeners['message']) {
             this.listeners['message'].forEach(callback => {
@@ -179,7 +179,7 @@ class SseClient {
     // 广播消息事件
     this.eventSource.addEventListener('BROADCAST', (event) => {
       this.lastMessageTime = Date.now()  // 更新最后消息时间
-      console.log('收到广播:', event.data)
+      // console.log('收到广播:', event.data)
       if (this.listeners['broadcast']) {
         let parsedData = event.data
         if (typeof event.data === 'string') {
@@ -197,14 +197,14 @@ class SseClient {
     // 心跳消息事件监听
     this.eventSource.addEventListener('HEARTBEAT', (event) => {
       this.lastMessageTime = Date.now();  // 更新最后消息时间
-      console.log('收到心跳消息:', event.data, 'eventId:', event.lastEventId);
+      // console.log('收到心跳消息:', event.data, 'eventId:', event.lastEventId);
       
       // 记录最后接收的心跳ID
       try {
         const heartbeat = JSON.parse(event.data);
         if (heartbeat && heartbeat.data && heartbeat.data.seq !== undefined) {
           this.lastHeartbeatSeq = heartbeat.data.seq;
-          console.log(`心跳序列号: ${this.lastHeartbeatSeq}`);
+          // console.log(`心跳序列号: ${this.lastHeartbeatSeq}`);
         }
       } catch (e) {
         console.warn('解析心跳消息失败:', e);
@@ -225,7 +225,7 @@ class SseClient {
     // 连接错误处理 - 修改以避免在认证错误后重试
     this.eventSource.onerror = (event) => {
       // 安全地记录错误，避免尝试访问undefined的属性
-      console.error('SSE连接错误:', event)
+      // console.error('SSE连接错误:', event)
       
       // 触发错误回调，传递事件对象
       if (this.listeners['error']) {
@@ -266,7 +266,7 @@ class SseClient {
           }
         }, retryDelay)
       } else {
-        console.error('达到最大重连次数，不再重试')
+        // console.error('达到最大重连次数，不再重试')
         ElMessage({
           message: '与服务器的连接已断开，请刷新页面或稍后再试',
           type: 'error',
@@ -290,7 +290,7 @@ class SseClient {
     if (this.eventSource) {
       this.eventSource.close()
       this.eventSource = null
-      console.log('SSE连接已关闭')
+      // console.log('SSE连接已关闭')
     }
     
     // 清除健康检查
@@ -345,13 +345,13 @@ class SseClient {
     this.healthCheckInterval = setInterval(() => {
       // 检查连接状态
       if (!this.eventSource) {
-        console.log('SSE连接不存在，跳过健康检查');
+        // console.log('SSE连接不存在，跳过健康检查');
         return;
       }
       
       // 增加对EventSource readyState的检查
       if (this.eventSource.readyState === 2) { // CLOSED
-        console.warn('SSE连接已关闭 (readyState=2)，将尝试重新连接');
+        // console.warn('SSE连接已关闭 (readyState=2)，将尝试重新连接');
         this.reconnectAfterFailure();
         return;
       }
@@ -360,11 +360,11 @@ class SseClient {
       const now = Date.now();
       const elapsed = now - this.lastMessageTime;
       
-      console.log(`SSE健康检查: 上次消息距今 ${Math.round(elapsed/1000)} 秒, readyState=${this.eventSource.readyState}`);
+      // console.log(`SSE健康检查: 上次消息距今 ${Math.round(elapsed/1000)} 秒, readyState=${this.eventSource.readyState}`);
       
       // 更积极的重连策略：当60秒未收到消息，就重新连接
       if (elapsed > 60000) {
-        console.warn('SSE连接可能已失效，超过60秒未收到消息，准备重连');
+        // console.warn('SSE连接可能已失效，超过60秒未收到消息，准备重连');
         this.reconnectAfterFailure();
       }
     }, 20000); // 更频繁地检查
@@ -391,7 +391,7 @@ class SseClient {
     
     // 只有之前是连接状态才重连
     if (wasConnected) {
-      console.log('重新建立SSE连接...');
+      // console.log('重新建立SSE连接...');
       // 获取用户ID并重连
       const userInfo = store.getters.getUserInfo;
       const userId = userInfo?.id;

@@ -1,6 +1,7 @@
 <template>
   <div class="ai-recommendation">
     <el-row v-if="criteria && Object.keys(criteria).length > 0" class="height-btm-row">
+      <span style="font-size: 14px;color: #7a889b">AI推荐 &nbsp;<el-icon><BottomRight /></el-icon></span>
       <el-col :span="24" style="display: flex; flex-direction: column; gap: 12px">
         <!-- 专业技能标签 -->
         <div v-if="criteria.professional_skills && criteria.professional_skills.length > 0" class="tag-section">
@@ -177,7 +178,17 @@
 <script setup>
 import { ref, defineProps, defineEmits, watch } from 'vue'
 import _ from 'lodash'
-import { Delete, Tools, Star, Briefcase, Plus } from '@element-plus/icons-vue'
+import {
+  Delete,
+  Tools,
+  Star,
+  Briefcase,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  BottomLeft,
+  BottomRight
+} from '@element-plus/icons-vue'
 import {ElMessage} from "element-plus";
 
 const props = defineProps({

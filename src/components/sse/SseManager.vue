@@ -17,7 +17,7 @@ const allChannel = computed(() => store.getters.getChannelConf);
 
 // 处理认证错误 - 自动退出登录
 async function handleAuthError(data) {
-  console.error('SSE认证错误，准备退出登录:', data)
+  // console.error('SSE认证错误，准备退出登录:', data)
   
   // 显示错误消息
   let errorMsg = '您的登录信息已失效，请重新登录'
@@ -130,13 +130,13 @@ function handleSseConnect(data) {
   try {
     // 解析连接消息
     const message = typeof data === 'string' ? JSON.parse(data) : data;
-    console.log('SSE连接成功:', message);
+    // console.log('SSE连接成功:', message);
     
     // 如果是新格式消息，取出场景和数据
     if (message.scenario && message.data) {
       // 根据场景处理不同的连接消息
       if (message.scenario === 'connect') {
-        console.log('连接场景:', message.data);
+        console.warn('连接场景:', message.data);
       }
     }
   } catch (e) {
@@ -149,7 +149,7 @@ async function handleSseBroadcast(data) {
   try {
     // 解析广播消息
     const message = typeof data === 'string' ? JSON.parse(data) : data;
-    console.log('收到SSE广播:', message);
+    // console.log('收到SSE广播:', message);
 
     // 如果是新格式消息，取出场景和数据
     if (message.scenario && message.data !== undefined) {
@@ -185,7 +185,7 @@ function handleSseMessage(data) {
   try {
     // 解析个人消息
     const message = typeof data === 'string' ? JSON.parse(data) : data;
-    console.log('收到SSE消息:', message);
+    // console.log('收到SSE消息:', message);
     
     // 如果是新格式消息，取出场景和数据
     if (message.scenario && message.data !== undefined) {
@@ -213,7 +213,7 @@ function handleSseMessage(data) {
     } else {
       // 兼容处理旧格式消息
       let displayMessage = typeof message === 'object' ? JSON.stringify(message) : message;
-      console.log('旧格式消息:', displayMessage);
+      // console.log('旧格式消息:', displayMessage);
     }
   } catch (e) {
     console.warn('处理个人消息出错:', e);

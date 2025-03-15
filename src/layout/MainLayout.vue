@@ -14,6 +14,7 @@
             @openChat="handleOpenChat"
             @onChatEdit="handleOnChatEdit"
             @chatOnSearch="chatOnSearch"
+            @onSearchClearData="handleOnSearchClearData"
           ></LeftHeader>
         </el-aside>
         <el-main class="el-main" style="background-color: #ffffff">
@@ -61,6 +62,11 @@ const handleOpenChat = (chatInfo) => {
 //聊天框内点击编辑
 const handleOnChatEdit = (data) => {
   aiSearchRef.value.replaceSearchConditionRequest(data);
+}
+
+//
+const handleOnSearchClearData = () => {
+  aiSearchRef.value.clearALlChannelDataAndCondition();
 }
 
 //聊天框内点击搜索
