@@ -93,21 +93,25 @@
         <div class="section-group">
           <h3><el-icon><Tools /></el-icon> 专业技能</h3>
           <div class="edit-tags-container">
-            <el-tag
-              v-for="(skill, index) in editableCriteria.professional_skills"
-              :key="'edit-skill-' + index"
-              class="edit-tag"
-              closable
-              type="primary"
-              @close="removeEditItem('professional_skills', index)"
-            >
-              <el-input
-                v-model="editableCriteria.professional_skills[index]"
-                class="tag-input"
-                size="small"
-                placeholder="输入专业技能"
-              />
-            </el-tag>
+
+              <el-tag
+                  v-for="(skill, index) in editableCriteria.professional_skills"
+                  :key="'edit-skill-' + index"
+                  class="edit-tag"
+                  closable
+                  type="primary"
+                  @close="removeEditItem('professional_skills', index)"
+              >
+                <el-tooltip :content="editableCriteria.professional_skills[index]">
+                <el-input
+                    v-model="editableCriteria.professional_skills[index]"
+                    class="tag-input"
+                    size="small"
+                    placeholder="输入专业技能"
+                />
+                </el-tooltip>
+              </el-tag>
+
             <el-button class="add-tag-btn" type="primary" plain @click="addItem('professional_skills','专业技能')">
               <el-icon><Plus /></el-icon> 添加专业技能
             </el-button>
@@ -126,12 +130,14 @@
               type="warning"
               @close="removeEditItem('soft_skills', index)"
             >
+              <el-tooltip :content="editableCriteria.soft_skills[index]">
               <el-input
                 v-model="editableCriteria.soft_skills[index]"
                 class="tag-input"
                 size="small"
                 placeholder="输入软实力"
               />
+              </el-tooltip>
             </el-tag>
             <el-button class="add-tag-btn" type="warning" plain @click="addItem('soft_skills','软实力')">
               <el-icon><Plus /></el-icon> 添加软实力
@@ -151,12 +157,14 @@
               type="info"
               @close="removeEditItem('work_experience', index)"
             >
+              <el-tooltip :content="editableCriteria.work_experience[index]">
               <el-input
                 v-model="editableCriteria.work_experience[index]"
                 class="tag-input"
                 size="small"
                 placeholder="输入工作经验"
               />
+              </el-tooltip>
             </el-tag>
             <el-button class="add-tag-btn" type="info" plain @click="addItem('work_experience','工作经验')">
               <el-icon><Plus /></el-icon> 添加工作经验
