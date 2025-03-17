@@ -14,12 +14,13 @@
           <el-text class="mx-1 el-button-margin-left" style="font-size: 1rem;font-weight: bold">{{geekList.name}}</el-text>
           <el-text class="mx-1 el-button-margin-left text-gray-color-130">{{geekList.genderStr}} · {{geekList.age}} </el-text>
           <el-button size="small" disabled round style="margin-left: 1rem;">求职意向:
+            {{geekList.status?geekList.status:'未知'}}
             <el-tooltip
                 class="box-item"
                 :content="geekList.status?geekList.status:'未知'"
                 placement="bottom"
             >
-              <el-text class="el-text-ellipsis" style="margin-left: 5px;color: rgb(96 98 102)">{{geekList.status?geekList.status:'未知'}}</el-text>
+<!--              <el-text class="el-text-ellipsis" style="margin-left: 5px;color: rgb(96 98 102)">{{geekList.status?geekList.status:'未知'}}</el-text>-->
             </el-tooltip>
           </el-button>
         </el-col>
@@ -58,13 +59,14 @@
       <!--  学历行    -->
       <el-row class="geek-highestDegree-el-row el-row-width-full el-row-margin-top-6px"  :gutter="0">
         <el-col class="geek-highestDegree-el-col el-col-display-Style" :span="15">
-          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>{{geekList.degree?geekList.degree:"学历未知"}}</el-button>
-          <el-button style="background-color: #E6FFFB;color: #13C2C2" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>{{geekList.experienceYear&&geekList.experienceYear>=0?geekList.experienceYear+"年":((geekList.experienceYear&&geekList.experienceYear===-1)?'应届生':'工作年龄未知')}}</el-button>
+          <el-button style="background-color: #F0F6FF;color: #1F7CFF" class="highestDegreeBtm" color="#F0F6FF" size="small" round>{{geekList.degree?geekList.degree:"学历未知"}}</el-button>
+          <el-button style="background-color: #E6FFFB;color: #13C2C2" color="#E6FFFB" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" round>{{geekList.experienceYear&&geekList.experienceYear>=0?geekList.experienceYear+"年":((geekList.experienceYear&&geekList.experienceYear===-1)?'应届生':'工作年龄未知')}}</el-button>
 <!--          <el-button style="background-color: #c0bdb6;color: #6c6e6e" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
 <!--            {{geekList.gender===1?'男':'女'}}</el-button>-->
-          <el-button :style="`${geekList.gender === 1?'background-color: #409EFF;color: white':'background-color: #F56C6C;color: white'}`" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>
+          <el-button :style="`${geekList.gender === 1?'background-color: #409EFF;color: white':'background-color: #F56C6C;color: white'}`" :color="geekList.gender === 1?'#409EFF':'#F56C6C'" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" round>
             {{ geekList.gender === 1 ? '男' : '女' }}
           </el-button>
+          <el-button v-show="geekList.intention" style="background-color: #f0f6ff;color: #999" color="#f0f6ff" class="highestDegreeBtm" size="small" round>{{geekList.intention}}</el-button>
 <!--          <el-button style="background-color: #FFF7E6;color: #F79000" class="highestDegreeBtm highestDegreeBtmMgLeft" size="small" disabled round>-->
 <!--            <el-image class="headerIcons" :src="'/index/header/icons/phone.svg'"></el-image>-->
 <!--            {{geekList.gender===1?'男':'女'}}</el-button>-->
@@ -90,21 +92,55 @@
       </el-row>
 
       <!--  工作年龄一行    -->
-      <el-row class="geek-work-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">
-        <el-button text style="background-color: rgba(255,230,230,0);" class="workBtm" size="small" disabled round>
-          <el-image  class="headerIcons" :src="'/index/header/icons/work.svg'" style="margin-right: 10px"></el-image>
-<!--          <el-text>2018.01 - 2020.12   上海力德信息科技有限公司</el-text>-->
-          <el-text>{{geekList.workExp?geekList.workExp:"未知"}}</el-text>
-        </el-button>
+      <el-row class="geek-work-el-row el-row-width-full el-row-margin-top-6px" :gutter="0" style="justify-content: space-between">
+        <div>
+          <el-button text style="background-color: rgba(255,230,230,0);color: #878787" class="workBtm" size="small" round>
+            <el-image  class="headerIcons" :src="'/index/header/icons/work.svg'" style="margin-right: 10px"></el-image>
+            <!--          <el-text>2018.01 - 2020.12   上海力德信息科技有限公司</el-text>-->
+            <el-text style="color: #7a889b">
+              {{geekList.workExp?(geekList.workExp.name?geekList.workExp.name:"未知"):"未知"}}
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+              <el-text v-show="geekList.workExp?.name">
+                <el-text v-show="geekList.workExp?.workStartTime" style="color: #7a889b">{{geekList.workExp?(geekList.workExp.workStartTime?geekList.workExp.workStartTime:"未知"):"未知"}} &nbsp;&nbsp;~&nbsp;&nbsp;</el-text>
+                <el-text v-show="geekList.workExp?.workEndTime" style="color: #7a889b">{{geekList.workExp?(geekList.workExp.workEndTime?geekList.workExp.workEndTime:"未知"):"未知"}}</el-text>
+              </el-text>
+            </el-text>
+
+          </el-button>
+        </div>
+        <div>
+<!--          <el-button style="background-color: #f0f6ff;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>简要描述</el-button>-->
+        </div>
+
       </el-row>
 
       <!--  学校一行    -->
-      <el-row class="geek-school-el-row el-row-width-full el-row-margin-top-6px" :gutter="0">
-        <el-button text style="background-color: rgba(255,230,230,0);" class="schoolBtm" size="small" disabled round>
-          <el-image  class="headerIcons" :src="'/index/header/icons/school.svg'" style="margin-right: 10px"></el-image>
-<!--          <el-text>2013.09 - 2017.06   清华大学  视觉传达设计</el-text>-->
-          <el-text>{{geekList.eduExp?geekList.eduExp:"未知"}}</el-text>
-        </el-button>
+      <el-row class="geek-school-el-row el-row-width-full el-row-margin-top-6px" :gutter="0" style="justify-content: space-between">
+        <div>
+          <el-button text style="background-color: rgba(255,230,230,0);" class="schoolBtm" size="small" round>
+            <el-image  class="headerIcons" :src="'/index/header/icons/school.svg'" style="margin-right: 10px"></el-image>
+            <!--          <el-text>2013.09 - 2017.06   清华大学  视觉传达设计</el-text>-->
+            <!--          <el-text>{{geekList.eduExp?geekList.eduExp:"未知"}}</el-text>-->
+<!--            <el-text>{{geekList.eduExp?(geekList.eduExp.name?geekList.eduExp.name:"未知"):"未知"}}</el-text>-->
+            <el-text style="color: #7a889b">
+              {{geekList.eduExp?(geekList.eduExp.name?geekList.eduExp.name:"未知"):"未知"}}
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+              <el-text v-show="geekList.eduExp?.name">
+                <el-text v-show="geekList.eduExp?.educationStartTime" style="color: #7a889b">{{geekList.eduExp?(geekList.eduExp.educationStartTime?geekList.eduExp.educationStartTime:"未知"):"未知"}} &nbsp;&nbsp;~&nbsp;&nbsp; </el-text>
+                <el-text v-show="geekList.eduExp?.educationEndTime" style="color: #7a889b">{{geekList.eduExp?(geekList.eduExp.educationEndTime?geekList.eduExp.educationEndTime:"未知"):"未知"}}</el-text>
+              </el-text>
+            </el-text>
+          </el-button>
+        </div>
+        <div>
+        <!--    简要描述      -->
+          <el-tooltip effect="dark"
+                      :content="geekList.description"
+                      placement="bottom">
+            <el-button style="background-color: #f0f6ff;color: #999" class="highestDegreeBtm" size="small" color="#f0f6ff" round>简要描述</el-button>
+          </el-tooltip>
+        </div>
+
       </el-row>
 
     </el-card>

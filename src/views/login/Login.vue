@@ -85,7 +85,7 @@
       <div class="copyright">Copyright © 2025 上海智寻才信息科技有限公司</div>
       <div class="icp-footer">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">
-          沪ICP备16020917号-17
+          沪ICP备2025117219号-1
         </a>
       </div>
     </div>

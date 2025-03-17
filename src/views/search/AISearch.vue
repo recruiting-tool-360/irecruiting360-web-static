@@ -328,6 +328,26 @@
                 </el-menu>
               </div>
 
+<!--              <div class="newcontainer" style="overflow: hidden">-->
+<!--                <el-space wrap>-->
+<!--                  <template v-for="(item, index) in visibleItems" :key="index">-->
+<!--                    <el-button>{{ item }}</el-button>-->
+<!--                  </template>-->
+
+<!--                  &lt;!&ndash; 超出的部分放进下拉框 &ndash;&gt;-->
+<!--                  <el-dropdown v-if="hiddenItems.length">-->
+<!--                    <el-button>更多</el-button>-->
+<!--                    <template #dropdown>-->
+<!--                      <el-dropdown-menu>-->
+<!--                        <el-dropdown-item v-for="(item, index) in hiddenItems" :key="index">-->
+<!--                          {{ item }}-->
+<!--                        </el-dropdown-item>-->
+<!--                      </el-dropdown-menu>-->
+<!--                    </template>-->
+<!--                  </el-dropdown>-->
+<!--                </el-space>-->
+<!--              </div>-->
+
               <!--      操作列表        -->
               <div class="action-buttons">
                 <div class="action-buttons-wrapper">
@@ -416,6 +436,16 @@ import {debounce} from 'lodash-es';
 const store = useStore();
 //插件安装状态
 const pluginInstallStatus = computed(() => store.getters.getPluginSwitch);
+// 假设有 8 个按钮
+const items = ref([
+  '按钮1', '按钮2', '按钮3', '按钮4', '按钮5', '按钮6', '按钮7', '按钮8'
+]);
+
+const maxVisible = 5; // 最多显示多少个元素
+
+const visibleItems = computed(() => items.value.slice(0, maxVisible));
+const hiddenItems = computed(() => items.value.slice(maxVisible));
+
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);
 //搜索id
