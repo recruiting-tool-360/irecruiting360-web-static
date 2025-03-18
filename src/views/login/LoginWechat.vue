@@ -30,7 +30,7 @@ onMounted(async () => {
   
   try {
     // 调用后端接口处理微信登录
-    const { code: resCode, msg, data } = await api.get('/wechat/login', {
+    const { code: resCode, msg, data } = await api.get('/user/wechat/login', {
       params: { code, state }
     })
     
