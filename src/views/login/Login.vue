@@ -23,7 +23,7 @@
       <!-- 条件渲染：显示登录表单或注册表单 -->
       <template v-if="showLoginForm">
         <h2 class="title">登录</h2>
-        <el-tabs v-model="activeTab">
+        <el-tabs v-model="activeTab" @tab-click="handleTabClick">
           <el-tab-pane label="账号密码登录" name="account">
             <div class="account-login">
               <el-form :model="loginForm" :rules="rules" ref="loginFormRef">
@@ -65,8 +65,13 @@
           </el-tab-pane>
           <el-tab-pane label="微信登录" name="wechat">
             <div class="wechat-login">
-              <el-image src="/wechat-qr.png" class="qr-code"></el-image>
-              <p>请使用微信扫码登录</p>
+              <div ref="qrCodeContainer" class="qr-code-container">
+                <div class="loading-container" v-if="!qrCodeLoaded">
+                  <el-icon class="is-loading"><Loading /></el-icon>
+                  <p>正在加载微信登录...</p>
+                </div>
+                <!-- iframe将被动态插入到这里 -->
+              </div>
             </div>
           </el-tab-pane>
         </el-tabs>
@@ -93,7 +98,7 @@
 </template>
 
 <script setup>
-import {ref, reactive} from 'vue'
+import {ref, reactive, onMounted} from 'vue'
 import {useRouter} from 'vue-router'
 import {ElMessage} from 'element-plus'
 import api from '@/utils/api'
@@ -108,6 +113,8 @@ const registerFormRef = ref(null)
 const loading = ref(false)
 const activeTab = ref('account')
 const showLoginForm = ref(true) // 控制显示登录还是注册表单
+const qrCodeContainer = ref(null)
+const qrCodeLoaded = ref(false)
 
 const loginForm = reactive({
   username: '',
@@ -191,6 +198,85 @@ const switchToLogin = () => {
     loginFormRef.value.resetFields()
   }
 }
+
+// 生成微信登录二维码
+const generateWechatQrCode = async () => {
+  try {
+    // 确保容器已经渲染
+    if (!qrCodeContainer.value) {
+      console.error('二维码容器未渲染')
+      return
+    }
+    
+    // 生成随机state用于防止CSRF攻击
+    const state = Math.random().toString(36).substring(2, 15)
+    
+    // 获取当前域名作为回调域名 - 确保使用正确的格式
+    // 不要包含端口号，使用完整的路径，对URL进行编码
+    let origin = window.location.origin
+    // 如果是本地开发环境，使用配置中的回调域名
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      origin = 'https://login.ihire365.com' // 替换为您的实际生产域名
+    }
+    
+    const callbackUrl = `${origin}/wechat/callback`
+    
+    // 构建微信授权URL - 使用VUE_APP_前缀的环境变量
+    // 访问环境变量的方式在Vue CLI中是process.env
+    const appId = process.env.VUE_APP_WECHAT_APP_ID
+    
+    // 如果没有配置appId，显示错误信息
+    if (!appId) {
+      console.error('未配置微信AppID，请检查环境变量VUE_APP_WECHAT_APP_ID是否设置')
+      ElMessage.error('微信登录配置错误，请联系管理员')
+      return
+    }
+    
+    // 生成完整的微信OAuth2授权URL
+    const redirectUri = encodeURIComponent(`https://login.ihire365.com/wechat/callback`)
+    const wechatOAuthUrl = `https://open.weixin.qq.com/connect/qrconnect?appid=${appId}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_login&state=${state}&lang=zh_CN#wechat_redirect`
+    
+    // 创建iframe
+    const iframe = document.createElement('iframe')
+    iframe.src = wechatOAuthUrl
+    iframe.style.width = '300px'
+    iframe.style.height = '400px'
+    iframe.style.border = 'none'
+    iframe.style.overflow = 'hidden'
+    
+    // 监听iframe加载完成
+    iframe.onload = () => {
+      qrCodeLoaded.value = true
+    }
+    
+    // 添加iframe到二维码容器
+    qrCodeContainer.value.appendChild(iframe)
+  } catch (error) {
+    console.error('嵌入微信登录页面失败:', error)
+    ElMessage.error('加载微信登录失败，请刷新页面重试')
+  }
+}
+
+// 监听标签页切换
+const handleTabChange = (tab) => {
+  if (tab === 'wechat' && !qrCodeLoaded.value) {
+    // 当切换到微信登录标签时，生成二维码
+    generateWechatQrCode()
+  }
+}
+
+// 处理标签页点击事件
+const handleTabClick = (tab) => {
+  const tabName = tab.props.name
+  handleTabChange(tabName)
+}
+
+onMounted(() => {
+  // 如果默认标签页是微信登录，则生成二维码
+  if (activeTab.value === 'wechat') {
+    generateWechatQrCode()
+  }
+})
 </script>
 
 <style scoped lang="scss">
@@ -374,11 +460,27 @@ const switchToLogin = () => {
     flex-direction: column;
     align-items: center;
     padding: 20px 0;
+    min-height: 250px;
+
+    .qr-code-container, .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .loading-container {
+      font-size: 32px;
+      color: #67c23a;
+      margin-bottom: 15px;
+    }
 
     .qr-code {
       width: 200px;
       height: 200px;
       margin-bottom: 15px;
+      border: 1px solid #ebeef5;
+      border-radius: 4px;
     }
 
     p {
