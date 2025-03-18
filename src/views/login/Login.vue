@@ -233,7 +233,7 @@ const generateWechatQrCode = async () => {
     }
     
     // 生成完整的微信OAuth2授权URL
-    const redirectUri = encodeURIComponent(`https://login.ihire365.com/wechat/callback`)
+    const redirectUri = encodeURIComponent(`https://login.ihire365.com/web-manage-api/wechat/callback`)
     const wechatOAuthUrl = `https://open.weixin.qq.com/connect/qrconnect?appid=${appId}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_login&state=${state}&lang=zh_CN#wechat_redirect`
     
     // 创建iframe
