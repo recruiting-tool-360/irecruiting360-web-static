@@ -31,7 +31,7 @@ const routes = [
     }
   },
   {
-    path: '/wechat/callback',
+    path: '/web/wechatCallback',
     name: 'WechatCallback',
     component: () => import('@/views/login/LoginWechat.vue'),
     meta: {
