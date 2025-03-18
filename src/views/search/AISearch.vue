@@ -390,7 +390,7 @@
           <ZHILIANJobInfo  ref="zhiLianInfoRef" v-show="jobInfoName==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></ZHILIANJobInfo>
 <!--          <LIEPINJobInfo  ref="liePinInfoRef" v-show="jobInfoName==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></LIEPINJobInfo>-->
           <JOB51  ref="job51InfoRef" v-show="jobInfoName==='JOB51'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" v-model:search-state-criteria="searchState.criteria"></JOB51>
-          <CollectJobInfo ref="collectInfoRef" v-show="jobInfoName==='Collect'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></CollectJobInfo>
+          <CollectJobInfo ref="collectInfoRef" v-show="jobInfoName==='Collect'&&chatId" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></CollectJobInfo>
         </el-card>
       </div>
       <!--   渠道配置   -->
@@ -835,6 +835,8 @@ const clearChannelData =() => {
   newVar.forEach((item)=>{
     item.cardInfoRef.clearData();
   })
+  allChannelStatus.value['Collect'].cardInfoRef.handleCurrentChange(1);
+  refreshJobInfoName();
 }
 
 const clearALlChannelDataAndCondition = () => {
@@ -918,11 +920,15 @@ const handleCloseChat = () => {
   currentChatId.value = ''
 }
 
+const refreshJobInfoName = () => {
+  jobInfoName.value = 'ALL'
+}
+
 // 暴露属性和方法给父组件
 defineExpose({
   aiChatDialogFlag,
   openChat,
-  replaceSearchConditionRequest,clearALlChannelDataAndCondition
+  replaceSearchConditionRequest,clearALlChannelDataAndCondition,refreshJobInfoName
 })
 
 // 添加菜单宽度的计算属性

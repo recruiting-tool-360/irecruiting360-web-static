@@ -60,6 +60,30 @@ export default {
         changeUnreadCheckBoxV(state,payload) {
             state.unreadCheckBoxV = payload;
         },
+        updateIsReadStatus(state,id) {
+            for (let channelDataKey in state.channelData) {
+                const channelData = state.channelData[channelDataKey];
+                for (let i = 0; i < channelData.length; i++) {
+                    if (channelData[i].id === id) {
+                        channelData[i].isRead = 1;
+                    }
+                }
+            }
+            // if(state.channelData['ALL'].length>0){
+            //     state.channelData['ALL'].forEach(item => {
+            //         if (item.id === id) {
+            //             item.isRead = 1;
+            //         }
+            //     });
+            // }
+            // if(state.channelData['Collect'].length>0){
+            //     state.channelData['Collect'].forEach(item => {
+            //         if (item.id === id) {
+            //             item.isRead = 1;
+            //         }
+            //     });
+            // }
+        },
         setJobALlData(state,payload) {
             if(payload){
                 state.jobALlData = payload;

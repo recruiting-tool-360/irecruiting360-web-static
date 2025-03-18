@@ -370,16 +370,6 @@ const generateWechatQrCode = async () => {
     // 生成随机state用于防止CSRF攻击
     const state = Math.random().toString(36).substring(2, 15)
 
-    // 获取当前域名作为回调域名 - 确保使用正确的格式
-    // 不要包含端口号，使用完整的路径，对URL进行编码
-    let origin = window.location.origin
-    // 如果是本地开发环境，使用配置中的回调域名
-    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      origin = 'https://login.ihire365.com' // 替换为您的实际生产域名
-    }
-
-    const callbackUrl = `${origin}/wechat/callback`
-
     // 构建微信授权URL - 使用VUE_APP_前缀的环境变量
     // 访问环境变量的方式在Vue CLI中是process.env
     const appId = process.env.VUE_APP_WECHAT_APP_ID
@@ -390,9 +380,11 @@ const generateWechatQrCode = async () => {
       ElMessage.error('微信登录配置错误，请联系管理员')
       return
     }
-    const appUrl = process.env.WECHAT_LOGIN_URL
+    const callbackUrl = process.env.VUE_APP_WECHAT_CALL_URL;
+    const appUrl = process.env.NODE_ENV === 'production'?'https://login.ihire365.com/web-manage-api/user/wechat/callback':`https://login.ihire365.com/web-manage-api/user/wechat/callback?localRedirect=${callbackUrl}`
+    // console.log('appUrl:', appUrl)
     // 生成完整的微信OAuth2授权URL
-    const redirectUri = encodeURIComponent(`https://login.ihire365.com/web/wechatCallback`)
+    const redirectUri = encodeURIComponent(appUrl)
     const wechatOAuthUrl = `https://open.weixin.qq.com/connect/qrconnect?appid=${appId}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_login&state=${state}&lang=zh_CN#wechat_redirect`
     // console.log('wechatOAuthUrl:', wechatOAuthUrl)
     // 创建iframe
@@ -443,6 +435,12 @@ const handleTabClick = (tab) => {
 }
 
 onMounted(() => {
+
+  const satoken = Cookies.get('satoken')
+  if (satoken) {
+    // 如果已经登录，则跳转到首页
+    router.push('/')
+  }
 
   // 如果默认标签页是微信登录，则生成二维码
   if (activeTab.value === 'wechat') {
