@@ -97,6 +97,7 @@ const clickListInfo = async (userInfo) => {
   try {
     let {data} = await markResumeBlindReadStatus([userInfo.id],true);
     userInfo.isRead = 1;
+    store.commit("updateIsReadStatus",userInfo.id)
   }catch (e){
     console.log(e);
     ElMessage.error('服务异常，请联系管理员！');
@@ -161,10 +162,18 @@ const search = async (page) => {
   store.commit('changeChannelConfDataSize',{key:channelKey,value:totalNum.value});
 }
 
+//清理列表
+const clearData = () => {
+  store.commit('setChannelData',{key:channelKey,value:[]})
+  store.commit('changeChannelConfDataSize',{key:channelKey,value:0});
+  currentPage.value = 1;
+  pageSize.value = 10;
+  totalNum.value =10;
+}
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,handleCurrentChange
+  search,handleCurrentChange,clearData
 });
 
 // 如果 props 的值可能会变化，使用 watch 来同步更新 localValue

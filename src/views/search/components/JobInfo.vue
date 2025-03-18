@@ -109,6 +109,7 @@ const clickListInfo = async (userInfo) => {
   try {
     let {data} = await markResumeBlindReadStatus([userInfo.id],true);
     userInfo.isRead = 1;
+    store.commit("updateIsReadStatus",userInfo.id)
   }catch (e){
     console.log(e);
     ElMessage.error('服务异常，请联系管理员！');

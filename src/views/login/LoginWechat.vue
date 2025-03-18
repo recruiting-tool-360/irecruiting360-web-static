@@ -30,10 +30,15 @@ onMounted(async () => {
   
   try {
     // 调用后端接口处理微信登录
-    const { code: resCode, msg, data } = await api.get('/user/wechat/login', {
-      params: { code, state }
-    })
-    
+    // const { code: resCode, msg, data } = await api.get('/user/wechat/login', {
+    //   params: { code, state }
+    // })
+    const params = new URLSearchParams()
+    params.append('code', code)
+    params.append('state', state)
+
+    const {code: resCode, msg, data} = await api.post('/user/wechat/login', params);
+
     if (resCode === 200) {
       if (data) {
         Cookies.set('satoken', data, { path: '/', expires: 30 })

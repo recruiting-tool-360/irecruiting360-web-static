@@ -529,7 +529,16 @@ onUnmounted(() => {
 // 添加复制功能
 const handleCopy = async (content) => {
   try {
-    await navigator.clipboard.writeText(content)
+    // 创建一个临时的元素，用来提取纯文本
+    const tempElement = document.createElement('div');
+    tempElement.innerHTML = content; // 设置为传入的内容（可能包含HTML）
+
+    // 获取纯文本
+    const textToCopy = tempElement.innerText || tempElement.textContent;
+
+    // 使用 Clipboard API 复制纯文本
+    await navigator.clipboard.writeText(textToCopy);
+    // await navigator.clipboard.writeText(content)
     ElMessage.success('复制成功')
   } catch (err) {
     console.error('复制失败:', err)

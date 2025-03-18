@@ -276,7 +276,10 @@
       const res = await deleteChat(item.id)
       if (res.success === 'success') {
         await loadChatList() // 重新加载列表
-        ElMessage.success('删除成功')
+        ElMessage.success('删除成功');
+        //清掉数据
+        clearSearchData();
+        handleNewChat();
       } else {
         ElMessage.error(res.errorMessage || '删除失败')
       }
