@@ -231,9 +231,9 @@ const generateWechatQrCode = async () => {
       ElMessage.error('微信登录配置错误，请联系管理员')
       return
     }
-    
+    const appUrl = process.env.VUE_APP_API_BASE_URL   
     // 生成完整的微信OAuth2授权URL
-    const redirectUri = encodeURIComponent(`https://login.ihire365.com/web-manage-api/wechat/callback`)
+    const redirectUri = encodeURIComponent(`${appUrl}/wechat/callback`)
     const wechatOAuthUrl = `https://open.weixin.qq.com/connect/qrconnect?appid=${appId}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_login&state=${state}&lang=zh_CN#wechat_redirect`
     
     // 创建iframe
