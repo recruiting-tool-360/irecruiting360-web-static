@@ -69,11 +69,15 @@
           <el-tab-pane label="微信登录" name="wechat">
             <div class="wechat-login">
               <div ref="qrCodeContainer" class="qr-code-container" id="qrCodeContainer">
-                <div class="loading-container" v-if="!qrCodeLoaded">
-                  <el-icon class="is-loading"><Loading /></el-icon>
-                  <p>正在加载微信登录...</p>
-                </div>
+<!--                <div class="loading-container" v-if="!qrCodeLoaded">-->
+<!--                  <el-icon class="is-loading"><Loading /></el-icon>-->
+<!--                  <p>正在加载微信登录...</p>-->
+<!--                </div>-->
                 <!-- iframe将被动态插入到这里 -->
+                <iframe
+                    :src="qrCodeUrl"
+                    style="width: 300px; height: 400px; border: none;"
+                ></iframe>
               </div>
             </div>
           </el-tab-pane>
@@ -118,6 +122,7 @@ const activeTab = ref('account')
 const showLoginForm = ref(true) // 控制显示登录还是注册表单
 const qrCodeContainer = ref(null)
 const qrCodeLoaded = ref(false)
+const qrCodeUrl = ref('');
 
 const loginForm = reactive({
   username: '',
@@ -404,16 +409,17 @@ const generateWechatQrCode = async () => {
     // qrCodeContainer.value.appendChild(iframe)
 
     // **使用 window.open 在新窗口打开**
-    const loginWindow = window.open(
-        wechatOAuthUrl,
-        '_blank',
-        'width=600,height=600,left=500,top=200'
-    );
-
-    if (!loginWindow) {
-      console.error('微信登录窗口被拦截，请允许弹出窗口');
-      ElMessage.error('请允许弹出窗口或手动点击登录');
-    }
+    // const loginWindow = window.open(
+    //     wechatOAuthUrl,
+    //     '_blank',
+    //     'width=600,height=600,left=500,top=200'
+    // );
+    //
+    // if (!loginWindow) {
+    //   console.error('微信登录窗口被拦截，请允许弹出窗口');
+    //   ElMessage.error('请允许弹出窗口或手动点击登录');
+    // }
+    qrCodeUrl.value = wechatOAuthUrl;
   } catch (error) {
     console.error('嵌入微信登录页面失败:', error)
     ElMessage.error('加载微信登录失败，请刷新页面重试')
@@ -436,11 +442,11 @@ const handleTabClick = (tab) => {
 
 onMounted(() => {
 
-  const satoken = Cookies.get('satoken')
-  if (satoken) {
-    // 如果已经登录，则跳转到首页
-    router.push('/')
-  }
+  // const satoken = Cookies.get('satoken')
+  // if (satoken) {
+  //   // 如果已经登录，则跳转到首页
+  //   router.push('/')
+  // }
 
   // 如果默认标签页是微信登录，则生成二维码
   if (activeTab.value === 'wechat') {
