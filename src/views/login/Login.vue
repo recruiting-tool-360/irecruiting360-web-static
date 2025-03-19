@@ -472,7 +472,9 @@ onMounted(() => {
     generateWechatQrCode();
   } else {
     const script = document.createElement("script");
-    script.src = "https://res.wx.qq.com/connect/zh_CN/htmledition/js/wxLogin.js";
+    // script.src = "https://res.wx.qq.com/connect/zh_CN/htmledition/js/wxLogin.js";
+    // script.src = "/js/wxLogin.js";
+    script.src = "https://login.ihire365.com/proxy/wxLogin.js/"
     script.onload = generateWechatQrCode;
     document.body.appendChild(script);
   }
