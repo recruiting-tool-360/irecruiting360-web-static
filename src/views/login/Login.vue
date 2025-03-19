@@ -74,10 +74,11 @@
 <!--                  <p>正在加载微信登录...</p>-->
 <!--                </div>-->
                 <!-- iframe将被动态插入到这里 -->
-                <iframe
-                    :src="qrCodeUrl"
-                    style="width: 300px; height: 400px; border: none;"
-                ></iframe>
+                <div id="login_container" style="margin-top:-55px;width: 300px; height: 370px;"></div>
+<!--                <iframe-->
+<!--                    :src="qrCodeUrl"-->
+<!--                    style="width: 300px; height: 400px; border: none;"-->
+<!--                ></iframe>-->
               </div>
             </div>
           </el-tab-pane>
@@ -123,6 +124,7 @@ const showLoginForm = ref(true) // 控制显示登录还是注册表单
 const qrCodeContainer = ref(null)
 const qrCodeLoaded = ref(false)
 const qrCodeUrl = ref('');
+const qrCodeContainerId = "login_container";
 
 const loginForm = reactive({
   username: '',
@@ -364,7 +366,46 @@ const generateWechatQrCode4 = async () => {
 };
 
 
+// 生成二维码
 const generateWechatQrCode = async () => {
+  try {
+    // 生成随机state用于防止CSRF攻击
+    const state = Math.random().toString(36).substring(2, 15)
+
+    // 构建微信授权URL - 使用VUE_APP_前缀的环境变量
+    // 访问环境变量的方式在Vue CLI中是process.env
+    const appId = process.env.VUE_APP_WECHAT_APP_ID
+
+    // 如果没有配置appId，显示错误信息
+    if (!appId) {
+      console.error('未配置微信AppID，请检查环境变量VUE_APP_WECHAT_APP_ID是否设置')
+      ElMessage.error('微信登录配置错误，请联系管理员')
+      return
+    }
+    const callbackUrl = process.env.VUE_APP_WECHAT_CALL_URL;
+    const appUrl = process.env.NODE_ENV === 'production'?'https://login.ihire365.com/web-manage-api/user/wechat/callback':`https://login.ihire365.com/web-manage-api/user/wechat/callback?localRedirect=${callbackUrl}`
+    // console.log('appUrl:', appUrl)
+    // 生成完整的微信OAuth2授权URL
+    const redirectUri = encodeURIComponent(appUrl)
+    const wechatOAuthUrl = `https://open.weixin.qq.com/connect/qrconnect?appid=${appId}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_login&state=${state}&lang=zh_CN#wechat_redirect`
+
+    // 直接使用 WxLogin 生成二维码
+    new WxLogin({
+      self_redirect: false,
+      id: qrCodeContainerId,
+      appid: appId,
+      scope: "snsapi_login",
+      redirect_uri: redirectUri,
+      state: state,
+      style: "white",
+      href: "",
+    });
+  } catch (error) {
+    console.error("微信二维码生成失败:", error);
+    ElMessage.error("加载微信登录失败，请刷新页面重试");
+  }
+};
+const generateWechatQrCode8 = async () => {
   try {
     // 确保容器已经渲染
     if (!qrCodeContainer.value) {
@@ -425,6 +466,19 @@ const generateWechatQrCode = async () => {
     ElMessage.error('加载微信登录失败，请刷新页面重试')
   }
 }
+
+onMounted(() => {
+  if (window.WxLogin) {
+    generateWechatQrCode();
+  } else {
+    const script = document.createElement("script");
+    script.src = "https://res.wx.qq.com/connect/zh_CN/htmledition/js/wxLogin.js";
+    script.onload = generateWechatQrCode;
+    document.body.appendChild(script);
+  }
+});
+
+
 
 // 监听标签页切换
 const handleTabChange = (tab) => {
