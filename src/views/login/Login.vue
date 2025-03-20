@@ -74,7 +74,30 @@
 <!--                  <p>正在加载微信登录...</p>-->
 <!--                </div>-->
                 <!-- iframe将被动态插入到这里 -->
-                <div id="login_container" style="margin-top:-55px;width: 300px; height: 370px;"></div>
+                <div>
+                  <div style="text-align: center;margin: 10px 0 13px 0;"><el-text style="font-weight: bold">微信扫码完成注册登录</el-text></div>
+                  <div style="position: relative">
+                    <div v-if="!wechatAgreement" style="position: absolute;top: 30px;left: 30px;z-index: 1;font-weight: bold;">
+
+                      <el-result
+                          icon="warning"
+                      >
+                        <template #title>
+                          <el-button color="#d99e45" @click="wechatAgreement=true"><el-text style="color: white">请阅读并接受服务协议</el-text></el-button>
+                        </template>
+                      </el-result>
+                    </div>
+                    <div style=";width: 300px;overflow: hidden;" :style="`filter:${wechatAgreement?'none':'blur(10px)'};opacity: ${wechatAgreement?'1':'0.3'};`">
+                      <div id="login_container" style=";width: 300px;height: 329px;overflow: hidden;margin-top: -47px;"></div>
+                    </div>
+                  </div>
+
+                  <div style="margin-top: 10px;margin-left: 10px">
+                    <el-checkbox v-model="wechatAgreement">
+                      已阅读并接受《<router-link to="/user-agreement" target="_blank">i快招用户服务协议</router-link>》
+                    </el-checkbox>
+                  </div>
+                </div>
 <!--                <iframe-->
 <!--                    :src="qrCodeUrl"-->
 <!--                    style="width: 300px; height: 400px; border: none;"-->
@@ -125,6 +148,7 @@ const qrCodeContainer = ref(null)
 const qrCodeLoaded = ref(false)
 const qrCodeUrl = ref('');
 const qrCodeContainerId = "login_container";
+const wechatAgreement = ref(false);
 
 const loginForm = reactive({
   username: '',
@@ -209,163 +233,6 @@ const switchToLogin = () => {
   }
 }
 
-// 生成微信登录二维码
-const generateWechatQrCode2 = async () => {
-  try {
-    // 确保容器已经渲染
-    // if (!qrCodeContainer.value) {
-    //   console.error('二维码容器未渲染')
-    //   return
-    // }
-    
-    // 生成随机state用于防止CSRF攻击
-    const state = Math.random().toString(36).substring(2, 15)
-    
-    // 获取当前域名作为回调域名 - 确保使用正确的格式
-    // 不要包含端口号，使用完整的路径，对URL进行编码
-    // let origin = window.location.origin
-    // // 如果是本地开发环境，使用配置中的回调域名
-    // if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-    //   origin = 'https://login.ihire365.com' // 替换为您的实际生产域名
-    // }
-    //
-    // const callbackUrl = `${origin}/wechat/callback`
-    
-    // 构建微信授权URL - 使用VUE_APP_前缀的环境变量
-    // 访问环境变量的方式在Vue CLI中是process.env
-    const appId = process.env.VUE_APP_WECHAT_APP_ID
-    
-    // 如果没有配置appId，显示错误信息
-    if (!appId) {
-      console.error('未配置微信AppID，请检查环境变量VUE_APP_WECHAT_APP_ID是否设置')
-      ElMessage.error('微信登录配置错误，请联系管理员')
-      return
-    }
-    const appUrl = process.env.VUE_APP_API_BASE_URL
-    // 生成完整的微信OAuth2授权URL
-    const redirectUri = encodeURIComponent(`${appUrl}/user/wechat/callback`)
-    const wechatOAuthUrl = `https://open.weixin.qq.com/connect/qrconnect?appid=${appId}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_login&state=${state}&lang=zh_CN#wechat_redirect`
-
-    // 创建iframe
-    const iframe = document.createElement('iframe')
-    iframe.src = wechatOAuthUrl
-    iframe.style.width = '300px'
-    iframe.style.height = '400px'
-    iframe.style.border = 'none'
-    iframe.style.overflow = 'hidden'
-
-    // 监听iframe加载完成
-    iframe.onload = () => {
-      qrCodeLoaded.value = true
-    }
-
-    // 添加iframe到二维码容器
-    qrCodeContainer.value.appendChild(iframe)
-
-    // **使用 window.open 在新窗口打开**
-    // const loginWindow = window.open(
-    //     wechatOAuthUrl,
-    //     '_blank',
-    //     'width=600,height=600,left=500,top=200'
-    // );
-    //
-    // if (!loginWindow) {
-    //   console.error('微信登录窗口被拦截，请允许弹出窗口');
-    //   ElMessage.error('请允许弹出窗口或手动点击登录');
-    // }
-
-    // **生成二维码并渲染到页面**
-    // const qrCanvas = await QRCode.toCanvas(wechatOAuthUrl);
-    //
-    // // 将二维码添加到容器
-    // const qrCodeContainer = document.getElementById('qrCodeContainer');
-    // qrCodeContainer.innerHTML = ''; // 清空
-    // qrCodeContainer.appendChild(qrCanvas);
-    //
-    // // **点击二维码打开授权页面**
-    // qrCanvas.addEventListener('click', () => {
-    //   window.open(wechatOAuthUrl, '_blank', 'width=600,height=600,left=500,top=200');
-    // });
-
-  } catch (error) {
-    console.error('嵌入微信登录页面失败:', error)
-    ElMessage.error('加载微信登录失败，请刷新页面重试')
-  }
-}
-
-const generateWechatQrCode4 = async () => {
-  try {
-    // 确保容器已经渲染
-    if (!qrCodeContainer.value) {
-      console.error('二维码容器未渲染');
-      return;
-    }
-
-    // 清空容器内容
-    qrCodeContainer.value.innerHTML = '';
-
-    // 生成随机state用于防止CSRF攻击
-    const state = Math.random().toString(36).substring(2, 15);
-
-    // 获取当前域名作为回调域名
-    let origin = window.location.origin;
-    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      origin = 'https://login.ihire365.com'; // 替换为您的实际生产域名
-    }
-
-    // 构建回调URL并编码
-    const redirectUri = encodeURIComponent(`https://login.ihire365.com/web/wechatCallback`);
-
-    // 获取AppID
-    const appId = process.env.VUE_APP_WECHAT_APP_ID;
-
-    if (!appId) {
-      console.error('未配置微信AppID，请检查环境变量VUE_APP_WECHAT_APP_ID是否设置');
-      ElMessage.error('微信登录配置错误，请联系管理员');
-      return;
-    }
-
-    // 动态加载微信登录JS
-    const wxLoginScript = document.createElement('script');
-    wxLoginScript.src = 'https://res.wx.qq.com/connect/zh_CN/htmledition/js/wxLogin.js';
-
-    wxLoginScript.onload = () => {
-      // 确保 wxLogin 在脚本加载后可用
-      try {
-        // 创建微信登录对象
-        const wxLogin = new WxLogin({
-          self_redirect: false,
-          id: qrCodeContainer.value.id, // 容器ID
-          appid: appId,
-          scope: 'snsapi_login',
-          redirect_uri: redirectUri,
-          state: state,
-          style: 'black', // 黑色文字
-          fast_login: 1 // 启用快速登录功能
-        });
-
-        qrCodeLoaded.value = true; // 设置二维码加载状态
-      } catch (error) {
-        console.error('初始化微信登录失败:', error);
-        ElMessage.error('微信登录初始化失败');
-      }
-    };
-
-    wxLoginScript.onerror = (error) => {
-      console.error('加载微信登录脚本失败:', error);
-      ElMessage.error('加载微信登录失败，请刷新页面重试');
-    };
-
-    // 添加脚本到页面
-    document.head.appendChild(wxLoginScript);
-
-  } catch (error) {
-    console.error('生成微信登录二维码失败:', error);
-    ElMessage.error('加载微信登录失败，请刷新页面重试');
-  }
-};
-
-
 // 生成二维码
 const generateWechatQrCode = async () => {
   try {
@@ -405,67 +272,6 @@ const generateWechatQrCode = async () => {
     ElMessage.error("加载微信登录失败，请刷新页面重试");
   }
 };
-const generateWechatQrCode8 = async () => {
-  try {
-    // 确保容器已经渲染
-    if (!qrCodeContainer.value) {
-      console.error('二维码容器未渲染')
-      return
-    }
-
-    // 生成随机state用于防止CSRF攻击
-    const state = Math.random().toString(36).substring(2, 15)
-
-    // 构建微信授权URL - 使用VUE_APP_前缀的环境变量
-    // 访问环境变量的方式在Vue CLI中是process.env
-    const appId = process.env.VUE_APP_WECHAT_APP_ID
-
-    // 如果没有配置appId，显示错误信息
-    if (!appId) {
-      console.error('未配置微信AppID，请检查环境变量VUE_APP_WECHAT_APP_ID是否设置')
-      ElMessage.error('微信登录配置错误，请联系管理员')
-      return
-    }
-    const callbackUrl = process.env.VUE_APP_WECHAT_CALL_URL;
-    const appUrl = process.env.NODE_ENV === 'production'?'https://login.ihire365.com/web-manage-api/user/wechat/callback':`https://login.ihire365.com/web-manage-api/user/wechat/callback?localRedirect=${callbackUrl}`
-    // console.log('appUrl:', appUrl)
-    // 生成完整的微信OAuth2授权URL
-    const redirectUri = encodeURIComponent(appUrl)
-    const wechatOAuthUrl = `https://open.weixin.qq.com/connect/qrconnect?appid=${appId}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_login&state=${state}&lang=zh_CN#wechat_redirect`
-    // console.log('wechatOAuthUrl:', wechatOAuthUrl)
-    // 创建iframe
-    // const iframe = document.createElement('iframe')
-    // iframe.src = wechatOAuthUrl
-    // iframe.style.width = '300px'
-    // iframe.style.height = '400px'
-    // iframe.style.border = 'none'
-    // iframe.style.overflow = 'hidden'
-    //
-    // // 监听iframe加载完成
-    // iframe.onload = () => {
-    //   qrCodeLoaded.value = true
-    // }
-    //
-    // // 添加iframe到二维码容器
-    // qrCodeContainer.value.appendChild(iframe)
-
-    // **使用 window.open 在新窗口打开**
-    // const loginWindow = window.open(
-    //     wechatOAuthUrl,
-    //     '_blank',
-    //     'width=600,height=600,left=500,top=200'
-    // );
-    //
-    // if (!loginWindow) {
-    //   console.error('微信登录窗口被拦截，请允许弹出窗口');
-    //   ElMessage.error('请允许弹出窗口或手动点击登录');
-    // }
-    qrCodeUrl.value = wechatOAuthUrl;
-  } catch (error) {
-    console.error('嵌入微信登录页面失败:', error)
-    ElMessage.error('加载微信登录失败，请刷新页面重试')
-  }
-}
 
 onMounted(() => {
   if (window.WxLogin) {
@@ -695,7 +501,7 @@ onMounted(() => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 20px 0;
+    //padding: 20px 0;
     min-height: 250px;
 
     .qr-code-container, .loading-container {
