@@ -80,10 +80,10 @@
                     <div v-if="!wechatAgreement" style="position: absolute;top: 30px;left: 30px;z-index: 1;font-weight: bold;">
 
                       <el-result
-                          icon="warning"
+                          icon="info"
                       >
                         <template #title>
-                          <el-button color="#d99e45" @click="wechatAgreement=true"><el-text style="color: white">请阅读并接受服务协议</el-text></el-button>
+                          <el-button color="#919399" @click="wechatAgreement=true"><el-text style="color: white">请阅读并接受服务协议</el-text></el-button>
                         </template>
                       </el-result>
                     </div>
