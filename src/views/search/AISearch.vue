@@ -672,6 +672,7 @@ const searchJobListFn = async () => {
 const searchJobList = async () => {
   let searchConditionRequest = getSearchConditionRequest();
   searchConditionRequest.userId=userInfo.value.id;
+  searchConditionRequest.chatId=chatId.value;
   //搜索条件
   let searchRequestData;
   try {
