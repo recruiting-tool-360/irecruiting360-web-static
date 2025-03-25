@@ -241,9 +241,10 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
         const queryString = `securityId=${jobHunterInfo.securityId}&segs=${jobHunterInfo.lidTag}&lid=${jobHunterInfo.lid}`;
         const outId = saveJobListRequest.outId;
         const channel = channelConfig.value.desc;
+        const searchId = searchConditionId.value;
         const resumeBlindId = match.id;
         const type =searchStateAiParamStatus.value;
-        const taskRequest = {queryString,outId,resumeBlindId,type,channel};
+        const taskRequest = {queryString,outId,resumeBlindId,type,channel,searchId};
         // boosQueueManager.enqueue(taskRequest);
         if(index < getSynchronizationDetailsContValue()){
           boosQueueManager.enqueue(taskRequest);

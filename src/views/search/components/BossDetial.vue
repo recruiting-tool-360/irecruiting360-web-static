@@ -135,6 +135,7 @@
 
 <script setup>
 import { computed, ref, defineExpose } from "vue";
+import {useStore} from "vuex";
 import { 
   Suitcase,
   Document,
@@ -150,6 +151,9 @@ import { pluginBossResultProcessor } from "@/components/verifyes/PluginProcessor
 import { saveResumeDetail } from "@/api/jobList/JobListApi";
 import { getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls } from "@/components/PluginRequestManager";
 import qs from "qs";
+
+//store
+const store = useStore();
 
 const props = defineProps({
   resumeId: String,
@@ -174,6 +178,8 @@ const geekResumeId = computed(()=>props.resumeId);
 const geekListInfo = ref({});
 //查看更多信息部分按钮动画控制开关
 const loadingUserInfoSwitch = ref(false);
+//搜索id
+const searchConditionId = computed(() => store.getters.getSearchConditionId);
 //ai推荐
 const searchStateAIParam = computed(()=>props.searchStateCriteria);
 
@@ -272,7 +278,9 @@ const childGeekInfoMethod = async (cardInfo) => {
         const channel = "boss直聘";
         const type = (searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0) ? "JDMATCH" : "SCORE";
         const content = geekDetailINfo.value;
-        const detailRequest = {content, outId, resumeBlindId, type, channel};
+        const searchId = searchConditionId.value;
+        const detailRequest = {content, outId, resumeBlindId, type, channel,searchId};
+        console.log("参数是：", detailRequest)
         try {
           await saveResumeDetail(detailRequest);
         } catch (e) {

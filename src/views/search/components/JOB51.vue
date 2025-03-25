@@ -224,9 +224,10 @@ const job51DetailRequest = async (listInfo) => {
   const queryString = requestParams.request;
   const channel = channelConfig.value.desc;
   const outId = listInfo.outId;
+  const searchId = searchConditionId.value;
   const resumeBlindId = listInfo.id;
   const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
-  const taskRequest = {queryString,outId,resumeBlindId,type,channel};
+  const taskRequest = {queryString,outId,resumeBlindId,type,channel,searchId};
   console.log(taskRequest)
   await exeJob51Info(taskRequest);
 }
@@ -350,8 +351,9 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
         const channel = channelConfig.value.desc;
         const outId = saveJobListRequest.outId;
         const resumeBlindId = match.id;
+        const searchId = searchConditionId.value;
         const type =searchStateAiParamStatus.value;
-        const taskRequest = {queryString,outId,resumeBlindId,type,channel};
+        const taskRequest = {queryString,outId,resumeBlindId,type,channel,searchId};
         if(index < getSynchronizationDetailsContValue()){
           job51QueueManager.enqueue(taskRequest);
         }
