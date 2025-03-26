@@ -148,7 +148,7 @@ const qrCodeContainer = ref(null)
 const qrCodeLoaded = ref(false)
 const qrCodeUrl = ref('');
 const qrCodeContainerId = "login_container";
-const wechatAgreement = ref(false);
+const wechatAgreement = ref(true);
 
 const loginForm = reactive({
   username: '',
