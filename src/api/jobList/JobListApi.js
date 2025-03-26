@@ -76,5 +76,13 @@ export const getScoreListDetailed = (resumeBlindIds) => {
     });
 }
 
+export const getScoreListDetailedPlus = (data) => {
+    return request({
+        method:'POST',
+        url:'/resume/getScoreListDetailedPlus',
+        data:data
+    });
+}
+
 
 

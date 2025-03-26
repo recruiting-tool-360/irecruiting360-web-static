@@ -159,7 +159,7 @@
 <script setup>
 import {onMounted,computed,ref,watch,defineExpose} from "vue";
 import {useStore} from "vuex";
-import {userCollectResume, getScoreListDetailed} from "@/api/jobList/JobListApi";
+import {userCollectResume, getScoreListDetailed, getScoreListDetailedPlus} from "@/api/jobList/JobListApi";
 import {ElButton, ElMessage} from "element-plus";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 import {ArrowRight, SwitchButton} from "@element-plus/icons-vue";
@@ -275,8 +275,10 @@ const standardDimensions = [
 const showAIEvaluation = async (geek) => {
   try {
     // 调用API获取评估数据
-    const { data } = await getScoreListDetailed([geek.id]); // 传递geekList.id作为参数
-    
+    const { data } = await getScoreListDetailedPlus({resumeBlindIds:[geek.id],channel:channelKey,searchId:searchConditionId.value}); // 传递geekList.id作为参数
+
+    // const { data } = await getScoreListDetailedPlus({resumeBlindIds:["1904739754998632448"],channel:channelKey,searchId:"1904740386996477953"}); // 传递geekList.id作为参数
+
     if (data && data.length > 0) {
       const evaluationData = data[0];
       
@@ -351,7 +353,7 @@ const getDimensionItems = (geek) => {
         name: item.name,
         requirement: item.requirement,
         candidate: item.candidateFallback || '未知',
-        match: item.matchResult
+        match: item.matchResultStr
       }));
     });
     

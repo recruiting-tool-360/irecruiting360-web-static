@@ -475,7 +475,7 @@ const fetchPendingScores = async () => {
     ).map(item => item.id);
 
     // 调用API获取评分
-    const { data } = await queryScoreList({resumeBlindIds:ids,channel:channelKey});
+    const { data } = await queryScoreList({resumeBlindIds:ids,channel:channelKey,searchId:searchConditionId.value});
 
     if(data && data.length > 0) {
 
