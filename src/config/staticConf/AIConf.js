@@ -4,5 +4,5 @@ export const getSortComparisonValue = () => {
 }
 
 export const getSynchronizationDetailsContValue = () => {
-  return 1;
+  return 50;
 }
