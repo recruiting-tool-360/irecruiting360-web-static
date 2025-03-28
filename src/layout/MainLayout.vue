@@ -34,7 +34,9 @@ import Header from "@/layout/header/Header.vue";
 import LeftHeader from "@/layout/header/LeftHeader3.vue";
 import AISearch from "@/views/search/AISearch.vue"
 import SseManager from "@/components/sse/SseManager.vue";
+import {useStore} from "vuex";
 
+const store = useStore();
 // SSE管理器引用
 const sseManagerRef = ref(null);
 
@@ -76,6 +78,9 @@ const chatOnSearch = (data,searchSwitch) => {
 
 // 页面加载完成时触发
 onMounted(() => {
+  //初始化ref
+  store.commit('changeAiSearchRef', aiSearchRef.value);
+
   // 移除对window.load事件的依赖，直接在onMounted中展开侧边栏
   isShrunk.value = false;
   

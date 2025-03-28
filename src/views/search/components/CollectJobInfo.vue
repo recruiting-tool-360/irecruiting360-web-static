@@ -83,17 +83,20 @@ const chatId = computed(() => store.getters.getLatestChatId);
 //   handleCurrentChange(1);
 // });
 
-const clickListInfo = async (userInfo) => {
+const clickListInfo = async (userInfo,asyncData = true) => {
   let clickChannel = allThirdPartyChannelConfig.value.find((item)=>item.desc===userInfo.channel);
   if(clickChannel){
     if(clickChannel.key==="BOSS"){
       geekInfoDialog.value = true;
-      bossDetialRef.value?.childGeekInfoMethod(userInfo);
+      bossDetialRef.value?.childGeekInfoMethod(userInfo,asyncData);
     }else{
-      clickChannel.cardInfoRef.clickListInfo(userInfo);
+      clickChannel.cardInfoRef.clickListInfo(userInfo,asyncData);
     }
   }
   //设置为已读
+  if(!asyncData){
+    return;
+  }
   try {
     let {data} = await markResumeBlindReadStatus([userInfo.id],true);
     userInfo.isRead = 1;

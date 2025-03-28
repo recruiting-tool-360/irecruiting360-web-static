@@ -132,12 +132,15 @@ const boosUserStatus = async () => {
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
-const clickListInfo = async (listInfo) => {
+const clickListInfo = async (listInfo,asyncData = true) => {
   resumeId.value = listInfo.id;
   geekInfoDialog.value = true;
   console.log("searchStateAIParam:",searchStateAIParam)
-  bossDetialRef.value?.childGeekInfoMethod(listInfo);
+  bossDetialRef.value?.childGeekInfoMethod(listInfo,asyncData);
   //设置为已读
+  if(!asyncData){
+    return;
+  }
   try {
     let {data} = await markResumeBlindReadStatus([listInfo.id],true);
     listInfo.isRead = 1;
@@ -254,6 +257,22 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
   }
   //查询第一页数据
   await search(1);
+}
+
+//查询渠道列表
+const searchChannelData = async (conditionData, channelPage = 1, page = 1) => {
+  let responseJobListData;
+  try {
+    responseJobListData = await boosJobList(conditionData,channelPage);
+  }catch (e){
+    console.log(e);
+    return
+  }
+  if(!pluginBossResultProcessor(responseJobListData)){
+    ElMessage.error('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
+    return;
+  }
+  return responseJobListData.responseData.data.zpData.geeks;
 }
 
 //查询列表信息
@@ -429,7 +448,7 @@ onMounted(() => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore,clearData
+  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore,clearData,searchChannelData
 });
 
 //ai排序逻辑

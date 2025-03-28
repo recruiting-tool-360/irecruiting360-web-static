@@ -251,7 +251,7 @@ const i360Request = async (action, emptyRequestTemplate, timeout = 3000) => {
 }
 
 // 定义子组件的方法
-const childGeekInfoMethod = async (cardInfo) => {
+const childGeekInfoMethod = async (cardInfo,asyncData = true) => {
   if (cardInfo) {
     geekListInfo.value = cardInfo;
 
@@ -273,19 +273,22 @@ const childGeekInfoMethod = async (cardInfo) => {
         geekDetailINfo.value.newLid = requestParams.request.lid;
         loadingUserInfoSwitch.value = false;
         //数据发给后端
-        const outId = geekListInfo.value.outId;
-        const resumeBlindId = geekListInfo.value.id;
-        const channel = "boss直聘";
-        const type = (searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0) ? "JDMATCH" : "SCORE";
-        const content = geekDetailINfo.value;
-        const searchId = searchConditionId.value;
-        const detailRequest = {content, outId, resumeBlindId, type, channel,searchId};
-        console.log("参数是：", detailRequest)
-        try {
-          await saveResumeDetail(detailRequest);
-        } catch (e) {
-          ElMessage.error('后台服务异常导致系统无法分析本渠道信息！请联系管理员！')
+        if(asyncData){
+          const outId = geekListInfo.value.outId;
+          const resumeBlindId = geekListInfo.value.id;
+          const channel = "boss直聘";
+          const type = (searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0) ? "JDMATCH" : "SCORE";
+          const content = geekDetailINfo.value;
+          const searchId = searchConditionId.value;
+          const detailRequest = {content, outId, resumeBlindId, type, channel,searchId};
+          console.log("参数是：", detailRequest)
+          try {
+            await saveResumeDetail(detailRequest);
+          } catch (e) {
+            ElMessage.error('后台服务异常导致系统无法分析本渠道信息！请联系管理员！')
+          }
         }
+
       }
     } catch (e) {
       ElMessage.error('服务异常，请联系管理员！');

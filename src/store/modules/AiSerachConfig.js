@@ -22,7 +22,8 @@ export default {
             Collect:[]
         },
         searchStateConfig:createSearchState(),
-        unreadCheckBoxV:false
+        unreadCheckBoxV:false,
+        aiSearchRef:null,
     }),
     mutations: {
         changeLeftLoadingSwitch(state,payload) {
@@ -30,6 +31,9 @@ export default {
         },
         changeSearchChannelConditionRequestData(state,payload) {
             state.searchConditionChannelRequestData = payload;
+        },
+        changeAiSearchRef(state,payload) {
+            state.aiSearchRef = payload;
         },
         setSearchChannelConditionConfigData(state, {key, config}) {
             if (!state.searchConditionChannelRequestData) {
@@ -231,6 +235,9 @@ export default {
         },
         getUnreadCheckBoxV(state) {
             return state.unreadCheckBoxV;
+        },
+        getAiSearchRefValue(state) {
+            return state.aiSearchRef;
         },
     },
 };

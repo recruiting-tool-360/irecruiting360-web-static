@@ -176,10 +176,13 @@ const job51UserStatus = async () => {
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
-const clickListInfo = async (listInfo) => {
+const clickListInfo = async (listInfo,asyncData = true) => {
   resumeId.value = listInfo.id;
-  openDetail(listInfo);
+  openDetail(listInfo,asyncData);
   //设置为已读
+  if(!asyncData){
+    return;
+  }
   try {
     let {data} = await markResumeBlindReadStatus([listInfo.id],true);
     listInfo.isRead = 1;
@@ -190,7 +193,7 @@ const clickListInfo = async (listInfo) => {
   }
 }
 
-const openDetail = (listInfo)=>{
+const openDetail = (listInfo,asyncData = true)=>{
   if(!listInfo.originalResumeUrlInfo){
     console.log("cardInfo.originalResumeUrlInfo is null")
     ElMessage.error('服务异常，请联系管理员！');
@@ -216,7 +219,10 @@ const openDetail = (listInfo)=>{
   window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
 
   //同步详细简历
-  job51DetailRequest(listInfo);
+  if(asyncData){
+    job51DetailRequest(listInfo);
+  }
+
 }
 
 const job51DetailRequest = async (listInfo) => {
@@ -284,7 +290,7 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
   let channelSearchConfig =channelRequestInfo.config.find((item)=>item.channelKey===channelKey);
   channelSearchCondition = JSON.parse(JSON.stringify(channelSearchCondition));
   channelSearchCondition.conditionData.page_index = channelPage;
-  console.log("sgaggag:",channelSearchCondition)
+  // console.log("sgaggag:",channelSearchCondition)
   let responseJobListData;
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData);
@@ -301,7 +307,7 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
   channelSearchConfig.channelCountSize = channelSearchCondition.conditionData.page_size;
   // 更新channelSearchConfig到Vuex
   store.commit('setSearchChannelConditionConfigData', {key:channelKey, config:channelSearchConfig});
-  console.log("数据51：",responseJobListData,responseJobListData.responseData.data.data.total,channelSearchCondition.conditionData)
+  // console.log("数据51：",responseJobListData,responseJobListData.responseData.data.data.total,channelSearchCondition.conditionData)
   //列表存到后端
   const channelList = responseJobListData.responseData.data.data.list;
   //包装数据
@@ -362,6 +368,21 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
   }
   //查询第一页数据
   await search(1);
+}
+
+const searchChannelData = async (conditionData, channelPage = 1, page = 1) => {
+  let responseJobListData;
+  try {
+    responseJobListData = await searchJobList(conditionData);
+  }catch (e){
+    console.log(e);
+    return;
+  }
+  if(!pluginJob51ResultProcessor(responseJobListData)){
+    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.msg))
+    return;
+  }
+  return responseJobListData.responseData.data.data.list;
 }
 
 //查询列表信息
@@ -574,7 +595,7 @@ onMounted(() => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore,clearData
+  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore,clearData,searchChannelData
 });
 
 //ai排序逻辑

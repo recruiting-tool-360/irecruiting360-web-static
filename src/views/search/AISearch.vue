@@ -398,7 +398,7 @@
       <!--  插件安装提示    -->
       <PluginInfo ref="pluginInfoRef"></PluginInfo>
       <!--   保存搜索条件   -->
-      <SearchCondition v-model:dialogVisible="searchConditionDialog" :change-close-status="()=>searchConditionDialog=false" :on-condition-request="getSearchConditionRequest"></SearchCondition>
+<!--      <SearchCondition v-model:dialogVisible="searchConditionDialog" :change-close-status="()=>searchConditionDialog=false" :on-condition-request="getSearchConditionRequest"></SearchCondition>-->
       <!--  删除ai推荐  -->
       <DialogTemplate v-if="deleteAIConditionFlag" v-model:dialogVisible="deleteAIConditionFlag" :change-close-status="()=>deleteAIConditionFlag=false" :on-confirm="deleteALlAICondition" :context="'确认删除AI推荐搜索条件!'"></DialogTemplate>
     </div>
@@ -671,8 +671,7 @@ const searchJobListFn = async () => {
  */
 const searchJobList = async () => {
   let searchConditionRequest = getSearchConditionRequest();
-  searchConditionRequest.userId=userInfo.value.id;
-  searchConditionRequest.chatId=chatId.value;
+
   //搜索条件
   let searchRequestData;
   try {
@@ -770,24 +769,28 @@ const pageSearchChannel = async (channel) => {
 }
 
 //获取搜索条件
-const getSearchConditionRequest = () => {
+const getSearchConditionRequest = (data) => {
+  const searchDto = data==null?searchState.value:data;
   //处理工作年限边界
-  const workElSliderValue = _.cloneDeep(searchState.value.workElSliderValue);
+  const workElSliderValue = _.cloneDeep(searchDto.workElSliderValue);
   workElSliderValue[0] = (workElSliderValue[0] <=0||workElSliderValue[0] >10) ? workElSliderValue[0] = -1 : workElSliderValue[0];
   workElSliderValue[1] = (workElSliderValue[1] <=0||workElSliderValue[1] >10) ? workElSliderValue[1] = -1 : workElSliderValue[1];
   //处理年龄边界
-  const ageElSliderValue = _.cloneDeep(searchState.value.ageElSliderValue);
+  const ageElSliderValue = _.cloneDeep(searchDto.ageElSliderValue);
   ageElSliderValue[0] = (ageElSliderValue[0] <=15||ageElSliderValue[0] >50) ? ageElSliderValue[0] = -1 : ageElSliderValue[0];
   ageElSliderValue[1] = (ageElSliderValue[1] <=15||ageElSliderValue[1] >50) ? ageElSliderValue[1] = -1 : ageElSliderValue[1];
   //用户id
   // searchState.value.userId=1;
   //处理其他参数
-  let searchConditionRequest = convertSearchConditionRequest(searchState.value);
+  let searchConditionRequest = convertSearchConditionRequest(searchDto);
   searchConditionRequest.searchChannels = allThirdPartyChannelConfig.value.filter((channel) => channel.disable&&channel.login).map((item) => (item.name))||[];
   searchConditionRequest.experienceFrom = workElSliderValue[0];
   searchConditionRequest.experienceTo = workElSliderValue[1];
   searchConditionRequest.ageFrom = ageElSliderValue[0];
   searchConditionRequest.ageTo = ageElSliderValue[1];
+  //用户信息
+  searchConditionRequest.userId=userInfo.value.id;
+  searchConditionRequest.chatId=chatId.value;
   return searchConditionRequest;
 }
 
@@ -861,6 +864,28 @@ function replaceSearchConditionRequest(data, triggerSearch = false) {
   // } catch (e) {
   //   console.log(e)
   // }
+  // let convertSearchStateVal = convertSearchState(data);
+  // //处理工作年限边界
+  // const workElSliderValue = convertSearchStateVal.workElSliderValue;
+  // workElSliderValue[0] = (workElSliderValue[0] <= 0) ? 0 : workElSliderValue[0];
+  // workElSliderValue[1] = (workElSliderValue[1] <= 0) ? 11 : workElSliderValue[1];
+  // convertSearchStateVal.workElSliderValue = workElSliderValue;
+  // //处理年龄边界
+  // const ageElSliderValue = convertSearchStateVal.ageElSliderValue;
+  // ageElSliderValue[0] = (ageElSliderValue[0] <= 15) ? 15 : ageElSliderValue[0];
+  // ageElSliderValue[1] = (ageElSliderValue[1] <= 15) ? 51 : ageElSliderValue[1];
+  // convertSearchStateVal.ageElSliderValue = ageElSliderValue;
+
+  searchState.value = getSearchStateValues(data);
+  searchAreaLoadingSwitch.value = false;
+
+  // 如果triggerSearch为true，自动触发搜索
+  if (triggerSearch) {
+    searchJobListFn();
+  }
+}
+
+const getSearchStateValues = (data) => {
   let convertSearchStateVal = convertSearchState(data);
   //处理工作年限边界
   const workElSliderValue = convertSearchStateVal.workElSliderValue;
@@ -872,43 +897,8 @@ function replaceSearchConditionRequest(data, triggerSearch = false) {
   ageElSliderValue[0] = (ageElSliderValue[0] <= 15) ? 15 : ageElSliderValue[0];
   ageElSliderValue[1] = (ageElSliderValue[1] <= 15) ? 51 : ageElSliderValue[1];
   convertSearchStateVal.ageElSliderValue = ageElSliderValue;
-  searchState.value = convertSearchStateVal;
-  searchAreaLoadingSwitch.value = false;
-
-  // 如果triggerSearch为true，自动触发搜索
-  if (triggerSearch) {
-    searchJobListFn();
-  }
+  return convertSearchStateVal;
 }
-
-//监听搜索体
-// watch(() => searchConditionRequestData.value, async (newValue) => {
-//   // console.log(newValue)
-//   if(newValue){
-//     searchAreaLoadingSwitch.value = true;
-//     try {
-//       // 模拟数据加载
-//       await new Promise((resolve) => setTimeout(resolve, 150));
-//     } catch (e){
-//       console.log(e)
-//     }
-//     let convertSearchStateVal = convertSearchState(newValue);
-//     //处理工作年限边界
-//     const workElSliderValue = convertSearchStateVal.workElSliderValue;
-//     workElSliderValue[0] = (workElSliderValue[0] <=0) ? 0 : workElSliderValue[0];
-//     workElSliderValue[1] = (workElSliderValue[1] <=0) ? 11 : workElSliderValue[1];
-//     convertSearchStateVal.workElSliderValue = workElSliderValue;
-//     //处理年龄边界
-//     const ageElSliderValue = convertSearchStateVal.ageElSliderValue;
-//     ageElSliderValue[0] = (ageElSliderValue[0] <=15) ? 15: ageElSliderValue[0];
-//     ageElSliderValue[1] = (ageElSliderValue[1] <=15) ? 51: ageElSliderValue[1];
-//     convertSearchStateVal.ageElSliderValue = ageElSliderValue;
-//     searchState.value = convertSearchStateVal;
-//     searchAreaLoadingSwitch.value = false;
-//     store.commit('changeSearchConditionRequestData',null);
-//     await searchJobListFn();
-//   }
-// });
 
 const openChat = (chatId = '') => {
   console.log('Opening chat with ID:', chatId)
@@ -929,7 +919,8 @@ const refreshJobInfoName = () => {
 defineExpose({
   aiChatDialogFlag,
   openChat,
-  replaceSearchConditionRequest,clearALlChannelDataAndCondition,refreshJobInfoName
+  replaceSearchConditionRequest,clearALlChannelDataAndCondition,refreshJobInfoName,
+  getSearchStateValues,getSearchConditionRequest
 })
 
 // 添加菜单宽度的计算属性

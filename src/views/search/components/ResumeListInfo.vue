@@ -109,7 +109,12 @@
           </el-button>
         </div>
         <div>
-<!--          <el-button style="background-color: #f0f6ff;color: #1F7CFF" class="highestDegreeBtm" size="small" disabled round>简要描述</el-button>-->
+          <!--    其他渠道查找      -->
+          <el-tooltip effect="dark"
+                      content="其他渠道查找"
+                      placement="bottom">
+            <el-button style="background-color: rgb(84 140 254);color: #ffffff" class="highestDegreeBtm" size="small" color="rgb(84 140 254)" round @click.stop="handleSearchChannel(geekList)">查找相似的人</el-button>
+          </el-tooltip>
         </div>
 
       </el-row>
@@ -153,7 +158,13 @@
       :dimension-items="currentEvaluation ? getDimensionItems(currentEvaluation) : {}"
       @update:visible="(val) => showAIDialog = val" :on-user-info="clickListInfo">
     </AIEvaluationCard>
-  </div>
+<!--    查询相似的人-->
+<SearchChannelDialog ref="searchChannelDialogRef"
+                     v-model:visible="showSearchChannelDialog"
+                     @close="showSearchChannelDialog = false"
+                     :collect-click="handleCollectClick"
+                     :list-info-click="clickListInfoNoAsync"/>
+</div>
 </template>
 
 <script setup>
@@ -164,6 +175,9 @@ import {ElButton, ElMessage} from "element-plus";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
 import {ArrowRight, SwitchButton} from "@element-plus/icons-vue";
 import AIEvaluationCard from './AIEvaluationCard.vue';
+import {generateSearchCondition} from "@/api/research/ResearchApi";
+import {saveCondition} from "@/api/search/SearchApi";
+import SearchChannelDialog from '@/views/search/components/SearchChannelDialog.vue';
 
 //store
 const store = useStore();
@@ -177,12 +191,16 @@ const props = defineProps({
     default: () => ({})
   }
 });
+const searchChannelDialogRef = ref(null);
 const jobALlData = computed(()=>props.listData);
 const channelKey = "Collect";
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
 const sortComparisonValue = getSortComparisonValue();
 const clickListInfo = (value) => {
-  props.clickListInfoFn(value);
+  props.clickListInfoFn(value,true);
+}
+const clickListInfoNoAsync = (value) => {
+  props.clickListInfoFn(value,false);
 }
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);
@@ -192,10 +210,16 @@ const searchStateAiParamStatus = computed(() => {return (searchStateAIParam.valu
 const searchStateAiParamStatusFlag = computed(() => searchStateAiParamStatus.value === "JDMATCH");
 //当前chat id
 const chatId = computed(() => store.getters.getLatestChatId);
+//搜索id
+const searchConditionId = computed(() => store.getters.getSearchConditionId);
+//aiSearchRef
+const aiSearchRef = computed(() => store.getters.getAiSearchRefValue);
 
 // AI评估相关
 const showAIDialog = ref(false);
 const currentEvaluation = ref(null);
+//类似的人才loading
+const showSearchChannelDialog = ref(false);
 
 // 定义维度映射
 const dimensionMap = {
@@ -411,6 +435,25 @@ const handleCollectClick = async (listInfo, value) => {
     ElMessage.error('服务异常，请联系管理员！');
   }
 };
+
+const handleSearchChannel = (geekList) => {
+  showSearchChannelDialog.value = true;
+  searchChannelData(geekList);
+};
+
+//查找相似人
+const searchChannelData = async (geek) => {
+  try {
+    let {data:serachConditionRequest} = await generateSearchCondition(geek.id,searchConditionId.value);
+    let searchStateValues = aiSearchRef.value.getSearchStateValues(serachConditionRequest);
+    let searchConditionRequest = aiSearchRef.value.getSearchConditionRequest(searchStateValues);
+    const {data:channelSearchCondition} = await saveCondition(searchConditionRequest);
+    console.log(channelSearchCondition)
+    await searchChannelDialogRef.value.handleSearch(channelSearchCondition);
+  }catch (e){
+    console.log(e);
+  }
+}
 </script>
 
 <style scoped lang="scss">
