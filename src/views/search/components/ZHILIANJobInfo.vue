@@ -153,10 +153,13 @@ const zhiLianUserStatus = async () => {
   return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
-const clickListInfo = async (listInfo) => {
+const clickListInfo = async (listInfo,asyncData = true) => {
   resumeId.value = listInfo.id;
-  openDetail(listInfo);
+  openDetail(listInfo,asyncData);
   //设置为已读
+  if(!asyncData){
+    return;
+  }
   try {
     let {data} = await markResumeBlindReadStatus([listInfo.id],true);
     listInfo.isRead = 1;
@@ -167,7 +170,7 @@ const clickListInfo = async (listInfo) => {
   }
 }
 
-const openDetail = (listInfo)=>{
+const openDetail = (listInfo,asyncData = true)=>{
   if(!listInfo.originalResumeUrlInfo){
     console.log("cardInfo.originalResumeUrlInfo is null")
     ElMessage.error('服务异常，请联系管理员！');
@@ -190,7 +193,10 @@ const openDetail = (listInfo)=>{
   window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
 
   //同步详细简历
-  zhiLianDetailRequest(listInfo);
+  if(asyncData){
+    zhiLianDetailRequest(listInfo);
+  }
+  // zhiLianDetailRequest(listInfo);
 }
 
 const zhiLianDetailRequest = async (listInfo) => {
@@ -331,6 +337,21 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
   }
   //查询第一页数据
   await search(1);
+}
+
+const searchChannelData = async (conditionData, channelPage = 1, page = 1) => {
+  let responseJobListData;
+  try {
+    responseJobListData = await searchJobList(conditionData,channelPage);
+  }catch (e){
+    console.log(e);
+    return
+  }
+  if(!pluginZhiLianResultProcessor(responseJobListData)){
+    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.message))
+    return;
+  }
+  return responseJobListData.responseData.data.data.list;
 }
 
 //查询列表信息
@@ -537,7 +558,7 @@ onMounted(() => {
 
 // 使用 expose 暴露方法
 defineExpose({
-  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore,clearData
+  search,userLoginStatus,channelSearch,handleCurrentChange,clickListInfo,updateScore,clearData,searchChannelData
 });
 
 //ai排序逻辑

@@ -93,18 +93,20 @@ const maxRefreshCount = ref(10);
 const scoreUpdateTimerCount = ref(0);
 const refreshTime = ref(15000);
 
-const clickListInfo = async (userInfo) => {
+const clickListInfo = async (userInfo,asyncData = true) => {
 
   let clickChannel = allThirdPartyChannelConfig.value.find((item)=>item.desc===userInfo.channel);
   if(clickChannel){
     if(clickChannel.key==="BOSS"){
       geekInfoDialog.value = true;
-      bossDetialRef.value?.childGeekInfoMethod(userInfo);
+      bossDetialRef.value?.childGeekInfoMethod(userInfo,asyncData);
     }else{
-      clickChannel.cardInfoRef.clickListInfo(userInfo);
+      clickChannel.cardInfoRef.clickListInfo(userInfo,asyncData);
     }
   }
-
+  if(!asyncData){
+    return;
+  }
   //设置为已读
   try {
     let {data} = await markResumeBlindReadStatus([userInfo.id],true);
