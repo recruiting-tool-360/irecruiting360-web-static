@@ -23,6 +23,14 @@
 <!--              <el-text class="el-text-ellipsis" style="margin-left: 5px;color: rgb(96 98 102)">{{geekList.status?geekList.status:'未知'}}</el-text>-->
             </el-tooltip>
           </el-button>
+          <!--    其他渠道查找      -->
+          <el-tooltip effect="dark"
+                      content="其他渠道查找相似简历"
+                      placement="bottom">
+            <el-button style="background-color: #8578ff;color: #ffffff" class="highestDegreeBtm" size="small" color="#8578ff" round @click.stop="handleSearchChannel(geekList)">
+              <el-icon><Search /></el-icon>&nbsp;
+              查找相似的简历</el-button>
+          </el-tooltip>
         </el-col>
         <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="10">
           <el-button v-if="geekList.channel==='boss直聘'" text disabled size="small">
@@ -108,14 +116,14 @@
 
           </el-button>
         </div>
-        <div>
-          <!--    其他渠道查找      -->
-          <el-tooltip effect="dark"
-                      content="其他渠道查找"
-                      placement="bottom">
-            <el-button style="background-color: rgb(84 140 254);color: #ffffff" class="highestDegreeBtm" size="small" color="rgb(84 140 254)" round @click.stop="handleSearchChannel(geekList)">查找相似的人</el-button>
-          </el-tooltip>
-        </div>
+<!--        <div>-->
+<!--          &lt;!&ndash;    其他渠道查找      &ndash;&gt;-->
+<!--          <el-tooltip effect="dark"-->
+<!--                      content="其他渠道查找"-->
+<!--                      placement="bottom">-->
+<!--            <el-button style="background-color: rgb(84 140 254);color: #ffffff" class="highestDegreeBtm" size="small" color="rgb(84 140 254)" round @click.stop="handleSearchChannel(geekList)">查找相似的简历</el-button>-->
+<!--          </el-tooltip>-->
+<!--        </div>-->
 
       </el-row>
 
@@ -173,7 +181,7 @@ import {useStore} from "vuex";
 import {userCollectResume, getScoreListDetailed, getScoreListDetailedPlus} from "@/api/jobList/JobListApi";
 import {ElButton, ElMessage} from "element-plus";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
-import {ArrowRight, SwitchButton} from "@element-plus/icons-vue";
+import {ArrowRight, Search, SwitchButton} from "@element-plus/icons-vue";
 import AIEvaluationCard from './AIEvaluationCard.vue';
 import {generateSearchCondition} from "@/api/research/ResearchApi";
 import {saveCondition} from "@/api/search/SearchApi";

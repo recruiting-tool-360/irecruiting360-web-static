@@ -107,6 +107,8 @@ const geekInfoDialog = ref(false);
 const resumeId = ref("");
 //bossDetialRef
 const bossDetialRef = ref(null);
+//chatId
+const chatId = computed(() => store.getters.getLatestChatId);
 
 //新增: 控制评分更新定时器
 const scoreUpdateTimer = ref(null);
@@ -397,6 +399,7 @@ const search = async (page) => {
   pageSearchRequest.channel = channelConfig.value.desc;
   pageSearchRequest.filterByRead = filterByRead.value;
   pageSearchRequest.searchConditionId = searchConditionId.value;
+  pageSearchRequest.chatId = chatId.value;
   let listResponse = null;
   try {
     listResponse = await querySearch(pageSearchRequest);
