@@ -1,6 +1,6 @@
 <template>
   <el-dialog :model-value="localVisible" @update:model-value="(val) => $emit('update:visible', val)"
-             title="相似人简历"
+             title="查找相似简历"
              top="6vh"
              style="max-width: 80%;min-height: 60%;padding: 30px">
 <!--    <div v-if="loading" class="loading-container">-->
