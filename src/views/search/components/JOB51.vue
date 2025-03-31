@@ -301,8 +301,15 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
     return;
   }
   if(!pluginJob51ResultProcessor(responseJobListData)){
-    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.msg))
-    return;
+    // ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.msg))
+    // return;
+    const code =responseJobListData?.responseData?.data?.code;
+    if(code&&code==='R1000'){
+      responseJobListData.responseData.data.data ={list:[],total:0};
+    }else{
+      ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.msg))
+      return;
+    }
   }
   channelSearchConfig.channelPage = channelPage;
   channelSearchConfig.channelDataTotal = responseJobListData.responseData.data.data.total;
@@ -321,6 +328,8 @@ const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) 
       item.coid =UserCoid;
       item.keyWord=channelSearchCondition.conditionData.keyword;
     })
+  }else{
+    return;
   }
   let saveJobListRequest = saveJobListRequestTemplate();
   saveJobListRequest.outId = channelRequestInfo.requestId;
@@ -381,8 +390,13 @@ const searchChannelData = async (conditionData, channelPage = 1, page = 1) => {
     return;
   }
   if(!pluginJob51ResultProcessor(responseJobListData)){
-    ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.msg))
-    return;
+    const code =responseJobListData?.responseData?.data?.code;
+    if(code&&code==='R1000'){
+      responseJobListData.responseData.data.data ={list:[],total:0};
+    }else{
+      ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！`+(responseJobListData?.responseData?.data?.msg))
+      return;
+    }
   }
   return responseJobListData.responseData.data.data.list;
 }
