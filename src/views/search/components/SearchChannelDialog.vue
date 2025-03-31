@@ -1,13 +1,12 @@
 <template>
   <el-dialog :model-value="localVisible" @update:model-value="(val) => $emit('update:visible', val)"
              title="查找相似简历"
-             top="6vh"
-             style="max-width: 80%;min-height: 60%;padding: 30px">
+             style="max-width: 80%;padding: 30px;min-width: 200px; position: fixed; top: 20%; left: 50%; transform: translate(-50%, -50%);">
 <!--    <div v-if="loading" class="loading-container">-->
 <!--      <el-text>Loading...</el-text>-->
 <!--      <el-spinner />-->
 <!--    </div>-->
-    <div v-loading="loading" class="content-container" style="min-height: 500px">
+    <div v-loading="loading" class="content-container">
       <el-card class="geek-card-list" v-for="geekList in jobALlData" :key="geekList.id" @click="handleListInfoClick(geekList)">
         <!--   已读   -->
         <div v-if="geekList.isRead" class="read-div">
@@ -182,11 +181,11 @@ const chatId = computed(() => store.getters.getLatestChatId);
 const jobALlData = ref([]);
 
 //查询相似的人
-const handleSearch = async (request) => {
+const handleSearch = async (request,resumeBlindId) => {
   loading.value = true;
   try {
     // 查询逻辑
-    await searchJobList(request)
+    await searchJobList(request,resumeBlindId)
   } catch (error) {
     console.error('查询失败：', error);
   } finally {
@@ -194,7 +193,7 @@ const handleSearch = async (request) => {
   }
 };
 
-const searchJobList = async (request) => {
+const searchJobList = async (request,resumeBlindId) => {
 
   // const request =data.channelSearchConditions;
   // console.log(request)
@@ -227,7 +226,7 @@ const searchJobList = async (request) => {
     //获取列表数据
     let jobList;
     try {
-      let {data:jobListData} = await compareResumeSimilarity(jobListRequestDTO);
+      let {data:jobListData} = await compareResumeSimilarity({searchVO: jobListRequestDTO,resumeBlindId});
       jobList = jobListData;
     }catch (e){
       ElMessage.error('后端服务异常，请联系管理员');
@@ -270,6 +269,11 @@ defineExpose({
 </script>
 
 <style scoped lang="scss">
+.el-dialog__wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
 .geek-card-list{
   margin-bottom: 10px;
   position: relative;

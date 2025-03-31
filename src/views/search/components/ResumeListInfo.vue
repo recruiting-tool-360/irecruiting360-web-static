@@ -456,8 +456,8 @@ const searchChannelData = async (geek) => {
     let searchStateValues = aiSearchRef.value.getSearchStateValues(serachConditionRequest);
     let searchConditionRequest = aiSearchRef.value.getSearchConditionRequest(searchStateValues);
     const {data:channelSearchCondition} = await saveCondition(searchConditionRequest);
-    console.log(channelSearchCondition)
-    await searchChannelDialogRef.value.handleSearch(channelSearchCondition);
+    // console.log(channelSearchCondition)
+    await searchChannelDialogRef.value.handleSearch(channelSearchCondition,geek.id);
   }catch (e){
     console.log(e);
   }
