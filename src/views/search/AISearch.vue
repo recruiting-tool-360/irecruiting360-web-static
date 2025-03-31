@@ -423,6 +423,7 @@ import JobInfo from "@/views/search/components/JobInfo.vue";
 import BossJobInfo from "@/views/search/components/BossJobInfo.vue";
 import ZHILIANJobInfo from "@/views/search/components/ZHILIANJobInfo.vue";
 import JOB51 from "@/views/search/components/JOB51.vue";
+// import LIEPINJobInfo from "@/views/search/components/LIEPINJobInfo.vue";
 import CollectJobInfo from "@/views/search/components/CollectJobInfo.vue";
 import PluginInfo from "@/views/search/components/PluginInfo.vue";
 import SearchCondition from "@/views/search/searchCondition/SearchCondition.vue";
@@ -432,6 +433,7 @@ import DialogTemplate from "@/components/dialog/DialogTemplate.vue";
 import {setDefaultPluginRules} from "@/components/BasePluginManager";
 import AIRecommendation from "@/views/search/components/AIRecommendation.vue";
 import {debounce} from 'lodash-es';
+
 
 const store = useStore();
 //插件安装状态

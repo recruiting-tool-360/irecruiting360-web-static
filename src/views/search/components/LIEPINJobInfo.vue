@@ -60,8 +60,9 @@ import {getCookieValue} from "@/util/StringUtil";
 import {getHTMlDom} from "@/api/testRequest/DetialApi";
 import ResumeListInfo from "@/views/search/components/ResumeListInfo.vue";
 import {getSortComparisonValue} from "@/config/staticConf/AIConf";
-import {exeLIEPINJobInfo, getLIEPINHeader} from "@/components/QueueManager/LIEPINJobInfoManager";
+import {checkUserAuth, exeLIEPINJobInfo, getLIEPINHeader} from "@/components/QueueManager/LIEPINJobInfoManager";
 import _ from "lodash";
+import {i360Request} from "@/components/BasePluginManager";
 
 //store
 const store = useStore();
@@ -130,15 +131,13 @@ const liePinUserStatus = async () => {
     ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
     return;
   }
-  // let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  // pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
-  // pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
-  // pluginEmptyRequestTemplate.parameters = null;
-  // pluginEmptyRequestTemplate.requestHeader = headers;
-  // pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  // pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.userStatus;
-  // return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
-  return;
+  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+  pluginEmptyRequestTemplate.parameters = null;
+  pluginEmptyRequestTemplate.requestHeader = headers;
+  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.userStatus;
+  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+  // return;
 }
 
 const clickListInfo = async (listInfo) => {
@@ -173,7 +172,7 @@ const openDetail = (listInfo)=>{
   window.open(url, name, 'height=' + iHeight + ',,innerHeight=' + iHeight + ',width=' + iWidth + ',innerWidth=' + iWidth + ',top=' + iTop + ',left=' + iLeft + ',status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no');
 
   //同步详细简历
-  liePinDetailRequest(listInfo);
+  //liePinDetailRequest(listInfo);
 }
 
 const liePinDetailRequest = async (listInfo) => {
@@ -229,6 +228,10 @@ const channelSearch = async (channelRequestInfo) => {
 }
 
 const channelSearchList = async (channelRequestInfo) => {
+  // const a =0;
+  // if(a<1){
+  //   return;
+  // }
   if(!(channelRequestInfo&&channelRequestInfo.channelSearchConditions&&channelRequestInfo.channelSearchConditions.length>0)){
     return;
   }
@@ -354,15 +357,13 @@ const searchJobList = async (searchConfig) => {
   requestParams.cvSearchConditionInputVo.curPage = 0;
   requestParams.cvSearchConditionInputVo = JSON.stringify(searchConfig.cvSearchConditionInputVo);
   //访问猎聘
-  // let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  // pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
-  // pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
-  // pluginEmptyRequestTemplate.parameters = qs.stringify(requestParams);
-  // pluginEmptyRequestTemplate.requestHeader = headers;
-  // pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  // pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.getAllJobList;
-  // return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
-  return;
+  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+  pluginEmptyRequestTemplate.parameters = qs.stringify(requestParams);
+  pluginEmptyRequestTemplate.requestHeader = headers;
+  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.getAllJobList;
+  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+  // return;
 }
 
 //详细信息查询

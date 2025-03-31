@@ -53,6 +53,7 @@ export const pluginAllUrls = {
     LIEPIN:{
         loginURL:"https://lpt.liepin.com",
         baseUrl:"https://api-lpt.liepin.com",
+        userConfig:"/api/com.liepin.privilege.bpc.index.user-privilege",
         userStatus:"/api/com.liepin.tiangong.usere.bpc.get-current-info",
         getAllJobList:"/api/com.liepin.searchfront4r.b.search",
         geekInfo:"/api/com.liepin.rresume.usere.pc.get-resume-detail",
@@ -213,7 +214,25 @@ export const getPluginDynamicRulesConfigFn = () => {
                 urlFilter: pluginAllUrls.JOB51.baseUrl+"/*",
                 resourceTypes: ["xmlhttprequest"]
             }
-        }
+        },
+        // {
+        //     id: 3,
+        //     priority: 1,
+        //     action: {
+        //         type: "modifyHeaders",
+        //         requestHeaders: [
+        //             {
+        //                 header: "Origin",
+        //                 operation: "set",
+        //                 value: pluginAllUrls.LIEPIN.baseUrl
+        //             }
+        //         ]
+        //     },
+        //     condition: {
+        //         urlFilter: pluginAllUrls.LIEPIN.baseUrl+"/*",
+        //         resourceTypes: ["xmlhttprequest"]
+        //     }
+        // }
     ];
     // pluginEmptyRequestTemplate.parameters=[];
     // pluginEmptyRequestTemplate.action = pluginAllActions.Sys.setDynamicRulesConfig;
