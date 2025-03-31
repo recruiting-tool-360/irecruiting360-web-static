@@ -236,7 +236,7 @@ const job51DetailRequest = async (listInfo) => {
   const resumeBlindId = listInfo.id;
   const type =(searchStateAIParam.value && Object.keys(searchStateAIParam.value).length > 0)?"JDMATCH":"SCORE";
   const taskRequest = {queryString,outId,resumeBlindId,type,channel,searchId};
-  console.log(taskRequest)
+  // console.log(taskRequest)
   await exeJob51Info(taskRequest);
 }
 

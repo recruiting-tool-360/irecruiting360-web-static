@@ -114,7 +114,43 @@ const searchResumeInfo = async (params) => {
     return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
 }
 
+export const checkUserAuth = async ()=>{
+    const headers = await getLIEPINHeader(true);
+    if(!headers||headers.length===0){
+        return false;
+    }
+    let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+    pluginEmptyRequestTemplate.parameters = null;
+    pluginEmptyRequestTemplate.requestHeader = headers;
+    pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+    pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.userConfig;
+    let statusData = await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+    const dataRt = pluginLIEPINResultProcessor(statusData);
+    if(dataRt){
+        const allConfig = statusData.responseData.data.data?.identityPrivilege;
+        if(!allConfig){
+            return false;
+        }
+        let findItem = allConfig.find((item)=>item.operation==='b_view_res');
+        if(!findItem){
+            return false;
+        }
+        const privilegeCount = findItem.privilegeCount;
+        const usedCount = findItem.usedCount;
+        if(usedCount<privilegeCount){
+            return true;
+        }else{
+            return false;
+        }
+    }else{
+        return false;
+    }
+}
+
 export const exeLIEPINJobInfo = async (data) => {
+    if(!await checkUserAuth()){
+        return;
+    }
     let boosJobInfo = await findLIEPINJobDetail(data);
     if(pluginLIEPINResultProcessor(boosJobInfo)){
         data.content = boosJobInfo.responseData.data.data;
