@@ -24,7 +24,7 @@
             </el-tooltip>
           </el-button>
           <!--    其他渠道查找      -->
-          <el-tooltip effect="dark"
+          <el-tooltip v-if="props.channelConfig&&props.channelConfig.key!=='Collect'" effect="dark"
                       content="其他渠道查找相似简历"
                       placement="bottom">
             <el-button style="background-color: #8578ff;color: #ffffff" class="highestDegreeBtm" size="small" color="#8578ff" round @click.stop="handleSearchChannel(geekList)">
