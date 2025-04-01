@@ -1,7 +1,8 @@
 <template>
   <el-dialog :model-value="localVisible" @update:model-value="(val) => $emit('update:visible', val)"
              title="查找相似简历"
-             style="max-width: 80%;padding: 30px;min-width: 200px; position: fixed; top: 20%; left: 50%; transform: translate(-50%, -50%);">
+             top="10vh"
+             style="max-width: 80%;padding: 30px;min-width: 200px;">
 <!--    <div v-if="loading" class="loading-container">-->
 <!--      <el-text>Loading...</el-text>-->
 <!--      <el-spinner />-->
@@ -29,6 +30,8 @@
                 <!--              <el-text class="el-text-ellipsis" style="margin-left: 5px;color: rgb(96 98 102)">{{geekList.status?geekList.status:'未知'}}</el-text>-->
               </el-tooltip>
             </el-button>
+            <el-tag v-if="geekList.matchType" :type="geekList.matchType===1?'success':'primary'" effect="dark"
+                    round style="margin-left: 6px">{{geekList.matchType===1?'疑似相同候选人':'合适备选候选人'}}</el-tag>
           </el-col>
           <el-col class="geek-img-el-col el-col-display-Style" style="justify-content: end" :span="10">
             <el-button v-if="geekList.channel==='boss直聘'" text disabled size="small">
