@@ -278,7 +278,7 @@ const channelSearch = async (channelRequestInfo, channelPage = 1, page = 1) => {
   // if(props.onLodingClose){
   //   props.onLodingClose();
   // }
-  console.log("job51执行完了")
+  // console.log("job51执行完了")
 }
 
 const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) => {
@@ -462,7 +462,7 @@ const searchJobList = async (searchConfig) => {
   //获取加密
   let generateSignature = generateSignatureJob51(token,searchConfig);
   searchConfig.sign = generateSignature;
-  console.log("请求是：",searchConfig)
+  // console.log("请求是：",searchConfig)
   let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
   pluginEmptyRequestTemplate.parameters = searchConfig;
   pluginEmptyRequestTemplate.requestHeader = headers;

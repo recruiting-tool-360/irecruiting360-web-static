@@ -2,6 +2,7 @@
   <el-dialog :model-value="localVisible" @update:model-value="(val) => $emit('update:visible', val)"
              title="查找相似简历"
              top="10vh"
+             width="800"
              style="max-width: 80%;padding: 30px;min-width: 200px;">
 <!--    <div v-if="loading" class="loading-container">-->
 <!--      <el-text>Loading...</el-text>-->
@@ -145,7 +146,7 @@
         </el-row>
 
       </el-card>
-
+      <BossDetial ref="bossDetialRef" v-model:dialogFlag="geekInfoDialog" v-model:resume-id="resumeId" :change-close-status="()=>{geekInfoDialog=false;resumeId=''}" v-model:search-state-criteria="searchStateAIParam"></BossDetial>
     </div>
   </el-dialog>
 </template>
@@ -157,6 +158,7 @@ import {saveJobListRequestTemplate} from "@/domain/request/JobListRequest";
 import {ElButton, ElMessage} from "element-plus";
 import {compareResumeSimilarity} from "@/api/research/ResearchApi";
 import {ArrowRight} from "@element-plus/icons-vue";
+import BossDetial from "@/views/search/components/BossDetial.vue";
 //store
 const store = useStore();
 const props = defineProps({
@@ -164,8 +166,7 @@ const props = defineProps({
     type: Boolean,
     required: true
   },
-  collectClick:Function,
-  listInfoClick:Function
+  collectClick:Function
 });
 const emit = defineEmits(['update:visible']);
 
@@ -181,8 +182,15 @@ const allThirdPartyChannelConfig = computed(() => {
 });
 //当前chat id
 const chatId = computed(() => store.getters.getLatestChatId);
+//ai推荐
+const searchStateAIParam = computed(()=>props.searchStateCriteria);
 const jobALlData = ref([]);
-
+//用户详细信息
+const geekInfoDialog = ref(false);
+//盲简历id
+const resumeId = ref("");
+//bossDetialRef
+const bossDetialRef = ref(null);
 //查询相似的人
 const handleSearch = async (request,resumeBlindId) => {
   loading.value = true;
@@ -196,56 +204,116 @@ const handleSearch = async (request,resumeBlindId) => {
   }
 };
 
-const searchJobList = async (request,resumeBlindId) => {
+const searchJobList = async (request, resumeBlindId) => {
+  const searchConditionId = request.id;
+  let newVar = allThirdPartyChannelConfig.value
+      .filter((channel) => channel.disable && channel.login)
+      .map((item) => item) || [];
 
-  // const request =data.channelSearchConditions;
-  // console.log(request)
-  const searchConditionId =request.id;
-  // const channelConf = store.getters.getChannelConf;
-  // const allThirdPartyChannelConfig =Object.entries(channelConf)
-  //     .filter(([key, channel]) => !(key==='ALL'||key==='Collect'))
-  //     .map(([key, channel]) => ({...channel }));
-  let newVar = allThirdPartyChannelConfig.value.filter((channel) => channel.disable&&channel.login).map((item) => (item))||[];
-  if(newVar){
+  if (newVar.length > 0) {
     let jobListRequestDTO = [];
-    for (let channelItem of newVar) {
-      if(!(request&&request.channelSearchConditions&&request.channelSearchConditions.length>0)){
-        continue;
+
+    // 使用 Promise.all 进行并发处理
+    let searchPromises = newVar.map(async (channelItem) => {
+      if (!(request && request.channelSearchConditions && request.channelSearchConditions.length > 0)) {
+        return null;
       }
-      let channelSearchCondition = request.channelSearchConditions.find((item)=>item.channel===channelItem.key);
-      if(!channelSearchCondition&&channelSearchCondition.conditionData){
-        continue;
+      let channelSearchCondition = request.channelSearchConditions.find((item) => item.channel === channelItem.key);
+      if (!channelSearchCondition || !channelSearchCondition.conditionData) {
+        return null;
       }
-      // console.log(channelItem,channelSearchCondition.conditionData);
-      const allData =await channelItem.cardInfoRef.searchChannelData(channelSearchCondition.conditionData);
-      if(allData){
-        let saveJobListRequest = saveJobListRequestTemplate();
-        saveJobListRequest.searchConditionId = searchConditionId;
-        saveJobListRequest.channel = channelItem.desc;
-        saveJobListRequest.resumeList = allData;
-        jobListRequestDTO.push(saveJobListRequest);
+
+      try {
+        const allData = await channelItem.cardInfoRef.searchChannelData(channelSearchCondition.conditionData);
+        if (allData) {
+          let saveJobListRequest = saveJobListRequestTemplate();
+          saveJobListRequest.searchConditionId = searchConditionId;
+          saveJobListRequest.channel = channelItem.desc;
+          saveJobListRequest.resumeList = allData;
+          return saveJobListRequest;
+        }
+      } catch (error) {
+        console.error(`Error fetching data for channel ${channelItem.desc}`, error);
       }
-    }
-    //获取列表数据
+      return null;
+    });
+
+    // 等待所有 searchChannelData 调用完成
+    let results = await Promise.all(searchPromises);
+    jobListRequestDTO = results.filter((item) => item !== null);
+
+    // 处理获取到的 jobListRequestDTO
     let jobList;
     try {
-      let {data:jobListData} = await compareResumeSimilarity({searchVO: jobListRequestDTO,resumeBlindId});
+      let { data: jobListData } = await compareResumeSimilarity({ searchVO: jobListRequestDTO, resumeBlindId });
       jobList = jobListData;
-    }catch (e){
-      ElMessage.error('后端服务异常，请联系管理员');
+    } catch (e) {
+      ElMessage.error("后端服务异常，请联系管理员");
       console.log(e);
       jobList = [];
     }
     jobALlData.value = jobList;
-    console.log("jobList:",jobList)
   }
-}
+};
+
+
+// const searchJobList = async (request,resumeBlindId) => {
+//   const searchConditionId =request.id;
+//   let newVar = allThirdPartyChannelConfig.value.filter((channel) => channel.disable&&channel.login).map((item) => (item))||[];
+//   if(newVar){
+//     let jobListRequestDTO = [];
+//     for (let channelItem of newVar) {
+//       if(!(request&&request.channelSearchConditions&&request.channelSearchConditions.length>0)){
+//         continue;
+//       }
+//       let channelSearchCondition = request.channelSearchConditions.find((item)=>item.channel===channelItem.key);
+//       if(!channelSearchCondition&&channelSearchCondition.conditionData){
+//         continue;
+//       }
+//       // console.log(channelItem,channelSearchCondition.conditionData);
+//       const allData =await channelItem.cardInfoRef.searchChannelData(channelSearchCondition.conditionData);
+//       if(allData){
+//         let saveJobListRequest = saveJobListRequestTemplate();
+//         saveJobListRequest.searchConditionId = searchConditionId;
+//         saveJobListRequest.channel = channelItem.desc;
+//         saveJobListRequest.resumeList = allData;
+//         jobListRequestDTO.push(saveJobListRequest);
+//       }
+//     }
+//     //获取列表数据
+//     let jobList;
+//     try {
+//       let {data:jobListData} = await compareResumeSimilarity({searchVO: jobListRequestDTO,resumeBlindId});
+//       jobList = jobListData;
+//     }catch (e){
+//       ElMessage.error('后端服务异常，请联系管理员');
+//       console.log(e);
+//       jobList = [];
+//     }
+//     jobALlData.value = jobList;
+//     // console.log("jobList:",jobList)
+//   }
+// }
 
 const handleCollectClick = (list) => {
   props.collectClick(list);
 }
 const handleListInfoClick = (list) => {
-  props.listInfoClick(list);
+  let newVar = allThirdPartyChannelConfig.value
+      .filter((channel) => channel.disable && channel.login)
+      .map((item) => item) || [];
+  if (newVar.length > 0) {
+    let clickChannel = newVar.find((channelItem) => channelItem.desc === list.channel);
+    // console.log(clickChannel,list)
+    if(clickChannel){
+      if(clickChannel.key==="BOSS"){
+        geekInfoDialog.value = true;
+        bossDetialRef.value?.childGeekInfoMethod(list,false);
+      }else{
+        clickChannel.cardInfoRef.clickListInfo(list,false);
+      }
+    }
+  }
 }
 
 // 恢复监听逻辑
