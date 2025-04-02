@@ -252,6 +252,7 @@ const i360Request = async (action, emptyRequestTemplate, timeout = 3000) => {
 
 // 定义子组件的方法
 const childGeekInfoMethod = async (cardInfo,asyncData = true) => {
+  // console.log("ww",cardInfo)
   if (cardInfo) {
     geekListInfo.value = cardInfo;
 
@@ -281,7 +282,7 @@ const childGeekInfoMethod = async (cardInfo,asyncData = true) => {
           const content = geekDetailINfo.value;
           const searchId = searchConditionId.value;
           const detailRequest = {content, outId, resumeBlindId, type, channel,searchId};
-          console.log("参数是：", detailRequest)
+          // console.log("参数是：", detailRequest)
           try {
             await saveResumeDetail(detailRequest);
           } catch (e) {

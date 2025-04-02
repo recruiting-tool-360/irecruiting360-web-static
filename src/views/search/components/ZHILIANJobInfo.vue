@@ -217,7 +217,7 @@ const zhiLianDetailRequest = async (listInfo) => {
     ElMessage.error(`${channelConfig.value.name}数据查询异常！请联系管理员！` + (resumeDetail?.responseData?.data?.message))
     return;
   }
-  console.log("详细简历：",resumeDetail?.responseData?.data)
+  // console.log("详细简历：",resumeDetail?.responseData?.data)
 }
 
 //分页设置触发时
@@ -258,7 +258,7 @@ const channelSearch = async (channelRequestInfo, channelPage = 1, page = 1) => {
   // if(props.onLodingClose){
   //   props.onLodingClose();
   // }
-  console.log("zhilian执行完了")
+  // console.log("zhilian执行完了")
 }
 
 const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) => {

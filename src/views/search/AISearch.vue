@@ -711,7 +711,7 @@ const searchJobList = async () => {
     if (jobInfoRef.value) {
       // console.log("全渠道执行完了")
       await jobInfoRef.value.search(1);
-      console.log("全渠道执行完了")
+      // console.log("全渠道执行完了")
       // jobInfoRef.value.channelSearch(searchRequestData);
     }
   } catch (error) {

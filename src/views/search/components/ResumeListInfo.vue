@@ -170,8 +170,7 @@
 <SearchChannelDialog ref="searchChannelDialogRef"
                      v-model:visible="showSearchChannelDialog"
                      @close="showSearchChannelDialog = false"
-                     :collect-click="handleCollectClick"
-                     :list-info-click="clickListInfoNoAsync"/>
+                     :collect-click="handleCollectClick"/>
 </div>
 </template>
 
@@ -205,10 +204,12 @@ const channelKey = "Collect";
 const channelConfig =computed(()=>store.getters.getChannelConfByChannel(channelKey));
 const sortComparisonValue = getSortComparisonValue();
 const clickListInfo = (value) => {
-  props.clickListInfoFn(value,true);
-}
-const clickListInfoNoAsync = (value) => {
-  props.clickListInfoFn(value,false);
+  if(props.channelConfig&&props.channelConfig.key==='Collect'){
+    // clickListInfoNoAsync(value);
+    props.clickListInfoFn(value,false);
+  }else{
+    props.clickListInfoFn(value,true);
+  }
 }
 //用户信息
 const userInfo = computed(() => store.getters.getUserInfo);

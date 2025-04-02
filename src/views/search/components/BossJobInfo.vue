@@ -137,7 +137,7 @@ const boosUserStatus = async () => {
 const clickListInfo = async (listInfo,asyncData = true) => {
   resumeId.value = listInfo.id;
   geekInfoDialog.value = true;
-  console.log("searchStateAIParam:",searchStateAIParam)
+  // console.log("searchStateAIParam:",listInfo)
   bossDetialRef.value?.childGeekInfoMethod(listInfo,asyncData);
   //设置为已读
   if(!asyncData){
@@ -185,7 +185,7 @@ const channelSearch = async (channelRequestInfo, channelPage = 1, page = 1) => {
   }catch (e){
     console.log(e);
   }
-  console.log("boos执行完了")
+  // console.log("boos执行完了")
 }
 
 const channelSearchList = async (channelRequestInfo, channelPage = 1, page = 1) => {
