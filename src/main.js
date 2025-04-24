@@ -75,3 +75,23 @@ window.addEventListener('load', () => {
 // }
 // periodicFetch(); // 启动任务
 
+// window.addEventListener('message', (event) => {
+//     console.log("iframe",event)
+//     if (event.origin !== 'http://192.168.50.225:3000') return;
+//
+//     const data = event.data;
+//
+//     if (data.type === 'login') {
+//         const token = data.token;
+//         console.log('收到来自 A 的 token：', token);
+//
+//         // 模拟存储 token（真实场景可能存 localStorage / cookie）
+//         window.token = token;
+//
+//         // 向 A 回复
+//         event.source.postMessage({
+//             type: 'loginResult',
+//             message: '登录信息已接收！'
+//         }, event.origin);
+//     }
+// });

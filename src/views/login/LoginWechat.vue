@@ -13,6 +13,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/utils/api'
 import Cookies from 'js-cookie'
+import {wechatLogin} from "@/api/user/UserApi";
 
 const router = useRouter()
 const route = useRoute()
@@ -37,18 +38,14 @@ onMounted(async () => {
     params.append('code', code)
     params.append('state', state)
 
-    const {code: resCode, msg, data} = await api.post('/user/wechat/login', params);
+    // const {code: resCode, msg, data} = await api.post('/user/wechat/login', params);
+    const {data} = wechatLogin(params);
 
-    if (resCode === 200) {
-      if (data) {
-        Cookies.set('satoken', data, { path: '/', expires: 30 })
-      }
-      ElMessage.success('微信登录成功')
-      router.push('/')
-    } else {
-      ElMessage.error(msg || '微信登录失败')
-      router.push('/login')
+    if (data) {
+      Cookies.set('satoken', data, {path: '/', expires: 30}); // 更新 Cookie
     }
+    ElMessage.success('登录成功')
+    router.push('/')
   } catch (error) {
     console.error('微信登录处理出错:', error)
     ElMessage.error('微信登录处理出错，请稍后重试')

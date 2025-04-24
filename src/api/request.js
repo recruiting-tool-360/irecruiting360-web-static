@@ -2,11 +2,9 @@ import axios from "axios";
 import {ElMessage,ElNotification} from "element-plus";
 
 const service = axios.create({
-    baseURL: process.env.NODE_ENV === 'development' 
-        ? '/api'
-        : process.env.VUE_APP_API_BASE_URL,
+    baseURL: process.env.VUE_APP_API_BASE_URL,
     timeout: 15000,
-    withCredentials: process.env.NODE_ENV === 'development'
+    withCredentials: true
 })
 // const service=axios.create({
 //     baseURL: '/api',
@@ -20,6 +18,7 @@ const service = axios.create({
 // 结果集处理器
 service.interceptors.response.use(
     res => {
+        console.log(res)
         if(res.status===200){
             return validateError(res.data);
         }else{

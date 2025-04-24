@@ -136,6 +136,7 @@ import api from '@/utils/api'
 import Cookies from 'js-cookie'
 import {useStore} from "vuex"
 import RegisterForm from '@/components/login/RegisterForm.vue'
+import {userLogin} from "@/api/user/UserApi";
 
 const store = useStore();
 const router = useRouter()
@@ -188,17 +189,12 @@ const handleLogin = async () => {
         params.append('name', loginForm.username)
         params.append('pwd', loginForm.password)
 
-        const {code, msg, data} = await api.post('/user/doLogin', params)
-
-        if (code === 200) {
-          if (data) {
-            Cookies.set('satoken', data, {path: '/', expires: 30}); // 更新 Cookie
-          }
-          ElMessage.success('登录成功')
-          router.push('/')
-        } else {
-          ElMessage.error(msg || '登录失败，请检查用户名和密码')
+        const {data} = await userLogin(params);
+        if (data) {
+          Cookies.set('satoken', data, {path: '/', expires: 30}); // 更新 Cookie
         }
+        ElMessage.success('登录成功')
+        router.push('/')
       } catch (error) {
         console.log(error)
         ElMessage.error('登录失败，请稍后重试')

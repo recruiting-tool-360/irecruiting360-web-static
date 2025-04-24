@@ -37,6 +37,15 @@ export const userLogin = (data) => {
     });
 }
 
+export const wechatLogin = (data) => {
+    const basseUrl='/user/wechat/login';
+    return request({
+        method:'POST',
+        url:basseUrl,
+        params:data
+    });
+}
+
 
 //下载插件
 export const getDownloadUrl = () => {
