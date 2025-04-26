@@ -21,6 +21,21 @@ import {
     getPluginDynamicRulesConfigFn
 } from "@/components/PluginRequestManager";
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
+import IframeMessenger from '@/util/iframeMessenger';
+
+// 初始化 IframeMessenger
+const iframeMessenger = new IframeMessenger({
+    targetWindow: window.parent,
+    targetOrigin: [
+        'http://192.168.50.225:3000',
+        'http://192.168.0.102:3000',
+        'https://ambulance1a.ihr360.com', // ihr环境
+    ],
+    sourceName: 'kuaizhao'
+});
+
+// 连接
+iframeMessenger.connect();
 
 const handlePluginSwitchChange = (payload) => {
     // console.log("chajian:",payload)
@@ -54,7 +69,7 @@ const initializePluginConfig = async () => {
     // let pluginDynamicRulesConfigRs = await pluginRequest(pluginDynamicRulesConfig.action,pluginDynamicRulesConfig);
 }
 
-
+app.config.globalProperties.$iframeMessenger = iframeMessenger;
 app.use(store).
 use(router).
 use(ElementPlus, { locale: zhCn }).
@@ -63,6 +78,15 @@ mount('#app');
 window.addEventListener('load', () => {
     // 在页面加载后再添加监听器
     initializePluginConfig();
+});
+
+// 在页面卸载前执行清理操作
+window.addEventListener('beforeunload', () => {
+    // 断开 iframe 通信
+    iframeMessenger.destroy();
+    
+    // 清理其他资源和监听器
+    app.unmount();
 });
 
 // async function periodicFetch() {
