@@ -138,11 +138,13 @@ const loadChatList = async () => {
     const response = await getChatList()
     if (response.success === 'success' && response.data && Array.isArray(response.data)) {
       // 转换数据格式
-      chatList.value = response.data.map(item => ({
-        id: item.chatId,
-        name: item.name || `未知对话`,
-        createTime: item.updateAt?.slice(0, 16).replace('T', ' ') || '未知时间'
-      }))
+      chatList.value = response.data
+        .filter(item => item.positionId)
+        .map(item => ({
+          id: item.chatId,
+          name: item.name || `未知对话`,
+          createTime: item.updateAt?.slice(0, 16).replace('T', ' ') || '未知时间'
+        }))
       // chatList.value = [];
     } else {
       notify.error('加载聊天列表失败')
