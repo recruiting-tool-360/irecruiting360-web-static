@@ -7,7 +7,7 @@
         <q-card-section class="text-center">
           <p class="text-body1">登录过程被中断或发生错误</p>
           <div class="q-mt-md">
-            <q-btn color="primary" label="重试" @click="handleSSOLogin" class="q-mr-md" />
+            <q-btn color="primary" label="重试" @click="handleSSOLogin(iframeParams)" class="q-mr-md" />
             <q-btn color="primary" label="返回登录页" to="/login" />
           </div>
         </q-card-section>
@@ -23,7 +23,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, onUnmounted } from 'vue';
+import { onMounted, ref, onUnmounted, getCurrentInstance, unref } from 'vue';
 import { useRouter } from 'vue-router';
 import { generateSsoToken, ssoLogin } from 'src/api/user/UserApi';
 import { createChat } from 'src/api/chat/ChatApi';
@@ -34,9 +34,20 @@ import Cookies from 'js-cookie'
 const router = useRouter();
 const store = useStore();
 const loading = ref(true);
+const iframeParams = ref(null);
+const { proxy } = getCurrentInstance();
+const iframeMsg = proxy.$iframeMessenger;
+
+iframeMsg.on("init", (data, context) => {
+  if(context.from !== "ihr-recruit-ai") return
+  iframeParams.value = data
+  handleSSOLogin(data);
+  return Promise.resolve(true);
+})
 
 // SSO 登录流程
-const handleSSOLogin = async () => {
+const handleSSOLogin = async (iframeMessage) => {
+  
   try {
     loading.value = true;
 
@@ -50,22 +61,9 @@ const handleSSOLogin = async () => {
       return;
     }
 
+    const { ssoConfig, positionList } = iframeMessage;
     // 步骤1: 生成SSO令牌
-    const tokenData = {
-      "tenantCode": "company_a",
-      "apiKey": "test_api_key_123",
-      "signature": "94a8f1478929d191c56fb42e1007cdfe",
-      "thirdPartyUserId": "778",
-      "userData": {
-        "username": "test3",
-        "nickname": "test3",
-        "email": "test1123@qq.com",
-        "phone": "67854533",
-        "avatar": null
-      }
-    };
-
-    const tokenResponse = await generateSsoToken(tokenData);
+    const tokenResponse = await generateSsoToken(ssoConfig?.userConfig ?? {});
 
     if (tokenResponse.data && tokenResponse.data.token) {
       const token = tokenResponse.data.token;
@@ -81,21 +79,9 @@ const handleSSOLogin = async () => {
         // if (loginResponse.data && loginResponse.data.userInfo) {
         //   store.commit('changeUserInfo', loginResponse.data.userInfo);
         // }
-
         // 步骤3: 创建聊天
-        const chatData = [
-          {
-            "positionId": "1",
-            "name": "A"
-          },
-          {
-            "positionId": "2",
-            "name": "B"
-          }
-        ];
-
         try {
-          const chatResponse = await createChat(chatData);
+          const chatResponse = await createChat(positionList ?? []);
 
           if (chatResponse.success === "success") {
             // 如果聊天创建成功，保存聊天ID（如果响应中有的话）
@@ -142,8 +128,6 @@ const cancelLogin = () => {
 
 // 组件挂载时自动开始登录流程
 onMounted(() => {
-  handleSSOLogin();
-
   // 添加超时处理，防止无限等待
   const timeout = setTimeout(() => {
     if (loading.value) {
