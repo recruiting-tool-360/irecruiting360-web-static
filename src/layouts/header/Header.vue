@@ -1,12 +1,12 @@
 <template>
   <q-toolbar>
     <!-- logo -->
-    <div class="cursor-pointer" @click="navigateToHomepage">
+    <div class="cursor-pointer" @click.stop="navigateToHomepage">
       <img class="q-mt-none" :src="'/logo/logo.svg'">
     </div>
 
     <!-- 标题 -->
-    <q-toolbar-title class="cursor-pointer" @click="navigateToHomepage">
+    <q-toolbar-title>
       <span class="q-ml-sm text-h6">i 快招</span>
     </q-toolbar-title>
 
