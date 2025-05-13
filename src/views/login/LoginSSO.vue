@@ -15,15 +15,13 @@
   const iframeMessenger = proxy.$iframeMessenger;
   const router = useRouter()
 
-      
   iframeMessenger.on("init", async (data, context) => {
-    if(context.sourceName !== "ihr-recruit-ai") return
+    if(context.from !== "ihr-recruit-ai") return { success: false }
     console.log('iframeMessenger', data, context);
     
     const params = new URLSearchParams()
     params.append('name', 'test1')
     params.append('pwd', '123456')
-
     // const resualt = await service.post('/user/doLogin', params)
     return new Promise((resolve) => {
       userLogin(params).then(({ data }) => {
