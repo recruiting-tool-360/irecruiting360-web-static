@@ -79,3 +79,11 @@ export const getGeekDetail2 = (id) => {
         url:basseUrl
     });
 }
+
+//获取热门搜索关键词
+export const getHotSearchKeywords = () => {
+    return request({
+        method:'GET',
+        url:'/search/getHotSearchKeywords'
+    });
+}

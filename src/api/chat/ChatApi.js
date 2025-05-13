@@ -76,3 +76,16 @@ export const renameChat = (chatId, newName) => {
   })
 }
 
+/**
+ * 创建新聊天
+ * @param {Array} conversationHistoryList - 对话历史记录列表
+ * @returns {Promise} 返回创建聊天的结果
+ */
+export const createChat = (conversationHistoryList) => {
+  return request({
+    url: '/ihire/chat/createChat',
+    method: 'POST',
+    data: conversationHistoryList
+  })
+}
+

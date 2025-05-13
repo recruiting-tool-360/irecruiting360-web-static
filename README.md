@@ -1,30 +1,41 @@
-# AI Job （node：18.20.3）
+# irecruiting360-web-static (irecruiting360)
 
-- api:接口文档
-- assets：图标和照片文档
-- components：组件库
-- layout：布局文档
-- router: 路由文件
-- store：存储文件
-- views：页面和内部文件
+irecruiting360-project
 
-
-## Project setup
-```
+## Install the dependencies
+```bash
+yarn
+# or
 npm install
 ```
 
-### Compiles and hot-reloads for development
-```
-npm run serve
-```
-
-### Compiles and minifies for production
-```
-npm run build
+### Start the app in development mode (hot-code reloading, error reporting, etc.)
+```bash
+quasar dev
 ```
 
-### Lints and fixes files
-```
+
+### Lint the files
+```bash
+yarn lint
+# or
 npm run lint
 ```
+
+
+### Format the files
+```bash
+yarn format
+# or
+npm run format
+```
+
+
+
+### Build the app for production
+```bash
+quasar build
+```
+
+### Customize the configuration
+See [Configuring quasar.config.js](https://v2.quasar.dev/quasar-cli-vite/quasar-config-js).

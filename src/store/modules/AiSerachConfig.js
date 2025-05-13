@@ -1,7 +1,5 @@
-import {getScoreList} from "@/api/jobList/JobListApi";
-import {querySearchConditionCollection} from "@/api/search/SearchApi";
-import {ElMessage} from "element-plus";
-import {createSearchState} from "@/views/search/dto/request/SearchStateConfig";
+import {getScoreList} from "src/api/jobList/JobListApi";
+import {createSearchState} from "src/pjo/dto/request/SearchStateConfig";
 
 
 export default {
@@ -24,6 +22,11 @@ export default {
         searchStateConfig:createSearchState(),
         unreadCheckBoxV:false,
         aiSearchRef:null,
+      jobSearchFilterRef:null,
+      chatCardRef:null,
+      searchCount:0,
+      showQueueMonitor: false,
+      showFilterPanel: true,
     }),
     mutations: {
         changeLeftLoadingSwitch(state,payload) {
@@ -32,8 +35,49 @@ export default {
         changeSearchChannelConditionRequestData(state,payload) {
             state.searchConditionChannelRequestData = payload;
         },
+        setSearchChannelConditionRequestData(state, {key, config}) {
+            console.log("setSearchChannelConditionRequestData",key,config)
+          if (state.searchConditionChannelRequestData && state.searchConditionChannelRequestData.config) {
+            // 查找是否已存在该渠道的配置
+            const existingConfigIndex = state.searchConditionChannelRequestData.config.findIndex(item => item.channelKey === key);
+
+            if (existingConfigIndex !== -1) {
+              // 如果已存在，则更新该渠道的配置
+              state.searchConditionChannelRequestData.config[existingConfigIndex] = {
+                ...state.searchConditionChannelRequestData.config[existingConfigIndex],
+                ...config
+              };
+            } else {
+              // 如果不存在，则添加新的渠道配置
+              state.searchConditionChannelRequestData.config.push({
+                channelDataTotal: config.channelDataTotal || 0,
+                channelPage: config.channelPage || 0,
+                channelCountSize: config.channelCountSize || 0,
+                totalPage: config.totalPage || 0,
+                channelKey: key,
+                dataList: config.dataList || []
+              });
+            }
+          } else if (state.searchConditionChannelRequestData) {
+            // 如果存在searchConditionChannelRequestData但没有config属性，则创建config数组
+            state.searchConditionChannelRequestData.config = [{
+              channelDataTotal: config.channelDataTotal || 0,
+              channelPage: config.channelPage || 0,
+              channelCountSize: config.channelCountSize || 0,
+              totalPage: config.totalPage || 0,
+              channelKey: key,
+              dataList: config.dataList || []
+            }];
+          }
+        },
         changeAiSearchRef(state,payload) {
             state.aiSearchRef = payload;
+        },
+        changeJobSearchFilterRef(state,payload) {
+          state.jobSearchFilterRef = payload;
+        },
+        changeChatCardRef(state,payload) {
+          state.chatCardRef = payload;
         },
         setSearchChannelConditionConfigData(state, {key, config}) {
             if (!state.searchConditionChannelRequestData) {
@@ -170,7 +214,19 @@ export default {
         },
         deleteScoreConfigById(state,id) {
             state.scoreList = state.scoreList.filter(item => item.id !== id);
-        }
+        },
+      changeSearchCount(state) {
+        state.searchCount += 1;
+      },
+      toggleQueueMonitor(state) {
+        state.showQueueMonitor = !state.showQueueMonitor;
+      },
+      toggleFilterPanel(state) {
+        state.showFilterPanel = !state.showFilterPanel;
+      },
+      setFilterPanel(state, payload) {
+        state.showFilterPanel = payload;
+      },
     },
     actions: {
         async fetchAndUpdateScore({ commit, state }) {
@@ -200,7 +256,6 @@ export default {
             }catch (e){
                 console.log(e)
                 await commit("changeLeftLoadingSwitch", false);
-                ElMessage.error('服务异常,请联系管理员');
             }
             await commit("changeLeftLoadingSwitch", false);
         }
@@ -238,6 +293,21 @@ export default {
         },
         getAiSearchRefValue(state) {
             return state.aiSearchRef;
+        },
+        getJobSearchFilterRefValue(state) {
+          return state.jobSearchFilterRef;
+        },
+        getChatCardRefValue(state) {
+          return state.chatCardRef;
+        },
+        getSearchCount(state){
+          return state.searchCount;
+        },
+        getShowQueueMonitor(state) {
+            return state.showQueueMonitor;
+        },
+        getShowFilterPanel(state) {
+            return state.showFilterPanel;
         },
     },
 };

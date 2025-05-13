@@ -1,4 +1,4 @@
-import { ElMessage } from 'element-plus'
+import notify from "src/util/notify";
 export const fetchStream = async (url, data, onMessage, onError,endStream) => {
     try {
         const response = await fetch(url, {
@@ -51,6 +51,6 @@ export const fetchStream = async (url, data, onMessage, onError,endStream) => {
         } else {
             console.error("Stream error:", error);
         }
-        ElMessage.error('AI服务异常，请联系管理员');
+        notify.error('AI服务异常，请联系管理员')
     }
 };

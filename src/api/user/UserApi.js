@@ -38,12 +38,12 @@ export const userLogin = (data) => {
 }
 
 export const wechatLogin = (data) => {
-    const basseUrl='/user/wechat/login';
-    return request({
-        method:'POST',
-        url:basseUrl,
-        params:data
-    });
+  const basseUrl='/user/wechat/login';
+  return request({
+    method:'POST',
+    url:basseUrl,
+    params:data
+  });
 }
 
 
@@ -55,4 +55,26 @@ export const getDownloadUrl = () => {
         url:basseUrl
     });
 }
+
+
+// SSO生成令牌
+export const generateSsoToken = (data) => {
+  const basseUrl = '/sso/generateToken';
+  return request({
+    method: 'POST',
+    url: basseUrl,
+    data: data
+  });
+}
+
+// SSO登录
+export const ssoLogin = (token) => {
+  const basseUrl = '/sso/login';
+  return request({
+    method: 'POST',
+    url: basseUrl,
+    params: { token }
+  });
+}
+
 
