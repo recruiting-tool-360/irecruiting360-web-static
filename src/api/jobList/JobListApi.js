@@ -9,6 +9,15 @@ export const saveJobList = (data) => {
     });
 }
 
+//保存列表信息
+export const saveSearchPlus = (data) => {
+  return request({
+    method:'POST',
+    url:'/search/saveSearchPlus',
+    data:data
+  });
+}
+
 //保存详细简历信息
 export const saveResumeDetail = (data) => {
     return request({
@@ -16,6 +25,15 @@ export const saveResumeDetail = (data) => {
         url:'/resume/saveResumeDetail',
         data:data
     });
+}
+
+//保存详细简历信息
+export const saveResumeDetailPlus = (data) => {
+  return request({
+    method:'POST',
+    url:'/resume/saveResumeDetailPlus',
+    data:data
+  });
 }
 
 //保存详细简历信息
@@ -33,6 +51,14 @@ export const queryScoreList = (data) => {
         url:'/resume/queryScoreList',
         data:data
     });
+}
+
+export const setNotScore = (data) => {
+  return request({
+    method:'POST',
+    url:'/resume/setNotScore',
+    data:data
+  });
 }
 
 //查询搜详细简历
@@ -80,6 +106,15 @@ export const getScoreListDetailedPlus = (data) => {
     return request({
         method:'POST',
         url:'/resume/getScoreListDetailedPlus',
+        data:data
+    });
+}
+
+
+export const getResumeBlindList = (data) => {
+    return request({
+        method:'POST',
+        url:'/resume/queryResumeDetailList',
         data:data
     });
 }

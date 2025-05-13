@@ -6,9 +6,9 @@
 <script setup>
 import { onMounted, onUnmounted, watch, computed } from 'vue'
 import { useStore } from 'vuex'
-import { ElMessage } from 'element-plus'
-import sseClient from '@/api/sse.js'
-import { getUserInfo, userlogout } from "@/api/user/UserApi"
+import notify from 'src/util/notify'
+import sseClient from 'src/api/sse'
+import { getUserInfo, userlogout } from "src/api/user/UserApi"
 import Cookies from 'js-cookie'
 
 const store = useStore();
@@ -18,7 +18,7 @@ const allChannel = computed(() => store.getters.getChannelConf);
 // 处理认证错误 - 自动退出登录
 async function handleAuthError(data) {
   // console.error('SSE认证错误，准备退出登录:', data)
-  
+
   // 显示错误消息
   let errorMsg = '您的登录信息已失效，请重新登录'
   try {
@@ -31,26 +31,20 @@ async function handleAuthError(data) {
   } catch (e) {
     console.warn('解析认证错误消息失败:', e)
   }
-  
-  ElMessage({
-    message: errorMsg,
-    type: 'error',
-    duration: 5000,
-    showClose: true
+
+  notify.error(errorMsg, {
+    timeout: 5000,
+    closeBtn: true
   })
-  
+
   // 执行退出登录流程
   await logout()
 }
 
 //更新ai分数
 const updateChannelScore = (msg) => {
-  let valueElement = allChannel.value[msg.channel];
-  if(valueElement){
-    let allJob = allChannel.value['ALL'];
-    valueElement.cardInfoRef.updateScore(msg);
-    allJob.cardInfoRef.updateScore(msg);
-  }
+  const resumeData = {id:msg.resumeId,score:msg.score}
+  allChannel.value['ALL'].cardInfoRef.updateResumeScoreFN(resumeData);
 }
 
 // 退出登录函数 - 从Header.vue复制过来的逻辑
@@ -76,12 +70,12 @@ async function userInfoInit() {
       connectSse()
     } else {
       store.commit('changeUserInfo', null)
-      ElMessage.error('用户信息异常，请联系管理员')
+      notify.error('用户信息异常，请联系管理员')
       window.location.href = '/login'
     }
   } catch (ex) {
     store.commit('changeUserInfo', null)
-    ElMessage.error('用户信息异常，请联系管理员')
+    notify.error('用户信息异常，请联系管理员')
     console.log(ex)
     window.location.href = '/login'
   }
@@ -89,13 +83,11 @@ async function userInfoInit() {
 
 // 添加连接失败处理
 function handleConnectionFailed() {
-  ElMessage({
-    message: '与服务器的连接已断开',
-    type: 'error',
-    duration: 5000,
-    showClose: true
+  notify.error('与服务器的连接已断开', {
+    timeout: 5000,
+    closeBtn: true
   })
-  
+
   // 30秒后自动尝试恢复连接
   setTimeout(() => {
     if (sseClient.isConnectionFailed) {
@@ -108,14 +100,14 @@ function handleConnectionFailed() {
 // 连接SSE服务
 function connectSse() {
   if (!userInfo.value || !userInfo.value.id) return
-  
+
   // 断开可能的已有连接
   sseClient.disconnect()
-  
+
   // 使用用户ID连接SSE
   const userId = userInfo.value.id
   sseClient.connect(userId)
-  
+
   // 添加消息处理
   sseClient.on('connect', handleSseConnect)
   sseClient.on('broadcast', handleSseBroadcast)
@@ -131,7 +123,7 @@ function handleSseConnect(data) {
     // 解析连接消息
     const message = typeof data === 'string' ? JSON.parse(data) : data;
     // console.log('SSE连接成功:', message);
-    
+
     // 如果是新格式消息，取出场景和数据
     if (message.scenario && message.data) {
       // 根据场景处理不同的连接消息
@@ -158,9 +150,8 @@ async function handleSseBroadcast(data) {
       console.log(message.scenario)
       switch (message.scenario) {
         case 'notification':
-          ElMessage.info({
-            message: message.data.content || String(message.data),
-            duration: 5000
+          notify.info(message.data.content || String(message.data), {
+            timeout: 5000
           });
           break;
         case 'system':
@@ -186,7 +177,7 @@ function handleSseMessage(data) {
     // 解析个人消息
     const message = typeof data === 'string' ? JSON.parse(data) : data;
     // console.log('收到SSE消息:', message);
-    
+
     // 如果是新格式消息，取出场景和数据
     if (message.scenario && message.data !== undefined) {
       // 根据场景处理不同的个人消息
@@ -197,10 +188,8 @@ function handleSseMessage(data) {
           break;
         case 'notification':
           // 处理个人通知
-          ElMessage({
-            message: message.data.content || String(message.data),
-            type: 'info',
-            duration: 5000
+          notify.info(message.data.content || String(message.data), {
+            timeout: 5000
           });
           break;
         case 'RESUME_SCORE':
@@ -245,7 +234,7 @@ onMounted(async () => {
 onUnmounted(() => {
   // 组件卸载时断开连接
   sseClient.disconnect()
-  
+
   // 移除事件监听
   sseClient.off('connect')
   sseClient.off('broadcast')
@@ -259,4 +248,4 @@ onUnmounted(() => {
 defineExpose({
   refreshUserInfo: userInfoInit
 })
-</script> 
+</script>

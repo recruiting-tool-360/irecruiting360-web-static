@@ -1,0 +1,16 @@
+// app global css in SCSS form
+:root {
+  // 从HEX转为RGB值
+  //--q-primary-rgb: 31, 124, 255; /* 对应 #1F7CFFFF */
+
+  // 预设几个透明度变体
+  --q-primary-10: rgba(var(--q-primary-rgb), 0.1);
+  --q-primary-20: rgba(var(--q-primary-rgb), 0.2);
+  --q-primary-30: rgba(var(--q-primary-rgb), 0.3);
+  --q-primary-40: rgba(var(--q-primary-rgb), 0.4);
+  --q-primary-50: rgba(var(--q-primary-rgb), 0.5);
+  --q-primary-60: rgba(var(--q-primary-rgb), 0.6);
+  --q-primary-70: rgba(var(--q-primary-rgb), 0.7);
+  --q-primary-80: rgba(var(--q-primary-rgb), 0.8);
+  --q-primary-90: rgba(var(--q-primary-rgb), 0.9);
+}

@@ -1,14 +1,15 @@
 import { createStore } from "vuex";
-import TestConfig from "@/store/modules/TestConfig";
-import PluginConfig from "@/store/modules/PluginConfig";
-import ChatConfig from "@/store/modules/ChatConfig";
-import AiSerachConfig from "@/store/modules/AiSerachConfig";
-import ChannelConfig from "@/store/modules/ChannelConfig";
-import UserConfig from "@/store/modules/UserConfig";
+import TestConfig from "src/store/modules/TestConfig";
+import PluginConfig from "src/store/modules/PluginConfig";
+import ChatConfig from "src/store/modules/ChatConfig";
+import AiSerachConfig from "src/store/modules/AiSerachConfig";
+import ChannelConfig from "src/store/modules/ChannelConfig";
+import UserConfig from "src/store/modules/UserConfig";
 import createPersistedState from "vuex-persistedstate";
 import chatList from './modules/chatList'
 
-export default createStore({
+// 创建一个store实例
+const store = createStore({
   state: {},
   getters: {},
   mutations: {},
@@ -26,8 +27,15 @@ export default createStore({
         "ChatConfig.localUserChatId",
         "ChatConfig.searchConditionId",
         "UserConfig.userInfo",
+        "UserConfig.userColor",
+        "UserConfig.userChannelConfig"
       ],
     })
   ],
 });
+
+// 作为默认导出
+export default store;
+
+
 

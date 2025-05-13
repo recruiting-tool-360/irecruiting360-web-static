@@ -1,24 +1,34 @@
 import axios from "axios";
-import {ElMessage,ElNotification} from "element-plus";
+import { Notify, Dialog } from 'quasar';
+import notify from "../util/notify";
+import Cookies from "js-cookie";
+
+// 直接使用硬编码的基础URL，因为环境变量可能不可用
+const baseURL = process.env.VUE_APP_API_BASE_URL;
+const env = process.env.NODE_ENV
+
+console.log('Using API base URL:', baseURL,env)
 
 const service = axios.create({
-    baseURL: process.env.VUE_APP_API_BASE_URL,
+    baseURL: baseURL,
     timeout: 15000,
     withCredentials: true
 })
-// const service=axios.create({
-//     baseURL: '/api',
-//     withCredentials:true,
-//     timeout:15000
-// })
-// service.defaults.withCredentials = true;
-//withCredentials:true
-//    baseURL: '/api',
+
+// ✅ 请求拦截器：每次请求都加上 satoken
+service.interceptors.request.use(config => {
+  const token = Cookies.get('satoken')
+  if (token) {
+    config.headers['satoken'] = token  // 你也可以用 Authorization 或其他名称
+  }
+  return config
+}, error => {
+  return Promise.reject(error)
+})
 
 // 结果集处理器
 service.interceptors.response.use(
     res => {
-        // console.log(res)
         if(res.status===200){
             return validateError(res.data);
         }else{
@@ -33,24 +43,9 @@ service.interceptors.response.use(
     }
 )
 
-// const errorAlert=(title,message)=>{
-//     ElNotification({
-//         title: title,
-//         duration: 3000,
-//         customClass:"notice",
-//         message: message,
-//         type: 'error',
-//     })
-// }
-const errorAlert=(title,message)=>{
-    // ElNotification({
-    //     title: title,
-    //     duration: 3000,
-    //     customClass:"notice",
-    //     message: message,
-    //     type: 'error',
-    // })
-    ElMessage.error(title,message);
+// 使用通知组件
+const errorAlert = (title, message) => {
+    notify.error(message || title);
 }
 
 //校验结果集
@@ -68,85 +63,5 @@ const validateError=(responseData)=>{
         errorAlert("服务异常","请联系管理员");
     }
 }
-
-// 添加流接口支持
-// service.stream = (url, data, onMessage, onError) => {
-//     const source = axios.CancelToken.source();
-//     axios({
-//         method: 'POST',
-//         url,
-//         data,
-//         responseType: 'stream', // 确保流的支持
-//         cancelToken: source.token,
-//     })
-//         .then(response => {
-//             console.log("stream结果集：",response)
-//             const reader = response.data.getReader();
-//             const decoder = new TextDecoder('utf-8');
-//
-//             const read = () => {
-//                 reader.read().then(({ done, value }) => {
-//                     if (done) {
-//                         console.log("Stream finished");
-//                         return;
-//                     }
-//                     const text = decoder.decode(value);
-//                     onMessage(text); // 回调处理流数据
-//                     read(); // 继续读取
-//                 }).catch(err => {
-//                     console.error("Error reading stream", err);
-//                     if (onError) onError(err);
-//                 });
-//             };
-//
-//             read();
-//         })
-//         .catch(error => {
-//             console.error("Streaming error", error);
-//             if (onError) onError(error);
-//         });
-//
-//     return source; // 返回用于取消请求的 source
-// };
-
-// 添加流式请求方法
-// service.stream = (url, data, onMessage, onError) => {
-//     const source = new AbortController(); // 用于取消请求
-//     axios
-//         .post(url, data, {
-//             signal: source.signal, // 绑定取消信号
-//             responseType: "stream", // 标记为流式响应
-//         })
-//         .then((response) => {
-//             console.log("结果集data：",response)
-//             const reader = response.data.getReader();
-//             console.log("结果集data：",reader)
-//             const decoder = new TextDecoder("utf-8");
-//
-//             const processStream = () => {
-//                 reader.read().then(({ done, value }) => {
-//                     if (done) return;
-//
-//                     const chunk = decoder.decode(value, { stream: true });
-//                     onMessage(chunk); // 处理每个消息块
-//
-//                     processStream(); // 递归读取
-//                 });
-//             };
-//
-//             processStream();
-//         })
-//         .catch((error) => {
-//             if (onError) {
-//                 onError(error);
-//             } else {
-//                 console.error("Streaming error", error);
-//             }
-//         });
-//
-//     return {
-//         cancel: () => source.abort(),
-//     };
-// };
 
 export default service
