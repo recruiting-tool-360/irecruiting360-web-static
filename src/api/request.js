@@ -18,7 +18,7 @@ const service = axios.create({
 // 结果集处理器
 service.interceptors.response.use(
     res => {
-        console.log(res)
+        // console.log(res)
         if(res.status===200){
             return validateError(res.data);
         }else{
