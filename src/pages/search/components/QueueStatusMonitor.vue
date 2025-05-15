@@ -34,9 +34,9 @@
                     {{ queue.size }} 个任务
                   </q-badge>
                 </div>
-                <div>
-                  <q-btn flat dense size="sm" color="negative" icon="delete" @click="clearQueue(queueId)" />
-                </div>
+<!--                <div>-->
+<!--                  <q-btn flat dense size="sm" color="negative" icon="delete" @click="clearQueue(queueId)" />-->
+<!--                </div>-->
               </div>
 
               <div class="channel-list q-pl-sm">
@@ -54,7 +54,7 @@
                       <span class="text-caption q-ml-sm">{{ size }} 个任务</span>
                     </div>
                     <div class="row q-gutter-x-xs">
-                      <q-btn flat dense size="xs" color="warning" icon="pause" @click="pauseChannel(queueId, channelKey)" />
+<!--                      <q-btn flat dense size="xs" color="warning" icon="pause" @click="pauseChannel(queueId, channelKey)" />-->
                       <q-btn flat dense size="xs" color="negative" icon="delete" @click="clearChannel(queueId, channelKey)" />
                     </div>
                   </div>
@@ -198,11 +198,34 @@ const manualRefresh = () => {
 
 // 清空特定队列中的特定渠道
 const clearChannel = (queueId, channelKey) => {
+  let removedTasks = [];
+  
   if (queueId === 'default') {
-    clearChannelApi(channelKey);
+    removedTasks = clearChannelApi(channelKey);
   } else {
-    asyncTaskQueueManager.clearChannel(queueId, channelKey);
+    removedTasks = asyncTaskQueueManager.clearChannel(queueId, channelKey);
   }
+  
+  // 打印被删除的任务数据
+  console.log(`已清空渠道 ${channelKey} 的任务:`, removedTasks);
+  
+  // 如果有被删除的任务，显示更详细的信息
+  if (removedTasks.length > 0) {
+    console.log(`共删除了 ${removedTasks.length} 个任务`);
+    // 打印每个任务的简要信息
+
+    removedTasks.forEach((task, index) => {
+      console.log(`任务 ${index + 1}:`, {
+        添加时间: task.addedAt,
+        重试次数: task.retries,
+        任务数据: task.data || '无数据'
+      });
+      const allChannelData = store.getters.getChannelConfByAll;
+      data.resume.score = -2;
+      allChannelData.cardInfoRef.updateResumeScoreFN(task.data.resume);
+    });
+  }
+  
   refreshStatus();
 };
 
@@ -218,17 +241,53 @@ const pauseChannel = (queueId, channelKey) => {
 
 // 清空特定队列
 const clearQueue = (queueId) => {
+  let removedTasks = {};
+  
   if (queueId === 'default') {
-    clearAllChannels();
+    removedTasks = clearAllChannels();
   } else {
-    asyncTaskQueueManager.clearQueue(queueId);
+    removedTasks = asyncTaskQueueManager.clearQueue(queueId);
   }
+  
+  // 打印被删除的任务数据
+  console.log(`已清空队列 ${queueId} 的所有任务:`, removedTasks);
+  
+  // 统计被删除的任务总数
+  let totalRemoved = 0;
+  Object.entries(removedTasks).forEach(([channelKey, tasks]) => {
+    if (tasks && tasks.length) {
+      totalRemoved += tasks.length;
+      console.log(`渠道 ${channelKey}: 删除了 ${tasks.length} 个任务`);
+    }
+  });
+  
+  console.log(`队列 ${queueId} 共删除了 ${totalRemoved} 个任务`);
+  
   refreshStatus();
 };
 
 // 清空所有队列
 const clearAllQueues = () => {
-  asyncTaskQueueManager.clearAllQueues();
+  const removedTasks = asyncTaskQueueManager.clearAllQueues();
+  
+  // 打印被删除的任务数据
+  console.log('已清空所有队列的任务:', removedTasks);
+  
+  // 统计被删除的任务总数
+  let totalRemoved = 0;
+  Object.entries(removedTasks).forEach(([queueId, queueTasks]) => {
+    console.log(`队列 ${queueId}:`);
+    
+    Object.entries(queueTasks).forEach(([channelKey, tasks]) => {
+      if (tasks && tasks.length) {
+        totalRemoved += tasks.length;
+        console.log(`  渠道 ${channelKey}: 删除了 ${tasks.length} 个任务`);
+      }
+    });
+  });
+  
+  console.log(`共删除了 ${totalRemoved} 个任务`);
+  
   refreshStatus();
 };
 

@@ -128,7 +128,12 @@ class AsyncTaskQueue {
 
   // 清除指定渠道的所有任务
   clearChannelQueue(channelKey) {
+    let removedTasks = [];
+    
     if (this.queues[channelKey]) {
+      // 保存被删除的任务
+      removedTasks = [...this.queues[channelKey]];
+      
       // 暂停处理
       this.pauseProcessing(channelKey);
 
@@ -138,19 +143,23 @@ class AsyncTaskQueue {
 
       console.log(`已清空渠道${channelKey}的所有任务`);
     }
+    
+    return removedTasks;
   }
 
   // 清空所有渠道的任务
   clearAllQueues() {
     // 获取所有渠道
     const channelKeys = Object.keys(this.queues);
+    const allRemovedTasks = {};
 
     // 清空每个渠道的队列
     channelKeys.forEach(channelKey => {
-      this.clearChannelQueue(channelKey);
+      allRemovedTasks[channelKey] = this.clearChannelQueue(channelKey);
     });
 
     console.log('已清空所有渠道的任务队列');
+    return allRemovedTasks;
   }
 
   // 获取队列大小的响应式引用

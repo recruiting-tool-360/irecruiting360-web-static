@@ -114,51 +114,65 @@ class AsyncTaskQueueManager {
    * 清空指定队列的特定渠道
    * @param {string} queueId - 队列唯一标识
    * @param {string} channelKey - 渠道标识
+   * @returns {Array} 被删除的任务数组
    */
   clearChannel(queueId, channelKey) {
     const queue = this.queueInstances[queueId] || this.defaultQueue;
+    let removedTasks = [];
 
     if (queue) {
-      queue.clearChannelQueue(channelKey);
+      removedTasks = queue.clearChannelQueue(channelKey);
       this.updateQueueStatus();
     }
+    
+    return removedTasks;
   }
 
   /**
    * 清空默认队列的特定渠道
    * @param {string} channelKey - 渠道标识
+   * @returns {Array} 被删除的任务数组
    */
   clearDefaultChannel(channelKey) {
-    this.defaultQueue.clearChannelQueue(channelKey);
+    const removedTasks = this.defaultQueue.clearChannelQueue(channelKey);
     this.updateQueueStatus();
+    return removedTasks;
   }
 
   /**
    * 清空指定队列的所有渠道
    * @param {string} queueId - 队列唯一标识
+   * @returns {Object} 被删除的任务数据，按渠道分组
    */
   clearQueue(queueId) {
     const queue = this.queueInstances[queueId] || this.defaultQueue;
+    let removedTasks = {};
 
     if (queue) {
-      queue.clearAllQueues();
+      removedTasks = queue.clearAllQueues();
       this.updateQueueStatus();
     }
+
+    return removedTasks;
   }
 
   /**
    * 清空所有队列
+   * @returns {Object} 被删除的任务数据，按队列和渠道分组
    */
   clearAllQueues() {
     // 清空默认队列
-    this.defaultQueue.clearAllQueues();
+    const removedTasks = {
+      default: this.defaultQueue.clearAllQueues()
+    };
 
     // 清空所有自定义队列
-    Object.values(this.queueInstances).forEach(queue => {
-      queue.clearAllQueues();
+    Object.entries(this.queueInstances).forEach(([queueId, queue]) => {
+      removedTasks[queueId] = queue.clearAllQueues();
     });
 
     this.updateQueueStatus();
+    return removedTasks;
   }
 
   /**
