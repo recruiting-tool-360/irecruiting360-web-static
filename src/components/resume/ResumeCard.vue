@@ -158,7 +158,19 @@
           </div>
         </div>
 
-        <div class="col-4 flex justify-end items-end">
+        <div class="col-4 flex justify-end items-end column">
+          <div class="flex wrap justify-end">
+            <template v-if="isSingleSignOn && sourceKey === 'ihr-recruit-assistant' && Number.isFinite(resume.score) && resume.score >= 0">
+              <q-btn  flat class="q-ma-xs" size="sm" color="primary" @click.stop="assignJob">
+                <q-icon class="q-mr-xs" name="assignment"></q-icon>
+                <span class="">分配职位</span>
+              </q-btn>
+              <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="addToTalentPool">
+                <q-icon class="q-mr-xs" name="group_add"></q-icon>
+                <span class="">加入人才库</span>
+              </q-btn>
+            </template>
+          </div>
           <div class="flex wrap justify-end">
             <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="searchSimilarResumes">
               <q-icon class="q-mr-xs" name="search"></q-icon>
@@ -229,6 +241,8 @@ import AIResumeEvaluation from 'src/components/resume/AIResumeEvaluation.vue';
 import {getResumeBlindList, markResumeBlindReadStatus, userCollectResume} from "src/api/jobList/JobListApi";
 import channelConfig from "src/store/modules/ChannelConfig";
 import {getChannelUrl, bossUrl, zhilianUrl, liepinUrl, job51Url} from "src/pluginSrc/util/ChannelUrlUtil";
+import { useSendResume } from 'src/hooks/useSendResume';
+
 const store = useStore();
 const $q = useQuasar();
 
@@ -285,6 +299,13 @@ const getChannelDisable = (key) => {
   // 如果找到配置且 enableConfig 为 false 则禁用，否则不禁用
   return channelConfig.enableConfig;
 };
+
+const isSingleSignOn = computed(() => !store.getters.getIsSingleSignOn);
+
+const sourceKey = computed(() => store.getters.getSourceKey);
+
+// 初始化发送简历hook 
+const { sendResume } = useSendResume('resumeList');
 
 // 在新窗口中打开详情页面
 const openDetailInNewWindow = (url) => {
@@ -791,6 +812,18 @@ const handleViewDetail = (resume) => {
   }else{
     notify.warning(resume.channel+"查询详情异常，请联系管理员");
   }
+};  
+
+// 分配职位
+const assignJob = async () => {
+  const result = await sendResume([props.resume.id], { action: 'assignJob' })
+  console.log('分配职位结果', result)
+};
+
+// 加入人才库
+const addToTalentPool = async () => {
+  const result = await sendResume([props.resume.id], { action: 'addToTalentPool' })
+  console.log('加入人才库结果', result)
 };
 
 // 在 script setup 中添加以下内容
