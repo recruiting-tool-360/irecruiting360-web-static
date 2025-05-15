@@ -160,9 +160,9 @@
 
         <div class="col-4 flex justify-end items-end column">
           <div class="flex wrap justify-end">
-            <template v-if="isSingleSignOn && sourceKey === 'ihr-recruit-assistant' && Number.isFinite(resume.score) && resume.score >= 0">
+            <template v-if="isIhrPage && Number.isFinite(resume.score) && resume.score >= 0">
               <q-btn  flat class="q-ma-xs" size="sm" color="primary" @click.stop="assignJob">
-                <q-icon class="q-mr-xs" name="assignment"></q-icon>
+                <q-icon class="q-mr-xs" name="work"></q-icon>
                 <span class="">分配职位</span>
               </q-btn>
               <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="addToTalentPool">
@@ -300,9 +300,11 @@ const getChannelDisable = (key) => {
   return channelConfig.enableConfig;
 };
 
-const isSingleSignOn = computed(() => !store.getters.getIsSingleSignOn);
-
-const sourceKey = computed(() => store.getters.getSourceKey);
+// 判断ihr招聘特殊标识
+const isIhrPage = computed(() => {
+  const userInfo = store.getters.getUserInfo?.extendData ?? {};
+  return userInfo?.hasOwnProperty('ihrRecruitAssistant') && userInfo.ihrRecruitAssistant === true;
+});
 
 // 初始化发送简历hook 
 const { sendResume } = useSendResume('resumeList');
@@ -816,13 +818,13 @@ const handleViewDetail = (resume) => {
 
 // 分配职位
 const assignJob = async () => {
-  const result = await sendResume([props.resume.id], { action: 'assignJob' })
+  const result = await sendResume([props.resume.id], { action: 'assign-position' })
   console.log('分配职位结果', result)
 };
 
 // 加入人才库
 const addToTalentPool = async () => {
-  const result = await sendResume([props.resume.id], { action: 'addToTalentPool' })
+  const result = await sendResume([props.resume.id], { action: 'talent-pool' })
   console.log('加入人才库结果', result)
 };
 

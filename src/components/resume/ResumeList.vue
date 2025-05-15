@@ -154,6 +154,7 @@ import { ref, computed, defineProps, defineEmits, watch, onMounted } from 'vue';
 import ResumeCard from './ResumeCard.vue';
 import BatchShareDialog from './BatchShareDialog.vue';
 import BatchAddToTalentPoolDialog from './BatchAddToTalentPoolDialog.vue';
+import { useSendResume } from 'src/hooks/useSendResume';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import notify from "src/util/notify";
@@ -189,6 +190,9 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['load-more', 'filter-change', 'update:selected']);
+
+// 初始化发送简历hook 
+const { sendResume } = useSendResume('resumeList');
 
 // v-intersection 相关
 const inView = ref([]);
@@ -583,14 +587,8 @@ const filteredSelectedResumes = computed(() => {
 const batchDialogType = ref('talent-pool');
 
 // 处理批量确认操作
-const handleBatchConfirm = (data) => {
-  console.log('批量操作确认:', data);
-  // 根据类型执行不同操作
-  if (data.type === 'talent-pool') {
-    console.log('执行批量加入人才库操作');
-  } else if (data.type === 'assign-position') {
-    console.log('执行批量分配职位操作');
-  }
+const handleBatchConfirm = async (data) => {
+  await sendResume(data.resumes.map(r => r.id), { action: data.type })
 };
 
 // 打开批量加入人才库对话框

@@ -1,5 +1,6 @@
-import { getCurrentInstance } from 'vue';
+import { unref, computed, getCurrentInstance } from 'vue';
 import { getResumeBlindList } from 'src/api/jobList/JobListApi';
+import { useStore } from 'vuex';
 
 /**
  * 用于发送简历信息到父页面的 hook
@@ -11,6 +12,10 @@ export function useSendResume(messageType = 'resumeList') {
     throw new Error('messageType 必须为字符串类型');
   }
   const { proxy } = getCurrentInstance();
+
+  const store = useStore();
+
+  const getLatestChatId = computed(() => store.getters.getLatestChatId ?? '');
 
   /**
    * 发送简历信息到父页面
@@ -40,6 +45,7 @@ export function useSendResume(messageType = 'resumeList') {
 
     const payload = {
       resumes: resumeList,
+      positionId: unref(getLatestChatId),
       ...extraParams
     };
 
