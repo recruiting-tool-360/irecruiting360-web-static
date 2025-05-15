@@ -30,6 +30,7 @@ module.exports = configure(function (/* ctx */) {
       'i18n',
       'axios',
       'intersection-observer',
+      'iframe-messenger',
     ],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#css

@@ -1,3 +1,5 @@
+import {hexToRgb} from "src/util/index";
+
 export default {
     state: () => ({
         userInfo: null,
@@ -21,6 +23,18 @@ export default {
         },
         setResumeBatchMode(state, val) {
             state.resumeBatchMode = val;
+        },
+        updateSsoThemeColor(state, color) {
+            state.userColor = color;
+            document.documentElement.style.setProperty('--q-primary', color);
+            // 将HEX转换为RGB并更新CSS变量
+            const rgb = hexToRgb(color);
+            if (rgb) {
+              document.documentElement.style.setProperty(
+                '--q-primary-rgb',
+                `${rgb.r}, ${rgb.g}, ${rgb.b}`
+              );
+            }
         },
     },
     actions: {},
