@@ -5,7 +5,6 @@ import ChatConfig from "src/store/modules/ChatConfig";
 import AiSerachConfig from "src/store/modules/AiSerachConfig";
 import ChannelConfig from "src/store/modules/ChannelConfig";
 import UserConfig from "src/store/modules/UserConfig";
-import AppStatus from "src/store/modules/AppStatus";
 import createPersistedState from "vuex-persistedstate";
 import chatList from './modules/chatList'
 
@@ -16,7 +15,7 @@ const store = createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,AppStatus
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList
   },
   plugins: [
     createPersistedState({
@@ -30,8 +29,6 @@ const store = createStore({
         "UserConfig.userInfo",
         "UserConfig.userColor",
         "UserConfig.userChannelConfig",
-        "AppStatus.isSingleSignOn",
-        "AppStatus.sourceKey"
       ],
     })
   ],

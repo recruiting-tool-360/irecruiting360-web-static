@@ -176,6 +176,8 @@ const selectChat = (item) => {
   store.commit('changeChannelConfData', {key: 'ALL', value: []});
   //设置chatid
   store.commit('SET_LATEST_CHAT_ID', item.id)
+  //设置职位id
+  store.commit('SET_LATEST_POSITION_ID', item?.positionId)
   // 这里可以添加其他选择聊天的逻辑
   // console.log("122")
 }

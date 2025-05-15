@@ -2,6 +2,7 @@ const state = {
   activeChatId: '', // 当前激活的聊天 ID
   needRefreshList: false, // 是否需要刷新列表
   latestChatId: '',//最新chatId
+  SET_LATEST_POSITION_ID: '',
 }
 
 const mutations = {
