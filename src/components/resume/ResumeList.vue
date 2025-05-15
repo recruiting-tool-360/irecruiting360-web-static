@@ -5,6 +5,13 @@
       v-model:visible="showBatchShareDialog"
       :selected-resumes="selectedResumes"
     />
+    <!-- 批量加入人才库对话框 -->
+    <batch-add-to-talent-pool-dialog
+      v-model:visible="showBatchDialog"
+      :selected-resumes="filteredSelectedResumes"
+      :type="batchDialogType"
+      @confirm="handleBatchConfirm"
+    />
     <!-- 简历索引侧边栏 -->
     <div v-if="resumeIndexVisible" class="resume-index text-grey-8 overflow-hidden rounded-borders text-center fixed q-px-sm q-mt-xl q-py-md" :style="resumeIndexStyle">
       <transition-group v-if="inView.length > 0" name="in-view" tag="ul">
@@ -40,6 +47,28 @@
           </div>
           <q-space />
           <div v-if="resumeBatchMode">
+            <q-btn
+              flat
+              dense
+              color="primary"
+              class="q-mr-sm"
+              @click="openBatchAssignPositionDialog"
+            >
+              <q-icon name="work" size="xs"></q-icon>
+              批量分配职位
+              <q-tooltip>{{ '批量分配职位' }}</q-tooltip>
+            </q-btn>
+            <q-btn
+              flat
+              dense
+              color="primary"
+              class="q-mr-sm"
+              @click="openBatchAddToTalentPoolDialog"
+            >
+              <q-icon name="group_add" size="xs"></q-icon>
+              批量加入人才库
+              <q-tooltip>{{ '批量加入人才库' }}</q-tooltip>
+            </q-btn>
             <q-btn
               flat
               dense
@@ -124,6 +153,7 @@
 import { ref, computed, defineProps, defineEmits, watch, onMounted } from 'vue';
 import ResumeCard from './ResumeCard.vue';
 import BatchShareDialog from './BatchShareDialog.vue';
+import BatchAddToTalentPoolDialog from './BatchAddToTalentPoolDialog.vue';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import notify from "src/util/notify";
@@ -539,6 +569,60 @@ const openBatchShareDialog = () => {
     return;
   }
   showBatchShareDialog.value = true;
+};
+
+// 批量加入人才库对话框
+const showBatchDialog = ref(false);
+
+// 获取选中简历的完整数据
+const filteredSelectedResumes = computed(() => {
+  return selectedResumes.value.filter(resume => resume.score !== null && resume.score !== undefined && resume.score >= 0);
+});
+
+// 批量分配职位对话框类型
+const batchDialogType = ref('talent-pool');
+
+// 处理批量确认操作
+const handleBatchConfirm = (data) => {
+  console.log('批量操作确认:', data);
+  // 根据类型执行不同操作
+  if (data.type === 'talent-pool') {
+    console.log('执行批量加入人才库操作');
+  } else if (data.type === 'assign-position') {
+    console.log('执行批量分配职位操作');
+  }
+};
+
+// 打开批量加入人才库对话框
+const openBatchAddToTalentPoolDialog = () => {
+  if (selectedIds.value.length === 0) {
+    notify.info("请先选择简历");
+    return;
+  }
+  
+  if (filteredSelectedResumes.value.length === 0) {
+    notify.info("没有符合条件的简历，请选择AI分析完成的数据！");
+    return;
+  }
+  
+  batchDialogType.value = 'talent-pool';
+  showBatchDialog.value = true;
+};
+
+// 打开批量分配职位对话框
+const openBatchAssignPositionDialog = () => {
+  if (selectedIds.value.length === 0) {
+    notify.info("请先选择简历");
+    return;
+  }
+  
+  if (filteredSelectedResumes.value.length === 0) {
+    notify.info("没有符合条件的简历，请选择AI分析完成的数据！");
+    return;
+  }
+  
+  batchDialogType.value = 'assign-position';
+  showBatchDialog.value = true;
 };
 </script>
 
