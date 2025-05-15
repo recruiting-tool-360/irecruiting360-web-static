@@ -38,11 +38,29 @@ const iframeParams = ref(null);
 const { proxy } = getCurrentInstance();
 const iframeMsg = proxy.$iframeMessenger;
 
+// 初始化
 iframeMsg.on("init", (data, context) => {
-  if(context.from !== "ihr-recruit-ai") return
-  iframeParams.value = data
+  if(context.from !== "ihr-recruit-assistant") return
+
+  // 更新应用状态
+  store.commit('changeAppStatus', {
+    isSingleSignOn: true,
+    sourceKey: context.from
+  })
+
+  iframeParams.value = data // 保存初始化信息
+
+  updateGloalColor(data?.sysConfig?.color);
+
   handleSSOLogin(data);
+
   return Promise.resolve(true);
+})
+
+// 监听主题色改变
+iframeMsg.on("themeColor", (data, context) => {
+  if(context.from !== "ihr-recruit-assistant") return
+  return updateGloalColor(data?.sysConfig?.color);
 })
 
 // SSO 登录流程
@@ -119,6 +137,15 @@ const handleSSOLogin = async (iframeMessage) => {
     loading.value = false;
   }
 };
+
+/**
+ * 更新全局主题色
+ * @param color 颜色
+ */
+const updateGloalColor = (color) => {
+  color && store.commit('updateSsoThemeColor', color);
+  return Promise.resolve(true);
+}
 
 // 取消登录
 const cancelLogin = () => {
