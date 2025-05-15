@@ -156,7 +156,9 @@ createQuasarApp(createApp, quasarUserOptions)
       
       import('boot/axios'),
       
-      import('boot/intersection-observer')
+      import('boot/intersection-observer'),
+      
+      import('boot/iframe-messenger')
       
     ]).then(bootFiles => {
       const boot = mapFn(bootFiles).filter(entry => typeof entry === 'function')

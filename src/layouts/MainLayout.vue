@@ -1,7 +1,7 @@
 <template>
   <q-layout view="HHH LpR lfr">
 
-    <q-header elevated class="bg-primary text-white" style="height: 48px" ref="headerRef">
+    <q-header v-if="isSingleSignOn" elevated class="bg-primary text-white" style="height: 48px" ref="headerRef">
       <Header></Header>
     </q-header>
 
@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Header from "layouts/header/Header.vue";
 import SseManager from "components/sse/SseManager.vue";
 import {useStore} from "vuex";
@@ -32,6 +32,8 @@ const sseManagerRef = ref(null);
 const headerRef = ref(null);
 
 const leftDrawerOpen = ref(false)
+
+const isSingleSignOn = computed(() => !store.getters.getIsSingleSignOn);
 
 // 记录上次滚动位置
 let lastScrollY = 0;
@@ -59,6 +61,8 @@ const handleScroll = () => {
 
 // 组件挂载时添加滚动监听
 onMounted(() => {
+  console.log(isSingleSignOn.value, 'isSingleSignOn');
+  
   // 初始化header高度到Vuex
   if (headerRef.value) {
     const headerRect = headerRef.value.$el.getBoundingClientRect();

@@ -83,6 +83,7 @@ import { colors } from 'quasar'
 import { useQuasar } from 'quasar'
 import {useStore} from "vuex";
 import Cookies from "js-cookie";
+import {hexToRgb} from "src/util/index";
 import {userlogout} from "src/api/user/UserApi";
 import notify from "src/util/notify";
 import PluginDownloadDialog from 'src/components/plugins/PluginDownloadDialog.vue';
@@ -150,26 +151,6 @@ const logout = async () => {
 onMounted(() => {
   updateThemeColor(userBaseColor.value)
 })
-
-// HEX转RGB辅助函数
-function hexToRgb(hex) {
-  // 去除可能的#前缀和透明度部分
-  hex = hex.replace(/^#/, '').substring(0, 6);
-
-  // 处理缩写形式 (#RGB)
-  if (hex.length === 3) {
-    hex = hex.split('').map(char => char + char).join('');
-  }
-
-  // 普通形式 (#RRGGBB)
-  const bigint = parseInt(hex, 16);
-  return {
-    r: (bigint >> 16) & 255,
-    g: (bigint >> 8) & 255,
-    b: bigint & 255
-  };
-}
-
 </script>
 
 <style scoped>
