@@ -1,7 +1,7 @@
 <template>
   <q-layout view="HHH LpR lfr">
 
-    <q-header v-if="!isHeaderHidden" elevated class="bg-primary text-white" style="height: 48px" ref="headerRef">
+    <q-header v-if="!isHidden" elevated class="bg-primary text-white" style="height: 48px" ref="headerRef">
       <Header></Header>
     </q-header>
 
@@ -24,8 +24,9 @@ import Header from "layouts/header/Header.vue";
 import SseManager from "components/sse/SseManager.vue";
 import {useStore} from "vuex";
 import LeftMenu from "layouts/menu/LeftMenu.vue";
-
+import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 const store = useStore();
+
 // SSE管理器引用
 const sseManagerRef = ref(null);
 // Header引用
@@ -33,11 +34,11 @@ const headerRef = ref(null);
 
 const leftDrawerOpen = ref(false)
 
-// 判断ihr招聘特殊标识
-const isHeaderHidden = computed(() => {
-  const userInfo = store.getters.getUserInfo?.extendData ?? {};
-  return userInfo?.hasOwnProperty('ihrRecruitAssistant') && userInfo.ihrRecruitAssistant === true;
-});
+// 默认planA企业不可见， 无plan或plan不匹配时默认可见
+const { isHidden } = usePlanVisibility({
+  hiddenForPlans: ['planA'],
+  defaultVisible: true,
+})
 
 // 记录上次滚动位置
 let lastScrollY = 0;

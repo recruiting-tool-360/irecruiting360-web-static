@@ -47,28 +47,30 @@
           </div>
           <q-space />
           <div v-if="resumeBatchMode">
-            <q-btn
-              flat
-              dense
-              color="primary"
-              class="q-mr-sm"
-              @click="openBatchAssignPositionDialog"
-            >
-              <q-icon name="work" size="xs"></q-icon>
-              批量分配职位
-              <q-tooltip>{{ '批量分配职位' }}</q-tooltip>
-            </q-btn>
-            <q-btn
-              flat
-              dense
-              color="primary"
-              class="q-mr-sm"
-              @click="openBatchAddToTalentPoolDialog"
-            >
-              <q-icon name="group_add" size="xs"></q-icon>
-              批量加入人才库
-              <q-tooltip>{{ '批量加入人才库' }}</q-tooltip>
-            </q-btn>
+            <template v-if="isVisible">
+              <q-btn
+                flat
+                dense
+                color="primary"
+                class="q-mr-sm"
+                @click="openBatchAssignPositionDialog"
+              >
+                <q-icon name="work" size="xs"></q-icon>
+                批量分配职位
+                <q-tooltip>{{ '批量分配职位' }}</q-tooltip>
+              </q-btn>
+              <q-btn
+                flat
+                dense
+                color="primary"
+                class="q-mr-sm"
+                @click="openBatchAddToTalentPoolDialog"
+              >
+                <q-icon name="group_add" size="xs"></q-icon>
+                批量加入人才库
+                <q-tooltip>{{ '批量加入人才库' }}</q-tooltip>
+              </q-btn>
+            </template>
             <q-btn
               flat
               dense
@@ -155,6 +157,7 @@ import ResumeCard from './ResumeCard.vue';
 import BatchShareDialog from './BatchShareDialog.vue';
 import BatchAddToTalentPoolDialog from './BatchAddToTalentPoolDialog.vue';
 import { useSendResume } from 'src/hooks/useSendResume';
+import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import notify from "src/util/notify";
@@ -193,6 +196,12 @@ const emit = defineEmits(['load-more', 'filter-change', 'update:selected']);
 
 // 初始化发送简历hook 
 const { sendResume } = useSendResume('resumeList');
+
+// 默认planA企业可见， 无plan或plan不匹配时默认不可见
+const { isVisible } = usePlanVisibility({
+  visibleForPlans: ['planA'],
+  defaultVisible: false
+})
 
 // v-intersection 相关
 const inView = ref([]);
