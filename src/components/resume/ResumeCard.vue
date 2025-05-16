@@ -160,8 +160,8 @@
 
         <div class="col-4 flex justify-end items-end column">
           <div class="flex wrap justify-end">
-            <template v-if="isIhrPage && Number.isFinite(resume.score) && resume.score >= 0">
-              <q-btn  flat class="q-ma-xs" size="sm" color="primary" @click.stop="assignJob">
+            <template v-if="isVisible && Number.isFinite(resume.score) && resume.score >= 0">
+              <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="assignJob">
                 <q-icon class="q-mr-xs" name="work"></q-icon>
                 <span class="">分配职位</span>
               </q-btn>
@@ -242,6 +242,7 @@ import {getResumeBlindList, markResumeBlindReadStatus, userCollectResume} from "
 import channelConfig from "src/store/modules/ChannelConfig";
 import {getChannelUrl, bossUrl, zhilianUrl, liepinUrl, job51Url} from "src/pluginSrc/util/ChannelUrlUtil";
 import { useSendResume } from 'src/hooks/useSendResume';
+import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 
 const store = useStore();
 const $q = useQuasar();
@@ -300,14 +301,14 @@ const getChannelDisable = (key) => {
   return channelConfig.enableConfig;
 };
 
-// 判断ihr招聘特殊标识
-const isIhrPage = computed(() => {
-  const userInfo = store.getters.getUserInfo?.extendData ?? {};
-  return userInfo?.hasOwnProperty('ihrRecruitAssistant') && userInfo.ihrRecruitAssistant === true;
-});
-
 // 初始化发送简历hook 
 const { sendResume } = useSendResume('resumeList');
+
+// 默认planA企业可见， 无plan或plan不匹配时默认不可见
+const { isVisible } = usePlanVisibility({
+  visibleForPlans: ['planA'],
+  defaultVisible: false
+})
 
 // 在新窗口中打开详情页面
 const openDetailInNewWindow = (url) => {
