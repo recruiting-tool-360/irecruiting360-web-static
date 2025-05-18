@@ -1,7 +1,7 @@
 <template>
   <q-layout view="HHH LpR lfr">
 
-    <q-header v-if="!isHidden" elevated class="bg-primary text-white" style="height: 48px" ref="headerRef">
+    <q-header v-if="typeof isHidden === 'boolean' && !isHidden" elevated class="bg-primary text-white" style="height: 48px" ref="headerRef">
       <Header></Header>
     </q-header>
 
