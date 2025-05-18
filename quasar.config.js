@@ -16,8 +16,8 @@ const path = require('path');
 
 module.exports = configure(function (/* ctx */) {
   // 在控制台打印环境变量，便于调试
-  console.log('Environment:', process.env.NODE_ENV);
-  console.log('API Base URL:', process.env.VUE_APP_API_BASE_URL);
+  // console.log('Environment:', process.env.NODE_ENV);
+  // console.log('API Base URL:', process.env.VUE_APP_API_BASE_URL);
 
   return {
     // https://v2.quasar.dev/quasar-cli-vite/prefetch-feature
@@ -69,7 +69,9 @@ module.exports = configure(function (/* ctx */) {
       // publicPath: '/',
       // analyze: true,
       env: {
-        VUE_APP_API_BASE_URL: process.env.VUE_APP_API_BASE_URL
+        VUE_APP_API_BASE_URL: process.env.VUE_APP_API_BASE_URL,
+        VUE_APP_WECHAT_CALL_URL: process.env.VUE_APP_WECHAT_CALL_URL,
+        VUE_APP_WECHAT_APP_ID: process.env.VUE_APP_WECHAT_APP_ID,
       },
       // rawDefine: {}
       // ignorePublicFolder: true,

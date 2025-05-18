@@ -258,6 +258,9 @@ const clearQueue = (queueId) => {
     if (tasks && tasks.length) {
       totalRemoved += tasks.length;
       console.log(`渠道 ${channelKey}: 删除了 ${tasks.length} 个任务`);
+      tasks.forEach((task) => {
+        console.log(`  任务数据:`, task.data);
+      });
     }
   });
   

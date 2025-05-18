@@ -33,6 +33,16 @@ const routes = [
     component: () => import('pages/login/userAgreement.vue')
   },
 
+  {
+    path: '/web/wechatCallback',
+    name: 'WechatCallback',
+    component: () => import('pages/login/LoginWechat.vue'),
+    meta: {
+      requiresAuth: false,
+      title: '微信登录处理'
+    }
+  },
+
   // Always leave this as last one,
   // but you can also remove it
   {
