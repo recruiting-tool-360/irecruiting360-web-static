@@ -114,10 +114,17 @@ import { ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import { useStore } from 'vuex'
 import { getChatList, deleteChat, renameChat } from 'src/api/chat/ChatApi'
+import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 import notify from 'src/util/notify'
 
 const $q = useQuasar()
 const store = useStore()
+
+// 默认planA企业可使用， 无plan或plan不匹配时默认不可见
+const { isVisible } = usePlanVisibility({
+  visibleForPlans: ['planA'],
+  defaultVisible: false
+})
 
 // 状态变量
 const loading = ref(false)
@@ -139,7 +146,12 @@ const loadChatList = async () => {
     if (response.success === 'success' && response.data && Array.isArray(response.data)) {
       // 转换数据格式
       chatList.value = response.data
-        .filter(item => item.positionId)
+        .filter(item => {
+          if(isVisible.value){
+            return item?.positionId
+          }
+          return true
+        })
         .map(item => ({
           id: item.chatId,
           name: item.name || `未知对话`,
