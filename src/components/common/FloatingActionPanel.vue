@@ -75,7 +75,7 @@ const props = defineProps({
   },
   containerTop: {
     type: Number,
-    default: 48
+    default: 0
   },
   containerLeft: {
     type: Number,
@@ -135,18 +135,39 @@ function updatePanelPosition() {
   }
 }
 
+// 三方显示隐藏控制开关
+const visibleThirdSwitch = computed(() => {
+  return store.getters.getUserInfo?.extendData?.plan || '';
+});
+const visibleThirdSwitchPlus = computed(() => {
+  return ['PlanA'].includes(visibleThirdSwitch.value);
+});
+
+// 动态计算顶部位置
+const effectiveContainerTop = computed(() => {
+  return visibleThirdSwitchPlus.value ? 0 : (props.containerTop || 48);
+});
+
 // 使用计算属性获取面板尺寸样式
 const largePanelStyle = computed(() => {
+  // 计算合适的宽度，减去左侧菜单宽度
+  const effectiveWidth = window.innerWidth - props.containerLeft;
+  
   if (props.containerWidth && props.containerHeight) {
     return {
-      width: `${props.containerWidth}px`,
+      width: visibleThirdSwitchPlus.value ? `${effectiveWidth}px` : `${props.containerWidth}px`,
       height: `${props.containerHeight}px`,
-      top: `${props.containerTop}px`,
+      top: `${effectiveContainerTop.value}px`,
       left: `${props.containerLeft}px`
     };
   }
   // 默认样式
-  return {};
+  return {
+    width: visibleThirdSwitchPlus.value ? `calc(100% - ${props.containerLeft}px)` : undefined,
+    height: '100vh',
+    top: `${effectiveContainerTop.value}px`,
+    left: `${props.containerLeft}px`
+  };
 });
 
 // 右侧面板相关状态
