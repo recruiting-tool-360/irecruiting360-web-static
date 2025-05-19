@@ -133,7 +133,7 @@ console.log('isVisible', isVisible)
 
 // 状态变量
 const loading = ref(false)
-const chatList = ref([])
+const chatList = computed(() => store.getters.getChatList) // 使用Vuex中的聊天列表
 const currentChatId = computed(() => store.getters.getLatestChatId || '')
 const renameDialogVisible = ref(false)
 const newName = ref('')
@@ -150,7 +150,7 @@ const loadChatList = async () => {
     const response = await getChatList()
     if (response.success === 'success' && response.data && Array.isArray(response.data)) {
       // 转换数据格式
-      chatList.value = response.data
+      const formattedChatList = response.data
         .filter(item => {
           if(isVisible.value){
             return item?.positionId
@@ -160,11 +160,15 @@ const loadChatList = async () => {
         .map(item => ({
           id: item.chatId,
           name: item.name || `未知对话`,
-          createTime: item.updateAt?.slice(0, 16).replace('T', ' ') || '未知时间'
+          createTime: item.updateAt?.slice(0, 16).replace('T', ' ') || '未知时间',
+          positionId: item.positionId // 保留positionId
         }));
-      // chatList.value = [];
+      
+      // 将格式化后的聊天列表保存到Vuex中
+      store.dispatch('updateChatList', formattedChatList);
+        
       //如果是三方企业相应的修改逻辑
-      if(chatList.value && chatList.value.length>0 &&visibleThirdSwitch){
+      if(chatList.value && chatList.value.length>0 && visibleThirdSwitch){
         //来自于菜单
         if(isFromMenu()){
           selectChat(chatList.value[0])
@@ -184,28 +188,45 @@ const loadChatList = async () => {
 }
 
 // 创建新聊天
-const handleNewChat = () => {
-  // 清除当前聊天ID
-  // store.commit('setCurrentChatId', '')
-  chatCardRef.value.handleNewChat();
-  // 这里可以添加其他初始化逻辑
-  // 通知其他组件创建了新聊天
-  // store.commit('clearSearchConditionId')
+const handleNewChat = async () => {
+  try {
+    // 调用chatCardRef中的handleNewChat方法创建新聊天
+    if (chatCardRef.value && typeof chatCardRef.value.handleNewChat === 'function') {
+      const newChatInfo = await chatCardRef.value.handleNewChat();
+      
+      // 如果返回了新聊天信息，添加到Vuex
+      if (newChatInfo && newChatInfo.id) {
+        // 添加到Vuex中（如果chatCardRef.handleNewChat方法中没有自动添加）
+        // store.dispatch('addChat', newChatInfo);
+      }
+    } else {
+      console.warn('chatCardRef或其handleNewChat方法不可用');
+    }
+  } catch (error) {
+    console.error('创建新聊天失败:', error);
+    notify.error('创建新聊天失败，请稍后重试');
+  }
 }
 
 // 选择聊天
 const selectChat = (item) => {
-  // console.log("item.id",item)
-  //刷新搜索条件
-  jobSearchFilterRef.value.refreshSearchCondition(item.id)
-  //清空聚合渠道数据
+  // 刷新搜索条件
+  if (jobSearchFilterRef.value) {
+    jobSearchFilterRef.value.refreshSearchCondition(item.id)
+  }
+  
+  // 清空聚合渠道数据
   store.commit('changeChannelConfData', {key: 'ALL', value: []});
-  //设置chatid
+  
+  // 设置聊天ID
   store.commit('SET_LATEST_CHAT_ID', item.id)
-  //设置职位id
-  store.commit('SET_LATEST_POSITION_ID', item?.positionId)
-  // 这里可以添加其他选择聊天的逻辑
-  // console.log("122")
+  
+  // 设置职位ID
+  if (item.positionId) {
+    store.commit('SET_LATEST_POSITION_ID', item.positionId)
+  } else {
+    store.commit('SET_LATEST_POSITION_ID', '')
+  }
 }
 
 // 打开重命名对话框
@@ -225,7 +246,11 @@ const handleRename = async () => {
   try {
     const res = await renameChat(currentItem.value.id, newName.value.trim())
     if (res.success === 'success') {
-      await loadChatList() // 重新加载列表
+      // 更新Vuex中的聊天名称
+      store.dispatch('renameChatAction', {
+        chatId: currentItem.value.id,
+        newName: newName.value.trim()
+      })
       notify.success('重命名成功')
       renameDialogVisible.value = false
     } else {
@@ -251,11 +276,12 @@ const handleDelete = async (item) => {
       try {
         const res = await deleteChat(item.id)
         if (res.success === 'success') {
-          await loadChatList() // 重新加载列表
+          // 从Vuex中删除聊天
+          store.dispatch('deleteChatAction', item.id)
           notify.success('删除成功')
-          // 如果删除的是当前选中的聊天，则清除当前聊天ID
+          
+          // 如果删除的是当前选中的聊天，则自动创建新的聊天
           if (currentChatId.value === item.id) {
-            store.commit('setCurrentChatId', '')
             store.commit('clearSearchConditionId')
             handleNewChat()
           }
