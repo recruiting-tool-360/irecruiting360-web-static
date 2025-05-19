@@ -103,6 +103,7 @@ import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 import qs from "qs";
 // 使用Quasar的Dialog显示内容
 import { useQuasar } from 'quasar';
+import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
 const $q = useQuasar();
 
 const props = defineProps({
@@ -226,37 +227,35 @@ const bossScheduleInterview = async (resume) => {
 //boss 查看详情
 const bossHandleViewDetail = async (resume) => {
   console.log('boss详情信息', resume)
-  let boosJobInfo = await bossFindJobDetail(resume);
-  if(boosJobInfo){
-    console.log(boosJobInfo)
-    // 构造URL
-    const url = pluginAllUrls.BOSS.geekDetailUrl+`?expectId=${boosJobInfo.expectId}&isInnerAccount=0&isResume=1&isPreview=0&status=5&jobId=-1&securityId=${boosJobInfo.securityId}`;
-    openDetailInNewWindow(url);
-  }else{
-    notify.warning(resume.channel+"查询详情异常，请联系管理员");
-  }
+  // const requestParams = JSON.parse(resume.originalResumeUrlInfo);
+  // const url = pluginAllUrls.BOSS.geekDetailUrl+`?isInnerAccount=0&isResume=1&isPreview=0&status=5&jobId=-1&securityId=${requestParams.request.securityId}`;
+  let url = getChannelUrl(resume);
+  openDetailInNewWindow(url);
 }
 
 //zhilian 查看详情
 const zhilianHandleViewDetail = async (resume) => {
   console.log('zhilian详情信息', resume)
-  const requestParams = JSON.parse(resume.originalResumeUrlInfo);
-  const requestData ={
-    "t": requestParams.request.t,
-    "resumeNumber": requestParams.request.resumeNumber,
-    "k": requestParams.request.k
-  }
-  const url=pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.geekDetailUrl+`?`+qs.stringify(requestData);
+  // const requestParams = JSON.parse(resume.originalResumeUrlInfo);
+  // const requestData ={
+  //   "t": requestParams.request.t,
+  //   "resumeNumber": requestParams.request.resumeNumber,
+  //   "k": requestParams.request.k
+  // }
+  // const url=pluginAllUrls.ZHILIAN.baseUrl+pluginAllUrls.ZHILIAN.geekDetailUrl+`?`+qs.stringify(requestData);
+  let url = getChannelUrl(resume);
   openDetailInNewWindow(url);
 }
 
 //liepin 查看详情
 const liepinHandleViewDetail = async (resume) => {
-
+  let url = getChannelUrl(resume);
+  openDetailInNewWindow(url);
 }
 
 const job51HandleViewDetail = async (resume) => {
-
+  let url = getChannelUrl(resume);
+  openDetailInNewWindow(url);
 }
 
 //业务配置 - 现在函数已经定义，可以安全引用
@@ -332,6 +331,8 @@ const addToBlacklist = () => {
 // 查看详情
 const viewDetail = () => {
   handleViewDetail(props.resume);
+  //设置已读
+  handleIsReadData(props.resume)
   emit('detail', props.resume);
 };
 

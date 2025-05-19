@@ -21,7 +21,8 @@ export const zhilianUrl = (resume) => {
 }
 
 export const liepinUrl = (resume) => {
-
+  const requestParams = JSON.parse(resume.originalResumeUrlInfo);
+  return requestParams.request.resumeUrl;
 }
 
 export const job51Url = (resume) => {

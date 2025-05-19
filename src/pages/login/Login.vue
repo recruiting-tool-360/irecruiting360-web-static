@@ -104,7 +104,7 @@
                   </q-img>
                   
                   <!-- 添加微信登录容器 -->
-                  <div id="login_container" style="width: 300px; height: 333px;margin-top: -42px"></div>
+                  <div id="login_container" style="width: 300px; height: 333px;margin-top: -42px;transform: scale(0.7)"></div>
                   
                   <!-- 协议遮罩层 -->
                   <div v-if="!wechatAgreeTerms" class="agreement-overlay absolute-full flex flex-center">
@@ -365,9 +365,9 @@ const loadWechatScript = () => {
 
 .qrcode-container {
   position: relative;
-  border-radius: 8px;
+  //border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #eaeaea;
+  //border: 1px solid #eaeaea;
 }
 
 .qrcode-overlay {

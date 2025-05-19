@@ -77,7 +77,7 @@
             <q-tooltip>重置筛选</q-tooltip>
           </q-btn>
           <q-btn color="primary" flat @click="toggleFilterPanel" class="q-mr-xs" style="height: 30px; min-height: 0;">
-            <q-icon name="filter_list" class="q-mr-xs" size="xs" />
+            <q-icon :name="!showFilterPanel ? 'expand_less' : 'expand_more'" class="q-mr-xs" size="xs" />
 <!--            <q-icon :name="showFilterPanel ? 'expand_less' : 'expand_more'" right size="xs" />-->
             筛选
 <!--            <q-icon :name="showFilterPanel ? 'expand_less' : 'expand_more'" right size="xs" />-->

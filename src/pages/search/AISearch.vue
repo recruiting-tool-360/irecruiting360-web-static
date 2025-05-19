@@ -894,6 +894,8 @@ const executeSearch = async (searchState) => {
     pluginInstallDialogRef.value.openDialog();
     return;
   }
+  //打开监视器
+  store.commit('openQueueMonitor');
 
   isLoading.value = true;
   hasData.value = false;

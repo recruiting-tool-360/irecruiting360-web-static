@@ -19,6 +19,10 @@ const routes = [
     path: '/sso-login',
     component: () => import('pages/login/SSOLogin.vue')
   },
+  {
+    path: '/sso-login2',
+    component: () => import('pages/login/SSOLogin2.vue')
+  },
 
   {
     path: '/register',

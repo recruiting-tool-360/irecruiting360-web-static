@@ -81,7 +81,7 @@
             </q-circular-progress>
 
             <span class="text-caption text-grey-7">
-              {{ resume.score === -2 ? '渠道已断开' : (resume.score === null || resume.score === undefined ? 'AI分析中...' : 'AI 匹配度') }}
+              {{ resume.score === -2 ? '渠道数据异常' : (resume.score === null || resume.score === undefined ? 'AI分析中...' : 'AI 匹配度') }}
             </span>
           </div>
 
@@ -106,12 +106,12 @@
                   <q-item clickable v-close-popup @click="downloadResume">
                     <q-item-section>分享简历</q-item-section>
                   </q-item>
-                  <q-item clickable v-close-popup @click="contactCandidate">
-                    <q-item-section>联系候选人</q-item-section>
-                  </q-item>
-                  <q-item clickable v-close-popup @click="addToBlacklist">
-                    <q-item-section>加入黑名单</q-item-section>
-                  </q-item>
+<!--                  <q-item clickable v-close-popup @click="contactCandidate">-->
+<!--                    <q-item-section>联系候选人</q-item-section>-->
+<!--                  </q-item>-->
+<!--                  <q-item clickable v-close-popup @click="addToBlacklist">-->
+<!--                    <q-item-section>加入黑名单</q-item-section>-->
+<!--                  </q-item>-->
                 </q-list>
               </q-menu>
             </q-btn>
@@ -240,7 +240,7 @@ import {getSearchConditionRequest, getSearchStateValues} from "src/pluginSrc/uti
 import AIResumeEvaluation from 'src/components/resume/AIResumeEvaluation.vue';
 import {getResumeBlindList, markResumeBlindReadStatus, userCollectResume} from "src/api/jobList/JobListApi";
 import channelConfig from "src/store/modules/ChannelConfig";
-import {getChannelUrl, bossUrl, zhilianUrl, liepinUrl, job51Url} from "src/pluginSrc/util/ChannelUrlUtil";
+import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
 import { useSendResume } from 'src/hooks/useSendResume';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 
@@ -431,7 +431,8 @@ const zhilianHandleViewDetail = async (resume) => {
 
 //liepin 查看详情
 const liepinHandleViewDetail = async (resume) => {
-
+  let url = getChannelUrl(resume);
+  openDetailInNewWindow(url);
 }
 
 const job51HandleViewDetail = async (resume) => {

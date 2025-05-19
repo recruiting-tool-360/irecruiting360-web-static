@@ -62,6 +62,10 @@ const handleSSOLogin = async () => {
         "email": "test1123@qq.com",
         "phone": "67854533",
         "avatar": null
+      },
+      "extendData":{
+        "from":"recruit-assistant",
+        "plan": "PlanA"
       }
     };
 
