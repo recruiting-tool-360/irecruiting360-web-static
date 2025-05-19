@@ -6,10 +6,14 @@
     :class="[
       expanded ? 'chat-panel-large' : 'chat-panel-small',
       !expanded ? 'draggable-panel' : '',
-      verticalExpanded && !expanded ? 'vertical-expanded' : ''
+      verticalExpanded && !expanded ? 'vertical-expanded' : '',
+      expanded && visibleThirdSwitchPlus ? 'third-party-mode' : ''
     ]"
     v-show="visible"
-    :style="expanded ? largePanelStyle : panelPosition"
+    :style="[
+      expanded ? (visibleThirdSwitchPlus ? chatPanelLargeStyle : largePanelStyle) : panelPosition,
+      expanded && visibleThirdSwitchPlus ? { width: 'calc(100% - 280px)', left: '280px', right: '0' } : {}
+    ]"
     ref="chatCardRef"
   >
     <q-card-section
@@ -214,7 +218,7 @@ const jobSearchFilterRef = computed(() => store.getters.getJobSearchFilterRefVal
 const msgYYY = '我已经为你生成了大致搜索条件，系统会依据这个生成完整搜索条件来精准查找合适简历。大致搜索条件是：2025 届毕业生，本科及以上计算机相关专业，对算法有兴趣，强编码能力，熟悉 linux 开发环境，掌握机器学习等相关技术，有相关领域经验优先。接下来系统会自动处理，你稍作等待就能看到符合要求的简历啦。\n' +
   '[&AI_SEARCH&]\n' +
   '\n' +
-  '<div style=\'background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 10px 0;\'><div><div style=\'display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;\'><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>职位：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>算法工程师</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>工作经验：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>应届生</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>学历要求：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>本科/硕士/博士</div></div></div><div style=\'margin-top: 5px;\'><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>专业技能：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备强悍的编码能力，熟悉linux开发环境，熟悉Hadoop/Hive优先</div><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备扎实的数据结构功底，熟悉机器学习、深度学习、图计算、自然语言处理、数据挖掘、分布式计算中一项或多项</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>软实力要求：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的数理基础和逻辑分析能力</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>对解决具有挑战性的问题充满激情</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的主动性和团队合作精神</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>相关经历：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #fff7e6; color: #fa8c16; border: 1px solid #ffd591; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>有搜索引擎、推荐系统、计算广告、图像、互联网风控、智能客服、平台治理等相关领域经验者优先</div></div></div></div></div>';
+  '<div style=\'background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 10px 0;\'><div><div style=\'display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;\'><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>职位：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>算法工程师</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>工作经验：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>应届生</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>学历要求：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>本科/硕士/博士</div></div></div><div style=\'margin-top: 5px;\'><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>专业技能：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备强悍的编码能力，熟悉linux开发环境，熟悉Hadoop/Hive优先</div><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备扎实的数据结构功底，熟悉机器学习、深度学习、图计算、自然语言处理、数据挖掘、分布式计算中一项或多项</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>软实力要求：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的数理基础和逻辑分析能力</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>对解决具有挑战性的问题充满激情</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-panel; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的主动性和团队合作精神</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>相关经历：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #fff7e6; color: #fa8c16; border: 1px solid #ffd591; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>有搜索引擎、推荐系统、计算广告、图像、互联网风控、智能客服、平台治理等相关领域经验者优先</div></div></div></div></div>';
 // 添加内部消息列表
 const internalMessages = ref([]);
 
@@ -577,6 +581,12 @@ onUnmounted(() => {
 
 // 使用计算属性获取面板尺寸样式
 const largePanelStyle = computed(() => {
+  // 如果是三方企业模式，不使用传入的宽度
+  if (visibleThirdSwitchPlus.value) {
+    return chatPanelLargeStyle.value;
+  }
+  
+  // 正常模式
   if (props.containerWidth && props.containerHeight) {
     return {
       width: `${props.containerWidth}px`,
@@ -593,17 +603,41 @@ const largePanelStyle = computed(() => {
 const headerVisible = computed(() => store.getters.getHeaderVisible);
 const headerHeight = computed(() => store.getters.getHeaderHeight);
 
+//三方显示隐藏控制开关
+const visibleThirdSwitch = computed(() => {
+  return store.getters.getUserInfo?.extendData?.plan || '';
+});
+const visibleThirdSwitchPlus = computed(() => {
+  return ['PlanA'].includes(visibleThirdSwitch.value);
+});
+
 // 计算大型聊天面板的样式
 const chatPanelLargeStyle = computed(() => {
-  // 当header可见时，调整top位置
-  if (headerVisible.value) {
+  // 基础样式，包含宽度设置
+  const baseStyle = {
+    width: props.containerWidth ? `${props.containerWidth}px` : 'calc(100% - 280px)', // 默认减去左侧菜单宽度
+    left: props.containerLeft ? `${props.containerLeft}px` : '280px' // 默认与左侧菜单宽度一致
+  };
+  
+  // 当 visibleThirdSwitchPlus 为 true 时，header 高度为 0
+  if (visibleThirdSwitchPlus.value) {
     return {
+      ...baseStyle,
+      top: '0',
+      height: '100vh'
+    };
+  } 
+  // 当header可见时，调整top位置
+  else if (headerVisible.value) {
+    return {
+      ...baseStyle,
       top: `${headerHeight.value}px`,
       height: `calc(100vh - ${headerHeight.value}px)`
     };
   } else {
     // header不可见时，占据整个屏幕高度
     return {
+      ...baseStyle,
       top: '0',
       height: '100vh'
     };
@@ -1112,8 +1146,9 @@ defineExpose({
   position: fixed;
   top: 0;
   right: 0;
-  width: 100%;
-  height: 100%;
+  /* 移除固定宽度，使用计算属性中的宽度 */
+  /* width: 100%; */
+  height: 100vh; /* 使用 100vh 而不是 100% 确保占据整个视口高度 */
   border-radius: 0;
   box-shadow: none;
   z-index: 1000;
@@ -1479,5 +1514,12 @@ defineExpose({
   /* box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1) !important; */
   border-radius: 12px !important;
   z-index: 10 !important;
+}
+
+/* 三方企业模式样式 */
+.third-party-mode {
+  width: calc(100% - 280px) !important; /* 固定宽度，减去左侧菜单宽度 */
+  right: 0 !important;
+  left: 280px !important; /* 与左侧菜单宽度一致 */
 }
 </style>

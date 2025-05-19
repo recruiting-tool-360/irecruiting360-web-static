@@ -1,7 +1,7 @@
 <template>
   <q-layout view="HHH LpR lfr">
 
-    <q-header v-if="typeof isHidden === 'boolean' && !isHidden" elevated class="bg-primary text-white" style="height: 48px" ref="headerRef">
+    <q-header elevated class="bg-primary text-white" :class="!visibleThirdSwitchPlus?'layout-header':'layout-headerA'" ref="headerRef">
       <Header></Header>
     </q-header>
 
@@ -24,7 +24,7 @@ import Header from "layouts/header/Header.vue";
 import SseManager from "components/sse/SseManager.vue";
 import {useStore} from "vuex";
 import LeftMenu from "layouts/menu/LeftMenu.vue";
-import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
+import {isVisibleThirdA, usePlanVisibility} from 'src/hooks/usePlanVisibility';
 const store = useStore();
 
 // SSE管理器引用
@@ -40,6 +40,14 @@ const { isHidden } = usePlanVisibility({
   defaultVisible: true,
 })
 
+//三方显示隐藏控制开关
+let visibleThirdSwitch = computed(() => {
+  return store.getters.getUserInfo?.extendData?.plan || '';
+});
+let visibleThirdSwitchPlus = computed(() => {
+  return ['PlanA'].includes(visibleThirdSwitch.value);
+});
+
 // 记录上次滚动位置
 let lastScrollY = 0;
 
@@ -47,10 +55,16 @@ let lastScrollY = 0;
 const handleScroll = () => {
   // 检测header是否可见
   if (headerRef.value) {
-    const headerRect = headerRef.value.$el.getBoundingClientRect();
+    // 如果是三方企业模式，直接设置 header 高度为 0
+    if(visibleThirdSwitchPlus.value) {
+      store.commit('setHeaderVisible', false);
+      store.commit('setHeaderHeight', 0);
+      return;
+    }
+    
+    let headerRect = headerRef.value.$el.getBoundingClientRect();
     const headerVisible = headerRect.bottom > 0;
 
-    // console.log(headerVisible)
     // 更新Vuex中的header状态
     store.commit('setHeaderVisible', headerVisible);
 
@@ -68,8 +82,13 @@ const handleScroll = () => {
 onMounted(() => {
   // 初始化header高度到Vuex
   if (headerRef.value) {
-    const headerRect = headerRef.value.$el.getBoundingClientRect();
-    store.commit('setHeaderHeight', headerRect.height);
+    let headerRect = headerRef.value.$el.getBoundingClientRect();
+    if(visibleThirdSwitchPlus.value){
+      // 当 visibleThirdSwitchPlus 为 true 时，将 header 高度设为 0
+      store.commit('setHeaderHeight', 0);
+    } else {
+      store.commit('setHeaderHeight', headerRect.height);
+    }
   }
 
   // 添加滚动监听
@@ -84,3 +103,13 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll);
 });
 </script>
+
+<style>
+.layout-header {
+  height: 48px;
+}
+.layout-headerA {
+  height: 0;
+  overflow: hidden;
+}
+</style>

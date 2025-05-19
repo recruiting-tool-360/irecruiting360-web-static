@@ -1,7 +1,7 @@
 <template>
   <div class="" style="height: 100%;min-height: 100vh">
     <!-- 新建AI聊天按钮 -->
-    <div class="q-mx-md q-my-md">
+    <div class="q-mx-md q-my-md" v-if="!visibleThirdSwitchPlus">
       <q-btn
         class="full-width q-px-none"
         color="primary"
@@ -38,7 +38,7 @@
           <q-item-label caption>{{ item.createTime }}</q-item-label>
         </q-item-section>
 
-        <q-item-section side>
+        <q-item-section side v-if="!visibleThirdSwitchPlus">
           <q-btn
             round
             flat
@@ -110,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { useStore } from 'vuex'
 import { getChatList, deleteChat, renameChat } from 'src/api/chat/ChatApi'
@@ -127,7 +127,18 @@ const { isVisible } = usePlanVisibility({
 })
 
 //三方显示隐藏控制开关
-let visibleThirdSwitch = isVisibleThirdA();
+let visibleThirdSwitch = computed(() => {
+  return store.getters.getUserInfo?.extendData || '';
+});
+let visibleThirdSwitchPlus = computed(() => {
+  return ['PlanA'].includes(visibleThirdSwitch.value?.plan || '');
+});
+//是否来自于菜单
+const isFromThirdMenu = computed(() => {
+  return visibleThirdSwitch.value?.from === 'recruit-assistant'});
+//是否来自于候选人详情页
+const isFromCandidateList = computed(() => {
+  return visibleThirdSwitch.value?.from === 'recruit-workflow'});
 
 console.log('isVisible', isVisible)
 
@@ -145,17 +156,23 @@ const chatCardRef = computed(() => store.getters.getChatCardRefValue);
 
 // 加载聊天列表
 const loadChatList = async () => {
-  loading.value = true
+  loading.value = true;
+  console.log('开始加载聊天列表');
+  
   try {
-    const response = await getChatList()
+    const response = await getChatList();
+    console.log('获取聊天列表响应:', response);
+    
     if (response.success === 'success' && response.data && Array.isArray(response.data)) {
+      console.log('原始聊天数据:', response.data);
+      
       // 转换数据格式
       const formattedChatList = response.data
         .filter(item => {
           if(isVisible.value){
-            return item?.positionId
+            return item?.positionId;
           }
-          return true
+          return true;
         })
         .map(item => ({
           id: item.chatId,
@@ -164,26 +181,44 @@ const loadChatList = async () => {
           positionId: item.positionId // 保留positionId
         }));
       
+      console.log('格式化后的聊天列表:', formattedChatList);
+      console.log('三方企业状态:', {
+        visibleThirdSwitchPlus: visibleThirdSwitchPlus.value,
+        isFromThirdMenu: isFromThirdMenu.value
+      });
+      
       // 将格式化后的聊天列表保存到Vuex中
       store.dispatch('updateChatList', formattedChatList);
+      console.log('聊天列表已保存到Vuex');
         
+      // 在数据更新到Vuex后，使用nextTick确保DOM已更新
+      // 然后再处理三方企业的选择逻辑
+      await nextTick();
+      
       //如果是三方企业相应的修改逻辑
-      if(chatList.value && chatList.value.length>0 && visibleThirdSwitch){
+      if(formattedChatList.length > 0 && visibleThirdSwitchPlus.value){
         //来自于菜单
-        if(isFromMenu()){
-          selectChat(chatList.value[0])
-        }else{
-
+        if(isFromThirdMenu.value){
+          console.log('三方企业，自动选择第一个聊天:', formattedChatList[0]);
+          selectChat(formattedChatList[0]);
         }
+      } else {
+        console.log('不满足自动选择条件:', {
+          hasChats: formattedChatList.length > 0,
+          isThirdParty: visibleThirdSwitchPlus.value,
+          isFromMenu: isFromThirdMenu.value
+        });
       }
     } else {
-      notify.error('加载聊天列表失败')
+      console.error('加载聊天列表失败, 响应不符合预期:', response);
+      notify.error('加载聊天列表失败');
     }
   } catch (e) {
-    console.error('加载聊天列表失败:', e)
-    notify.error('加载聊天列表失败，请稍后重试')
+    console.error('加载聊天列表失败:', e);
+    notify.error('加载聊天列表失败，请稍后重试');
   } finally {
-    loading.value = false
+    loading.value = false;
+    console.log('聊天列表加载完成');
   }
 }
 
@@ -210,22 +245,38 @@ const handleNewChat = async () => {
 
 // 选择聊天
 const selectChat = (item) => {
-  // 刷新搜索条件
-  if (jobSearchFilterRef.value) {
-    jobSearchFilterRef.value.refreshSearchCondition(item.id)
+  if (!item || !item.id) {
+    console.error('尝试选择无效的聊天项', item);
+    return;
   }
-  
-  // 清空聚合渠道数据
-  store.commit('changeChannelConfData', {key: 'ALL', value: []});
-  
-  // 设置聊天ID
-  store.commit('SET_LATEST_CHAT_ID', item.id)
-  
-  // 设置职位ID
-  if (item.positionId) {
-    store.commit('SET_LATEST_POSITION_ID', item.positionId)
-  } else {
-    store.commit('SET_LATEST_POSITION_ID', '')
+
+  console.log('选择聊天:', item);
+
+  try {
+    // 刷新搜索条件
+    if (jobSearchFilterRef.value) {
+      jobSearchFilterRef.value.refreshSearchCondition(item.id);
+    } else {
+      console.warn('jobSearchFilterRef不可用，无法刷新搜索条件');
+    }
+    
+    // 清空聚合渠道数据
+    store.commit('changeChannelConfData', {key: 'ALL', value: []});
+    
+    // 设置聊天ID
+    store.commit('SET_LATEST_CHAT_ID', item.id);
+    console.log('已设置最新聊天ID:', item.id);
+    
+    // 设置职位ID
+    if (item.positionId) {
+      store.commit('SET_LATEST_POSITION_ID', item.positionId);
+      console.log('已设置最新职位ID:', item.positionId);
+    } else {
+      store.commit('SET_LATEST_POSITION_ID', '');
+      console.log('职位ID为空，已清除');
+    }
+  } catch (error) {
+    console.error('选择聊天时发生错误:', error);
   }
 }
 
@@ -301,7 +352,57 @@ const handleDelete = async (item) => {
 // 组件挂载时加载数据
 onMounted(() => {
   loadChatList()
+  
+  // 添加一个延迟执行的备选方案，确保在列表加载后能自动选择
+  setTimeout(() => {
+    if (chatList.value && chatList.value.length > 0 && 
+        visibleThirdSwitchPlus.value && isFromThirdMenu.value && 
+        !currentChatId.value) {
+      console.log('延迟执行：聊天列表已加载，自动选择第一个聊天');
+      selectChat(chatList.value[0]);
+    }
+  }, 1000); // 1秒后检查
 })
+
+// 可选：添加一个更可靠的多次尝试机制
+let autoSelectAttempts = 0;
+const maxAutoSelectAttempts = 3;
+
+const tryAutoSelectFirstChat = () => {
+  if (autoSelectAttempts >= maxAutoSelectAttempts) {
+    console.log('已达到最大尝试次数，停止自动选择');
+    return;
+  }
+  
+  if (chatList.value && chatList.value.length > 0 && 
+      visibleThirdSwitchPlus.value && isFromThirdMenu.value && 
+      !currentChatId.value) {
+    console.log(`尝试 ${autoSelectAttempts + 1}/${maxAutoSelectAttempts}：自动选择第一个聊天`);
+    selectChat(chatList.value[0]);
+    autoSelectAttempts++;
+  } else if (!chatList.value || chatList.value.length === 0) {
+    // 如果列表还没加载完，稍后再试
+    setTimeout(tryAutoSelectFirstChat, 500);
+    autoSelectAttempts++;
+  }
+};
+
+// 在监听器中添加更可靠的处理
+watch(chatList, (newChatList) => {
+  if (newChatList.length > 0) {
+    // 如果当前没有选中的聊天，且有聊天列表数据，则考虑自动选择
+    if (!currentChatId.value && visibleThirdSwitchPlus.value && isFromThirdMenu.value) {
+      console.log('聊天列表变化，自动选择第一个聊天', newChatList[0]);
+      selectChat(newChatList[0]);
+    }
+  }
+  
+  // 如果监听器触发但没有选中，启动备选机制
+  if (newChatList.length > 0 && !currentChatId.value && 
+      visibleThirdSwitchPlus.value && isFromThirdMenu.value) {
+    tryAutoSelectFirstChat();
+  }
+}, { immediate: false })
 </script>
 
 <style scoped>
