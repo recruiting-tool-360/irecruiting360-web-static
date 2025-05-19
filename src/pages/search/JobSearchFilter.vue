@@ -724,9 +724,9 @@ const refreshSearchCondition = async (chatId) => {
   try {
     let chatConditionRequest = await getChatConditionRequest(chatId);
     if(chatConditionRequest){
-      console.log("1",chatConditionRequest)
+      // console.log("1",chatConditionRequest)
       let searchStateValues = getSearchStateValues(chatConditionRequest);
-      console.log("2",searchStateValues)
+      // console.log("2",searchStateValues)
       setSearchState(searchStateValues);
     } else {
       console.warn('没有获取到聊天条件数据');

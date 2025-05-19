@@ -4,7 +4,7 @@ import {getCurrentConditionByChatId} from "src/api/chat/ChatApi";
 
 export const getSearchStateValues = (data) => {
   let convertSearchStateVal = convertSearchState(data);
-  console.log("1.1",convertSearchStateVal)
+  // console.log("1.1",convertSearchStateVal)
   //处理工作年限边界
   const workElSliderValue = convertSearchStateVal.workElSliderValue;
   if(workElSliderValue.min===-1&&workElSliderValue.max===-1){
@@ -33,7 +33,7 @@ export const getSearchStateValues = (data) => {
     ageElSliderValue.max=-1;
   }
   convertSearchStateVal.ageElSliderValue = ageElSliderValue;
-  console.log(convertSearchStateVal)
+  // console.log(convertSearchStateVal)
   return convertSearchStateVal;
 }
 
