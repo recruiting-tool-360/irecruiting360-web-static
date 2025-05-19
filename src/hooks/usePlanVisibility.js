@@ -81,3 +81,35 @@ export function usePlanVisibility(options = {}) {
     currentPlan
   };
 }
+
+
+//是否显示
+export const isVisibleThirdA = ()=>{
+  const store = useStore();
+  const planList = ['PlanA'];
+  // 获取当前企业 plan
+  const currentPlan = computed(() => {
+    return store.getters.getUserInfo?.extendData?.plan || '';
+  });
+  console.log('currentPlan',currentPlan.value)
+  return planList.includes(currentPlan.value);
+}
+
+
+// 是否来自于菜单的开关
+export const isFromMenu = () => {
+  // 也可以从用户信息中获取来源
+  const store = useStore();
+  const userInfo = computed(() => store.getters.getUserInfo || {});
+  return computed(() => userInfo.value?.extendData?.from === 'recruit-assistant');
+}
+
+// 是否来自于候选人列表的开关
+export const isFromCandidateList = () => {
+  // 也可以从用户信息中获取来源
+  const store = useStore();
+  const userInfo = computed(() => store.getters.getUserInfo || {});
+  return computed(() => userInfo.value?.extendData?.from === 'recruit-workflow');
+}
+
+

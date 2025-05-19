@@ -114,7 +114,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useQuasar } from 'quasar'
 import { useStore } from 'vuex'
 import { getChatList, deleteChat, renameChat } from 'src/api/chat/ChatApi'
-import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
+import {isFromMenu, isVisibleThirdA, usePlanVisibility} from 'src/hooks/usePlanVisibility';
 import notify from 'src/util/notify'
 
 const $q = useQuasar()
@@ -125,6 +125,11 @@ const { isVisible } = usePlanVisibility({
   visibleForPlans: ['planA'],
   defaultVisible: false
 })
+
+//三方显示隐藏控制开关
+let visibleThirdSwitch = isVisibleThirdA();
+
+console.log('isVisible', isVisible)
 
 // 状态变量
 const loading = ref(false)
@@ -156,8 +161,17 @@ const loadChatList = async () => {
           id: item.chatId,
           name: item.name || `未知对话`,
           createTime: item.updateAt?.slice(0, 16).replace('T', ' ') || '未知时间'
-        }))
+        }));
       // chatList.value = [];
+      //如果是三方企业相应的修改逻辑
+      if(chatList.value && chatList.value.length>0 &&visibleThirdSwitch){
+        //来自于菜单
+        if(isFromMenu()){
+          selectChat(chatList.value[0])
+        }else{
+
+        }
+      }
     } else {
       notify.error('加载聊天列表失败')
     }

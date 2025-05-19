@@ -221,6 +221,9 @@ export default {
       toggleQueueMonitor(state) {
         state.showQueueMonitor = !state.showQueueMonitor;
       },
+      openQueueMonitor(state) {
+        state.showQueueMonitor = true;
+      },
       toggleFilterPanel(state) {
         state.showFilterPanel = !state.showFilterPanel;
       },

@@ -206,8 +206,10 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
           store.commit('changeSearchCount');
         }
       // 判断是否有更多数据
-      const newChannelPage = searchChannelConfig.value.channelPage + 1;
-      hasMoreData.value = newChannelPage < searchChannelConfig.value.totalPage;
+      // const newChannelPage = searchChannelConfig.value.channelPage + 1;
+      // console.log('新页码：', newChannelPage, '总页数：', searchChannelConfig.value.totalPage, '是否有更多数据：', searchChannelConfig.value.channelDataTotal)
+      // hasMoreData.value = newChannelPage <= searchChannelConfig.value.totalPage;
+      hasMoreData.value = jobList.value.length<searchChannelConfig.value.channelDataTotal;
     } else {
       if (isFirstPage) {
         hasData.value = false;

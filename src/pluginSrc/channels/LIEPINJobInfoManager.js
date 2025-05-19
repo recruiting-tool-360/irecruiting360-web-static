@@ -134,7 +134,8 @@ export const channelSearchList = async (channelRequestInfo, channelPage = 1, pag
   }
   channelSearchConfig.channelPage = channelPage;
   channelSearchConfig.channelDataTotal = responseJobListData.responseData.data.data.cvSearchResultForm.totalCount;
-  channelSearchConfig.channelCountSize = channelList.length<=0?20:channelList.length;
+  // channelSearchConfig.channelCountSize = channelList.length<=0?20:channelList.length;
+    channelSearchConfig.channelCountSize = 20;
   channelSearchConfig.dataList = channelList;
   return channelSearchConfig;
 }
