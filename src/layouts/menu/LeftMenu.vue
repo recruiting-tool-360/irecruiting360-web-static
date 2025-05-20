@@ -66,6 +66,22 @@
             </q-menu>
           </q-btn>
         </q-item-section>
+
+                <!-- 招聘按钮，仅在三方企业模式下显示 -->
+        <q-item-section side v-if="visibleThirdSwitchPlus">
+          <q-btn
+            round
+            flat
+            dense
+            icon="next_week"
+            size="sm"
+            color="primary"
+            @click.stop="handleRecruitAction(item)"
+            class="recruit-action-btn"
+          >
+            <q-tooltip>招聘需求</q-tooltip>
+          </q-btn>
+        </q-item-section>
       </q-item>
 
       <!-- 没有聊天记录时显示 -->
@@ -178,7 +194,8 @@ const loadChatList = async () => {
           id: item.chatId,
           name: item.name || `未知对话`,
           createTime: item.updateAt?.slice(0, 16).replace('T', ' ') || '未知时间',
-          positionId: item.positionId // 保留positionId
+          positionId: item.positionId, // 保留positionId
+          jd:item.jd
         }));
       
       console.log('格式化后的聊天列表:', formattedChatList);
@@ -201,6 +218,8 @@ const loadChatList = async () => {
         if(isFromThirdMenu.value){
           console.log('三方企业，自动选择第一个聊天:', formattedChatList[0]);
           selectChat(formattedChatList[0]);
+        }else if(isFromCandidateList.value){
+          console.log('三方企业，默认待职位描述:', formattedChatList[0]);
         }
       } else {
         console.log('不满足自动选择条件:', {
@@ -243,6 +262,21 @@ const handleNewChat = async () => {
   }
 }
 
+const setVuexData  = (item) => {
+  // 设置聊天ID
+  store.commit('SET_LATEST_CHAT_ID', item.id);
+  console.log('已设置最新聊天ID:', item.id);
+
+  // 设置职位ID
+  if (item.positionId) {
+    store.commit('SET_LATEST_POSITION_ID', item.positionId);
+    console.log('已设置最新职位ID:', item.positionId);
+  } else {
+    store.commit('SET_LATEST_POSITION_ID', '');
+    console.log('职位ID为空，已清除');
+  }
+}
+
 // 选择聊天
 const selectChat = (item) => {
   if (!item || !item.id) {
@@ -262,19 +296,20 @@ const selectChat = (item) => {
     
     // 清空聚合渠道数据
     store.commit('changeChannelConfData', {key: 'ALL', value: []});
-    
-    // 设置聊天ID
-    store.commit('SET_LATEST_CHAT_ID', item.id);
-    console.log('已设置最新聊天ID:', item.id);
-    
-    // 设置职位ID
-    if (item.positionId) {
-      store.commit('SET_LATEST_POSITION_ID', item.positionId);
-      console.log('已设置最新职位ID:', item.positionId);
-    } else {
-      store.commit('SET_LATEST_POSITION_ID', '');
-      console.log('职位ID为空，已清除');
-    }
+
+    setVuexData(item);
+    // // 设置聊天ID
+    // store.commit('SET_LATEST_CHAT_ID', item.id);
+    // console.log('已设置最新聊天ID:', item.id);
+    //
+    // // 设置职位ID
+    // if (item.positionId) {
+    //   store.commit('SET_LATEST_POSITION_ID', item.positionId);
+    //   console.log('已设置最新职位ID:', item.positionId);
+    // } else {
+    //   store.commit('SET_LATEST_POSITION_ID', '');
+    //   console.log('职位ID为空，已清除');
+    // }
   } catch (error) {
     console.error('选择聊天时发生错误:', error);
   }
@@ -386,6 +421,25 @@ const tryAutoSelectFirstChat = () => {
     autoSelectAttempts++;
   }
 };
+
+// 处理招聘操作
+const handleRecruitAction = (item) => {
+  console.log('招聘操作按钮被点击，聊天ID:', item);
+  // 设置聊天ID
+  // store.commit('SET_LATEST_CHAT_ID', item.id);
+  // console.log('已设置最新聊天ID:', item.id);
+  //
+  // // 设置职位ID
+  // if (item.positionId) {
+  //   store.commit('SET_LATEST_POSITION_ID', item.positionId);
+  //   console.log('已设置最新职位ID:', item.positionId);
+  // } else {
+  //   store.commit('SET_LATEST_POSITION_ID', '');
+  //   console.log('职位ID为空，已清除');
+  // }
+  setVuexData(item);
+  chatCardRef.value.insertMessageToInput(item.jd);
+}
 
 // 在监听器中添加更可靠的处理
 watch(chatList, (newChatList) => {
