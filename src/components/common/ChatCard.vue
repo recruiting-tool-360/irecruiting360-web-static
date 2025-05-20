@@ -1109,11 +1109,52 @@ onMounted(() => {
   });
 });
 
+// 插入消息到输入框的方法
+const insertMessageToInput = async (msg) => {
+  console.log('接收到外部消息，准备插入到输入框:', msg);
+  
+  // 确保聊天框是最大状态
+  if (!props.expanded) {
+    console.log('切换聊天框到最大状态');
+    // 更新扩展状态
+    emit('update:expanded', true);
+    // 触发切换事件
+    emit('toggle-expand');
+    
+    // 等待动画完成
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  
+  // 确保聊天面板可见
+  if (!props.visible) {
+    console.log('显示聊天面板');
+    emit('open-chat');
+    await nextTick();
+  }
+  
+  // 将消息内容设置到输入框
+  chatMessage.value = msg;
+  
+  // 聚焦到输入框
+  await nextTick();
+  const inputElement = document.querySelector('.message-input .q-field__native');
+  if (inputElement) {
+    inputElement.focus();
+    console.log('聊天输入框已聚焦');
+  } else {
+    console.warn('未找到聊天输入框元素');
+  }
+  
+  console.log('消息已插入到输入框');
+};
+
 // 向外暴露方法
 defineExpose({
   scrollToBottom: scrollChatToBottom,
   endStreamResponse,
-  loadHistory,handleNewChat
+  loadHistory,
+  handleNewChat,
+  insertMessageToInput
 });
 </script>
 
