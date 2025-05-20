@@ -273,7 +273,7 @@ export const job51FindJobDetailFN = async (data)=>{
     return ;
   }
   if(pluginJob51ResultProcessor(jobInfo)){
-    geekDetailINfo = jobInfo.responseData.data;
+    geekDetailINfo = jobInfo.responseData.data.data;
   }
   return geekDetailINfo;
 }
