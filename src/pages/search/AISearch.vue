@@ -45,7 +45,6 @@
                 :key="channel.key"
                 :name="channel.key"
                 v-show="getChannelDisable(channel.key)"
-
                 @click="handleChannelSelection(channel.key)"
                 class="channel-tab"
               >
@@ -55,7 +54,24 @@
                   <img :src="channel.logo" />
                 </q-avatar>
                 <span class="text-subtitle2">{{channel.name}}</span>
-                (<span class="q-ma-none q-pa-none cursor-pointer text-bold" :class="channel.login?'text-primary':'text-grey'">{{ channel.login ? '登录' : '登录' }}</span>)
+                <span class="login-status-container">
+                  (<span 
+                    class="q-ma-none q-pa-none cursor-pointer text-bold" 
+                    :class="channel.login ? 'text-primary' : 'text-grey'"
+                  >{{ channel.login ? '已登录' : '未登录' }}</span>
+                  <q-btn 
+                    v-if="!channel.login" 
+                    flat 
+                    dense 
+                    round 
+                    icon="refresh" 
+                    size="xs" 
+                    class="refresh-btn"
+                    @click.stop="refreshChannelLogin(channel.key)"
+                  >
+                    <q-tooltip>刷新登录状态</q-tooltip>
+                  </q-btn>)
+                </span>
                 <q-badge v-if="channel.dataSize > 0" color="red-5" floating>
                   {{ channel.dataSize }}
                 </q-badge>
@@ -113,7 +129,17 @@
                       <q-badge color="red-5">{{ channel.dataSize }}</q-badge>
                     </q-item-section>
                     <q-item-section side v-if="!channel.login" class="text-grey-6">
-                      <q-icon name="login" size="xs" />
+                      <q-btn 
+                        flat 
+                        dense 
+                        round 
+                        icon="refresh" 
+                        size="xs" 
+                        class="refresh-btn"
+                        @click.stop="refreshChannelLogin(channel.key)"
+                      >
+                        <q-tooltip>刷新登录状态</q-tooltip>
+                      </q-btn>
                     </q-item-section>
                   </q-item>
                 </q-list>
@@ -686,8 +712,11 @@ const initPluginAndChannels = async () => {
   // 检查各渠道登录状态
   await checkChannelLoginStatus();
 
+  // 强制更新渠道视图，确保登录状态正确显示
+  await forceUpdateChannelView();
+
   // 更新界面
-  updateChannelVisibility();
+  // updateChannelVisibility();
   // isLoading.value = false;
 };
 
@@ -1081,16 +1110,128 @@ const handleUnreadChange = (value) => {
   // console.log(searchState.value)
   executeSearch(searchState.value);
 };
+
+// 添加强制更新渠道视图的辅助方法
+const forceUpdateChannelView = async () => {
+  // 获取最新的渠道状态信息
+  const latestChannelStatus = store.getters.getChannelConf;
+  
+  // 强制更新渠道显示
+  await nextTick();
+  
+  // 重新构建渠道列表
+  let allChannels = Object.entries(latestChannelStatus)
+    .filter(([key]) => !(key === 'ALL' || key === 'Collect'))
+    .map(([key, channel]) => ({ ...channel }));
+  
+  // 根据可用空间分配渠道
+  const containerWidth = document.querySelector('.channel-container')?.offsetWidth || 800;
+  const tabBarPadding = 20;
+  const moreDropdownWidth = 50;
+  const availableWidth = containerWidth - tabBarPadding - moreDropdownWidth;
+  const fixedTabsWidth = 200;
+  const remainingWidth = availableWidth - fixedTabsWidth;
+  const averageTabWidth = 110;
+  const maxVisibleTabs = Math.floor(remainingWidth / averageTabWidth);
+  
+  if (maxVisibleTabs >= allChannels.length) {
+    visibleChannels.value = [...allChannels];
+    hiddenChannels.value = [];
+  } else {
+    visibleChannels.value = [...allChannels.slice(0, Math.max(0, maxVisibleTabs))];
+    hiddenChannels.value = [...allChannels.slice(Math.max(0, maxVisibleTabs))];
+  }
+  
+  // 告知 Vue 这些数组已经变化
+  visibleChannels.value = [...visibleChannels.value];
+  hiddenChannels.value = [...hiddenChannels.value];
+  
+  // 等待 UI 更新
+  await nextTick();
+};
+
+// 添加刷新渠道登录状态的方法
+const refreshChannelLogin = async (key) => {
+  
+  try {
+    let result = false;
+    
+    // 根据渠道类型执行不同的登录检查逻辑
+    switch (key) {
+      case 'BOSS':
+        result = await BossJobInfoManager.bossUserStatus().then(res => res && pluginBossResultProcessor(res));
+        break;
+      case 'JOB51':
+        result = await Job51InfoManager.job51UserStatus().then(res => res && pluginJob51ResultProcessor(res));
+        break;
+      case 'ZHILIAN':
+        result = await ZhiLianJobInfoManager.zhiLianUserStatus().then(res => res && pluginZhiLianResultProcessor(res));
+        break;
+      case 'LIEPIN':
+        result = await LIEPINJobInfoManager.liePinUserStatus().then(res => res && pluginLIEPINResultProcessor(res));
+        break;
+      default:
+        console.warn(`未知渠道: ${key}`);
+        break;
+    }
+    
+    // 更新渠道登录状态
+    store.commit('changeChannelConfLogin', {
+      key: key,
+      value: result
+    });
+    
+    // 如果登录了，不再禁用
+    if (result) {
+      store.commit('changeChannelConfDisable', {
+        key: key,
+        value: false
+      });
+    }
+    
+    // 强制更新渠道视图
+    await forceUpdateChannelView();
+    
+    // 显示结果通知
+    $q.notify({
+      message: result 
+        ? `${allChannelStatus.value[key]?.name || key} 已成功登录` 
+        : `${allChannelStatus.value[key]?.name || key} 未登录，请先在浏览器中登录该网站`,
+      color: result ? 'positive' : 'gray',
+      icon: result ? 'check_circle' : 'warning',
+      position: 'top',
+      timeout: 1500
+    });
+    
+    return result;
+  } catch (error) {
+    console.error(`${key} 登录状态检查失败:`, error);
+    
+    // 显示错误通知
+    $q.notify({
+      message: `${allChannelStatus.value[key]?.name || key} 登录状态检查失败`,
+      color: 'negative',
+      icon: 'error',
+      position: 'top',
+      timeout: 3000
+    });
+    
+    return false;
+  } finally {
+    // 关闭加载提示
+    loadingNotify.dismiss();
+  }
+};
 </script>
 
 <style scoped>
 .channel-container {
-  //border-radius: 8px 0 0 8px;
+  /* border-radius: 8px 0 0 8px; */
   overflow: hidden;
 }
 
 .operation-container {
-  //border-radius: 0 8px 8px 0;
+  /* border-radius: 0 8px 8px 0; */
   min-height: 46px;
   display: flex;
   align-items: center;
@@ -1106,6 +1247,23 @@ const handleUnreadChange = (value) => {
   position: relative;
   min-width: auto;
   padding: 0 8px;
+}
+
+.login-status-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.refresh-btn {
+  margin-left: 2px;
+  opacity: 0.8;
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+  opacity: 1;
+  transform: rotate(180deg);
 }
 
 .channel-tab :deep(.q_tab__label) {
