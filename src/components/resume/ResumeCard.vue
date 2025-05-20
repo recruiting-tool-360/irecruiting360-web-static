@@ -56,7 +56,7 @@
               track-color="grey-3"
               class="q-mr-sm text-bold"
             >
-              {{ resume.score }}
+              {{ Math.round(resume.score) }}
             </q-circular-progress>
 
             <!-- 显示评分为-2（无法获取渠道信息）的特殊状态 -->
