@@ -58,7 +58,7 @@
                   (<span 
                     class="q-ma-none q-pa-none cursor-pointer text-bold" 
                     :class="channel.login ? 'text-primary' : 'text-grey'"
-                  >{{ channel.login ? '已登录' : '未登录' }}</span>
+                  >{{ channel.login ? '登录' : '登录' }}</span>
                   <q-btn 
                     v-if="!channel.login" 
                     flat 
