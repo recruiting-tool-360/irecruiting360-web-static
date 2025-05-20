@@ -114,7 +114,7 @@ import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { useStore } from 'vuex'
 import { getChatList, deleteChat, renameChat } from 'src/api/chat/ChatApi'
-import {isFromMenu, isVisibleThirdA, usePlanVisibility} from 'src/hooks/usePlanVisibility';
+import { isFromMenu, isVisibleThirdA, usePlanVisibility} from 'src/hooks/usePlanVisibility';
 import notify from 'src/util/notify'
 
 const $q = useQuasar()
@@ -122,7 +122,7 @@ const store = useStore()
 
 // 默认planA企业可使用， 无plan或plan不匹配时默认不可见
 const { isVisible } = usePlanVisibility({
-  visibleForPlans: ['planA'],
+  visibleForPlans: ['PlanA'],
   defaultVisible: false
 })
 

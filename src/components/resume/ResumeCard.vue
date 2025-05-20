@@ -161,11 +161,11 @@
         <div class="col-4 flex justify-end items-end column">
           <div class="flex wrap justify-end">
             <template v-if="isVisible && Number.isFinite(resume.score) && resume.score >= 0">
-              <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="assignJob">
+              <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="assignJob(resume.id)">
                 <q-icon class="q-mr-xs" name="work"></q-icon>
                 <span class="">分配职位</span>
               </q-btn>
-              <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="addToTalentPool">
+              <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="addToTalentPool(resume.id)">
                 <q-icon class="q-mr-xs" name="group_add"></q-icon>
                 <span class="">加入人才库</span>
               </q-btn>
@@ -221,6 +221,8 @@
     :resume-data="resume"
     :search-condition-id="searchConditionId"
     @view-detail="viewDetail"
+    @assign-job="assignJob"
+    @add-to-talent-pool="addToTalentPool"
   />
 </template>
 
@@ -306,7 +308,7 @@ const { sendResume } = useSendResume('resumeList');
 
 // 默认planA企业可见， 无plan或plan不匹配时默认不可见
 const { isVisible } = usePlanVisibility({
-  visibleForPlans: ['planA'],
+  visibleForPlans: ['PlanA'],
   defaultVisible: false
 })
 
@@ -819,15 +821,13 @@ const handleViewDetail = (resume) => {
 };  
 
 // 分配职位
-const assignJob = async () => {
-  const result = await sendResume([props.resume.id], { action: 'assign-position' })
-  console.log('分配职位结果', result)
+const assignJob = async (id) => {
+  await sendResume([id], { action: 'assign-position' })
 };
 
 // 加入人才库
-const addToTalentPool = async () => {
-  const result = await sendResume([props.resume.id], { action: 'talent-pool' })
-  console.log('加入人才库结果', result)
+const addToTalentPool = async (id) => {
+  await sendResume([id], { action: 'talent-pool' })
 };
 
 // 在 script setup 中添加以下内容
