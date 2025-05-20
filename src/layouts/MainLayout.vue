@@ -36,7 +36,7 @@ const leftDrawerOpen = ref(false)
 
 // 默认planA企业不可见， 无plan或plan不匹配时默认可见
 const { isHidden } = usePlanVisibility({
-  hiddenForPlans: ['planA'],
+  hiddenForPlans: ['PlanA'],
   defaultVisible: true,
 })
 

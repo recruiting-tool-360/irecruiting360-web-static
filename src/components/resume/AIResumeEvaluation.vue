@@ -150,6 +150,8 @@
         <!-- 固定底部操作按钮 -->
         <q-card-actions align="center" class="bg-white" style="position: sticky; bottom: 0; z-index: 10;">
           <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="查看简历详情" @click="viewResumeDetail" />
+          <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="分配职位" @click="assignJobHandler" />
+          <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="加入人才库" @click="addToTalentPoolHandler" />
         </q-card-actions>
       </template>
     </q-card>
@@ -197,7 +199,7 @@ export default defineComponent({
     }
   },
 
-  emits: ['update:visible', 'view-detail'],
+  emits: ['update:visible', 'view-detail', 'assign-job', 'add-to-talent-pool'],
 
   setup(props, { emit }) {
     const $q = useQuasar();
@@ -444,7 +446,13 @@ export default defineComponent({
       dialogVisible.value = false;
     };
 
-    // 在雷达图上添加分数和评级标签
+    const assignJobHandler = () => {
+      emit('assign-job', props.resumeData.id);
+    };
+
+    const addToTalentPoolHandler = () => {
+      emit('add-to-talent-pool', props.resumeData.id);
+    };
     const getDimensionLabel = (dimensionKey) => {
       const score = getDimensionScore(dimensionKey);
       const label = getScoreLabel(score, dimensionKey);
@@ -472,6 +480,8 @@ export default defineComponent({
       getTagColor,
       getTagTextColor,
       viewResumeDetail,
+      assignJobHandler,
+      addToTalentPoolHandler,
       radarOption,
       getTotalScore,
       getDimensionLabel

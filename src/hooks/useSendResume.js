@@ -15,8 +15,8 @@ export function useSendResume(messageType = 'resumeList') {
 
   const store = useStore();
 
-  const getLatestChatId = computed(() => store.getters.getLatestChatId ?? '');
-
+  const getLatestPositionId = computed(() => store.getters.getLatestPositionId ?? '');
+  
   /**
    * 发送简历信息到父页面
    * @param {Array|string} ids - 简历ID数组或单个ID
@@ -45,7 +45,7 @@ export function useSendResume(messageType = 'resumeList') {
 
     const payload = {
       resumes: resumeList,
-      positionId: unref(getLatestChatId),
+      positionId: unref(getLatestPositionId),
       ...extraParams
     };
 

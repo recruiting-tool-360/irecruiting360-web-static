@@ -199,7 +199,7 @@ const { sendResume } = useSendResume('resumeList');
 
 // 默认planA企业可见， 无plan或plan不匹配时默认不可见
 const { isVisible } = usePlanVisibility({
-  visibleForPlans: ['planA'],
+  visibleForPlans: ['PlanA'],
   defaultVisible: false
 })
 
@@ -612,6 +612,11 @@ const openBatchAddToTalentPoolDialog = () => {
     return;
   }
   
+  if(selectedIds.value.length > 20){
+    notify.warning('最多只能选择20个简历');
+    return;
+  }
+
   batchDialogType.value = 'talent-pool';
   showBatchDialog.value = true;
 };
@@ -625,6 +630,11 @@ const openBatchAssignPositionDialog = () => {
   
   if (filteredSelectedResumes.value.length === 0) {
     notify.info("没有符合条件的简历，请选择AI分析完成的数据！");
+    return;
+  }
+
+  if(selectedIds.value.length > 20){
+    notify.warning('最多只能选择20个简历');
     return;
   }
   
