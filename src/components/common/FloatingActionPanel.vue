@@ -1,12 +1,24 @@
 <template>
   <div class="relative-position">
     <!-- 右侧固定按钮面板 -->
-    <div class="fixed-right-panel" ref="fixedPanelRef">
+    <div class="fixed-right-panel" ref="fixedPanelRef" :class="{'panel-collapsed': isPanelCollapsed}">
+      <!-- 收起/展开控制按钮 -->
+      <q-btn
+        round
+        size="sm"
+        color="primary"
+        :icon="isPanelCollapsed ? 'chevron_left' : 'chevron_right'"
+        class="collapse-btn q-mb-sm"
+        @click="togglePanelCollapse"
+      >
+        <q-tooltip>{{ isPanelCollapsed ? '展开面板' : '收起面板' }}</q-tooltip>
+      </q-btn>
+      
       <q-btn
         v-morph:chat-btn:chat-morph:300.resize="morphState"
         round
         size="md"
-        class="q-mb-md bg-white text-primary"
+        class="q-mb-md bg-white text-primary action-btn"
         label="AI"
         @click="toggleChatPanel"
       >
@@ -18,15 +30,15 @@
         <q-tooltip>AI助手</q-tooltip>
       </q-btn>
 
-      <q-btn round color="primary" :icon="resumeIndexVisible ? 'visibility' : 'visibility_off'" size="md" class="q-mb-md" @click="toggleRightNav">
+      <q-btn round color="primary" :icon="resumeIndexVisible ? 'visibility' : 'visibility_off'" size="md" class="q-mb-md action-btn" @click="toggleRightNav">
         <q-tooltip>{{ resumeIndexVisible ? '隐藏' : '显示' }}数据列表导航</q-tooltip>
       </q-btn>
 
-      <q-btn round color="primary" :icon="showQueueMonitor ? 'camera_outdoor' : 'camera_indoor'" size="md" class="q-mb-md" @click="toggleQueueMonitor">
+      <q-btn round color="primary" :icon="showQueueMonitor ? 'camera_outdoor' : 'camera_indoor'" size="md" class="q-mb-md action-btn" @click="toggleQueueMonitor">
         <q-tooltip>{{ showQueueMonitor ? '隐藏' : '显示' }}AI执行监视器</q-tooltip>
       </q-btn>
 
-      <q-btn round color="primary" icon="arrow_upward" size="md" @click="scrollToTop">
+      <q-btn round color="primary" icon="arrow_upward" size="md" class="action-btn" @click="scrollToTop">
         <q-tooltip>回到顶部</q-tooltip>
       </q-btn>
     </div>
@@ -93,10 +105,26 @@ const fixedPanelPosition = computed(() => store.getters.getFixedPanelPosition);
 const fixedPanelRef = ref(null);
 const chatCardRef = ref(null);
 
+// 面板收起状态
+const isPanelCollapsed = ref(false);
+
+// 切换面板收起/展开状态
+const togglePanelCollapse = () => {
+  isPanelCollapsed.value = !isPanelCollapsed.value;
+  // 保存状态到本地存储，下次打开页面时保持相同状态
+  localStorage.setItem('panelCollapsed', isPanelCollapsed.value ? 'true' : 'false');
+};
+
 // 组件加载完成时触发mounted事件
 onMounted(() => {
   console.log('FloatingActionPanel 已装载完成');
   emit('mounted');
+
+  // 从本地存储中获取面板收起状态
+  const savedCollapsedState = localStorage.getItem('panelCollapsed');
+  if (savedCollapsedState !== null) {
+    isPanelCollapsed.value = savedCollapsedState === 'true';
+  }
 
   // 等待DOM渲染完成后更新面板位置
   nextTick(() => {
@@ -285,5 +313,71 @@ onMounted(()=>{
   display: flex;
   flex-direction: column;
   align-items: center;
+  transition: all 0.3s ease;
+  padding: 8px;
+  border-radius: 20px;
+  background-color: rgba(255, 255, 255, 0.1);
+  //backdrop-filter: blur(5px);
+}
+
+/* 鼠标悬停时面板效果 */
+.fixed-right-panel:hover {
+  right: 15px;
+  //background-color: rgba(255, 255, 255, 0.2);
+  //box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* 收起状态的面板样式 */
+.panel-collapsed .action-btn {
+  transform: translateX(60px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 收起按钮始终可见 */
+.collapse-btn {
+  transform: none !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transition: all 0.3s ease;
+}
+
+.collapse-btn:hover {
+  background-color: #f5f5f5 !important;
+  color: #1976d2 !important;
+}
+
+/* 按钮通用样式 */
+.fixed-right-panel :deep(.q-btn) {
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  overflow: visible;
+}
+
+/* 按钮悬停效果 */
+.fixed-right-panel :deep(.q-btn:hover) {
+  transform: scale(1.15);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* AI按钮特殊效果 */
+.fixed-right-panel :deep(.bg-white.text-primary:hover) {
+  background: linear-gradient(135deg, #fff 0%, #e6f7ff 100%) !important;
+  transform: scale(1.15) rotate(5deg);
+}
+
+/* 导航按钮特殊效果 */
+.fixed-right-panel :deep(.q-btn:nth-child(2):hover) {
+  transform: scale(1.15) translateX(-5px);
+}
+
+/* 监视器按钮特殊效果 */
+.fixed-right-panel :deep(.q-btn:nth-child(3):hover) {
+  transform: scale(1.15) rotate(-5deg);
+}
+
+/* 回到顶部按钮特殊效果 */
+.fixed-right-panel :deep(.q-btn:last-child:hover) {
+  transform: scale(1.15) translateY(-5px);
 }
 </style>

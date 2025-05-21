@@ -256,10 +256,10 @@ const resumeIndexStyle = computed(() => {
     bottom:0,
     right: `${panelRight}px`, // 面板右侧位置 + 间距 + 面板宽度
     transform: 'translateY(-50%)', // 垂直居中
-    maxHeight: `${panelHeight * 0.8}px`, // 最大高度：面板高度的1.5倍
+    maxHeight: `${panelHeight * 0.6}px`, // 最大高度：面板高度的1.5倍
     // backgroundColor: 'var(--q-primary-80)'
     backgroundColor: '#e0e0e0',
-    width: `${panelWidth}px`,
+    width: `${panelWidth-10}px`,
   };
 });
 

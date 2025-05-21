@@ -6,8 +6,21 @@
     </div>
 
     <div v-else-if="!hasData" class="flex flex-center column q-pa-xl" style="margin-top: 16%">
-      <q-icon name="search_off" size="2em" color="grey-5" />
-      <div class="text-subtitle1 q-mt-md text-grey-7">暂无{{channelConfig.name}}数据</div>
+      <div v-if="!channelConfig.login" class="q-mt-md">
+        <q-btn
+            outline
+          color="primary" 
+          :label="`前往登录${channelConfig.name}`"
+          icon="login" 
+          @click="goToLogin"
+          class="login-btn"
+        />
+        <div class="text-caption q-mt-sm text-grey-7  full-width text-center">登录后可查看更多职位信息</div>
+      </div>
+      <div v-else class="full-width" style="display: contents">
+        <q-icon name="search_off" size="2em" color="grey-5" />
+        <div class="text-subtitle1 q-mt-md text-grey-7">暂无{{channelConfig.name}}数据</div>
+      </div>
     </div>
 
     <div v-else class="boss-job-container">
@@ -43,6 +56,7 @@ import {channelDataSave, channelDataSavePlus} from "src/pluginSrc/util/CannelMan
 import ResumeList from '../../../components/resume/ResumeList.vue';
 import {channelSearchListSimilar} from "src/pluginSrc/channels/BossJobInfoManager";
 import {clearChannel as clearChannelApi} from "src/pluginSrc/util/AsyncTaskQueueManager";
+import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 
 // 定义组件属性
 const props = defineProps({
@@ -97,6 +111,11 @@ const searchCount = computed(()=>store.getters.getSearchCount);
 
 //查询渠道配置
 const showSettingsChannelConfig = computed(()=>store.getters.getUserChannelConfig);
+
+//跳转登陆页
+const goToLogin = () => {
+  window.open(pluginAllUrls.BOSS.baseUrl, '_blank');
+};
 
 //初始化
 const initializationStatus = async () => {
@@ -366,5 +385,18 @@ defineExpose({
 
 <style scoped>
 .boss-job-container {
+}
+
+.login-btn {
+  min-width: 180px;
+  font-weight: 500;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+}
+
+.login-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
 }
 </style>
