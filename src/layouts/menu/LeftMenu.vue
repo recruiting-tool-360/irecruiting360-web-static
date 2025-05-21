@@ -146,6 +146,9 @@ const { isVisible } = usePlanVisibility({
 let visibleThirdSwitch = computed(() => {
   return store.getters.getUserInfo?.extendData || '';
 });
+let headcountId = computed(() => {
+  return store.getters.getUserInfo?.extendData?.headcountId || '';
+});
 let visibleThirdSwitchPlus = computed(() => {
   return ['PlanA'].includes(visibleThirdSwitch.value?.plan || '');
 });
@@ -219,7 +222,9 @@ const loadChatList = async () => {
           console.log('三方企业，自动选择第一个聊天:', formattedChatList[0]);
           selectChat(formattedChatList[0]);
         }else if(isFromCandidateList.value){
-          console.log('三方企业，默认待职位描述:', formattedChatList[0]);
+          const filteredList = [formattedChatList.find(item => item.positionId === headcountId.value)].filter(Boolean);
+          Array.isArray(filteredList) && filteredList.length === 1 && handleRecruitAction(filteredList[0]);
+          console.log(store.getters.getUserInfo?.extendData?.headcountId, '三方企业，默认待职位描述:', filteredList[0]);
         }
       } else {
         console.log('不满足自动选择条件:', {
