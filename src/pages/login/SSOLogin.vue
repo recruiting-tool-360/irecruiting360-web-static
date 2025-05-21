@@ -25,7 +25,7 @@
 <script setup>
 import { onMounted, ref, onUnmounted, getCurrentInstance, unref } from 'vue';
 import { useRouter } from 'vue-router';
-import { generateSsoToken, ssoLogin } from 'src/api/user/UserApi';
+import { generateSsoToken, ssoLogin, getUserInfo } from 'src/api/user/UserApi';
 import { createChat } from 'src/api/chat/ChatApi';
 import { useStore } from 'vuex';
 import notify from 'src/util/notify';
@@ -51,6 +51,8 @@ iframeMsg.on("init", (data, context) => {
   iframeParams.value = data // 保存初始化信息
 
   updateGloalColor(data?.sysConfig?.color);
+
+  
 
   handleSSOLogin(data);
 
@@ -93,6 +95,11 @@ const handleSSOLogin = async (iframeMessage) => {
         // 如果登录成功，更新用户信息到 Vuex
         if (loginResponse.data) {
           Cookies.set('satoken', loginResponse.data, {path: '/', expires: 30}); // 更新 Cookie
+        }
+
+        let { data, success } = await getUserInfo()
+        if (success && success === 'success') {
+          store.commit('changeUserInfo', data)
         }
         // if (loginResponse.data && loginResponse.data.userInfo) {
         //   store.commit('changeUserInfo', loginResponse.data.userInfo);

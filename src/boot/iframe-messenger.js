@@ -11,6 +11,11 @@ export default boot(({ app }) => {
       "http://192.168.0.103:3000", // 公寓
       'http://192.168.0.102:3000',
       'https://ambulance1a.ihr360.com', // ihr环境
+      'https://passport-qa2.ihr360.com', // qa2
+      'https://uatstable.ihr360.com', // uatstable
+      'https://qa2-vip.ihr360.com', // qa2-vip
+      'https://account.ihr360.com', // 账号中心
+      'https://v5.ihr360.com', // 线上
     ],
     sourceName: 'kuaizhao'
   })

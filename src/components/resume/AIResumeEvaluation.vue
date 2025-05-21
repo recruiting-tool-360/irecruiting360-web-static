@@ -150,8 +150,10 @@
         <!-- 固定底部操作按钮 -->
         <q-card-actions align="center" class="bg-white" style="position: sticky; bottom: 0; z-index: 10;">
           <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="查看简历详情" @click="viewResumeDetail" />
-          <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="分配职位" @click="assignJobHandler" />
-          <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="加入人才库" @click="addToTalentPoolHandler" />
+          <template v-if="isVisible">
+            <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="分配职位" @click="assignJobHandler" />
+            <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="加入人才库" @click="addToTalentPoolHandler" />
+          </template>
         </q-card-actions>
       </template>
     </q-card>
@@ -167,6 +169,7 @@ import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { RadarChart } from 'echarts/charts';
 import { TitleComponent, TooltipComponent, LegendComponent } from 'echarts/components';
+import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 
 // 注册必要的组件
 use([
@@ -206,6 +209,12 @@ export default defineComponent({
     const dialogVisible = ref(props.visible);
     const loading = ref(false);
     const evaluationData = ref(null);
+
+    // 默认planA企业可见， 无plan或plan不匹配时默认不可见
+    const { isVisible } = usePlanVisibility({
+      visibleForPlans: ['PlanA'],
+      defaultVisible: false
+    })
 
     const dimensions = [
       { key: '专业技能', label: '专业技能', totalScore: 40 },
@@ -467,6 +476,7 @@ export default defineComponent({
     });
 
     return {
+      isVisible,
       dialogVisible,
       loading,
       evaluationData,
