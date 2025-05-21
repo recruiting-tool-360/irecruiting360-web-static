@@ -54,11 +54,11 @@
                   <img :src="channel.logo" />
                 </q-avatar>
                 <span class="text-subtitle2">{{channel.name}}</span>
-                <span class="login-status-container">
+                <span class="login-status-container" v-if="!channel.login">
                   (<span 
                     class="q-ma-none q-pa-none cursor-pointer text-bold" 
                     :class="channel.login ? 'text-primary' : 'text-grey'"
-                  >{{ channel.login ? '登录' : '登录' }}</span>
+                  >{{ channel.login ? '已登录' : '未登录' }}</span>
                   <q-btn 
                     v-if="!channel.login" 
                     flat 
