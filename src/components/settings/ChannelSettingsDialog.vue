@@ -39,7 +39,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import notify from "src/util/notify";
@@ -136,6 +136,8 @@ const loadChannelConfig = () => {
   } else {
     // 如果没有保存的配置，使用默认配置
     channelConfig.value = JSON.parse(JSON.stringify(defaultChannelConfig));
+    nextTick();
+    updateConfig();
   }
 };
 
@@ -166,14 +168,18 @@ const onCancel = () => {
   loadChannelConfig();
 };
 
-// 保存配置
-const saveConfig = () => {
+const updateConfig = () => {
   // 转换为 API 所需的格式并保存到 vuex 中
   const configData = convertToApiFormat(channelConfig.value);
   store.commit('setUserChannelConfig', configData);
   
   // 向父组件发送事件，调用父组件的 saveChannelEnable 方法
   emit('save-channel-config', configData);
+}
+
+// 保存配置
+const saveConfig = () => {
+  updateConfig();
   
   notify.success("渠道设置已保存");
   

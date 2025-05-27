@@ -12,6 +12,13 @@
       :type="batchDialogType"
       @confirm="handleBatchConfirm"
     />
+
+    <!-- 自定义加载遮罩 -->
+    <div v-if="isCollectResumeLoading" class="custom-loading-overlay">
+      <q-spinner color="primary" size="3em" />
+      <div class="text-subtitle1 q-mt-sm text-white">正在打开新窗口获取简历信息，请勿操作...</div>
+    </div>
+
     <!-- 简历索引侧边栏 -->
     <div v-if="resumeIndexVisible" class="resume-index text-grey-8 overflow-hidden rounded-borders text-center fixed q-px-sm q-mt-xl q-py-md" :style="resumeIndexStyle">
       <transition-group v-if="inView.length > 0" name="in-view" tag="ul">
@@ -28,7 +35,7 @@
     </div>
 
     <div class="resume-content">
-      <div class="row q-mb-md items-center justify-between">
+      <div class="operation-sticky row q-mb-md items-center justify-between">
         <div class="text-subtitle1 text-weight-medium full-width flex justify-between">
           <div class="row items-center">
             <q-checkbox v-if="resumeBatchMode" v-model="allSelected" :indeterminate="selectedIds.length > 0 && selectedIds.length < filteredResumes.length" class="q-mr-md" size="xs">
@@ -113,6 +120,7 @@
                 @blacklist="handleBlacklist"
                 @detail="handleViewDetail"
                 @interview="handleScheduleInterview"
+                @updateCollectResumeLoading="updateCollectResumeLoading"
               />
             </div>
           </div>
@@ -152,12 +160,15 @@
 </template>
 
 <script setup>
-import { ref, computed, defineProps, defineEmits, watch, onMounted } from 'vue';
+import { ref, computed, defineProps, defineEmits, watch, inject } from 'vue';
 import ResumeCard from './ResumeCard.vue';
 import BatchShareDialog from './BatchShareDialog.vue';
 import BatchAddToTalentPoolDialog from './BatchAddToTalentPoolDialog.vue';
 import { useSendResume } from 'src/hooks/useSendResume';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
+import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
+import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
+import { enableImageCapture } from 'src/pluginSrc/channels/ImageChannel';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import notify from "src/util/notify";
@@ -202,6 +213,10 @@ const { isVisible } = usePlanVisibility({
   visibleForPlans: ['PlanA'],
   defaultVisible: false
 })
+
+const { generate } = bossDomGenerator();
+
+const isCollectResumeLoading = ref(false);
 
 // v-intersection 相关
 const inView = ref([]);
@@ -262,6 +277,14 @@ const resumeIndexStyle = computed(() => {
     width: `${panelWidth-10}px`,
   };
 });
+
+const visibleThirdSwitchPlus = inject('visibleThirdSwitchPlus')
+
+const styleTop = visibleThirdSwitchPlus.value?"62px":"110px";
+
+function updateCollectResumeLoading(status) {
+  isCollectResumeLoading.value = status;
+}
 
 // 处理交叉观察
 function onIntersection(entry) {
@@ -567,7 +590,7 @@ const showBatchShareDialog = ref(false);
 
 // 获取选中简历的完整数据
 const selectedResumes = computed(() => {
-  return filteredResumes.value.filter(resume => selectedIds.value.includes(resume.id));
+  return filteredResumes.value.filter(resume => selectedIds.value.includes(resume?.id));
 });
 
 // 打开批量分享对话框
@@ -597,7 +620,31 @@ const batchDialogType = ref('talent-pool');
 
 // 处理批量确认操作
 const handleBatchConfirm = async (data) => {
-  await sendResume(data.resumes.map(r => r.id), { action: data.type })
+  updateCollectResumeLoading(true);
+  console.log(data, 'data');
+  const urls = await Promise.all(data.resumes.map(async (item) => {
+    const url = getChannelUrl(item);
+    if (url) {
+        const res = { url, id: item.id, channel: item.channel };
+        if (item.channel === 'boss直聘') {
+            res.resumeDom = await generate(item);
+        }
+        return res;
+    }
+    return null;
+  })).then(results => results.filter(Boolean));
+
+  try {
+    const res = await enableImageCapture(urls);
+    console.log(res, 'res11111');
+    await sendResume(res, {
+      action: data.type,
+    })
+  } catch (error) {
+    console.error(error);
+  } finally {
+    updateCollectResumeLoading(false);
+  }
 };
 
 // 打开批量加入人才库对话框
@@ -612,8 +659,17 @@ const openBatchAddToTalentPoolDialog = () => {
     return;
   }
   
-  if(selectedIds.value.length > 20){
-    notify.warning('最多只能选择20个简历');
+  if(selectedIds.value.length > 5){
+    notify.info('最多只能选择5个简历');
+    return;
+  }
+
+  const isSuccess = selectedResumes.value.some(item => {
+    return item?.resumeThirdPartyStatus === 'success';
+  })
+
+  if(isSuccess) {
+    notify.info('请选择未分配职位或未加入人才库的简历！');
     return;
   }
 
@@ -633,8 +689,17 @@ const openBatchAssignPositionDialog = () => {
     return;
   }
 
-  if(selectedIds.value.length > 20){
-    notify.warning('最多只能选择20个简历');
+  if(selectedIds.value.length > 5){
+    notify.info('最多只能选择5个简历');
+    return;
+  }
+
+  const isSuccess = selectedResumes.value.some(item => {
+    return item?.resumeThirdPartyStatus === 'success';
+  })
+
+  if(isSuccess) {
+    notify.info('请选择未分配职位或未加入人才库的简历！');
     return;
   }
   
@@ -650,6 +715,26 @@ const openBatchAssignPositionDialog = () => {
 
 .resume-content
   //padding-left: 60px
+
+.custom-loading-overlay
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(3px);
+
+.operation-sticky
+  position: sticky;
+  top: v-bind(styleTop);
+  background-color: #fff;
+  z-index: 10;
 
 .resume-index
   max-height: 20vh

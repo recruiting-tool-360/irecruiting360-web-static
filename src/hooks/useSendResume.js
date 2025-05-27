@@ -1,7 +1,7 @@
 import { unref, computed, getCurrentInstance } from 'vue';
 import { getResumeBlindList } from 'src/api/jobList/JobListApi';
 import { useStore } from 'vuex';
-
+import { mergeBase64ToFile } from 'src/pluginSrc/channels/ImageChannel';
 /**
  * 用于发送简历信息到父页面的 hook
  * @param {string} messageType - 要发送的消息类型
@@ -16,6 +16,13 @@ export function useSendResume(messageType = 'resumeList') {
   const store = useStore();
 
   const getLatestPositionId = computed(() => store.getters.getLatestPositionId ?? '');
+
+  const channelsEnum = {
+    "boss直聘": "BOSS直聘",
+    "猎聘": "猎聘",
+    "前程无忧": "前程无忧",
+    "智联招聘": "智联招聘",
+  }
   
   /**
    * 发送简历信息到父页面
@@ -23,29 +30,38 @@ export function useSendResume(messageType = 'resumeList') {
    * @param {Object} extraParams - 额外参数对象
    * @returns {Promise}
    */
-  const sendResume = async (ids, extraParams = {}) => {
+  const sendResume = async (res, extraParams = {}) => {
     const iframeMessenger = proxy?.$iframeMessenger;
     if (!iframeMessenger) {
       throw new Error('iframeMessenger 未初始化');
     }
+    const results = [];
+    if(Object.entries(res).length > 0) {
+      // 遍历 res 对象
+      for (const [id, obj] of Object.entries(res)) {
+        const { base64, channel } = obj
+        // 解析字符串为数组
+        const base64Array = JSON.parse(base64);
 
-    let resumeList = [];
-    // 检查ids是否为空
-    if (ids && (Array.isArray(ids) ? ids.length > 0 : true)) {
-      try {
-        const res = await getResumeBlindList(Array.isArray(ids) ? ids : [ids]);
-        if (res && res.data) {
-          resumeList = res.data;
-        }
-      } catch (e) {
-        console.error('获取简历详情失败:', e);
-        throw e;
+        const fileName = `${Date.now()}.png`;
+      
+        // 调用合并函数
+        const file = await mergeBase64ToFile(
+          base64Array,
+          fileName
+        );
+
+        results.push({
+          id,
+          file,
+          channel: channelsEnum[channel]
+        });
       }
     }
 
     const payload = {
-      resumes: resumeList,
       positionId: unref(getLatestPositionId),
+      resumeFile: results,
       ...extraParams
     };
 
