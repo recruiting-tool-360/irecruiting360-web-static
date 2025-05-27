@@ -26,7 +26,7 @@
 
       <template v-else>
         <!-- 主要内容区域：左右分栏 -->
-        <q-card-section class="row q-py-sm flex-grow-1" style="overflow: hidden;">
+        <q-card-section class="row q-py-sm flex-grow-1" style="overflow: hidden;height: 100%;">
           <!-- 左侧：个人信息和标签 (30%) -->
           <div class="col-4 q-pr-md" style="overflow-y: auto; height: 100%;">
             <!-- 个人信息 -->
@@ -151,8 +151,8 @@
         <q-card-actions align="center" class="bg-white" style="position: sticky; bottom: 0; z-index: 10;">
           <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="查看简历详情" @click="viewResumeDetail" />
           <template v-if="isVisible">
-            <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="分配职位" @click="assignJobHandler" />
-            <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="加入人才库" @click="addToTalentPoolHandler" />
+            <q-btn color="primary" :disable="resumeData?.resumeThirdPartyStatus === 'success'" outline class="q-pt-sm q-px-md q-mb-sm" :label="resumeData?.resumeThirdPartyStatus === 'success'?'已分配职位':'分配职位'" @click="assignJobHandler" />
+            <q-btn color="primary" :disable="resumeData?.resumeThirdPartyStatus === 'success'" outline class="q-pt-sm q-px-md q-mb-sm" :label="resumeData?.resumeThirdPartyStatus === 'success'?'已加入人才库':'加入人才库'" @click="addToTalentPoolHandler" />
           </template>
         </q-card-actions>
       </template>

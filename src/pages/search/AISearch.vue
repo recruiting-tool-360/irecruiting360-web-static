@@ -7,7 +7,7 @@
     </div>
 
     <q-card flat bordered class="search-filter-card q-px-xs" style="min-height: 90vh">
-      <q-card-section class="q-pa-sm">
+      <q-card-section class="q-pa-sm channel-sticky">
         <!-- 渠道标签和操作按钮区域 -->
         <div class="row no-wrap">
           <!-- 渠道标签区域 (7/12) -->
@@ -293,7 +293,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from "vue";
+import { ref, computed, onMounted, watch, nextTick, inject } from "vue";
 import { useStore } from "vuex";
 import { useQuasar } from "quasar";
 import {
@@ -396,6 +396,10 @@ const loadingClose = () => {
 // 根据窗口大小确定可见渠道和隐藏渠道
 const visibleChannels = ref([]);
 const hiddenChannels = ref([]);
+
+const visibleThirdSwitchPlus = inject('visibleThirdSwitchPlus');
+
+const styleTop = visibleThirdSwitchPlus.value?"0px":"48px";
 
 // 动态渠道组件映射
 const channelComponents = {
@@ -1304,5 +1308,12 @@ const refreshChannelLogin = async (key) => {
   justify-content: center;
   align-items: center;
   backdrop-filter: blur(3px);
+}
+
+.channel-sticky {
+  position: sticky;
+  top: v-bind(styleTop);
+  background-color: #fff;
+  z-index: 10;
 }
 </style>

@@ -119,5 +119,13 @@ export const getResumeBlindList = (data) => {
     });
 }
 
+// 加入三方成功回调
+export const importResumeCallback = (data) => {
+    return request({
+        method:'POST',
+        url:'/resume/import/batch/rList',
+        data:data
+    });
+}
 
 

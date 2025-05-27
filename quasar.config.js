@@ -31,6 +31,7 @@ module.exports = configure(function (/* ctx */) {
       'axios',
       'intersection-observer',
       'iframe-messenger',
+      'SvgBase64Manager'
     ],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#css
