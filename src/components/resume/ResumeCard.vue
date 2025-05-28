@@ -167,6 +167,7 @@
                 :disable="resume?.resumeThirdPartyStatus === 'success' || !(Number.isFinite(resume.score) && resume.score > 0)"
                 size="md" color="primary" 
                 @click.stop="assignJob(resume)">
+                <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
                   {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}分配职位
                 </span>
@@ -176,15 +177,18 @@
                 :disable="resume?.resumeThirdPartyStatus === 'success' || !(Number.isFinite(resume.score) && resume.score > 0)" 
                 size="md" color="primary"
                 @click.stop="addToTalentPool(resume)">
+                <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
                   {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}加入人才库
                 </span>
               </q-btn>
             </template>
             <q-btn flat class="q-ma-xs" size="md" color="primary" @click.stop="searchSimilarResumes">
+              <q-icon size="xs" class="q-mr-xs" name="search"></q-icon>
               <span>相似简历</span>
             </q-btn>
             <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="md" @click.stop="scheduleInterview">
+              <q-icon size="xs" class="q-mr-xs" name="chat"></q-icon>
               <span>立即沟通</span>
             </q-btn>
           </div>
