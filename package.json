@@ -1,8 +1,8 @@
 {
   "name": "irecruiting360",
   "version": "0.0.1",
-  "description": "irecruiting360-project",
-  "productName": "irecruiting360-web-static",
+  "description": "从多个招聘渠道自动获取简历数据并将其整合到统一的平台上，方便查看和管理；通过AI技术对对简历中的关键信息（如工作经验、技能、教育背景等）进行提取和分析，并与职位描述进行匹配，生成匹配评分，提高招聘效率",
+  "productName": "i快招 - 智能招聘助手",
   "author": "xireli <xireli000@126.com>",
   "private": true,
   "scripts": {
