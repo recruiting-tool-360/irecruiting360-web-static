@@ -203,7 +203,7 @@ async function exportData() {
       resume.experienceYear === -1 ? '应届生' : `${resume.experienceYear}年`,
       resume.ageDesc || '',
       resume.channel || '',
-      (resume.score === null || resume.score === undefined) ? '暂无' : resume.score,
+      (resume.score === null || resume.score === undefined) ? '暂无' : Math.round(resume.score),
       resume.detailUrl || ''
     ]);
 

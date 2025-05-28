@@ -30,7 +30,7 @@
               </q-item-label>
             </q-item-section>
             <q-item-section side>
-              <q-badge color="primary">评分: {{ resume.score }}</q-badge>
+              <q-badge color="primary">评分: {{ Math.round(resume.score) }}</q-badge>
             </q-item-section>
           </q-item>
         </q-list>
