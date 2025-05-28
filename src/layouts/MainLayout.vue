@@ -19,13 +19,17 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, provide, getCurrentInstance } from 'vue'
 import Header from "layouts/header/Header.vue";
 import SseManager from "components/sse/SseManager.vue";
 import {useStore} from "vuex";
 import LeftMenu from "layouts/menu/LeftMenu.vue";
-import {isVisibleThirdA, usePlanVisibility} from 'src/hooks/usePlanVisibility';
+import { useUpdateResumeStatus } from "src/hooks/useUpdateResumeStatus";
+import { importResumeCallback } from "src/api/jobList/JobListApi";
 const store = useStore();
+
+const { proxy } = getCurrentInstance();
+const iframeMsg = proxy.$iframeMessenger;
 
 // SSE管理器引用
 const sseManagerRef = ref(null);
@@ -34,11 +38,7 @@ const headerRef = ref(null);
 
 const leftDrawerOpen = ref(false)
 
-// 默认planA企业不可见， 无plan或plan不匹配时默认可见
-const { isHidden } = usePlanVisibility({
-  hiddenForPlans: ['PlanA'],
-  defaultVisible: true,
-})
+const { update } = useUpdateResumeStatus();
 
 //三方显示隐藏控制开关
 let visibleThirdSwitch = computed(() => {
@@ -47,6 +47,22 @@ let visibleThirdSwitch = computed(() => {
 let visibleThirdSwitchPlus = computed(() => {
   return ['PlanA'].includes(visibleThirdSwitch.value);
 });
+
+provide('visibleThirdSwitchPlus', visibleThirdSwitchPlus);
+
+// 获取ihr成功的简历ids
+iframeMsg.on("ihrSuccessIds", async ({ successResumeIds }, context) => {
+  if(context.from !== "ihr-recruit-assistant") return
+  try {
+    const { success } = await importResumeCallback(successResumeIds);
+    if(success === "success") {
+      update(successResumeIds);
+    }
+  } catch (error) {
+    console.error('更新简历状态失败:', error);
+  }
+  return Promise.resolve(true);
+})
 
 // 记录上次滚动位置
 let lastScrollY = 0;
@@ -78,6 +94,10 @@ const handleScroll = () => {
   }
 };
 
+const handleIframeBack = () => {
+  iframeMsg?.post("iframe-back", "*");
+}
+
 // 组件挂载时添加滚动监听
 onMounted(() => {
   // 初始化header高度到Vuex
@@ -94,6 +114,9 @@ onMounted(() => {
   // 添加滚动监听
   window.addEventListener('scroll', handleScroll, { passive: true });
 
+  // 在iframe页面中,监听回退
+  visibleThirdSwitchPlus.value && window.addEventListener('popstate', handleIframeBack);
+
   // 首次触发一次检测
   handleScroll();
 });
@@ -101,6 +124,7 @@ onMounted(() => {
 // 组件卸载时移除滚动监听
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll);
+  visibleThirdSwitchPlus.value && window.addEventListener('popstate', handleIframeBack);
 });
 </script>
 
