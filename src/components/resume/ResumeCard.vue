@@ -126,7 +126,7 @@
         <!-- 工作经历 -->
         <div class="col-4">
           <div class="row items-center">
-            <q-icon name="work" color="primary" size="sm" class="q-mr-sm" />
+            <q-icon name="work" color="primary" size="xs" class="q-mr-sm" />
             <span class="text-subtitle2">工作经历</span>
           </div>
           <div class="q-ml-lg q-mt-xs">
@@ -143,7 +143,7 @@
         <!-- 教育经历 -->
         <div class="col-4">
           <div class="row items-center">
-            <q-icon name="school" color="primary" size="sm" class="q-mr-sm" />
+            <q-icon name="school" color="primary" size="xs" class="q-mr-sm" />
             <span class="text-subtitle2">教育经历</span>
           </div>
           <div class="q-ml-lg q-mt-xs">
@@ -157,29 +157,35 @@
             <div v-else class="text-grey-7">暂无教育经历</div>
           </div>
         </div>
-
-        <div class="col-4 flex justify-end items-end column">
-          <div class="flex wrap justify-end">
-            <template v-if="isVisible && Number.isFinite(resume.score) && resume.score >= 0">
-              <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="assignJob(resume.id)">
-                <q-icon class="q-mr-xs" name="work"></q-icon>
-                <span class="">分配职位</span>
+      </div>
+      <div>
+        <div class="col-24 flex justify-end">
+          <div class="flex wrap items-end justify-end">
+            <template v-if="isVisible">
+              <q-btn 
+                flat class="q-ma-xs" 
+                :disable="resume?.resumeThirdPartyStatus === 'success' || !(Number.isFinite(resume.score) && resume.score > 0)"
+                size="md" color="primary" 
+                @click.stop="assignJob(resume)">
+                <span>
+                  {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}分配职位
+                </span>
               </q-btn>
-              <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="addToTalentPool(resume.id)">
-                <q-icon class="q-mr-xs" name="group_add"></q-icon>
-                <span class="">加入人才库</span>
+              <q-btn 
+                flat class="q-ma-xs" 
+                :disable="resume?.resumeThirdPartyStatus === 'success' || !(Number.isFinite(resume.score) && resume.score > 0)" 
+                size="md" color="primary"
+                @click.stop="addToTalentPool(resume)">
+                <span>
+                  {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}加入人才库
+                </span>
               </q-btn>
             </template>
-          </div>
-          <div class="flex wrap justify-end">
-            <q-btn flat class="q-ma-xs" size="sm" color="primary" @click.stop="searchSimilarResumes">
-              <q-icon class="q-mr-xs" name="search"></q-icon>
-              <span class="">相似简历</span>
+            <q-btn flat class="q-ma-xs" size="md" color="primary" @click.stop="searchSimilarResumes">
+              <span>相似简历</span>
             </q-btn>
-<!--            <q-btn flat color="primary" label="详情" size="sm" @click.stop="viewDetail" />-->
-            <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="sm" @click.stop="scheduleInterview">
-              <q-icon class="q-mr-xs" name="chat"></q-icon>
-              <span class="">立即沟通</span>
+            <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="md" @click.stop="scheduleInterview">
+              <span>立即沟通</span>
             </q-btn>
           </div>
         </div>
@@ -229,6 +235,7 @@
 <script setup>
 import {defineProps, defineEmits, computed, ref, defineAsyncComponent, onMounted} from 'vue';
 import {bossFindJobDetail, findJobDetail, runCollect} from "src/pluginSrc/channels/BossJobInfoManager";
+import { enableImageCapture } from 'src/pluginSrc/channels/ImageChannel';
 import notify from "src/util/notify";
 import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 import qs from "qs";
@@ -244,6 +251,7 @@ import {getResumeBlindList, markResumeBlindReadStatus, userCollectResume} from "
 import channelConfig from "src/store/modules/ChannelConfig";
 import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
 import { useSendResume } from 'src/hooks/useSendResume';
+import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 
 const store = useStore();
@@ -271,7 +279,8 @@ const emit = defineEmits([
   'contact',
   'blacklist',
   'detail',
-  'interview'
+  'interview',
+  'updateCollectResumeLoading'
 ]);
 // 渠道名称
 const tabStr = computed(() => props.tabStr);
@@ -311,6 +320,8 @@ const { isVisible } = usePlanVisibility({
   visibleForPlans: ['PlanA'],
   defaultVisible: false
 })
+
+const { generate } = bossDomGenerator();
 
 // 在新窗口中打开详情页面
 const openDetailInNewWindow = (url) => {
@@ -821,13 +832,44 @@ const handleViewDetail = (resume) => {
 };  
 
 // 分配职位
-const assignJob = async (id) => {
-  await sendResume([id], { action: 'assign-position' })
+const assignJob = async (resume) => {
+  try {
+    emit('updateCollectResumeLoading', true);
+    const url = getChannelUrl(resume);
+    const params = { url, id: resume.id, channel: resume.channel };
+    if(resume.channel === 'boss直聘'){
+      params.resumeDom = await generate(resume);
+    }
+    const res = await enableImageCapture([params]);
+
+    await sendResume(res, {
+      action: 'assign-position',
+    });
+  } catch (error) {
+    console.error(error);
+  } finally {
+    emit('updateCollectResumeLoading', false);
+  }
 };
 
 // 加入人才库
-const addToTalentPool = async (id) => {
-  await sendResume([id], { action: 'talent-pool' })
+const addToTalentPool = async (resume) => {
+  try {
+    emit('updateCollectResumeLoading', true);
+    const url = getChannelUrl(resume);
+    const params = { url, id: resume.id, channel: resume.channel };
+    if(resume.channel === 'boss直聘'){
+      params.resumeDom = await generate(resume);
+    }
+    const res = await enableImageCapture([params]);
+    await sendResume(res, { 
+      action: 'talent-pool',
+    });
+  } catch (error) {
+    console.error(error);
+  } finally {
+    emit('updateCollectResumeLoading', false);
+  }
 };
 
 // 在 script setup 中添加以下内容

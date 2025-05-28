@@ -11,7 +11,8 @@ export const pluginAllGroup = {
         BASE_CONFIG:"BASE_CONFIG",
         UNIVERSAL_REQUEST:"UNIVERSAL_REQUEST",
         UNIVERSAL_REQUEST_BACKGROUND_MAIN:"UNIVERSAL_REQUEST_BACKGROUND_MAIN",
-        UPDATE_ROLES_CONFIG:"UPDATE_ROLES_CONFIG"
+        UPDATE_ROLES_CONFIG:"UPDATE_ROLES_CONFIG",
+        ENABLE_IMAGE_CAPTURE:"ENABLE_IMAGE_CAPTURE"
     }
 }
 //插件所有group
@@ -28,7 +29,8 @@ export const pluginAllActions = {
         setDynamicRulesConfig:"setDynamicRulesConfig",
         getBaseConfig:"getBaseConfig",
         universalRequest:"universalRequest",
-        universalRequestRtText:"universalRequestRtText"
+        universalRequestRtText:"universalRequestRtText",
+        enableImageCapture:"enableImageCapture"
     }
 }
 //插件所有Url配置
@@ -243,5 +245,12 @@ export const getPluginBaseConfigEmptyDTO = ()=>{
     let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
     pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.BASE_CONFIG;
     pluginEmptyRequestTemplate.action = pluginAllActions.Sys.getBaseConfig;
+    return pluginEmptyRequestTemplate;
+}
+
+export const pluginEnableImageCapture = ()=>{
+    let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+    pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.ENABLE_IMAGE_CAPTURE;
+    pluginEmptyRequestTemplate.action = pluginAllActions.Sys.enableImageCapture;
     return pluginEmptyRequestTemplate;
 }
