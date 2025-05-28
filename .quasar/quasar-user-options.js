@@ -11,11 +11,13 @@
  * Boot files are your "main.js"
  **/
 
+import iconSet from 'quasar/icon-set/material-icons.js'
+
 
 
 import {Notify,Dialog,Loading} from 'quasar'
 
 
 
-export default { config: {},plugins: {Notify,Dialog,Loading} }
+export default { config: {},iconSet,plugins: {Notify,Dialog,Loading} }
 

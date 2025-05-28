@@ -165,8 +165,8 @@ const env = process.env.NODE_ENV
 //   password: ''
 // })
 const form = ref({
-  username: 'test1',
-  password: '123456'
+  username: '',
+  password: ''
 })
 
 // 控制状态
