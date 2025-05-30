@@ -108,6 +108,7 @@
                 <q-list>
                   <q-item
                     v-for="channel in hiddenChannels"
+                    v-show="channel.key!=='LIEPIN'"
                     :key="channel.key"
                     clickable
                     v-close-popup
@@ -418,6 +419,9 @@ const channelComponents = {
 const getChannelDisable = (key) => {
   const channelConfig = showSettingsChannelConfig.value.find(config => config.key === key);
   // 如果找到配置且 enableConfig 为 false 则禁用，否则不禁用
+  if(key==='LIEPIN'){
+    return false;
+  }
   return channelConfig.enableConfig;
 };
 
@@ -730,12 +734,12 @@ onMounted(async () => {
   await initPluginAndChannels();
 
   // 初始化渠道ref
-  store.commit('changeChannelCardInfoRef', {key: "ALL", value: jobInfoRef.value});
-  store.commit('changeChannelCardInfoRef', {key: "BOSS", value: bossJobInfoRef.value});
-  store.commit('changeChannelCardInfoRef', {key: "ZHILIAN", value: zhiLianInfoRef.value});
-  store.commit('changeChannelCardInfoRef', {key: "LIEPIN", value: liePinInfoRef.value});
-  store.commit('changeChannelCardInfoRef', {key: "JOB51", value: job51InfoRef.value});
-  store.commit('changeChannelCardInfoRef', {key: "Collect", value: collectInfoRef.value});
+  store.commit('changeChannelCardInfoRef', {key: "ALL", value: jobInfoRef.value? jobInfoRef.value:null});
+  store.commit('changeChannelCardInfoRef', {key: "BOSS", value: bossJobInfoRef.value?  bossJobInfoRef.value:null});
+  store.commit('changeChannelCardInfoRef', {key: "ZHILIAN", value: zhiLianInfoRef.value? zhiLianInfoRef.value:null});
+  store.commit('changeChannelCardInfoRef', {key: "LIEPIN", value: liePinInfoRef.value?  liePinInfoRef.value:null});
+  store.commit('changeChannelCardInfoRef', {key: "JOB51", value: job51InfoRef.value?  job51InfoRef.value:null});
+  store.commit('changeChannelCardInfoRef', {key: "Collect", value: collectInfoRef.value?  collectInfoRef.value:null});
 
   // 验证组件映射是否正确
   // verifyComponentMapping();
