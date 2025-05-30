@@ -82,45 +82,12 @@ watch(dialogVisible, (newVal) => {
 });
 
 // 点击下载按钮的功能
-// 点击下载按钮的功能
 const downloadZip = () => {
   // 使用已保存在Vuex中的下载地址
   const url = store.getters.getDownloadUrl;
   if (url) {
     downloading.value = true;
-
-    // 方法1：使用 a 标签下载（推荐）
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = ''; // 可以设置默认文件名，如果不设置则使用服务器返回的文件名
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    // 方法2：如果方法1不起作用，可以尝试使用 fetch
-    /*
-    fetch(url)
-      .then(response => response.blob())
-      .then(blob => {
-        const link = document.createElement('a');
-        link.href = window.URL.createObjectURL(blob);
-        link.download = ''; // 可以设置默认文件名
-        link.target = '_blank';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(link.href);
-      })
-      .catch(error => {
-        console.error('下载失败:', error);
-        $q.notify({
-          message: '下载失败，请稍后再试',
-          color: 'negative',
-          icon: 'error'
-        });
-      });
-    */
+    window.open(url, '_blank');
 
     // 延迟恢复按钮状态，给用户更好的反馈
     setTimeout(() => {
@@ -134,6 +101,40 @@ const downloadZip = () => {
     });
   }
 }
+
+// const downloadZip = () => {
+//   const url = store.getters.getDownloadUrl;
+//   if (url) {
+//     // downloading.value = true;
+//
+//     // 创建隐藏的 iframe
+//     const iframe = document.createElement('iframe');
+//     iframe.style.display = 'none';
+//     iframe.src = url;
+//     document.body.appendChild(iframe);
+//
+//     // 监听 iframe 加载完成
+//     iframe.onload = () => {
+//       // downloading.value = false;
+//       // 延迟移除 iframe
+//       setTimeout(() => {
+//         document.body.removeChild(iframe);
+//       }, 1000);
+//     };
+//
+//     iframe.onerror = () => {
+//       // downloading.value = false;
+//       document.body.removeChild(iframe);
+//       $q.notify({
+//         message: '下载失败，请稍后再试',
+//         color: 'negative',
+//         icon: 'error'
+//       });
+//     };
+//   }
+// }
+
+
 
 const fetchDownloadUrl = async () => {
   try {
