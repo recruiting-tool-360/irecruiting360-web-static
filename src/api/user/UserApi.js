@@ -56,6 +56,15 @@ export const getDownloadUrl = () => {
     });
 }
 
+//下载插件
+export const forceUpdateConfig = () => {
+    const basseUrl='/plugin/forceUpdateConfig';
+    return request({
+        method:'GET',
+        url:basseUrl
+    });
+}
+
 
 // SSO生成令牌
 export const generateSsoToken = (data) => {
