@@ -612,7 +612,7 @@ const showBatchDialog = ref(false);
 
 // 获取选中简历的完整数据
 const filteredSelectedResumes = computed(() => {
-  return selectedResumes.value.filter(resume => resume.score !== null && resume.score !== undefined && resume.score >= 0);
+  return selectedResumes.value.filter(resume => resume.channel === "猎聘" || (resume.score !== null && resume.score !== undefined && resume.score >= 0));
 });
 
 // 批量分配职位对话框类型
@@ -625,11 +625,12 @@ const handleBatchConfirm = async (data) => {
   const urls = await Promise.all(data.resumes.map(async (item) => {
     const url = getChannelUrl(item);
     if (url) {
-        const res = { url, id: item.id, channel: item.channel };
-        if (item.channel === 'boss直聘') {
-            res.resumeDom = await generate(item);
-        }
-        return res;
+      const { id, name, channel, gender } = item;
+      const res = { url, id, name, channel, gender, type: "normal" };
+      if (item.channel === 'boss直聘') {
+          res.resumeDom = await generate(item);
+      }
+      return res;
     }
     return null;
   })).then(results => results.filter(Boolean));
@@ -665,6 +666,9 @@ const openBatchAddToTalentPoolDialog = () => {
   }
 
   const isSuccess = selectedResumes.value.some(item => {
+    if(item?.channel === "猎聘" && item?.resumeThirdPartyStatus !== "success") {
+      return false;
+    }
     return item?.resumeThirdPartyStatus === 'success';
   })
 
@@ -695,6 +699,9 @@ const openBatchAssignPositionDialog = () => {
   }
 
   const isSuccess = selectedResumes.value.some(item => {
+    if(item?.channel === "猎聘" && item?.resumeThirdPartyStatus !== "success") {
+      return false;
+    }
     return item?.resumeThirdPartyStatus === 'success';
   })
 
