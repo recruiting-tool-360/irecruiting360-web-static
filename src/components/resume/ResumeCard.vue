@@ -690,7 +690,6 @@ const searchALlResumes = async (resume) => {
 
       // 保存搜索条件
       const { data: channelSearchCondition } = await saveCondition(searchConditionRequestObj);
-
       // 获取所有渠道的简历数据
       const jobListRequestDTO = await searchALlResumesRequest(channelSearchCondition);
 
@@ -699,7 +698,8 @@ const searchALlResumes = async (resume) => {
       try {
         const { data: jobListData } = await compareResumeSimilarity({
           searchVO: jobListRequestDTO,
-          resumeBlindId: resume.id
+          resumeBlindId: resume.id,
+          searchConditionId:channelSearchCondition.id
         });
         jobList = jobListData;
       } catch (error) {
@@ -763,7 +763,8 @@ const getSimilarResumes = async (resume) => {
     try {
       const { data: jobListData } = await compareResumeSimilarity({
         searchVO: jobListRequestDTO,
-        resumeBlindId: resume.id
+        resumeBlindId: resume.id,
+        searchConditionId:channelSearchCondition.id
       });
       jobList = jobListData;
     } catch (error) {
@@ -790,7 +791,7 @@ const searchALlResumesRequest = async (channelSearchCondition) => {
     // 使用 Promise.all 进行并发处理
     const searchPromises = loggedInChannels.map(async (channelItem) => {
       try {
-        const maxIterations =channelItem.key==='BOSS'?2:1;
+        const maxIterations =channelItem.key==='BOSS'?1:1;
         const allData = channelItem.cardInfoRef && typeof channelItem.cardInfoRef.recursiveChannelSearch === 'function'
           ? await channelItem.cardInfoRef.recursiveChannelSearch(maxIterations,channelSearchCondition)
           : null;
