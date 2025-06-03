@@ -26,7 +26,7 @@ export default {
       chatCardRef:null,
       searchCount:0,
       showQueueMonitor: false,
-      showFilterPanel: true,
+      showFilterPanel: false,
     }),
     mutations: {
         changeLeftLoadingSwitch(state,payload) {

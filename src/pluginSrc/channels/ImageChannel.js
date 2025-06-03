@@ -4,7 +4,13 @@ import {i360Request} from "src/pluginSrc/util/BasePluginManager";
 
 export const enableImageCapture = async (urls) => {
   const channelsMap = urls.reduce((channels, item) => {
-    channels[item.id] = item.channel
+    channels[item.id] = {
+      channel: item.channel,
+      url: item.url,
+      type: item.type,
+      name: item.name,
+      gender: item.gender
+    }
     return channels
   }, {})
   
@@ -18,7 +24,7 @@ export const enableImageCapture = async (urls) => {
         for (const [id, base64Str] of Object.entries(response?.responseData?.data)) {
           data[id] = {
             base64: base64Str,
-            channel: channelsMap[id],
+            ...channelsMap[id],
           }
         }
       }
