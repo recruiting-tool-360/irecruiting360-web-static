@@ -1,7 +1,7 @@
 import { unref, computed, getCurrentInstance } from 'vue';
-import { getResumeBlindList } from 'src/api/jobList/JobListApi';
 import { useStore } from 'vuex';
 import { mergeBase64ToFile } from 'src/pluginSrc/channels/ImageChannel';
+import { formatName } from 'src/hooks/bossDomGenerator';
 /**
  * 用于发送简历信息到父页面的 hook
  * @param {string} messageType - 要发送的消息类型
@@ -35,15 +35,17 @@ export function useSendResume(messageType = 'resumeList') {
     if (!iframeMessenger) {
       throw new Error('iframeMessenger 未初始化');
     }
-    const results = [];
+    console.log(res, "result-1");
+    
+    let results = [];
     if(Object.entries(res).length > 0) {
       // 遍历 res 对象
       for (const [id, obj] of Object.entries(res)) {
-        const { base64, channel } = obj
+        const { base64, channel, name, gender, ...args } = obj
         // 解析字符串为数组
         const base64Array = JSON.parse(base64);
-
-        const fileName = `${Date.now()}.png`;
+        
+        const fileName = `${channel}-${formatName({ name, gender })}.png`;
       
         // 调用合并函数
         const file = await mergeBase64ToFile(
@@ -54,7 +56,9 @@ export function useSendResume(messageType = 'resumeList') {
         results.push({
           id,
           file,
-          channel: channelsEnum[channel]
+          channel: channelsEnum[channel],
+          ...args,
+          // type: "similar" // 测试使用 使所选简历配型变为相似简历
         });
       }
     }
