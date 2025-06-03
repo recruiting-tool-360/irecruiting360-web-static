@@ -163,24 +163,30 @@
           <div class="flex wrap items-end justify-end">
             <template v-if="isVisible">
               <q-btn 
-                flat class="q-ma-xs" 
-                :disable="resume?.resumeThirdPartyStatus === 'success' || !(Number.isFinite(resume.score) && resume.score > 0)"
+                flat class="q-ma-xs"
                 size="md" color="primary" 
+                :disable="isDisabled(resume)"
                 @click.stop="assignJob(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
                   {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}分配职位
                 </span>
+                <q-tooltip v-if="resume?.resumeThirdPartyStatus === 'success'" anchor="top middle" self="bottom middle" :offset="[10, 10]">
+                  系统中已存在重复简历
+                </q-tooltip>
               </q-btn>
               <q-btn 
-                flat class="q-ma-xs" 
-                :disable="resume?.resumeThirdPartyStatus === 'success' || !(Number.isFinite(resume.score) && resume.score > 0)" 
+                flat class="q-ma-xs"
                 size="md" color="primary"
+                :disable="isDisabled(resume)" 
                 @click.stop="addToTalentPool(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
                   {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}加入人才库
                 </span>
+                <q-tooltip v-if="resume?.resumeThirdPartyStatus === 'success'" anchor="top middle" self="bottom middle" :offset="[10, 10]">
+                  系统中已存在重复简历
+                </q-tooltip>
               </q-btn>
             </template>
             <q-btn flat class="q-ma-xs" size="md" color="primary" @click.stop="searchSimilarResumes">
@@ -872,16 +878,54 @@ const handleViewDetail = (resume) => {
   }
 };  
 
+/**
+ * @param resume 简历
+ */
+const commomIHR = async (resume) => {
+  try {
+    emit('updateCollectResumeLoading', true);
+
+    let allResume = [{ ...resume, type: "normal" }];
+
+    // 单个请求获取相似简历
+    const similarResumes = await getSimilarResumes(resume);
+    console.log(similarResumes, "similarResumes-相似简历");
+    
+    // 有相似简历->合并修改type
+    if(similarResumes.length > 0) {
+      allResume = [...allResume, ...similarResumes].map(item => {
+        return { ...item, type: "similar" }
+      })
+    }
+    console.log(allResume, "similarResumes-合并后");
+    
+    const params = await Promise.all(allResume.map(async (resume) => {
+      const url = getChannelUrl(resume);
+      const { id, name, channel, type, gender } = resume;
+      const params = { url, id, channel, type, name, gender };
+      if(resume.channel === 'boss直聘'){
+        params.resumeDom = await generate(resume);
+      }
+      return params;
+    }));
+
+    console.log(params, 'params');
+    
+
+    return await enableImageCapture(params);
+  } catch (error) {
+    console.error(error);
+  } finally {
+    emit('updateCollectResumeLoading', false);
+  }
+}
+
 // 分配职位
 const assignJob = async (resume) => {
   try {
     emit('updateCollectResumeLoading', true);
-    const url = getChannelUrl(resume);
-    const params = { url, id: resume.id, channel: resume.channel };
-    if(resume.channel === 'boss直聘'){
-      params.resumeDom = await generate(resume);
-    }
-    const res = await enableImageCapture([params]);
+
+    const res = await commomIHR(resume);
 
     await sendResume(res, {
       action: 'assign-position',
@@ -897,12 +941,9 @@ const assignJob = async (resume) => {
 const addToTalentPool = async (resume) => {
   try {
     emit('updateCollectResumeLoading', true);
-    const url = getChannelUrl(resume);
-    const params = { url, id: resume.id, channel: resume.channel };
-    if(resume.channel === 'boss直聘'){
-      params.resumeDom = await generate(resume);
-    }
-    const res = await enableImageCapture([params]);
+
+    const res = await commomIHR(resume);
+
     await sendResume(res, { 
       action: 'talent-pool',
     });
@@ -912,6 +953,10 @@ const addToTalentPool = async (resume) => {
     emit('updateCollectResumeLoading', false);
   }
 };
+
+const isDisabled = (resume) => {
+  return resume?.resumeThirdPartyStatus === 'success' || !(resume.channel === "猎聘" || (Number.isFinite(resume.score) && resume.score > 0))
+}
 
 // 在 script setup 中添加以下内容
 const showAIEvaluation = ref(false);

@@ -1,7 +1,7 @@
 <template>
   <q-dialog v-model="dialogVisible" persistent no-backdrop-dismiss>
     <q-card class="plugin-install-dialog" style="background: transparent; box-shadow: none; width: 500px; max-width: 90vw;overflow: unset">
-      <div class="dialog-header q-mb-none row justify-end q-py-xs">
+      <div v-if="!isHidden" class="dialog-header q-mb-none row justify-end q-py-xs">
         <q-btn flat round color="white" icon="close" @click="closeDialog" class="absolute-bottom-right bg-grey-6" />
       </div>
 
@@ -27,10 +27,17 @@ import { ref, computed, watch, defineExpose } from 'vue';
 import { useStore } from 'vuex';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
+import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 
 const $q = useQuasar();
 const router = useRouter();
 const store = useStore();
+
+// 默认planA企业不可见， 无plan或plan不匹配时默认可见
+const { isHidden } = usePlanVisibility({
+  hiddenForPlans: ['PlanA'],
+  defaultVisible: true
+})
 
 // 通过 Vuex 的 pluginInstall 状态控制对话框显示
 const pluginInstalled = computed(() => store.getters.getPluginInstall);
