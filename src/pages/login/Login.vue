@@ -19,7 +19,8 @@
             dense
           >
             <q-tab name="password" label="账号密码登录" />
-            <q-tab name="wechat" label="微信登录" />
+<!--            <q-tab name="wechat" label="微信登录" />-->
+            <q-tab name="wechat1" label="微信登录" />
           </q-tabs>
 
           <!-- 登录方式内容区域 -->
@@ -123,6 +124,16 @@
                   <div class="text-caption text-grey-8">
                     已阅读并接受 <a href="#" @click.prevent="goToAgreement" class="text-primary">《i快招用户服务协议》</a>
                   </div>
+                </div>
+              </div>
+            </q-tab-panel>
+
+            <q-tab-panel name="wechat1" class="q-pa-md">
+              <div class="column items-center">
+                <q-icon name="sentiment_dissatisfied" size="4rem" color="grey-6" />
+                <div class="text-h6 text-grey-8 q-mt-md">暂不可用</div>
+                <div class="text-caption text-grey-7 text-center q-mt-sm">
+                  该登录方式正在维护中，敬请期待
                 </div>
               </div>
             </q-tab-panel>
