@@ -462,6 +462,16 @@ watch(chatList, (newChatList) => {
     tryAutoSelectFirstChat();
   }
 }, { immediate: false })
+
+
+// 监听 vuex 中的刷新状态
+watch(() => store.getters.getNeedRefreshList, async (needRefresh) => {
+  if (needRefresh) {
+    await new Promise(resolve => setTimeout(resolve, 3500))
+    await loadChatList()
+    store.commit('SET_NEED_REFRESH_LIST', false)
+  }
+})
 </script>
 
 <style scoped>

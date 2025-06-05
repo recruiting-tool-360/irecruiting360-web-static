@@ -108,6 +108,7 @@
                 <q-list>
                   <q-item
                     v-for="channel in hiddenChannels"
+                    v-show="channel.key!=='LIEPIN'"
                     :key="channel.key"
                     clickable
                     v-close-popup
@@ -418,6 +419,9 @@ const channelComponents = {
 const getChannelDisable = (key) => {
   const channelConfig = showSettingsChannelConfig.value.find(config => config.key === key);
   // 如果找到配置且 enableConfig 为 false 则禁用，否则不禁用
+  if(key==='LIEPIN'){
+    return false;
+  }
   return channelConfig.enableConfig;
 };
 
