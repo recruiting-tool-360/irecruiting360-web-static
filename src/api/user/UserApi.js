@@ -37,6 +37,15 @@ export const userLogin = (data) => {
     });
 }
 
+export const doSignup = (data) => {
+    const basseUrl='/user/doSignup';
+    return request({
+        method:'POST',
+        url:basseUrl,
+        params:data
+    });
+}
+
 export const wechatLogin = (data) => {
   const basseUrl='/user/wechat/login';
   return request({

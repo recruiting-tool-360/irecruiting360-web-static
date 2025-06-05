@@ -83,18 +83,18 @@ export const getLIEPINHeader = async (flag) => {
 
 //猎聘 用户登陆状态
 export const liePinUserStatus = async () => {
-  const headers = await getLIEPINHeader(true);
-  if(!headers||headers.length===0){
-    // ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
-    return;
-  }
-  let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-  pluginEmptyRequestTemplate.parameters = null;
-  pluginEmptyRequestTemplate.requestHeader = headers;
-  pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-  pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.userStatus;
-  return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
-  // return;
+  // const headers = await getLIEPINHeader(true);
+  // if(!headers||headers.length===0){
+  //   // ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
+  //   return;
+  // }
+  // let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+  // pluginEmptyRequestTemplate.parameters = null;
+  // pluginEmptyRequestTemplate.requestHeader = headers;
+  // pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+  // pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.userStatus;
+  // return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+  return;
 }
 
 

@@ -109,6 +109,9 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
+import notify from "src/util/notify";
+import {doSignup} from "src/api/user/UserApi";
+import api from "src/api/loginRequest";
 
 const $q = useQuasar()
 const isMobile =ref($q.platform.is.mobile);
@@ -130,11 +133,12 @@ const loading = ref(false)
 // 账号注册
 const onRegister = async () => {
   if (!agreeTerms.value) {
-    $q.notify({
-      color: 'negative',
-      message: '请阅读并同意《i快招用户服务协议》',
-      icon: 'error'
-    })
+    // $q.notify({
+    //   color: 'negative',
+    //   message: '请阅读并同意《i快招用户服务协议》',
+    //   icon: 'error'
+    // })
+    notify.info('请阅读并同意《i快招用户服务协议》');
     return
   }
 
@@ -142,24 +146,43 @@ const onRegister = async () => {
 
   try {
     // 模拟注册请求
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    // await new Promise(resolve => setTimeout(resolve, 1500))
 
+    const params = new URLSearchParams()
+    params.append('name', form.value.username)
+    params.append('pwd', form.value.password)
+    params.append('invitationCode', form.value.inviteCode)
+
+    const { code, msg } = await api.post('/user/doSignup',params);
+
+    if (code !== 200) {
+      // 注册失败
+      // $q.notify({
+      //   color: 'negative',
+      //   message: '注册失败，请稍后重试',
+      //   icon: 'error'
+      // })
+      notify.error('注册失败，请稍后重试!'+(msg?msg:''));
+      return
+    }
     // 注册成功
-    $q.notify({
-      color: 'positive',
-      message: '注册成功',
-      icon: 'check_circle'
-    })
+    // $q.notify({
+    //   color: 'positive',
+    //   message: '注册成功',
+    //   icon: 'check_circle'
+    // })
+    notify.success('注册成功');
 
     // 跳转到登录页
     router.push('/login')
   } catch (error) {
     // 注册失败
-    $q.notify({
-      color: 'negative',
-      message: '注册失败，请稍后重试',
-      icon: 'error'
-    })
+    // $q.notify({
+    //   color: 'negative',
+    //   message: '注册失败，请稍后重试',
+    //   icon: 'error'
+    // })
+    notify.error('注册失败，请确认邀请码后再重试');
   } finally {
     loading.value = false
   }
