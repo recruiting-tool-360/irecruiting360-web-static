@@ -3,10 +3,15 @@ import provinces from 'src/pjo/dto/provinces.json';
 
 // 动态生成选项的函数
 function generateOptions(start, end, suffix) {
-    return Array.from({ length: end - start + 1 }, (_, i) => ({
+    let arr = Array.from({ length: end - start + 1 }, (_, i) => ({
         label: `${start + i}${suffix}`,
         value: `${start + i}`
     }));
+    arr.unshift({
+        label: `不限`,
+        value: null
+    });
+    return arr;
 }
 
 // 渠道配置
@@ -92,8 +97,33 @@ const transformData = (provinces, cities) => {
     }));
 };
 
+export const relativePositionTransformData = (provinces, cities)=>{
+    let allCities = provinces.map(province => ({
+        value: province.code,
+        label: province.name,
+        children: cities
+            .filter(city => city.code!=='5002'&&city.provinceCode === province.code)
+            .map(city => ({
+                value: city.code,
+                parentCode:city.provinceCode,
+                label: city.name
+            }))
+    }));
+    allCities.unshift({
+        value: null,
+        label: "全国",
+        children: [{
+                value: null,
+                label: "全国"
+            }]
+    });
+    return allCities;
+}
+
 // 调用转换函数
 export const citiesConfig = transformData(provinces, cities);
+
+export const relativePositionConfig = relativePositionTransformData(provinces, cities);
 
 
 

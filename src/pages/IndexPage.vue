@@ -82,8 +82,9 @@ const searchJobList = () => {
 
 // 重置搜索
 const resetSearchConnect = () => {
-  console.log('resetSearchConnect');
   searchState.value = createSearchState();
+  jobSearchFilterRef.value.resetCurrentWorkPlace();
+  console.log('resetSearchConnect',searchState.value);
 };
 
 // 引用AISearch组件
