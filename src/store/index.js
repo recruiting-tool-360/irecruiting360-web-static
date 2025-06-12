@@ -5,6 +5,7 @@ import ChatConfig from "src/store/modules/ChatConfig";
 import AiSerachConfig from "src/store/modules/AiSerachConfig";
 import ChannelConfig from "src/store/modules/ChannelConfig";
 import UserConfig from "src/store/modules/UserConfig";
+import SimilarResumeConfig from "src/store/modules/SimilarResumeConfig";
 import createPersistedState from "vuex-persistedstate";
 import chatList from './modules/chatList'
 
@@ -15,7 +16,7 @@ const store = createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig
   },
   plugins: [
     createPersistedState({
@@ -29,6 +30,8 @@ const store = createStore({
         "UserConfig.userInfo",
         "UserConfig.userColor",
         "UserConfig.userChannelConfig",
+        "SimilarResumeConfig.cooldownStartTime",
+        "SimilarResumeConfig.cooldownEndTime",
       ],
     })
   ],

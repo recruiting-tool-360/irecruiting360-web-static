@@ -1,5 +1,5 @@
 <template>
-  <div class="" style="height: 100%;min-height: 100vh">
+  <div :class="visibleThirdSwitchPlus && 'iHR-style'" style="height: 100%;min-height: 100vh;">
     <!-- 新建AI聊天按钮 -->
     <div class="q-mx-md q-my-md" v-if="!visibleThirdSwitchPlus">
       <q-btn
@@ -13,19 +13,31 @@
         </div>
       </q-btn>
     </div>
+
+    <!-- i人事融合相关样式 -->
+    <div v-if="visibleThirdSwitchPlus">
+      <span class="iHR-title">招聘中职位</span>
+      <div v-if="tipsStatus" class="iHR-menu-tips flex relative-position q-pa-sm q-mr-sm q-mb-sm">
+        <div>
+          <q-icon class="q-mr-sm" name="info" size="xs" style="color: var(--q-primary-90)" />
+        </div>
+        <span class="col">点击职位唤起AI招聘助理进行聚合简历推荐</span>
+        <q-icon class="cursor-pointer absolute text-grey-7" name="clear" size="xs" @click="closeTips" style="right: 5px; top: 10px;" />
+      </div>
+    </div>
 <!--    <q-separator />-->
 
     <!-- 聊天列表 -->
     <q-list padding class="rounded-borders  text-grey-9 q-pt-none">
       <q-item
-        class="q-py-md"
+        class="iHR-item-style q-py-md"
         v-for="(item,index) in chatList"
         :key="item.id"
         :class="index==0?'q-mt-none q-mb-sm':'q-my-sm'"
         clickable v-ripple
         :active="currentChatId === item.id"
         @click="selectChat(item)"
-        active-class="my-menu-link text-grey-7"
+        active-class="iHR-menu-link my-menu-link text-grey-7"
       >
         <q-item-section avatar>
           <q-avatar size="md" color="primary" text-color="white">
@@ -35,7 +47,7 @@
 
         <q-item-section>
           <q-item-label>{{ item.name }}</q-item-label>
-          <q-item-label caption>{{ item.createTime }}</q-item-label>
+          <q-item-label v-if="!visibleThirdSwitchPlus" caption>{{ item.createTime }}</q-item-label>
         </q-item-section>
 
         <q-item-section side v-if="!visibleThirdSwitchPlus">
@@ -67,7 +79,7 @@
           </q-btn>
         </q-item-section>
 
-                <!-- 招聘按钮，仅在三方企业模式下显示 -->
+        <!-- 招聘按钮，仅在三方企业模式下显示 -->
         <q-item-section side v-if="visibleThirdSwitchPlus">
           <q-btn
             round
@@ -79,7 +91,7 @@
             @click.stop="handleRecruitAction(item)"
             class="recruit-action-btn"
           >
-            <q-tooltip>招聘需求</q-tooltip>
+            <q-tooltip>招聘信息</q-tooltip>
           </q-btn>
         </q-item-section>
       </q-item>
@@ -129,7 +141,7 @@
 import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { useStore } from 'vuex'
-import { getChatList, deleteChat, renameChat } from 'src/api/chat/ChatApi'
+import { getChatList, deleteChat, renameChat, getChatHistory } from 'src/api/chat/ChatApi'
 import { isFromMenu, isVisibleThirdA, usePlanVisibility} from 'src/hooks/usePlanVisibility';
 import notify from 'src/util/notify'
 
@@ -159,10 +171,11 @@ const isFromThirdMenu = computed(() => {
 const isFromCandidateList = computed(() => {
   return visibleThirdSwitch.value?.from === 'recruit-workflow'});
 
-console.log('isVisible', isVisible)
+const userInfo = computed(() => store.getters.getUserInfo);
 
 // 状态变量
 const loading = ref(false)
+const tipsStatus = ref(true)
 const chatList = computed(() => store.getters.getChatList) // 使用Vuex中的聊天列表
 const currentChatId = computed(() => store.getters.getLatestChatId || '')
 const renameDialogVisible = ref(false)
@@ -223,7 +236,17 @@ const loadChatList = async () => {
           selectChat(formattedChatList[0]);
         }else if(isFromCandidateList.value){
           const filteredList = [formattedChatList.find(item => item.positionId === headcountId.value)].filter(Boolean);
-          Array.isArray(filteredList) && filteredList.length === 1 && handleRecruitAction(filteredList[0]);
+          
+          // 判断是否有选中职位，并且查询该职位历史记录，为空则填充JD
+          if(Array.isArray(filteredList) && filteredList.length === 1) {
+            getChatHistory(filteredList[0].id, userInfo.value?.id).then(res => {
+              console.log("res", res);
+              if(res.success === "success") {
+                const isFill = Array.isArray(res.data.chatHistory) && res.data.chatHistory.length === 0;
+                handleRecruitAction(filteredList[0], isFill);
+              }
+            })
+          }
           console.log(store.getters.getUserInfo?.extendData?.headcountId, '三方企业，默认待职位描述:', filteredList[0]);
         }
       } else {
@@ -295,6 +318,9 @@ const selectChat = (item) => {
     // 刷新搜索条件
     if (jobSearchFilterRef.value) {
       jobSearchFilterRef.value.refreshSearchCondition(item.id);
+      // 清空AI输入框，不改变AI弹窗状态
+      chatCardRef.value.fillMessageToInput("");
+
     } else {
       console.warn('jobSearchFilterRef不可用，无法刷新搜索条件');
     }
@@ -428,7 +454,7 @@ const tryAutoSelectFirstChat = () => {
 };
 
 // 处理招聘操作
-const handleRecruitAction = (item) => {
+const handleRecruitAction = (item, isFill = true) => {
   console.log('招聘操作按钮被点击，聊天ID:', item);
   // 设置聊天ID
   // store.commit('SET_LATEST_CHAT_ID', item.id);
@@ -443,7 +469,13 @@ const handleRecruitAction = (item) => {
   //   console.log('职位ID为空，已清除');
   // }
   setVuexData(item);
-  chatCardRef.value.insertMessageToInput(item.jd);
+  
+  // isFill为true表示需要填充JD
+  isFill && chatCardRef.value.insertMessageToInput(item.jd);
+}
+
+const closeTips = () => {
+  tipsStatus.value = false
 }
 
 // 在监听器中添加更可靠的处理
@@ -482,4 +514,26 @@ watch(() => store.getters.getNeedRefreshList, async (needRefresh) => {
 <style lang="sass">
 .my-menu-link
   background: var(--q-primary-20)
+
+.iHR-style
+  padding: 0 8px;
+
+  .iHR-item-style
+    border: 1px solid rgba(0, 0, 0, 0.12)
+    border-radius: 6px
+
+  .iHR-title
+    display: inline-block
+    font-size: 16px
+    font-weight: 400
+    margin: 10px 0
+
+  .iHR-menu-tips
+    border-radius: 10px
+    line-height: 22px
+    background-color: var(--q-primary-10)
+    padding-right: 23px
+
+  .iHR-menu-link
+    border-color: var(--q-primary-90) !important
 </style>
