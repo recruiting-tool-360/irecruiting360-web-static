@@ -54,7 +54,7 @@
           </div>
           <q-space />
           <div v-if="resumeBatchMode">
-            <template v-if="isVisible">
+            <template v-if="isVisible && channelStr!=='我的收藏'">
               <q-btn
                 flat
                 dense
@@ -214,7 +214,7 @@ const { isVisible } = usePlanVisibility({
   defaultVisible: false
 })
 
-const { generate } = bossDomGenerator();
+const { resumeGenerateBase64s } = bossDomGenerator();
 
 const isCollectResumeLoading = ref(false);
 
@@ -626,19 +626,32 @@ const handleBatchConfirm = async (data) => {
     const url = getChannelUrl(item);
     if (url) {
       const { id, name, channel, gender } = item;
-      const res = { url, id, name, channel, gender, type: "normal" };
-      if (item.channel === 'boss直聘') {
-          res.resumeDom = await generate(item);
-      }
-      return res;
+      return { url, id, name, channel, gender, type: "normal" };
     }
     return null;
   })).then(results => results.filter(Boolean));
 
   try {
-    const res = await enableImageCapture(urls);
-    console.log(res, 'res11111');
-    await sendResume(res, {
+    // 分离boss直聘和其他渠道的数据
+    const bossParams = urls.filter(param => param.channel === 'boss直聘');
+    const otherParams = urls.filter(param => param.channel !== 'boss直聘');
+    console.log(otherParams, '11', bossParams);
+    
+    let bossRes = {}
+    let otherRes = {}
+
+    if(otherParams.length > 0) {
+      otherRes = await enableImageCapture(otherParams);
+    }
+    if(bossParams.length > 0) {
+      bossRes = await resumeGenerateBase64s(bossParams);
+    }
+    console.log(urls, 'Boss直聘数据:', bossRes, bossParams);
+    console.log(urls, '其他渠道数据:', otherRes, otherParams);
+
+    console.log(Object.assign(bossRes, otherRes), '聚合数据');
+    
+    await sendResume(Object.assign(bossRes, otherRes), {
       action: data.type,
     })
   } catch (error) {

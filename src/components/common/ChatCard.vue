@@ -1132,9 +1132,12 @@ const insertMessageToInput = async (msg) => {
     await nextTick();
   }
   
+  fillMessageToInput(msg)
+};
+
+const fillMessageToInput = async (msg) => {
   // 将消息内容设置到输入框
   chatMessage.value = msg;
-  
   // 聚焦到输入框
   await nextTick();
   const inputElement = document.querySelector('.message-input .q-field__native');
@@ -1146,7 +1149,7 @@ const insertMessageToInput = async (msg) => {
   }
   
   console.log('消息已插入到输入框');
-};
+}
 
 // 向外暴露方法
 defineExpose({
@@ -1154,7 +1157,8 @@ defineExpose({
   endStreamResponse,
   loadHistory,
   handleNewChat,
-  insertMessageToInput
+  insertMessageToInput,
+  fillMessageToInput
 });
 </script>
 
