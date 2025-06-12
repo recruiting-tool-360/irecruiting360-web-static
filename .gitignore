@@ -23,3 +23,7 @@ pnpm-debug.log*
 *.sw?
 /.quasar/
 /.quasar/
+
+# Lock files
+package-lock.json
+yarn.lock
