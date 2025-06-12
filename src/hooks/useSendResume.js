@@ -43,7 +43,7 @@ export function useSendResume(messageType = 'resumeList') {
       for (const [id, obj] of Object.entries(res)) {
         const { base64, channel, name, gender, ...args } = obj
         // 解析字符串为数组
-        const base64Array = JSON.parse(base64);
+        const base64Array = Array.isArray(base64) ? base64 : JSON.parse(base64);
         
         const fileName = `${channel}-${formatName({ name, gender })}.png`;
       

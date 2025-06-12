@@ -161,7 +161,7 @@
       <div>
         <div class="col-24 flex justify-end">
           <div class="flex wrap items-end justify-end">
-            <template v-if="isVisible">
+            <template v-if="isVisible && tabStr!=='我的收藏'">
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary" 
@@ -171,9 +171,9 @@
                 <span>
                   {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}分配职位
                 </span>
-                <q-tooltip v-if="resume?.resumeThirdPartyStatus === 'success'" anchor="top middle" self="bottom middle" :offset="[10, 10]">
+                <!-- <q-tooltip v-if="resume?.resumeThirdPartyStatus === 'success'" anchor="top middle" self="bottom middle" :offset="[10, 10]">
                   系统中已存在重复简历
-                </q-tooltip>
+                </q-tooltip> -->
               </q-btn>
               <q-btn 
                 flat class="q-ma-xs"
@@ -184,14 +184,16 @@
                 <span>
                   {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}加入人才库
                 </span>
-                <q-tooltip v-if="resume?.resumeThirdPartyStatus === 'success'" anchor="top middle" self="bottom middle" :offset="[10, 10]">
+                <!-- <q-tooltip v-if="resume?.resumeThirdPartyStatus === 'success'" anchor="top middle" self="bottom middle" :offset="[10, 10]">
                   系统中已存在重复简历
-                </q-tooltip>
+                </q-tooltip> -->
               </q-btn>
             </template>
-            <q-btn flat class="q-ma-xs" size="md" color="primary" @click.stop="searchSimilarResumes">
+            <q-btn flat class="q-ma-xs" size="md" color="primary" 
+              :disable="isSimilarButtonDisabled" 
+              @click.stop="searchSimilarResumes">
               <q-icon size="xs" class="q-mr-xs" name="search"></q-icon>
-              <span>相似简历</span>
+              <span>{{ similarButtonText }}</span>
             </q-btn>
             <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="md" @click.stop="scheduleInterview">
               <q-icon size="xs" class="q-mr-xs" name="chat"></q-icon>
@@ -257,7 +259,7 @@ import {saveCondition} from "src/api/search/SearchApi";
 import SimilarResumesDialog from 'src/components/resume/SimilarResumesDialog.vue';
 import {getSearchConditionRequest, getSearchStateValues} from "src/pluginSrc/util/SearchParamUtils";
 import AIResumeEvaluation from 'src/components/resume/AIResumeEvaluation.vue';
-import {getResumeBlindList, markResumeBlindReadStatus, userCollectResume} from "src/api/jobList/JobListApi";
+import {markResumeBlindReadStatus, userCollectResume} from "src/api/jobList/JobListApi";
 import channelConfig from "src/store/modules/ChannelConfig";
 import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
 import { useSendResume } from 'src/hooks/useSendResume';
@@ -306,6 +308,17 @@ const userInfo = computed(() => store.getters.getUserInfo);
 //当前chat id
 const chatId = computed(() => store.getters.getLatestChatId);
 
+// 添加相似简历按钮状态的computed属性来确保响应式更新
+const similarButtonText = computed(() => {
+  const text = store.getters.getSimilarSearchButtonText;
+  return text;
+});
+
+const isSimilarButtonDisabled = computed(() => {
+  const disabled = store.getters.isSimilarSearchDisabled;
+  return disabled;
+});
+
 // 所有第三方渠道配置
 const allThirdPartyChannelConfig = computed(() => {
   return Object.entries(allChannelStatus.value)
@@ -331,7 +344,8 @@ const { isVisible } = usePlanVisibility({
   defaultVisible: false
 })
 
-const { generate } = bossDomGenerator();
+// 解构修复后的函数
+const { resumeGenerateBase64s } = bossDomGenerator();
 
 // 在新窗口中打开详情页面
 const openDetailInNewWindow = (url) => {
@@ -648,10 +662,23 @@ const viewDetail = () => {
   emit('detail', props.resume);
 };
 
+const showAIEvaluation = ref(false);
+
 //查找相似的简历
 const searchSimilarResumes = () => {
+  // 如果正在冷却中，直接返回
+  if (isSimilarButtonDisabled.value) {
+    return;
+  }
+  
+  console.log('开始搜索相似简历');
   searchALlResumes(props.resume);
   // getSimilarResumes(props.resume);
+
+  // 启动全局冷却倒计时（所有简历的相似简历按钮都会被禁用）
+  // 支持刷新页面后继续倒计时，使用时间戳保证准确性
+  // 使用默认配置时间
+  store.dispatch('startSimilarSearchCooldown');
 }
 
 //查找相似的所有简历
@@ -903,17 +930,30 @@ const commomIHR = async (resume) => {
     const params = await Promise.all(allResume.map(async (resume) => {
       const url = getChannelUrl(resume);
       const { id, name, channel, type, gender } = resume;
-      const params = { url, id, channel, type, name, gender };
-      if(resume.channel === 'boss直聘'){
-        params.resumeDom = await generate(resume);
-      }
-      return params;
+      return { url, id, channel, type, name, gender };
     }));
 
     console.log(params, 'params');
-    
 
-    return await enableImageCapture(params);
+    // 分离boss直聘和其他渠道的数据
+    const bossParams = params.filter(param => param.channel === 'boss直聘');
+    const otherParams = params.filter(param => param.channel !== 'boss直聘');
+    let bossRes = {}
+    let otherRes = {}
+
+    if(otherParams.length > 0) {
+      otherRes = await enableImageCapture(otherParams);
+    }
+    if(bossParams.length > 0) {
+      bossRes = await resumeGenerateBase64s(bossParams);
+    }
+
+    console.log('Boss直聘数据:', bossRes, bossParams);
+    console.log('其他渠道数据:', otherRes, otherParams);
+
+    console.log(Object.assign(bossRes, otherRes), '聚合数据');
+    
+    return Object.assign(bossRes, otherRes)
   } catch (error) {
     console.error(error);
   } finally {
@@ -927,12 +967,18 @@ const assignJob = async (resume) => {
     emit('updateCollectResumeLoading', true);
 
     const res = await commomIHR(resume);
+    console.log(res, 'result222');
 
     await sendResume(res, {
       action: 'assign-position',
     });
   } catch (error) {
-    console.error(error);
+    console.error('assignJob失败:', error);
+    $q.notify({
+      message: '处理简历失败: ' + error.message,
+      color: 'negative',
+      position: 'top'
+    });
   } finally {
     emit('updateCollectResumeLoading', false);
   }
@@ -944,6 +990,7 @@ const addToTalentPool = async (resume) => {
     emit('updateCollectResumeLoading', true);
 
     const res = await commomIHR(resume);
+    console.log(res, 'result222');
 
     await sendResume(res, { 
       action: 'talent-pool',
@@ -958,9 +1005,6 @@ const addToTalentPool = async (resume) => {
 const isDisabled = (resume) => {
   return resume?.resumeThirdPartyStatus === 'success' || !(resume.channel === "猎聘" || (Number.isFinite(resume.score) && resume.score > 0))
 }
-
-// 在 script setup 中添加以下内容
-const showAIEvaluation = ref(false);
 
 // 显示AI评估对话框
 const showAIEvaluationDialog = () => {
