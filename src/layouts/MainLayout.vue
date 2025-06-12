@@ -100,6 +100,9 @@ const handleIframeBack = () => {
 
 // 组件挂载时添加滚动监听
 onMounted(() => {
+  // 初始化相似简历倒计时状态（支持刷新页面后继续倒计时）
+  store.dispatch('initializeCooldownState');
+  
   // 初始化header高度到Vuex
   if (headerRef.value) {
     let headerRect = headerRef.value.$el.getBoundingClientRect();

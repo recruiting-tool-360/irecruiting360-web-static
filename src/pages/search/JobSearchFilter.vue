@@ -702,6 +702,7 @@ const onReset = () => {
 //设置搜索条件
 const setSearchState = (newValue) => {
   searchState.value = newValue;
+  initCitiesConfig(newValue.expectedWorkLocationValue);
 }
 
 //获取搜索条件
