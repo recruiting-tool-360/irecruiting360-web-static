@@ -76,11 +76,25 @@ module.exports = configure(function (/* ctx */) {
       },
       // rawDefine: {}
       // ignorePublicFolder: true,
-      // minify: false,
+
+      // 代码压缩，移除注释 空白符等
+      minify: process.env.NODE_ENV === 'production' ? 'terser' : false,
       // polyfillModulePreload: true,
       // distDir
 
-      // extendViteConf (viteConf) {},
+      extendViteConf (viteConf) {
+        // 在生产环境下移除console语句
+        if (process.env.NODE_ENV === 'production') {
+          viteConf.build = viteConf.build || {};
+          viteConf.build.terserOptions = {
+            compress: {
+              drop_console: true, // 移除所有的 console.log 语句
+              drop_debugger: true, // 移除所有的 debugger 语句
+              pure_funcs: ['console.info', 'console.debug', 'console.warn'] // 移除指定的函数调用
+            }
+          };
+        }
+      },
       // viteVuePluginOptions: {},
 
       vitePlugins: [
