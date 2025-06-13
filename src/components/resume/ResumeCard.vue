@@ -247,7 +247,6 @@
 <script setup>
 import {defineProps, defineEmits, computed, ref, defineAsyncComponent, onMounted} from 'vue';
 import {bossFindJobDetail, findJobDetail, runCollect} from "src/pluginSrc/channels/BossJobInfoManager";
-import { enableImageCapture } from 'src/pluginSrc/channels/ImageChannel';
 import notify from "src/util/notify";
 import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 import qs from "qs";
@@ -260,7 +259,6 @@ import SimilarResumesDialog from 'src/components/resume/SimilarResumesDialog.vue
 import {getSearchConditionRequest, getSearchStateValues} from "src/pluginSrc/util/SearchParamUtils";
 import AIResumeEvaluation from 'src/components/resume/AIResumeEvaluation.vue';
 import {markResumeBlindReadStatus, userCollectResume} from "src/api/jobList/JobListApi";
-import channelConfig from "src/store/modules/ChannelConfig";
 import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
 import { useSendResume } from 'src/hooks/useSendResume';
 import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
@@ -336,7 +334,7 @@ const getChannelDisable = (key) => {
 };
 
 // 初始化发送简历hook 
-const { sendResume } = useSendResume('resumeList');
+const { handleResume, sendResume } = useSendResume('resumeList');
 
 // 默认planA企业可见， 无plan或plan不匹配时默认不可见
 const { isVisible } = usePlanVisibility({
@@ -926,34 +924,16 @@ const commomIHR = async (resume) => {
       })
     }
     console.log(allResume, "similarResumes-合并后");
-    
-    const params = await Promise.all(allResume.map(async (resume) => {
-      const url = getChannelUrl(resume);
-      const { id, name, channel, type, gender } = resume;
-      return { url, id, channel, type, name, gender };
-    }));
 
-    console.log(params, 'params');
-
-    // 分离boss直聘和其他渠道的数据
-    const bossParams = params.filter(param => param.channel === 'boss直聘');
-    const otherParams = params.filter(param => param.channel !== 'boss直聘');
-    let bossRes = {}
-    let otherRes = {}
-
-    if(otherParams.length > 0) {
-      otherRes = await enableImageCapture(otherParams);
+    const { data, filterZhiLianCount } = await handleResume(allResume);
+    if(filterZhiLianCount > 0) {
+      $q.notify({
+        message: `智联招聘渠道查看简历数量已达上限，已过滤${filterZhiLianCount}份智联候选人`,
+        color: 'negative',
+        position: 'top'
+      });
     }
-    if(bossParams.length > 0) {
-      bossRes = await resumeGenerateBase64s(bossParams);
-    }
-
-    console.log('Boss直聘数据:', bossRes, bossParams);
-    console.log('其他渠道数据:', otherRes, otherParams);
-
-    console.log(Object.assign(bossRes, otherRes), '聚合数据');
-    
-    return Object.assign(bossRes, otherRes)
+    return data;
   } catch (error) {
     console.error(error);
   } finally {
@@ -969,9 +949,11 @@ const assignJob = async (resume) => {
     const res = await commomIHR(resume);
     console.log(res, 'result222');
 
-    await sendResume(res, {
-      action: 'assign-position',
-    });
+    if(Object.keys(res).length > 0) {
+      await sendResume(res, {
+        action: 'assign-position',
+      });
+    }
   } catch (error) {
     console.error('assignJob失败:', error);
     $q.notify({
@@ -992,9 +974,11 @@ const addToTalentPool = async (resume) => {
     const res = await commomIHR(resume);
     console.log(res, 'result222');
 
-    await sendResume(res, { 
-      action: 'talent-pool',
-    });
+    if(Object.keys(res).length > 0) {
+      await sendResume(res, { 
+        action: 'talent-pool',
+      });
+    }
   } catch (error) {
     console.error(error);
   } finally {
