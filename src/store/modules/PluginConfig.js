@@ -3,6 +3,7 @@ export default {
         pluginSwitch: false,
         pluginInstall: false,
         pluginDownloadDialogVisible: false,
+        forceUpdateVisible: false,
         resumeIndexVisible: true,
         fixedPanelPosition: {
             right: 10,
@@ -26,6 +27,9 @@ export default {
         },
         setPluginDownloadDialogVisible(state, payload) {
             state.pluginDownloadDialogVisible = payload;
+        },
+        setForceUpdateVisible(state, payload) {
+            state.forceUpdateVisible = payload;
         },
         toggleResumeIndexVisible(state) {
             state.resumeIndexVisible = !state.resumeIndexVisible;
@@ -53,6 +57,9 @@ export default {
         },
         getPluginDownloadDialogVisible(state) {
             return state.pluginDownloadDialogVisible;
+        },
+        getForceUpdateVisible(state) {
+            return state.forceUpdateVisible;
         },
         getResumeIndexVisible(state) {
             return state.resumeIndexVisible;
