@@ -290,6 +290,14 @@
 
     <!-- 添加插件安装提醒对话框 -->
     <plugin-install-dialog ref="pluginInstallDialogRef" />
+
+    <!-- 添加强制更新对话框 -->
+    <force-update-dialog
+      v-model:visible="showForceUpdateDialog"
+      :current-version="currentVersion"
+      :latest-version="latestVersion"
+      @update="handleForceUpdate"
+    />
   </div>
 </template>
 
@@ -324,6 +332,8 @@ import {getCurrentConditionByChatId} from "src/api/chat/ChatApi";
 import notify from "src/util/notify";
 import {asyncTaskQueueManager} from "src/pluginSrc/util/AsyncTaskQueueManager";
 import PluginInstallDialog from 'src/components/plugins/PluginInstallDialog.vue';
+import {needForceUpdate} from "src/pluginSrc/util/pluginVersion";
+import ForceUpdateDialog from 'src/components/plugins/ForceUpdateDialog.vue';
 
 // 定义组件属性
 const props = defineProps({
@@ -364,6 +374,15 @@ const showSettingsChannelConfig = computed(()=>store.getters.getUserChannelConfi
 const selectedChannel = ref('ALL');
 const componentLoadError = ref(false);
 const errorMessage = ref('');
+
+//插件版本
+// 强制更新对话框相关状态
+const showForceUpdateDialog = ref(false);
+const currentVersion = ref('');
+const latestVersion = ref('');
+
+// 从store中获取强制更新显示状态
+const forceUpdateVisible = computed(() => store.getters.getForceUpdateVisible);
 
 // 控制选项卡的状态
 const onlyShowUnread = computed({
@@ -711,6 +730,20 @@ const initPluginAndChannels = async () => {
     // 更新插件安装状态为已安装
     store.commit('changePluginInstall', true);
   }
+  //是否需要更新插件
+  let pluginUpdateSwitch = await needForceUpdate();
+  console.log('插件是否需要更新：', pluginUpdateSwitch);
+  currentVersion.value = pluginUpdateSwitch.localVersion;
+  latestVersion.value = pluginUpdateSwitch.remoteVersion;
+  
+  // 根据检测结果设置强制更新开关状态
+  store.commit('setForceUpdateVisible', pluginUpdateSwitch.flag);
+  
+  if(pluginUpdateSwitch.flag){
+    // 显示强制更新对话框
+    showForceUpdateDialog.value = true;
+    return;
+  }
 
   //设置插件规则
   let ruleConfig = await setDefaultPluginRules();
@@ -930,6 +963,11 @@ const executeSearch = async (searchState) => {
   if (!pluginInstalled.value) {
     pluginInstallDialogRef.value.openDialog();
     return;
+  }
+  //检测强制更新
+  if(forceUpdateVisible.value){
+    showForceUpdateDialog.value = true;
+    return
   }
   //打开监视器
   store.commit('openQueueMonitor');
@@ -1229,6 +1267,16 @@ const refreshChannelLogin = async (key) => {
     // 关闭加载提示
     loadingNotify.dismiss();
   }
+};
+
+// 添加强制更新对话框的更新处理函数
+const handleForceUpdate = () => {
+  // 打开插件安装对话框
+  if (pluginInstallDialogRef.value) {
+    pluginInstallDialogRef.value.openDialog();
+  }
+  // 隐藏强制更新对话框
+  showForceUpdateDialog.value = false;
 };
 </script>
 
