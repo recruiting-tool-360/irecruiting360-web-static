@@ -167,8 +167,6 @@ import BatchAddToTalentPoolDialog from './BatchAddToTalentPoolDialog.vue';
 import { useSendResume } from 'src/hooks/useSendResume';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
-import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
-import { enableImageCapture } from 'src/pluginSrc/channels/ImageChannel';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import notify from "src/util/notify";
@@ -206,7 +204,7 @@ const props = defineProps({
 const emit = defineEmits(['load-more', 'filter-change', 'update:selected']);
 
 // 初始化发送简历hook 
-const { sendResume } = useSendResume('resumeList');
+const { handleResume, sendResume } = useSendResume('resumeList');
 
 // 默认planA企业可见， 无plan或plan不匹配时默认不可见
 const { isVisible } = usePlanVisibility({
@@ -619,40 +617,25 @@ const filteredSelectedResumes = computed(() => {
 const batchDialogType = ref('talent-pool');
 
 // 处理批量确认操作
-const handleBatchConfirm = async (data) => {
+const handleBatchConfirm = async (obj) => {
   updateCollectResumeLoading(true);
-  console.log(data, 'data');
-  const urls = await Promise.all(data.resumes.map(async (item) => {
-    const url = getChannelUrl(item);
-    if (url) {
-      const { id, name, channel, gender } = item;
-      return { url, id, name, channel, gender, type: "normal" };
-    }
-    return null;
-  })).then(results => results.filter(Boolean));
-
+  console.log(obj, 'obj');
   try {
-    // 分离boss直聘和其他渠道的数据
-    const bossParams = urls.filter(param => param.channel === 'boss直聘');
-    const otherParams = urls.filter(param => param.channel !== 'boss直聘');
-    console.log(otherParams, '11', bossParams);
+    let allResume = obj.resumes.map(item => {
+      return { ...item, type: "normal" }
+    })
+    const { data, filterZhiLianCount } = await handleResume(allResume);
     
-    let bossRes = {}
-    let otherRes = {}
-
-    if(otherParams.length > 0) {
-      otherRes = await enableImageCapture(otherParams);
+    if(filterZhiLianCount > 0) {
+      $q.notify({
+        message: `智联招聘渠道查看简历数量已达上限，已过滤${filterZhiLianCount}份智联候选人`,
+        color: 'negative',
+        position: 'top'
+      });
     }
-    if(bossParams.length > 0) {
-      bossRes = await resumeGenerateBase64s(bossParams);
-    }
-    console.log(urls, 'Boss直聘数据:', bossRes, bossParams);
-    console.log(urls, '其他渠道数据:', otherRes, otherParams);
 
-    console.log(Object.assign(bossRes, otherRes), '聚合数据');
-    
-    await sendResume(Object.assign(bossRes, otherRes), {
-      action: data.type,
+    await sendResume(data, {
+      action: obj.type,
     })
   } catch (error) {
     console.error(error);

@@ -301,7 +301,8 @@ export function bossDomGenerator() {
     console.log('获取到简历数据:', result);
 
     if (!result.data || result.data.length === 0) {
-      throw new Error('未获取到简历数据');
+      // throw new Error('未获取到简历数据');
+      return {}
     }
 
     console.log('开始生成HTML...');
