@@ -286,7 +286,7 @@
                     <q-menu>
                       <q-list dense style="min-width: 200px">
                         <q-item
-                          v-for="city in citiesConfig"
+                          v-for="city in relativePositionConfig"
                           :key="city.value"
                           clickable
                           @click="city.children ? null : selectCity(city,false)"
@@ -514,7 +514,7 @@ import {getSearchConditionDefaultDicts} from "src/api/search/SearchApi";
 import {  degreeOptions,
   genderOptions,
   salaryConfig,
-  citiesConfig,
+  citiesConfig,relativePositionConfig,
   jobStatusOptions, schoolLevelOptions} from "src/pjo/dto/SearchPageConfig";
 import SearchTags from 'src/pages/search/AITags.vue';
 import {getSearchStateValues} from "src/pluginSrc/util/SearchParamUtils";
@@ -667,6 +667,9 @@ const selectCity = (city,isExpectedWorkLocationLabel=true) => {
   }else{
     currentWorkPlaceVal.value = lebel
     searchState.value.currentWorkPlaceValue = [city.parentCode, city.value];
+    if(city?.label&& city.label==='全国'){
+      searchState.value.currentWorkPlaceValue = null;
+    }
   }
 }
 
@@ -784,9 +787,14 @@ watch(() => showFilterPanel.value, (newVal) => {
   }
 });
 
+//重置当前工作地址
+const resetCurrentWorkPlace = () => {
+  currentWorkPlaceVal.value = '';
+}
+
 // 暴露给父组件的方法
 defineExpose({
-  setSearchState,refreshSearchCondition,refreshAndSearchFN
+  setSearchState,refreshSearchCondition,refreshAndSearchFN,resetCurrentWorkPlace
 });
 </script>
 
