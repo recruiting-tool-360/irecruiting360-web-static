@@ -101,6 +101,8 @@ export function useSendResume(messageType = 'resumeList') {
     let zlCount = 0;
     // 分离boss直聘和其他渠道的数据
     const bossParams = params.filter(param => param.channel === 'boss直聘');
+    console.log(bossParams, 'bossParams');
+
     // 先处理所有参数
     const paramPromises = params.map(async (param) => {
       if (param.channel === '智联招聘') {
@@ -116,11 +118,17 @@ export function useSendResume(messageType = 'resumeList') {
       return { param, isValid: false };
     });
 
+    console.log(paramPromises, 'paramPromises');
+
+
     // 等待所有 Promise 完成并过滤
     const results = await Promise.all(paramPromises);
     const otherParams = results
       .filter(({ isValid }) => isValid)
       .map(({ param }) => param);
+    
+    console.log(results, 'results');
+      
     
     // 并行执行两个异步操作，避免阻塞
     const [otherRes, bossRes] = await Promise.all([
