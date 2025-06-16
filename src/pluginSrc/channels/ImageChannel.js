@@ -17,7 +17,7 @@ export const enableImageCapture = async (urls) => {
   return new Promise(async (resolve, reject) => {
     try {
       let config = pluginEnableImageCapture();
-      let response = await i360Request(config.action, { ...config, parameters: urls }, urls.length * 8000);
+      let response = await i360Request(config.action, { ...config, parameters: urls }, urls.length * 15000);
 
       let data = {}
       if(Object.entries(response?.responseData?.data).length > 0) {
