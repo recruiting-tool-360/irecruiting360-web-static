@@ -38,11 +38,11 @@
         <div class="col-4 text-right">
           <div class="score-badge q-mb-sm">
             <q-badge
-              :color="resume.matchType === 1 ? 'negative' : 'positive'"
+              :color="resume.matchType === 1 ? (resume.isFirstChannelData?'blue':'negative') : 'positive'"
               class="match-type-badge q-pa-sm q-mr-sm"
               outline
             >
-              {{ resume.matchType === 1 ? '疑似相同候选人' : '合适备选候选人' }}
+              {{ resume.matchType === 1 ? (resume.isFirstChannelData?'疑似当前候选人':'疑似相同候选人') : '合适备选候选人' }}
             </q-badge>
           </div>
         </div>
