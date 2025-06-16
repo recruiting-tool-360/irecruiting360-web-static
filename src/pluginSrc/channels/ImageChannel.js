@@ -29,7 +29,7 @@ export const enableImageCapture = async (urls) => {
         }
       }
 
-      console.log("获取data");
+      console.log("获取data", data);
       
       resolve(data);
     } catch (error) {
