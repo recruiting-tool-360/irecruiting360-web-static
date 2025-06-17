@@ -83,7 +83,7 @@ export const renameChat = (chatId, newName) => {
  */
 export const createChat = (conversationHistoryList) => {
   return request({
-    url: '/ihire/chat/createChat',
+    url: '/ihire/chat/createChatPlus',
     method: 'POST',
     data: conversationHistoryList
   })
