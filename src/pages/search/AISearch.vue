@@ -82,7 +82,7 @@
 
               <!-- 收藏 Tab -->
               <q-tab
-                v-if="chatId"
+                v-if="chatId && !isHidden"
                 name="Collect"
                 @click="handleChannelSelection('Collect')"
                 class="channel-tab"
@@ -334,6 +334,7 @@ import {asyncTaskQueueManager} from "src/pluginSrc/util/AsyncTaskQueueManager";
 import PluginInstallDialog from 'src/components/plugins/PluginInstallDialog.vue';
 import {needForceUpdate} from "src/pluginSrc/util/pluginVersion";
 import ForceUpdateDialog from 'src/components/plugins/ForceUpdateDialog.vue';
+import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 
 // 定义组件属性
 const props = defineProps({
@@ -416,6 +417,15 @@ const loadingClose = () => {
 // 根据窗口大小确定可见渠道和隐藏渠道
 const visibleChannels = ref([]);
 const hiddenChannels = ref([]);
+
+//三方显示隐藏控制开关
+let visibleThirdSwitch = computed(() => {
+  return store.getters.getUserInfo?.extendData || '';
+});
+
+let isHidden = computed(() => {
+  return ['PlanA'].includes(visibleThirdSwitch.value?.plan || '');
+});
 
 const visibleThirdSwitchPlus = inject('visibleThirdSwitchPlus');
 
