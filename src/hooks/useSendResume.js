@@ -88,8 +88,9 @@ export function useSendResume(messageType = 'resumeList') {
    * 处理简历，主要功能是过滤出boss渠道和其他渠道。
    * boss渠道本地生成简历，其他渠道插件获取简历（智联做特殊处理。查看当前是否有查看简历次数）
    * @param {*} allResume 
+   * @param {*} isSingle 是否是单个导入查询相似简历
    */
-  const handleResume = async (allResume) => {
+  const handleResume = async (allResume, isSingle) => {
     const params = await Promise.all(allResume.map(async (resume) => {
       const url = getChannelUrl(resume);
       const { id, name, channel, type, gender, originalResumeUrlInfo } = resume;
@@ -136,7 +137,7 @@ export function useSendResume(messageType = 'resumeList') {
         console.error('enableImageCapture 失败:', error);
         return {}; // 返回默认值
       }) : Promise.resolve({}),
-      bossParams?.length > 0 ? resumeGenerateBase64s(bossParams).catch(error => {
+      bossParams?.length > 0 ? resumeGenerateBase64s(bossParams, isSingle).catch(error => {
         console.error('enableImageCapture 失败:', error);
         return {}; // 返回默认值
       }) : Promise.resolve({})

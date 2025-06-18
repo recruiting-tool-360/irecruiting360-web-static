@@ -624,7 +624,7 @@ const handleBatchConfirm = async (obj) => {
     let allResume = obj.resumes.map(item => {
       return { ...item, type: "normal" }
     })
-    const { data, filterZhiLianCount } = await handleResume(allResume);
+    const { data, filterZhiLianCount } = await handleResume(allResume, false);
     
     if(filterZhiLianCount > 0) {
       $q.notify({

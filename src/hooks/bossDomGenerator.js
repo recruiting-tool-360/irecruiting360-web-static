@@ -1,6 +1,6 @@
 import { getCurrentInstance } from 'vue';
-import html2canvas from 'html2canvas';
 import { getResumeBlindList } from "src/api/jobList/JobListApi";
+import { bossFindJobDetail } from "src/pluginSrc/channels/BossJobInfoManager";
 import { batchHtmlToImageBase64, htmlToImageBase64 } from 'src/pluginSrc/channels/ImageChannel';
 
 /**
@@ -287,7 +287,9 @@ export function bossDomGenerator() {
   }
 
   // 简历信息生成图片base64
-  const resumeGenerateBase64s = async(resumes) => {
+  const resumeGenerateBase64s = async(resumes, isSingle) => {
+    console.log(resumes, 'resumes');
+    
     if(resumes.length <= 0) return {}
 
     // 存储简历信息
@@ -296,9 +298,24 @@ export function bossDomGenerator() {
       return obj
     }, {})
 
-    console.log('开始获取简历数据...');
-    const result = await getResumeBlindList(Object.keys(maps))
-    console.log('获取到简历数据:', result);
+    let result = {
+      data: []
+    };
+
+    if(isSingle) {
+      console.log('单个相似简历模式开始获取数据...', resumes);
+      result.data = await Promise.all(resumes.map(async (item) => {
+        return {
+          resumeBlindId: item.id,
+          content: JSON.stringify(await bossFindJobDetail(item)),
+        }
+      }))
+      console.log('单个相似简历模式获取到简历数据:', result);
+    }else {
+      console.log('批量简历开始获取简历数据...');
+      result = await getResumeBlindList(Object.keys(maps))
+      console.log('批量简历获取到简历数据:', result);
+    }
 
     if (!result.data || result.data.length === 0) {
       // throw new Error('未获取到简历数据');
