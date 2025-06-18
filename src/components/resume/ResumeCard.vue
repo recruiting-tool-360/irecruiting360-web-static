@@ -925,7 +925,7 @@ const commomIHR = async (resume) => {
     }
     console.log(allResume, "similarResumes-合并后");
 
-    const { data, filterZhiLianCount } = await handleResume(allResume);
+    const { data, filterZhiLianCount } = await handleResume(allResume, true);
     if(filterZhiLianCount > 0) {
       $q.notify({
         message: `智联招聘渠道查看简历数量已达上限，已过滤${filterZhiLianCount}份智联候选人`,
