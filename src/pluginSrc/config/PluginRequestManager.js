@@ -37,6 +37,7 @@ export const pluginAllActions = {
 //插件所有Url配置
 export const pluginAllUrls = {
     BOSS:{
+        loginUrl:"https://www.zhipin.com/web/user/",
         baseUrl:"https://www.zhipin.com",
         getAllJobList:"/wapi/zpitem/web/boss/search/geeks.json",
         checkUserAuth:"/wapi/hunter/h5/hunterManage/checkAuth",
