@@ -17,7 +17,7 @@
     <div class="loading-overlay" v-if="loading">
       <q-spinner color="primary" size="3em" />
       <div class="text-subtitle1 q-mt-sm text-white">正在登录中，请稍候...</div>
-      <q-btn flat color="white" label="取消" class="q-mt-md" @click="cancelLogin" />
+<!--      <q-btn flat color="white" label="取消" class="q-mt-md" @click="cancelLogin" />-->
     </div>
   </div>
 </template>
