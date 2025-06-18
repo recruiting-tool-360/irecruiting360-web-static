@@ -114,7 +114,7 @@ const showSettingsChannelConfig = computed(()=>store.getters.getUserChannelConfi
 
 //跳转登陆页
 const goToLogin = () => {
-  window.open(pluginAllUrls.BOSS.baseUrl, '_blank');
+  window.open(pluginAllUrls.BOSS.loginUrl, '_blank');
 };
 
 //初始化
