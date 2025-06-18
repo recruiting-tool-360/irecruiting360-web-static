@@ -97,7 +97,7 @@
                 AI分析失败，请检查渠道状态
               </q-tooltip>
             </q-btn>
-            <q-btn flat round size="sm" color="orange" :icon="resume.inCollection?'star':'star_outline'" @click.stop="toggleCollect" />
+            <q-btn v-if="!isVisible" flat round size="sm" color="orange" :icon="resume.inCollection?'star':'star_outline'" @click.stop="toggleCollect" />
 <!--            <q-btn flat round size="sm" color="primary" icon="visibility" @click.stop="markAsRead" />-->
 
             <q-btn  v-if="tabStr!=='我的收藏'" flat round size="sm" color="primary" icon="more_vert" @click.stop>

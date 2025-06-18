@@ -1143,6 +1143,13 @@ const fillMessageToInput = async (msg) => {
   const inputElement = document.querySelector('.message-input .q-field__native');
   if (inputElement) {
     inputElement.focus();
+    // 设置光标位置到第一行末尾
+    const text = inputElement.value;
+    const firstLineEnd = text.indexOf('\n');
+    const cursorPosition = firstLineEnd === -1 ? text.length : firstLineEnd;
+    inputElement.setSelectionRange(cursorPosition, cursorPosition);
+    // 滚动到顶部
+    inputElement.scrollTop = 0;
     console.log('聊天输入框已聚焦');
   } else {
     console.warn('未找到聊天输入框元素');
