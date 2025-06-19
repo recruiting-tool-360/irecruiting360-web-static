@@ -128,4 +128,37 @@ export const importResumeCallback = (data) => {
     });
 }
 
+// 加入三方成功回调升级版
+//传参格式
+//其中id是简历id（resumeId）是列表id
+/**
+ * [
+ *         {
+ *             "id": "1935636747962683393",
+ *             "type": "ASSIGN_POSITIONS",
+ *             "status": "1",
+ *             "errorMsg": "分配职位成功"
+ *         },
+ *         {
+ *             "id": "1935636747736190976",
+ *             "type": "ASSIGN_POSITIONS",
+ *             "status": "1",
+ *             "errorMsg": "分配职位成功"
+ *         },
+ *         {
+ *             "id": "1935636747526475776",
+ *             "type": "ASSIGN_POSITIONS",
+ *             "status": "1",
+ *             "errorMsg": "分配职位成功"
+ *         }
+ *       ]
+ */
+export const importResumeCallbackPlus = (data) => {
+    return request({
+        method:'POST',
+        url:'/resume/import/batch/importResume',
+        data:data
+    });
+}
+
 
