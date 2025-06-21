@@ -662,10 +662,10 @@ const openBatchAddToTalentPoolDialog = () => {
   }
 
   const isSuccess = selectedResumes.value.some(item => {
-    if(item?.channel === "猎聘" && item?.resumeThirdPartyStatus !== "success") {
+    if(item?.channel === "猎聘" && !item?.resumeThirdPartyInfo) {
       return false;
     }
-    return item?.resumeThirdPartyStatus === 'success';
+    return item?.resumeThirdPartyInfo && Object.keys(item.resumeThirdPartyInfo)?.length > 0;
   })
 
   if(isSuccess) {
@@ -695,10 +695,10 @@ const openBatchAssignPositionDialog = () => {
   }
 
   const isSuccess = selectedResumes.value.some(item => {
-    if(item?.channel === "猎聘" && item?.resumeThirdPartyStatus !== "success") {
+    if(item?.channel === "猎聘" && !item?.resumeThirdPartyInfo) {
       return false;
     }
-    return item?.resumeThirdPartyStatus === 'success';
+    return item?.resumeThirdPartyInfo && Object.keys(item.resumeThirdPartyInfo)?.length > 0;
   })
 
   if(isSuccess) {

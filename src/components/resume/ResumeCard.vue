@@ -165,28 +165,38 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary" 
-                :disable="isDisabled(resume)"
+                :disable="!!resume?.resumeThirdPartyInfo"
                 @click.stop="assignJob(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
-                  {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}分配职位
+                  {{ getAssignJobButtonText(resume?.resumeThirdPartyInfo) }}
                 </span>
-                <!-- <q-tooltip v-if="resume?.resumeThirdPartyStatus === 'success'" anchor="top middle" self="bottom middle" :offset="[10, 10]">
+                <q-tooltip 
+                  v-if="shouldShowAssignJobTooltip(resume?.resumeThirdPartyInfo)"
+                  anchor="top middle" 
+                  self="bottom middle" 
+                  :offset="[10, 10]"
+                >
                   系统中已存在重复简历
-                </q-tooltip> -->
+                </q-tooltip>
               </q-btn>
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary"
-                :disable="isDisabled(resume)" 
+                :disable="!!resume?.resumeThirdPartyInfo" 
                 @click.stop="addToTalentPool(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
-                  {{resume?.resumeThirdPartyStatus === 'success'?"已":""}}加入人才库
+                  {{ getTalentPoolButtonText(resume?.resumeThirdPartyInfo) }}
                 </span>
-                <!-- <q-tooltip v-if="resume?.resumeThirdPartyStatus === 'success'" anchor="top middle" self="bottom middle" :offset="[10, 10]">
+                <q-tooltip 
+                  v-if="shouldShowTalentPoolTooltip(resume?.resumeThirdPartyInfo)"
+                  anchor="top middle" 
+                  self="bottom middle" 
+                  :offset="[10, 10]"
+                >
                   系统中已存在重复简历
-                </q-tooltip> -->
+                </q-tooltip>
               </q-btn>
             </template>
             <q-btn flat class="q-ma-xs" size="md" color="primary" 
@@ -984,6 +994,42 @@ const addToTalentPool = async (resume) => {
   } finally {
     emit('updateCollectResumeLoading', false);
   }
+};
+
+// 获取分配职位按钮文本
+const getAssignJobButtonText = (thirdPartyInfo) => {
+  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status === 1) {
+    return '已分配职位';
+  }
+  return '分配职位';
+};
+
+// 获取加入人才库按钮文本
+const getTalentPoolButtonText = (thirdPartyInfo) => {
+  if (thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status === 1) {
+    return '已加入人才库';
+  }
+  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status === 1) {
+    return '已加入人才库';
+  }
+  return '加入人才库';
+};
+
+// 是否显示分配职位按钮的tooltip
+const shouldShowAssignJobTooltip = (thirdPartyInfo) => {
+  if (!thirdPartyInfo) return false;
+  // 不是分配职位成功的情况下显示tooltip
+  return !(thirdPartyInfo.type === 'ASSIGN_POSITIONS' && thirdPartyInfo.status === 1);
+};
+
+// 是否显示加入人才库按钮的tooltip
+const shouldShowTalentPoolTooltip = (thirdPartyInfo) => {
+  if (!thirdPartyInfo) return false;
+  // 不是加入人才库成功且不是分配职位成功的情况下显示tooltip
+  return !(
+    (thirdPartyInfo.type === 'JOIN_POOLS' && thirdPartyInfo.status === 1) ||
+    (thirdPartyInfo.type === 'ASSIGN_POSITIONS' && thirdPartyInfo.status === 1)
+  );
 };
 
 const isDisabled = (resume) => {

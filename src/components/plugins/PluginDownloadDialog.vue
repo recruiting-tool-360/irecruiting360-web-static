@@ -29,7 +29,7 @@
               注意：下载插件后，请勿删除插件文件，否则插件功能将无法正常使用。
             </q-badge>
           </div>
-          <q-img :src="'/guide/guide.svg'" style="width: 100%" class="cursor-pointer">
+          <q-img :src="'/guide/guide.png'" style="width: 100%" class="cursor-pointer">
           </q-img>
         </div>
       </q-card-section>
