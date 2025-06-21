@@ -166,7 +166,6 @@ import BatchShareDialog from './BatchShareDialog.vue';
 import BatchAddToTalentPoolDialog from './BatchAddToTalentPoolDialog.vue';
 import { useSendResume } from 'src/hooks/useSendResume';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
-import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import notify from "src/util/notify";
@@ -211,8 +210,6 @@ const { isVisible } = usePlanVisibility({
   visibleForPlans: ['PlanA'],
   defaultVisible: false
 })
-
-const { resumeGenerateBase64s } = bossDomGenerator();
 
 const isCollectResumeLoading = ref(false);
 

@@ -2,6 +2,8 @@ import { getCurrentInstance } from 'vue';
 import { getResumeBlindList } from "src/api/jobList/JobListApi";
 import { bossFindJobDetail } from "src/pluginSrc/channels/BossJobInfoManager";
 import { batchHtmlToImageBase64, htmlToImageBase64 } from 'src/pluginSrc/channels/ImageChannel';
+import { getOptimizedConfig } from 'src/config/performanceConfig';
+import { performanceMonitor } from 'src/utils/performanceMonitor';
 
 /**
  * 处理姓名，将带**的姓名替换成对应的先生/女士
@@ -288,9 +290,14 @@ export function bossDomGenerator() {
 
   // 简历信息生成图片base64
   const resumeGenerateBase64s = async(resumes, isSingle) => {
+    performanceMonitor.start('resumeGenerateBase64s');
     console.log(resumes, 'resumes');
     
     if(resumes.length <= 0) return {}
+
+    // 获取优化配置
+    const config = getOptimizedConfig();
+    console.log('使用性能配置:', config);
 
     // 存储简历信息
     const maps = resumes.reduce((obj, {id, ...args}) => {
@@ -302,6 +309,7 @@ export function bossDomGenerator() {
       data: []
     };
 
+    performanceMonitor.start('dataFetching');
     if(isSingle) {
       console.log('单个相似简历模式开始获取数据...', resumes);
       result.data = await Promise.all(resumes.map(async (item) => {
@@ -316,32 +324,77 @@ export function bossDomGenerator() {
       result = await getResumeBlindList(Object.keys(maps))
       console.log('批量简历获取到简历数据:', result);
     }
+    performanceMonitor.end('dataFetching', { resumeCount: result.data?.length || 0 });
 
     if (!result.data || result.data.length === 0) {
-      // throw new Error('未获取到简历数据');
+      performanceMonitor.end('resumeGenerateBase64s', { success: false, reason: 'no_data' });
       return {}
     }
 
+    performanceMonitor.start('htmlGeneration');
     console.log('开始生成HTML...');
-    const htmls = await Promise.all(result.data.map(async (item) => {
-      const html = await generateBossResume(item.content);
-      return {
-        html,
-        id: item.resumeBlindId,
-      };
-    }));
     
-    console.log('所有HTML生成完成，开始批量转换为图片...');
+    // 分批处理HTML生成，避免一次性处理太多
+    const batchSize = config.HTML_BATCH_SIZE; // 使用配置中的批次大小
+    const htmls = [];
     
-    try {
-      // 使用批量处理，一次性处理所有HTML
-      const htmlArray = htmls.map(item => item.html);
-      const base64Results = await batchHtmlToImageBase64(htmlArray, {
-        width: 790,
-        scale: 1
-      });
+    for (let i = 0; i < result.data.length; i += batchSize) {
+      const batch = result.data.slice(i, i + batchSize);
+      console.log(`处理第${Math.floor(i/batchSize) + 1}批HTML，共${Math.ceil(result.data.length/batchSize)}批`);
       
-      // 组装结果
+      const batchHtmls = await Promise.all(batch.map(async (item) => {
+        const html = await generateBossResume(item.content);
+        return {
+          html,
+          id: item.resumeBlindId,
+        };
+      }));
+      
+      htmls.push(...batchHtmls);
+      
+      // 使用配置中的延迟参数
+      if (i + batchSize < result.data.length) {
+        await new Promise(resolve => {
+          if (config.ENABLE_IDLE_CALLBACK && window.requestIdleCallback) {
+            window.requestIdleCallback(resolve, { timeout: config.IDLE_TIMEOUT });
+          } else {
+            setTimeout(resolve, config.BATCH_DELAY);
+          }
+        });
+      }
+    }
+    
+    performanceMonitor.end('htmlGeneration', { htmlCount: htmls.length });
+    console.log('所有HTML生成完成，开始转换为图片...');
+    
+    performanceMonitor.start('imageConversion');
+    
+    // 使用主线程处理（已优化的分批处理方案）
+    const finalResult = await convertInMainThread(htmls, maps, config);
+    performanceMonitor.end('imageConversion', { method: 'mainthread', success: true });
+    
+    performanceMonitor.end('resumeGenerateBase64s', { 
+      success: true, 
+      resumeCount: resumes.length,
+      resultCount: Object.keys(finalResult).length 
+    });
+    
+    // 输出简要总结
+    performanceMonitor.printSummary();
+    
+    // 输出详细性能报告
+    performanceMonitor.report();
+    
+    return finalResult;
+  }
+
+  // 主线程转换函数 - 优化版本
+  const convertInMainThread = async (htmls, maps, config) => {
+    try {
+      // 先尝试批量处理
+      const htmlArray = htmls.map(item => item.html);
+      const base64Results = await batchHtmlToImageBase64(htmlArray, config.IMAGE_CONFIG);
+      
       const base64s = htmls.map((item, index) => ({
         id: item.id,
         base64: JSON.parse(base64Results[index])
@@ -358,50 +411,59 @@ export function bossDomGenerator() {
       }, {});
       
     } catch (error) {
-      console.error('批量处理失败，回退到逐个处理:', error);
+      console.error('批量处理失败，使用分批逐个处理:', error);
       
-      // 回退到原来的逐个处理方式
+      // 分批逐个处理，减少每次处理的数量
       const base64s = [];
-      for (let i = 0; i < htmls.length; i++) {
-        const { html, ...args } = htmls[i]
-        try {
-          console.log(`回退处理第${i + 1}/${htmls.length}个HTML...`);
-          const result = await htmlToImageBase64(html, {
-            width: 790,
-            scale: 1
-          });
-          
-          if (result.startsWith('data:text/html;base64,')) {
-            base64s.push({
-              base64: result,
-              ...args
-            });
-          } else {
-            try {
-              const imageList = JSON.parse(result);
+      const smallBatchSize = config.IMAGE_BATCH_SIZE; // 使用配置的批次大小
+      
+      for (let i = 0; i < htmls.length; i += smallBatchSize) {
+        const batch = htmls.slice(i, i + smallBatchSize);
+        console.log(`处理图片第${Math.floor(i/smallBatchSize) + 1}批，共${Math.ceil(htmls.length/smallBatchSize)}批`);
+        
+        for (const { html, ...args } of batch) {
+          try {
+            const result = await htmlToImageBase64(html, config.IMAGE_CONFIG);
+            
+            if (result.startsWith('data:text/html;base64,')) {
               base64s.push({
-                ...args,
-                base64: imageList
+                base64: result,
+                ...args
               });
-            } catch (parseError) {
-              console.error('解析分片结果失败:', parseError);
-              const htmlBase64 = btoa(unescape(encodeURIComponent(html)));
-              base64s.push({
-                ...args,
-                base64: [`data:text/html;base64,${htmlBase64}`]
-              });
+            } else {
+              try {
+                const imageList = JSON.parse(result);
+                base64s.push({
+                  ...args,
+                  base64: imageList
+                });
+              } catch (parseError) {
+                console.error('解析分片结果失败:', parseError);
+                const htmlBase64 = btoa(unescape(encodeURIComponent(html)));
+                base64s.push({
+                  ...args,
+                  base64: [`data:text/html;base64,${htmlBase64}`]
+                });
+              }
             }
+          } catch (imgError) {
+            console.error(`图片转换失败:`, imgError);
+            const htmlBase64 = btoa(unescape(encodeURIComponent(html)));
+            base64s.push({
+              ...args,
+              base64: [`data:text/html;base64,${htmlBase64}`]
+            });
           }
-          
-          if (i < htmls.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 200));
-          }
-        } catch (imgError) {
-          console.error(`第${i + 1}个图片转换失败:`, imgError);
-          const htmlBase64 = btoa(unescape(encodeURIComponent(html)));
-          base64s.push({
-            ...args,
-            base64: [`data:text/html;base64,${htmlBase64}`]
+        }
+        
+        // 批次间使用配置的延迟参数
+        if (i + smallBatchSize < htmls.length) {
+          await new Promise(resolve => {
+            if (config.ENABLE_IDLE_CALLBACK && window.requestIdleCallback) {
+              window.requestIdleCallback(resolve, { timeout: config.IDLE_TIMEOUT / 2 });
+            } else {
+              setTimeout(resolve, config.BATCH_DELAY * 2);
+            }
           });
         }
       }
