@@ -25,7 +25,7 @@ import SseManager from "components/sse/SseManager.vue";
 import {useStore} from "vuex";
 import LeftMenu from "layouts/menu/LeftMenu.vue";
 import { useUpdateResumeStatus } from "src/hooks/useUpdateResumeStatus";
-import { importResumeCallback } from "src/api/jobList/JobListApi";
+import { importResumeCallbackPlus } from "src/api/jobList/JobListApi";
 const store = useStore();
 
 const { proxy } = getCurrentInstance();
@@ -51,12 +51,34 @@ let visibleThirdSwitchPlus = computed(() => {
 provide('visibleThirdSwitchPlus', visibleThirdSwitchPlus);
 
 // 获取ihr成功的简历ids
-iframeMsg.on("ihrSuccessIds", async ({ successResumeIds }, context) => {
+iframeMsg.on("ihrSuccessIds", async (data, context) => {
   if(context.from !== "ihr-recruit-assistant") return
   try {
-    const { success } = await importResumeCallback(successResumeIds);
+    const params = [
+      ...(data?.successResumeIds || []).map(id => ({
+        id,
+        type: data.type,
+        status: 1,
+        errorMsg: "",
+      })),
+      ...(data?.failRepeatResumeIds || []).map(id => ({
+        id,
+        type: data.type,
+        status: 0,
+        errorMsg: data.type === "ASSIGN_POSITIONS" ? "分配职位失败（重复简历）" : "加入人才库失败（重复简历）",
+      })),
+      ...(data?.failOtherResumeIds || []).map(id => ({
+        id,
+        type: data.type,
+        status: 0,
+        errorMsg: data.type === "ASSIGN_POSITIONS" ? "分配职位失败（其他原因）" : "加入人才库失败（其他原因）",
+      }))
+    ];
+    console.log(data, "data-ihrSuccessIds", params);
+    
+    const { success } = await importResumeCallbackPlus(params);
     if(success === "success") {
-      update(successResumeIds);
+      update(params);
     }
   } catch (error) {
     console.error('更新简历状态失败:', error);

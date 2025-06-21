@@ -151,8 +151,42 @@
         <q-card-actions align="center" class="bg-white" style="position: sticky; bottom: 0; z-index: 10;">
           <q-btn color="primary" outline class="q-pt-sm q-px-md q-mb-sm" label="查看简历详情" @click="viewResumeDetail" />
           <template v-if="isVisible">
-            <q-btn color="primary" :disable="resumeData?.resumeThirdPartyStatus === 'success'" outline class="q-pt-sm q-px-md q-mb-sm" :label="resumeData?.resumeThirdPartyStatus === 'success'?'已分配职位':'分配职位'" @click="assignJobHandler" />
-            <q-btn color="primary" :disable="resumeData?.resumeThirdPartyStatus === 'success'" outline class="q-pt-sm q-px-md q-mb-sm" :label="resumeData?.resumeThirdPartyStatus === 'success'?'已加入人才库':'加入人才库'" @click="addToTalentPoolHandler" />
+            <q-btn 
+              color="primary" 
+              :disable="!!resumeData?.resumeThirdPartyInfo" 
+              outline 
+              class="q-pt-sm q-px-md q-mb-sm" 
+              :label="getAssignJobButtonText(resumeData?.resumeThirdPartyInfo)" 
+              @click="assignJobHandler"
+            >
+              <q-tooltip 
+                v-if="shouldShowAssignJobTooltip(resumeData?.resumeThirdPartyInfo)"
+                anchor="top middle" 
+                self="bottom middle" 
+                :offset="[10, 10]"
+              >
+                系统中已存在重复简历
+              </q-tooltip>
+            </q-btn>
+            
+            <!-- 加入人才库按钮 -->
+            <q-btn 
+              color="primary" 
+              :disable="!!resumeData?.resumeThirdPartyInfo" 
+              outline 
+              class="q-pt-sm q-px-md q-mb-sm" 
+              :label="getTalentPoolButtonText(resumeData?.resumeThirdPartyInfo)" 
+              @click="addToTalentPoolHandler"
+            >
+              <q-tooltip 
+                v-if="shouldShowTalentPoolTooltip(resumeData?.resumeThirdPartyInfo)"
+                anchor="top middle" 
+                self="bottom middle" 
+                :offset="[10, 10]"
+              >
+                系统中已存在重复简历
+              </q-tooltip>
+            </q-btn>
           </template>
         </q-card-actions>
       </template>
@@ -462,10 +496,47 @@ export default defineComponent({
     const addToTalentPoolHandler = () => {
       emit('add-to-talent-pool', props.resumeData.id);
     };
+
     const getDimensionLabel = (dimensionKey) => {
       const score = getDimensionScore(dimensionKey);
       const label = getScoreLabel(score, dimensionKey);
       return { score, label };
+    };
+
+    // 获取分配职位按钮文本
+    const getAssignJobButtonText = (thirdPartyInfo) => {
+      if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status === 1) {
+        return '已分配职位';
+      }
+      return '分配职位';
+    };
+
+    // 获取加入人才库按钮文本
+    const getTalentPoolButtonText = (thirdPartyInfo) => {
+      if (thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status === 1) {
+        return '已加入人才库';
+      }
+      if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status === 1) {
+        return '已加入人才库';
+      }
+      return '加入人才库';
+    };
+
+    // 是否显示分配职位按钮的tooltip
+    const shouldShowAssignJobTooltip = (thirdPartyInfo) => {
+      if (!thirdPartyInfo) return false;
+      // 不是分配职位成功的情况下显示tooltip
+      return !(thirdPartyInfo.type === 'ASSIGN_POSITIONS' && thirdPartyInfo.status === 1);
+    };
+
+    // 是否显示加入人才库按钮的tooltip
+    const shouldShowTalentPoolTooltip = (thirdPartyInfo) => {
+      if (!thirdPartyInfo) return false;
+      // 不是加入人才库成功且不是分配职位成功的情况下显示tooltip
+      return !(
+        (thirdPartyInfo.type === 'JOIN_POOLS' && thirdPartyInfo.status === 1) ||
+        (thirdPartyInfo.type === 'ASSIGN_POSITIONS' && thirdPartyInfo.status === 1)
+      );
     };
 
     // 加载组件时
@@ -494,7 +565,11 @@ export default defineComponent({
       addToTalentPoolHandler,
       radarOption,
       getTotalScore,
-      getDimensionLabel
+      getDimensionLabel,
+      getAssignJobButtonText,
+      getTalentPoolButtonText,
+      shouldShowAssignJobTooltip,
+      shouldShowTalentPoolTooltip
     };
   }
 });

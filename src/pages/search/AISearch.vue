@@ -68,6 +68,8 @@
                     size="xs" 
                     class="refresh-btn"
                     @click.stop="refreshChannelLogin(channel.key)"
+                    @mouseenter="hideTabTooltip(channel.key)"
+                    @mouseleave="showTabTooltip(channel.key)"
                   >
                     <q-tooltip>刷新登录状态</q-tooltip>
                   </q-btn>)
@@ -75,7 +77,10 @@
                 <q-badge v-if="channel.dataSize > 0" color="red-5" floating>
                   {{ channel.dataSize }}
                 </q-badge>
-                <q-tooltip>
+                <q-tooltip 
+                  :ref="(el) => setTooltipRef(el, channel.key)"
+                  :delay="100"
+                >
                   {{ !getChannelDisable(channel.key) ? '已禁用' : (channel.login ? '已登录' : '请登录')}}
                 </q-tooltip>
               </q-tab>
@@ -404,6 +409,9 @@ const liePinInfoRef = ref(null);
 const job51InfoRef = ref(null);
 const collectInfoRef = ref(null);
 const pluginInstallDialogRef = ref(null);
+
+// 存储tooltip的动态引用
+const tooltipRefs = ref({});
 
 // 加载控制函数
 const loadingOpen = () => {
@@ -1287,6 +1295,29 @@ const handleForceUpdate = () => {
   }
   // 隐藏强制更新对话框
   showForceUpdateDialog.value = false;
+};
+
+// 设置tooltip引用的函数
+const setTooltipRef = (el, key) => {
+  if (el) {
+    tooltipRefs.value[key] = el;
+  }
+};
+
+// 隐藏tab tooltip
+const hideTabTooltip = (key) => {
+  const tooltip = tooltipRefs.value[key];
+  if (tooltip && typeof tooltip.hide === 'function') {
+    tooltip.hide();
+  }
+};
+
+// 显示tab tooltip  
+const showTabTooltip = (key) => {
+  const tooltip = tooltipRefs.value[key];
+  if (tooltip && typeof tooltip.show === 'function') {
+    tooltip.show();
+  }
 };
 </script>
 
