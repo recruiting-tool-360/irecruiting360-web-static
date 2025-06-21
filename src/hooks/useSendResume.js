@@ -130,23 +130,27 @@ export function useSendResume(messageType = 'resumeList') {
     
     console.log(results, 'results');
       
-    
-    // 并行执行两个异步操作，避免阻塞
-    const [otherRes, bossRes] = await Promise.all([
-      otherParams?.length > 0 ? enableImageCapture(otherParams).catch(error => {
-        console.error('enableImageCapture 失败:', error);
-        return {}; // 返回默认值
-      }) : Promise.resolve({}),
-      bossParams?.length > 0 ? resumeGenerateBase64s(bossParams, isSingle).catch(error => {
-        console.error('enableImageCapture 失败:', error);
-        return {}; // 返回默认值
-      }) : Promise.resolve({})
-    ]);
-    console.log(bossRes, otherRes, '结果');
-    
-    return {
-      data: Object.assign(bossRes, otherRes),
-      filterZhiLianCount: zlCount
+
+    try {
+      // 并行执行两个异步操作，避免阻塞
+      const [otherRes, bossRes] = await Promise.all([
+        otherParams?.length > 0 ? enableImageCapture(otherParams).catch(error => {
+          console.error('enableImageCapture 失败:', error);
+          return {}; // 返回默认值
+        }) : Promise.resolve({}),
+        bossParams?.length > 0 ? resumeGenerateBase64s(bossParams, isSingle).catch(error => {
+          console.error('enableImageCapture 失败:', error);
+          return {}; // 返回默认值
+        }) : Promise.resolve({})
+      ]);
+      console.log(bossRes, otherRes, '结果');
+      
+      return {
+        data: Object.assign(bossRes, otherRes),
+        filterZhiLianCount: zlCount
+      }
+    } catch (error) {
+      throw error;
     }
   }
 

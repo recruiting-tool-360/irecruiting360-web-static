@@ -1032,10 +1032,6 @@ const shouldShowTalentPoolTooltip = (thirdPartyInfo) => {
   );
 };
 
-const isDisabled = (resume) => {
-  return resume?.resumeThirdPartyStatus === 'success' || !(resume.channel === "猎聘" || (Number.isFinite(resume.score) && resume.score > 0))
-}
-
 // 显示AI评估对话框
 const showAIEvaluationDialog = () => {
   showAIEvaluation.value = true;
