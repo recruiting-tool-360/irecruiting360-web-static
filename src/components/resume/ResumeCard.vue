@@ -165,7 +165,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary" 
-                :disable="!!resume?.resumeThirdPartyInfo"
+                :disable="!(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo"
                 @click.stop="assignJob(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
@@ -183,7 +183,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary"
-                :disable="!!resume?.resumeThirdPartyInfo" 
+                :disable="!(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo" 
                 @click.stop="addToTalentPool(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
@@ -998,7 +998,7 @@ const addToTalentPool = async (resume) => {
 
 // 获取分配职位按钮文本
 const getAssignJobButtonText = (thirdPartyInfo) => {
-  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status === 1) {
+  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1') {
     return '已分配职位';
   }
   return '分配职位';
@@ -1006,10 +1006,10 @@ const getAssignJobButtonText = (thirdPartyInfo) => {
 
 // 获取加入人才库按钮文本
 const getTalentPoolButtonText = (thirdPartyInfo) => {
-  if (thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status === 1) {
+  if (thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status == '1') {
     return '已加入人才库';
   }
-  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status === 1) {
+  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1') {
     return '已加入人才库';
   }
   return '加入人才库';
@@ -1019,7 +1019,7 @@ const getTalentPoolButtonText = (thirdPartyInfo) => {
 const shouldShowAssignJobTooltip = (thirdPartyInfo) => {
   if (!thirdPartyInfo) return false;
   // 不是分配职位成功的情况下显示tooltip
-  return !(thirdPartyInfo.type === 'ASSIGN_POSITIONS' && thirdPartyInfo.status === 1);
+  return !(thirdPartyInfo.type === 'ASSIGN_POSITIONS' && thirdPartyInfo.status == '1');
 };
 
 // 是否显示加入人才库按钮的tooltip
@@ -1027,8 +1027,8 @@ const shouldShowTalentPoolTooltip = (thirdPartyInfo) => {
   if (!thirdPartyInfo) return false;
   // 不是加入人才库成功且不是分配职位成功的情况下显示tooltip
   return !(
-    (thirdPartyInfo.type === 'JOIN_POOLS' && thirdPartyInfo.status === 1) ||
-    (thirdPartyInfo.type === 'ASSIGN_POSITIONS' && thirdPartyInfo.status === 1)
+    (thirdPartyInfo.type === 'JOIN_POOLS' && thirdPartyInfo.status == '1') ||
+    (thirdPartyInfo.type === 'ASSIGN_POSITIONS' && thirdPartyInfo.status == '1')
   );
 };
 
