@@ -58,19 +58,19 @@ iframeMsg.on("ihrSuccessIds", async (data, context) => {
       ...(data?.successResumeIds || []).map(id => ({
         id,
         type: data.type,
-        status: 1,
+        status: "1",
         errorMsg: "",
       })),
       ...(data?.failRepeatResumeIds || []).map(id => ({
         id,
         type: data.type,
-        status: 0,
+        status: "0",
         errorMsg: data.type === "ASSIGN_POSITIONS" ? "分配职位失败（重复简历）" : "加入人才库失败（重复简历）",
       })),
       ...(data?.failOtherResumeIds || []).map(id => ({
         id,
         type: data.type,
-        status: 0,
+        status: "0",
         errorMsg: data.type === "ASSIGN_POSITIONS" ? "分配职位失败（其他原因）" : "加入人才库失败（其他原因）",
       }))
     ];
