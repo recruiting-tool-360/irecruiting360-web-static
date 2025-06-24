@@ -27,6 +27,7 @@ import { ref, computed, watch, defineExpose } from 'vue';
 import { useStore } from 'vuex';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
+import notify from 'src/util/notify'
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 import { useBrowserDetector } from 'src/hooks/useBrowserDetector';
 
@@ -73,11 +74,7 @@ const handleInstallClick = () => {
     // 关闭当前对话框
     closeDialog();
   } else {
-    $q.notify({
-      message: '平台内不支持安装插件，请使用Chrome浏览器进行登录',
-      color: 'warning',
-      position: 'top'
-    });
+    notify.warning('平台内不支持安装插件，请使用Chrome浏览器进行登录')
   }
 };
 

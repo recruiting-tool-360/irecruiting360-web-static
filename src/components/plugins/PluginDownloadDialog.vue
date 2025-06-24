@@ -57,6 +57,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
+import notify from 'src/util/notify'
 import { getDownloadUrl } from "src/api/user/UserApi";
 import { useBrowserDetector } from 'src/hooks/useBrowserDetector';
 
@@ -88,11 +89,7 @@ watch(dialogVisible, (newVal) => {
 // 点击下载按钮的功能
 const downloadZip = () => {
   if(!isPCChrome.value) {
-    $q.notify({
-      message: '平台内不支持安装插件，请使用Chrome浏览器进行登录',
-      color: 'warning',
-      position: 'top'
-    });
+    notify.warning('平台内不支持安装插件，请使用Chrome浏览器进行登录')
     return;
   }
   // 使用已保存在Vuex中的下载地址

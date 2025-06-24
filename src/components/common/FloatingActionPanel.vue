@@ -30,9 +30,9 @@
         <q-tooltip>AI助手</q-tooltip>
       </q-btn>
 
-      <q-btn round color="primary" :icon="resumeIndexVisible ? 'visibility' : 'visibility_off'" size="md" class="q-mb-md action-btn" @click="toggleRightNav">
+      <!-- <q-btn round color="primary" :icon="resumeIndexVisible ? 'visibility' : 'visibility_off'" size="md" class="q-mb-md action-btn" @click="toggleRightNav">
         <q-tooltip>{{ resumeIndexVisible ? '隐藏' : '显示' }}数据列表导航</q-tooltip>
-      </q-btn>
+      </q-btn> -->
 
       <q-btn round color="primary" :icon="showQueueMonitor ? 'camera_outdoor' : 'camera_indoor'" size="md" class="q-mb-md action-btn" @click="toggleQueueMonitor">
         <q-tooltip>{{ showQueueMonitor ? '隐藏' : '显示' }}AI执行监视器</q-tooltip>

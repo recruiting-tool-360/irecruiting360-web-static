@@ -10,8 +10,12 @@ const targetOrigin = [
   'https://qa2-vip.ihr360.com', // qa2-vip
   'https://account.ihr360.com', // 账号中心
   'https://v5.ihr360.com', // 线上
+  // 企微
 
   //钉钉
+  //测试环境
+  'https://uatstable.ihr360.com',
+  'https://qa2.ihr360.com',
   //qa2
   'https://ding-qa2.ihr360.com',
   //uatstable
@@ -64,6 +68,8 @@ const targetOrigin = [
   'https://ding-hw.try-handy.com',
 
   // 企微or飞书
+  //测试环境
+  'https://uatstable.ihr360.com',
   // 杭州云
   'https://www.ihr360.com',
   //北京云
