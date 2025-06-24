@@ -58,10 +58,14 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import { getDownloadUrl } from "src/api/user/UserApi";
+import { useBrowserDetector } from 'src/hooks/useBrowserDetector';
 
 const $q = useQuasar();
 const store = useStore();
 const downloading = ref(false);
+
+// 使用浏览器检测hook
+const { isPCChrome } = useBrowserDetector();
 
 // 使用Vuex中的状态控制对话框显示
 const dialogVisible = computed({
@@ -83,6 +87,14 @@ watch(dialogVisible, (newVal) => {
 
 // 点击下载按钮的功能
 const downloadZip = () => {
+  if(!isPCChrome.value) {
+    $q.notify({
+      message: '平台内不支持安装插件，请使用Chrome浏览器进行登录',
+      color: 'warning',
+      position: 'top'
+    });
+    return;
+  }
   // 使用已保存在Vuex中的下载地址
   const url = store.getters.getDownloadUrl;
   if (url) {

@@ -490,11 +490,11 @@ export default defineComponent({
     };
 
     const assignJobHandler = () => {
-      emit('assign-job', props.resumeData.id);
+      emit('assign-job', props.resumeData);
     };
 
     const addToTalentPoolHandler = () => {
-      emit('add-to-talent-pool', props.resumeData.id);
+      emit('add-to-talent-pool', props.resumeData);
     };
 
     const getDimensionLabel = (dimensionKey) => {

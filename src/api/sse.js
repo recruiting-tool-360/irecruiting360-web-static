@@ -242,10 +242,10 @@ class SseClient {
         const retryDelay = Math.min(1000 * Math.pow(2, this.retryCount), 30000) // 最长30秒
 
         // 显示轻量级提示
-        notify.warning(`与服务器连接断开，${retryDelay/1000}秒后尝试重新连接(${this.retryCount}/${this.maxRetry})...`, {
-          timeout: retryDelay,
-          closeBtn: true
-        })
+        // notify.warning(`与服务器连接断开，${retryDelay/1000}秒后尝试重新连接(${this.retryCount}/${this.maxRetry})...`, {
+        //   timeout: retryDelay,
+        //   closeBtn: true
+        // })
 
         setTimeout(() => {
           if (document.visibilityState !== 'hidden') {
