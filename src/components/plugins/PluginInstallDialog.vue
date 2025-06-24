@@ -28,6 +28,7 @@ import { useStore } from 'vuex';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
+import { useBrowserDetector } from 'src/hooks/useBrowserDetector';
 
 const $q = useQuasar();
 const router = useRouter();
@@ -38,6 +39,9 @@ const { isHidden } = usePlanVisibility({
   hiddenForPlans: ['PlanA'],
   defaultVisible: true
 })
+
+// 使用浏览器检测hook
+const { isPCChrome } = useBrowserDetector();
 
 // 通过 Vuex 的 pluginInstall 状态控制对话框显示
 const pluginInstalled = computed(() => store.getters.getPluginInstall);
@@ -61,11 +65,20 @@ const closeDialog = () => {
 
 // 安装插件按钮点击事件
 const handleInstallClick = () => {
-  // 显示插件下载对话框
-  store.commit('setPluginDownloadDialogVisible', true);
-
-  // 关闭当前对话框
-  closeDialog();
+  console.log("isPCChrome", isPCChrome);
+  
+  if(isPCChrome.value) {
+    // 显示插件下载对话框
+    store.commit('setPluginDownloadDialogVisible', true);
+    // 关闭当前对话框
+    closeDialog();
+  } else {
+    $q.notify({
+      message: '平台内不支持安装插件，请使用Chrome浏览器进行登录',
+      color: 'warning',
+      position: 'top'
+    });
+  }
 };
 
 // 监听插件安装状态变化
