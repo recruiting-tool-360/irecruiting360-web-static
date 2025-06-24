@@ -4,7 +4,7 @@ export default {
         pluginInstall: false,
         pluginDownloadDialogVisible: false,
         forceUpdateVisible: false,
-        resumeIndexVisible: true,
+        resumeIndexVisible: false,
         fixedPanelPosition: {
             right: 10,
             top: 60,
