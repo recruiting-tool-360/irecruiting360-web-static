@@ -262,7 +262,7 @@ import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 import qs from "qs";
 // 使用Quasar的Dialog显示内容
 import { useQuasar } from 'quasar';
-import {compareResumeSimilarity, generateSearchCondition} from "src/api/research/ResearchApi";
+import {compareResumeSimilarity, generateSearchCondition, compareResumeSimilarityPlus} from "src/api/research/ResearchApi";
 import {useStore} from "vuex";
 import {saveCondition} from "src/api/search/SearchApi";
 import SimilarResumesDialog from 'src/components/resume/SimilarResumesDialog.vue';
@@ -315,6 +315,9 @@ const allChannelStatus = computed(() => store.getters.getChannelConf);
 const userInfo = computed(() => store.getters.getUserInfo);
 //当前chat id
 const chatId = computed(() => store.getters.getLatestChatId);
+
+// 三方公司的信息
+const planInfo = computed(() => store.getters.getUserInfo?.extendData);
 
 // 添加相似简历按钮状态的computed属性来确保响应式更新
 const similarButtonText = computed(() => {
@@ -802,7 +805,7 @@ const getSimilarResumes = async (resume) => {
     const jobListRequestDTO = await searchALlResumesRequest(channelSearchCondition);
 
     try {
-      const { data: jobListData } = await compareResumeSimilarity({
+      const { data: jobListData } = await compareResumeSimilarityPlus({
         searchVO: jobListRequestDTO,
         resumeBlindId: resume.id,
         searchConditionId:channelSearchCondition.id
@@ -953,6 +956,10 @@ const commomIHR = async (resume) => {
 
 // 分配职位
 const assignJob = async (resume) => {
+  if(!planInfo.value?.assignPositionAuth) {
+    notify.warning("您没有候选人模块添加候选人权限，不能将候选人添加至职位下，请联系管理员分配权限");
+    return;
+  }
   try {
     emit('updateCollectResumeLoading', true);
 
@@ -978,6 +985,10 @@ const assignJob = async (resume) => {
 
 // 加入人才库
 const addToTalentPool = async (resume) => {
+  if(!planInfo.value?.talentPoolAuth) {
+    notify.warning("您没有人才库模块添加候选人权限，不能将候选人添加至人才库，请联系管理员分配权限");
+    return;
+  }
   try {
     emit('updateCollectResumeLoading', true);
 

@@ -10,7 +10,9 @@
       @load-more="loadMore"
     />
     <div v-else class="flex flex-center column q-pa-xl" style="margin-top: 16%">
-      <q-icon name="search_off" size="2em" color="grey-5" />
+      <q-avatar square>
+        <img :src="'/image/notData.png'">
+      </q-avatar>
       <div class="text-subtitle1 q-mt-md text-grey-7">暂无收藏数据</div>
     </div>
   </div>
