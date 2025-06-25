@@ -9,7 +9,8 @@ export const enableImageCapture = async (urls) => {
       url: item.url,
       type: item.type,
       name: item.name,
-      gender: item.gender
+      gender: item.gender,
+      isMaster: item.isMaster
     }
     return channels
   }, {})

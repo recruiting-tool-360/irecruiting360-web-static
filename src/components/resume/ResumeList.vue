@@ -619,7 +619,7 @@ const handleBatchConfirm = async (obj) => {
   console.log(obj, 'obj');
   try {
     let allResume = obj.resumes.map(item => {
-      return { ...item, type: "normal" }
+      return { ...item, type: "normal", isMaster: true }
     })
     const { data, filterZhiLianCount } = await handleResume(allResume, false);
     
