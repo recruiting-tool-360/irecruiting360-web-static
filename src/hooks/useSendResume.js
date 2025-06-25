@@ -93,8 +93,8 @@ export function useSendResume(messageType = 'resumeList') {
   const handleResume = async (allResume, isSingle) => {
     const params = await Promise.all(allResume.map(async (resume) => {
       const url = getChannelUrl(resume);
-      const { id, name, channel, type, gender, originalResumeUrlInfo } = resume;
-      return { url, id, channel, type, name, gender, originalResumeUrlInfo };
+      const { id, name, channel, type, gender, originalResumeUrlInfo, isMaster } = resume;
+      return { url, id, channel, type, name, gender, originalResumeUrlInfo, isMaster };
     }));
 
     console.log(params, 'params');

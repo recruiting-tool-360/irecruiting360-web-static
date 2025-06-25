@@ -77,7 +77,7 @@
             <div class="chat-message-bubble">
               <!-- 使用v-html和Markdown渲染 -->
               <div v-if="msg.type === 'bot'" v-html="parseMarkdown(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')"></div>
-              <template v-else>{{ msg.content || '' }}</template>
+              <div v-else class="bot-message-formatted">{{ msg.content || '' }}</div>
 
               <!-- 添加AI输出中的动画 -->
               <div v-if="chatFluxStatus && index === displayMessages.length - 1 && msg.type === 'bot'" class="typing-indicator">
@@ -1568,5 +1568,14 @@ defineExpose({
   width: calc(100% - 280px) !important; /* 固定宽度，减去左侧菜单宽度 */
   right: 0 !important;
   left: 280px !important; /* 与左侧菜单宽度一致 */
+}
+/* 保持文本格式的样式 */
+.bot-message-formatted {
+  white-space: pre-wrap; /* 保持换行符和空格 */
+  word-wrap: break-word; /* 长单词换行 */
+  word-break: break-word; /* 强制长单词换行 */
+  line-height: 1.6; /* 行高 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-wrap: break-word; /* 兼容性更好的换行 */
 }
 </style>

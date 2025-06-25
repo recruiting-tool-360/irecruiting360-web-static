@@ -34,7 +34,7 @@
 
           <div class="q-mt-sm">
             <div v-if="resume.description" class="text-body2 text-grey-7 q-mt-xs description-text">
-              <q-tooltip class="text-body2">
+              <q-tooltip class="text-body2" max-width="50%">
                 <div v-html="resume.description"></div>
               </q-tooltip>
               <div class="ellipsis-2-lines" v-html="`简要描述: ${resume.description}`"></div>
@@ -921,7 +921,7 @@ const commomIHR = async (resume) => {
   try {
     emit('updateCollectResumeLoading', true);
 
-    let allResume = [{ ...resume, type: "normal" }];
+    let allResume = [{ ...resume, type: "normal", isMaster: true }];
 
     // 单个请求获取相似简历
     const similarResumes = await getSimilarResumes(resume);
@@ -930,7 +930,7 @@ const commomIHR = async (resume) => {
     // 有相似简历->合并修改type
     if(similarResumes.length > 0) {
       allResume = [...allResume, ...similarResumes].map(item => {
-        return { ...item, type: "similar" }
+        return { isMaster: false, ...item, type: "similar" }
       })
     }
     console.log(allResume, "similarResumes-合并后");
