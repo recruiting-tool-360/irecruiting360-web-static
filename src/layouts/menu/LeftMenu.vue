@@ -91,7 +91,9 @@
             @click.stop="handleRecruitAction(item)"
             class="recruit-action-btn"
           >
-            <q-tooltip>招聘信息</q-tooltip>
+            <q-tooltip anchor="center right" self="center left" max-width="270px">
+             {{planInfo?.sendJdAuth?"招聘信息":"您当前无职位管理模块权限，无法获取招聘需求信息，请联系管理员开通权限或者直接发送招聘需求信息至AI招聘助理"}}
+            </q-tooltip>
           </q-btn>
         </q-item-section>
       </q-item>
@@ -153,6 +155,10 @@ const { isVisible } = usePlanVisibility({
   visibleForPlans: ['PlanA'],
   defaultVisible: false
 })
+
+const planInfo = computed(() => {
+  return store.getters.getUserInfo?.extendData;
+});
 
 //三方显示隐藏控制开关
 let visibleThirdSwitch = computed(() => {

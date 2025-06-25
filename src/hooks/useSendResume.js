@@ -100,6 +100,7 @@ export function useSendResume(messageType = 'resumeList') {
     console.log(params, 'params');
 
     let zlCount = 0;
+    let zlMasterDel = false;
     // 分离boss直聘和其他渠道的数据
     const bossParams = params.filter(param => param.channel === 'boss直聘');
     console.log(bossParams, 'bossParams');
@@ -110,6 +111,9 @@ export function useSendResume(messageType = 'resumeList') {
         const result = await zhiLianFindJobDetail(param);
         if(!result) {
           zlCount ++;
+          if(param?.isMaster) {
+            zlMasterDel = true;
+          }
         }
         console.log(result, '判断智联招聘是否能查看简历', !!result);
         return { param, isValid: !!result };
@@ -130,6 +134,14 @@ export function useSendResume(messageType = 'resumeList') {
     
     console.log(results, 'results');
       
+    // 单个操作处理智联逻辑，智联简历无次数后会过滤掉，防止过滤的是isMaster=true，添加保底
+    if(isSingle && zlMasterDel) {
+      if(otherParams?.length > 0) {
+        otherParams[0].isMaster = true
+      }else if(bossParams?.length > 0) {
+        bossParams[0].isMaster = true
+      }
+    }
 
     try {
       // 并行执行两个异步操作，避免阻塞

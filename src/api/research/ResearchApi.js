@@ -15,4 +15,11 @@ export const compareResumeSimilarity = (data) => {
         data:data
     });
 }
-
+// 查找相似简历（无本体）
+export const compareResumeSimilarityPlus = (data) => {
+    return request({
+        method:'POST',
+        url:'/research/compareResumeSimilarityPlus',
+        data:data
+    });
+}

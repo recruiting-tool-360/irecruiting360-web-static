@@ -211,6 +211,10 @@ const { isVisible } = usePlanVisibility({
   defaultVisible: false
 })
 
+const planInfo = computed(() => {
+  return store.getters.getUserInfo?.extendData;
+});
+
 const isCollectResumeLoading = ref(false);
 
 // v-intersection 相关
@@ -643,6 +647,11 @@ const handleBatchConfirm = async (obj) => {
 
 // 打开批量加入人才库对话框
 const openBatchAddToTalentPoolDialog = () => {
+  if(!planInfo.value?.talentPoolAuth) {
+    notify.warning("您没有人才库模块添加候选人权限，不能将候选人添加至人才库，请联系管理员分配权限");
+    return;
+  }
+
   if (selectedIds.value.length === 0) {
     notify.info("请先选择简历");
     return;
@@ -676,6 +685,11 @@ const openBatchAddToTalentPoolDialog = () => {
 
 // 打开批量分配职位对话框
 const openBatchAssignPositionDialog = () => {
+  if(!planInfo.value?.assignPositionAuth) {
+    notify.warning("您没有候选人模块添加候选人权限，不能将候选人添加至职位下，请联系管理员分配权限");
+    return;
+  }
+
   if (selectedIds.value.length === 0) {
     notify.info("请先选择简历");
     return;
