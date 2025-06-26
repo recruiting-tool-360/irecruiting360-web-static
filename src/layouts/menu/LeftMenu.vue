@@ -479,9 +479,10 @@ const handleRecruitAction = (item, isFill = true) => {
   //   console.log('职位ID为空，已清除');
   // }
   setVuexData(item);
-  
-  // isFill为true表示需要填充JD
-  isFill && chatCardRef.value.insertMessageToInput(item.jd);
+  nextTick(() => {
+    // isFill为true表示需要填充JD
+    isFill && chatCardRef.value.insertMessageToInput(item.jd);
+  })
 }
 
 const closeTips = () => {
