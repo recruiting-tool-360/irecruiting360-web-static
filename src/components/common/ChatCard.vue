@@ -143,7 +143,7 @@
           :input-style="{ maxHeight: '150px', overflow: 'auto', resize: 'none' }"
           placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
           class="full-width message-input"
-          @keydown.enter.exact.prevent="sendChatMessage"
+          @keydown.enter.exact.prevent="() => sendChatMessage()"
           @keydown.shift.enter.prevent="newLine"
         >
           <template v-slot:hint v-if="!chatFluxStatus">
@@ -161,7 +161,7 @@
             :loading="chatFluxStatus"
             color="primary"
             icon="send"
-            @click="sendChatMessage"
+            @click="() => sendChatMessage()"
             class="send-button"
           >
             <q-tooltip>{{ chatFluxStatus ? '停止输出' : '发送' }}</q-tooltip>

@@ -190,8 +190,8 @@ export function bossDomGenerator() {
             </div>
           ` : ''}
 
-          <!-- 资格证书 -->
-          ${(honorList && honorList.length > 0) || (trainingList && trainingList.length > 0) ? `
+          <!-- 所获荣誉 -->
+          ${(honorList && honorList.length > 0) ? `
             <div style="display: flex; align-items: start; margin-top: 30px;">
 
               <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 4px 0 0 0;">资格证书</h4>
@@ -202,53 +202,10 @@ export function bossDomGenerator() {
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <div style="display: flex;align-items: center;">
                         <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
-                          ${honor?.name || honor?.title || ''}
+                          ${honor?.honorName || ''}
                         </h3>
-                        ${honor.issuer ? `
-                          <span style="margin: 0 10px;color: #ccc;">|</span>
-                          <div style="color: #171d26; font-weight: bold; font-size: 14px;">
-                            ${honor?.issuer}
-                          </div>
-                        ` : ''}
                       </div>
-                      ${honor?.getTime || honor?.date ? `
-                        <span style="color: #363f4d; font-size: 13px; white-space: nowrap; margin-left: 20px;">
-                          ${honor?.getTime || honor?.date}
-                        </span>
-                      ` : ''}
                     </div>
-                    ${honor?.description ? `
-                      <div style="margin-bottom: 12px;">
-                        <p style="margin: 0; line-height: 1.6; color: #555; font-size: 13px; white-space: pre-line;">${stripHtmlTags(honor.description)}</p>
-                      </div>
-                    ` : ''}
-                  </div>
-                `).join('') : ''}
-                ${trainingList && trainingList.length > 0 ? trainingList.map(training => `
-                  <div style="margin-bottom: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                      <div style="display: flex;align-items: center;">
-                        <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
-                          ${training?.name || training?.title || ''}
-                        </h3>
-                        ${training.organization ? `
-                          <span style="margin: 0 10px;color: #ccc;">|</span>
-                          <div style="color: #171d26; font-weight: bold; font-size: 14px;">
-                            ${training.organization}
-                          </div>
-                        ` : ''}
-                      </div>
-                      ${training.startYearMonStr && training.endYearMonStr ? `
-                        <span style="color: #363f4d; font-size: 13px; white-space: nowrap; margin-left: 20px;">
-                          ${training?.startYearMonStr} - ${training?.endYearMonStr}
-                        </span>
-                      ` : ''}
-                    </div>
-                    ${training.description ? `
-                      <div style="margin-bottom: 12px;">
-                        <p style="margin: 0; line-height: 1.6; color: #555; font-size: 13px; white-space: pre-line;">${stripHtmlTags(training.description)}</p>
-                      </div>
-                    ` : ''}
                   </div>
                 `).join('') : ''}
               </div>
