@@ -194,7 +194,7 @@ export function bossDomGenerator() {
           ${(honorList && honorList.length > 0) ? `
             <div style="display: flex; align-items: start; margin-top: 30px;">
 
-              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 4px 0 0 0;">资格证书</h4>
+              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 4px 0 0 0;">所获荣誉</h4>
 
               <div style="margin-left: 30px; flex: 1;">
                 ${honorList && honorList.length > 0 ? honorList.map(honor => `
