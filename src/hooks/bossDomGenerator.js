@@ -202,22 +202,22 @@ export function bossDomGenerator() {
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <div style="display: flex;align-items: center;">
                         <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
-                          ${honor.name || honor.title}
+                          ${honor?.name || honor?.title || ''}
                         </h3>
                         ${honor.issuer ? `
                           <span style="margin: 0 10px;color: #ccc;">|</span>
                           <div style="color: #171d26; font-weight: bold; font-size: 14px;">
-                            ${honor.issuer}
+                            ${honor?.issuer}
                           </div>
                         ` : ''}
                       </div>
-                      ${honor.getTime || honor.date ? `
+                      ${honor?.getTime || honor?.date ? `
                         <span style="color: #363f4d; font-size: 13px; white-space: nowrap; margin-left: 20px;">
-                          ${honor.getTime || honor.date}
+                          ${honor?.getTime || honor?.date}
                         </span>
                       ` : ''}
                     </div>
-                    ${honor.description ? `
+                    ${honor?.description ? `
                       <div style="margin-bottom: 12px;">
                         <p style="margin: 0; line-height: 1.6; color: #555; font-size: 13px; white-space: pre-line;">${stripHtmlTags(honor.description)}</p>
                       </div>
@@ -229,7 +229,7 @@ export function bossDomGenerator() {
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <div style="display: flex;align-items: center;">
                         <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
-                          ${training.name || training.title}
+                          ${training?.name || training?.title || ''}
                         </h3>
                         ${training.organization ? `
                           <span style="margin: 0 10px;color: #ccc;">|</span>
@@ -240,7 +240,7 @@ export function bossDomGenerator() {
                       </div>
                       ${training.startYearMonStr && training.endYearMonStr ? `
                         <span style="color: #363f4d; font-size: 13px; white-space: nowrap; margin-left: 20px;">
-                          ${training.startYearMonStr} - ${training.endYearMonStr}
+                          ${training?.startYearMonStr} - ${training?.endYearMonStr}
                         </span>
                       ` : ''}
                     </div>

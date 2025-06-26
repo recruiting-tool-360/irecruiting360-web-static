@@ -92,7 +92,11 @@
             class="recruit-action-btn"
           >
             <q-tooltip anchor="center right" self="center left" max-width="270px">
-             {{planInfo?.sendJdAuth?"招聘信息":"您当前无职位管理模块权限，无法获取招聘需求信息，请联系管理员开通权限或者直接发送招聘需求信息至AI招聘助理"}}
+              {{
+                planInfo?.sendJdAuth
+                  ?"自动发送当前职位的JD信息至AI招聘助理，AI将根据JD信息理解并挖掘招聘需求生成聚合搜索条件"
+                  :"您当前无职位管理模块权限，无法获取招聘需求信息，请联系管理员开通权限或者直接发送招聘需求信息至AI招聘助理"
+              }}
             </q-tooltip>
           </q-btn>
         </q-item-section>

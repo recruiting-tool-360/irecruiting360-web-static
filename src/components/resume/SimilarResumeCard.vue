@@ -81,7 +81,7 @@
               <span class="q-mx-xs">•</span>
               <span>{{ resume.eduExp.major }}</span>
               <span class="q-mx-xs">•</span>
-              <span>{{ resume.eduExp.degree }}</span>
+              <span>{{ resume.eduExp?.degree || resume?.degree }}</span>
             </div>
             <div v-else class="text-grey-7">暂无教育经历</div>
           </div>
