@@ -89,13 +89,13 @@
 
             <!-- 消息操作按钮 -->
             <div v-if="msg.type === 'bot' && !(chatFluxStatus && index === displayMessages.length - 1)" class="message-actions">
-              <q-btn v-if="!chatFluxStatus" flat round dense size="sm" icon="content_copy" @click="handleCopy(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')">
-                <q-tooltip>复制内容</q-tooltip>
+              <q-btn v-if="!chatFluxStatus" class="btn-common" flat size="sm" icon="content_copy" @click="handleCopy(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')" outline color="primary" text-color="#1F2329" label="复制">
+                <q-tooltip>复制</q-tooltip>
               </q-btn>
-              <q-btn v-if="msg.content && msg.content.includes('[&AI_SEARCH&]')" flat  dense size="sm" icon="edit" @click="handleEdit(msg)" label="编辑">
+              <q-btn v-if="msg.content && msg.content.includes('[&AI_SEARCH&]')" class="btn-common" flat size="sm" icon="edit" @click="handleEdit(msg)" text-color="#1F2329" label="编辑">
                 <q-tooltip>编辑</q-tooltip>
               </q-btn>
-              <q-btn v-if="msg.content && msg.content.includes('[&AI_SEARCH&]')" flat  dense size="sm" icon="search" @click="handleSearch(msg)" label="聚合搜索">
+              <q-btn v-if="msg.content && msg.content.includes('[&AI_SEARCH&]')" class="btn-common aggregation-search" flat size="sm" icon="search" @click="handleSearch(msg)" label="聚合搜索" :style="{marginLeft: '2px'}">
                 <q-tooltip>聚合搜索</q-tooltip>
               </q-btn>
             </div>
@@ -911,7 +911,7 @@ const addErrorResponse = (userContent, error) => {
 };
 
 // 发送聊天消息
-const sendChatMessage = async () => {
+const sendChatMessage = async (msg) => {
   console.log("发送聊天消息开始执行", { chatFluxStatus: chatFluxStatus.value });
 
   // 如果正在输出中，则停止输出
@@ -925,7 +925,7 @@ const sendChatMessage = async () => {
     return;
   }
 
-  const messageText = chatMessage.value.trim();
+  const messageText = msg || chatMessage.value.trim();
   console.log("发送聊天消息", messageText, sending.value, isComposing.value);
 
   if (messageText === '') return;
@@ -1136,21 +1136,11 @@ const insertMessageToInput = async (msg) => {
 };
 
 const fillMessageToInput = async (msg) => {
-  // 将消息内容设置到输入框
-  chatMessage.value = msg;
-  // 聚焦到输入框
-  await nextTick();
-  const inputElement = document.querySelector('.message-input .q-field__native');
-  if (inputElement) {
-    inputElement.focus();
-    // 滚动到顶部
-    inputElement.scrollTop = 0;
-    console.log('聊天输入框已聚焦');
-  } else {
-    console.warn('未找到聊天输入框元素');
+  if (!chatFluxStatus.value && !sending.value) {
+    setTimeout(() => {
+      sendChatMessage(msg);
+    }, 500);
   }
-  
-  console.log('消息已插入到输入框');
 }
 
 // 向外暴露方法
@@ -1270,7 +1260,7 @@ defineExpose({
 }
 
 .chat-message-bubble {
-  padding: 8px 12px;
+  padding: 8px 12px 0;
   border-radius: 12px;
   background-color: white;
   box-shadow: 0 2px 5px rgba(0,0,0,0.1);
@@ -1308,11 +1298,11 @@ defineExpose({
   transition: all 0.4s ease;
 }
 
-.chat-panel :deep(.q-btn) {
+.chat-panel :deep(.q-btn:not([class*="btn-common"])) {
   transition: all 0.2s ease;
 }
 
-.chat-panel :deep(.q-btn:hover) {
+.chat-panel :deep(.q-btn:not([class*="btn-common"]):hover) {
   transform: scale(1.05);
 }
 
@@ -1343,10 +1333,54 @@ defineExpose({
 .message-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 8px;
-  gap: 4px;
-  opacity: 0.7;
+  gap: 6px;
   transition: opacity 0.2s ease;
+  padding: 0 12px;
+
+  .btn-common {
+    height: 24px;
+    opacity: 1;
+    padding: 0 12px;
+    border: 1px solid rgba(221, 221, 221, 1);
+    transition: opacity 0.2s ease;
+
+    &:deep(.q-icon) {
+      font-size: 12px !important;
+      opacity: 1;
+      margin-right: 5px;
+      color: #1F2329;
+    }
+
+    &:deep(.block) {
+      font-size: 12px !important;
+      font-weight: 400;
+      line-height: 1;
+    }
+
+    &:hover {
+      background-color: rgba(0, 0, 0, 0.04) !important;
+      border: 1px solid #DDDDDD;
+    }
+  }
+
+  .aggregation-search {
+    border: none !important;
+    color: #ffffff;
+    background: linear-gradient(90deg, #5F66F4 0%, #D880DF 100%);
+
+    &:deep(.q-icon) {
+      font-size: 14px !important;
+      color: #ffffff;
+    }
+
+    &:hover {
+      opacity: 0.7;
+    }
+  }
+
+  .q-btn--round {
+    border-radius: 4px;
+  }
 }
 
 .message-actions:hover {
