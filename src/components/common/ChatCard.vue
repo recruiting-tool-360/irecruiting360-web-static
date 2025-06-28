@@ -1047,6 +1047,8 @@ watch([() => props.chatId, () => latestChatId.value], ([newChatId, newLatestChat
 
   if (effectiveId) {
     isNewChat.value = false;
+    abortController.value?.abort();
+    chatFluxStatus.value = false;
     currentChatId.value = effectiveId;  // 更新内部的 chatId
     loadHistory();  // 加载历史消息
   } else {
