@@ -4,27 +4,10 @@ import { bossFindJobDetail } from "src/pluginSrc/channels/BossJobInfoManager";
 import { batchHtmlToImageBase64, htmlToImageBase64 } from 'src/pluginSrc/channels/ImageChannel';
 import { getOptimizedConfig } from 'src/config/performanceConfig';
 import { performanceMonitor } from 'src/utils/performanceMonitor';
+import { getResumeFileConfig } from 'src/config/resumeFileConfig.js';
+import { minifyHtml, lightMinify, deepMinify } from 'src/utils/htmlMinifier.js';
+import { formatName } from 'src/util/index.js';
 
-/**
- * 处理姓名，将带**的姓名替换成对应的先生/女士
- * @param {Object} params - 参数对象
- * @param {string} params.name - 姓名
- * @param {number} params.gender - 性别（1为男性，非1为女性）
- * @returns {string} 处理后的姓名
- */
-export function formatName({ name, gender }) {
-  // 如果名字为空，直接返回
-  if (!name) return '';
-  
-  // 如果名字中不包含**，直接返回原名字
-  if (!name.includes('**')) return name;
-  
-  // 根据性别确定称呼
-  const title = gender === 1 ? '先生' : '女士';
-  
-  // 替换**为对应的称呼
-  return name.replace('**', title);
-}
 
 // 清除HTML标签函数
 function stripHtmlTags(text) {
@@ -36,8 +19,26 @@ export function bossDomGenerator() {
   const { proxy } = getCurrentInstance();
   const svgToBase64 = proxy.$svgBase64Manager;
 
+  const cssContent = `
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f5f5f5;
+    }
+    .resume-container {
+      max-width: 790px;
+      margin: 0 auto;
+      background: white;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      overflow: hidden;
+    }`
+
   // 生成Boss简历完整页面
   const generateBossResume = async(resumeJsonStr) => {
+    const config = getResumeFileConfig();
+    
     try {
       const data = JSON.parse(resumeJsonStr);
       const { geekDetail } = data;
@@ -46,12 +47,11 @@ export function bossDomGenerator() {
       const projExpList = geekDetail.geekProjExpList;
       const eduExpList = geekDetail.geekEduExpList;
       const honorList = geekDetail.geekHonorList;
-      const trainingList = geekDetail.geekTrainingExpList;
       const professionalSkill = geekDetail.professionalSkill;
       const genderSvgUrl = await svgToBase64?.getSvgBase64(baseInfo.gender === 1 ? '/index/header/icons/geekMan.svg' : '/index/header/icons/geekWoman.svg');
 
-      return `
-        <div style="width: 790px; background: #fff; font-family: 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #333; line-height: 1.6; padding: 30px; box-sizing: border-box;font-size: 13px;">
+      let htmlContent = `
+        <div style="width: auto; background: #fff; font-family: 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #333; line-height: 1.6; padding: 30px; box-sizing: border-box;font-size: 13px;">
           
           <!-- 基本信息部分 -->
           <div style="display: flex;align-items: start;gap: 10px;">
@@ -235,6 +235,45 @@ export function bossDomGenerator() {
 
         </div>
       `;
+
+      // 根据配置应用压缩
+      if (config.html.minify) {
+        const originalSize = htmlContent.length;
+        console.log('开始压缩简历HTML内容...', { 
+          originalSize: `${originalSize} 字符`,
+          minifyLevel: config.html.minifyLevel || 'standard'
+        });
+
+        // 根据压缩级别选择压缩方式
+        switch (config.html.minifyLevel) {
+          case 'light':
+            htmlContent = lightMinify(htmlContent);
+            break;
+          case 'deep':
+            htmlContent = deepMinify(htmlContent);
+            break;
+          default:
+            // 标准压缩
+            htmlContent = minifyHtml(htmlContent, {
+              removeComments: true,
+              removeRedundantWhitespace: true,
+              preserveLineBreaks: false,
+              collapseWhitespace: true,
+              removeEmptyLines: true,
+              trimLines: true,
+              preservePreTags: true
+            });
+        }
+
+        console.log('简历HTML内容压缩完成:', {
+          originalSize: `${originalSize} 字符`,
+          compressedSize: `${htmlContent.length} 字符`,
+          savedBytes: originalSize - htmlContent.length,
+          compressionLevel: config.html.minifyLevel || 'standard'
+        });
+      }
+
+      return htmlContent;
     } catch (error) {
       console.error('解析简历数据失败:', error);
       return `
@@ -243,6 +282,82 @@ export function bossDomGenerator() {
         </div>
       `;
     }
+  }
+
+  // 简历信息直接生成HTML文件
+  const resumeGenerateHtmlFiles = async(resumes, isSingle) => {
+    performanceMonitor.start('resumeGenerateHtmlFiles');
+    console.log('开始生成HTML文件...', resumes);
+    
+    if(resumes.length <= 0) return {}
+
+    // 存储简历信息
+    const maps = resumes.reduce((obj, {id, ...args}) => {
+      obj[id] = args
+      return obj
+    }, {})
+
+    let result = {
+      data: []
+    };
+
+    performanceMonitor.start('dataFetching');
+    if(isSingle) {
+      console.log('单个相似简历模式开始获取数据...', resumes);
+      result.data = await Promise.all(resumes.map(async (item) => {
+        return {
+          resumeBlindId: item.id,
+          content: JSON.stringify(await bossFindJobDetail(item)),
+        }
+      }))
+      console.log('单个相似简历模式获取到简历数据:', result);
+    }else {
+      console.log('批量简历开始获取简历数据...');
+      result = await getResumeBlindList(Object.keys(maps))
+      console.log('批量简历获取到简历数据:', result);
+    }
+    performanceMonitor.end('dataFetching', { resumeCount: result.data?.length || 0 });
+
+    if (!result.data || result.data.length === 0) {
+      performanceMonitor.end('resumeGenerateHtmlFiles', { success: false, reason: 'no_data' });
+      return {}
+    }
+
+    performanceMonitor.start('htmlGeneration');
+    console.log('开始生成HTML文件...');
+    
+    // 生成HTML内容
+    const htmlContents = await Promise.all(result.data.map(async (item) => {
+      const html = await generateBossResume(item.content);
+      return {
+        html,
+        id: item.resumeBlindId,
+      };
+    }));
+    
+    performanceMonitor.end('htmlGeneration', { htmlCount: htmlContents.length });
+    console.log('所有HTML生成完成，准备创建文件...', htmlContents);
+    
+    // 直接返回HTML内容，不进行图片转换
+    const finalResult = htmlContents.reduce((obj, item) => {
+      obj[item.id] = {
+        ...maps[item.id],
+        htmlContent: item.html, // 直接存储HTML内容
+        fileType: 'html' // 标记文件类型
+      }
+      return obj;
+    }, {});
+    
+    performanceMonitor.end('resumeGenerateHtmlFiles', { 
+      success: true, 
+      resumeCount: resumes.length,
+      resultCount: Object.keys(finalResult).length 
+    });
+    
+    // 输出简要总结
+    performanceMonitor.printSummary();
+    
+    return finalResult;
   }
 
   // 简历信息生成图片base64
@@ -321,8 +436,8 @@ export function bossDomGenerator() {
       }
     }
     
-    performanceMonitor.end('htmlGeneration', { htmlCount: htmls.length });
-    console.log('所有HTML生成完成，开始转换为图片...');
+    performanceMonitor.end('htmlGeneration', { htmls, htmlCount: htmls.length });
+    console.log('所有HTML生成完成，开始转换为图片...', htmls);
     
     performanceMonitor.start('imageConversion');
     
@@ -435,7 +550,8 @@ export function bossDomGenerator() {
     }
   }
 
-  return {
-    resumeGenerateBase64s
-  }
+  return [
+    resumeGenerateHtmlFiles,
+    cssContent
+  ]
 }
