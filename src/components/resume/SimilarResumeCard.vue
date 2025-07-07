@@ -137,11 +137,10 @@ const openDetailInNewWindow = (url) => {
   const iTop = (window.screen.availHeight + 30 - iHeight) / 2;
   const iLeft = (window.screen.availWidth - 10 - iWidth) / 2;
 
-  // 打开新窗口
+  // 打开新标签页
   window.open(
     url,
-    name,
-    `height=${iHeight},innerHeight=${iHeight},width=${iWidth},innerWidth=${iWidth},top=${iTop},left=${iLeft},status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no`
+    '_blank'
   );
 }
 

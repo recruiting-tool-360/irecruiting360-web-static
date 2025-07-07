@@ -16,6 +16,7 @@ class IframeMessenger {
     this.targetOrigins = Array.isArray(targetOrigin) 
       ? targetOrigin 
       : [targetOrigin];
+    this._lastReceivedOrigin = null; // 添加属性来存储最后一次接收到消息的域名
     this.sourceName = sourceName;
     this.timeout = timeout;
     this.handlers = new Map();
@@ -36,14 +37,28 @@ class IframeMessenger {
 
   async handleMessage(event) {
     try {
+      // 调试日志
+      console.group('IframeMessenger 收到消息');
+      console.log('Origin:', event.origin);
+      console.log('Data:', event.data);
+      console.log('Source:', event.source);
+      console.groupEnd();
+
       // 检查是否来自允许的域名
       const isValidOrigin =
-        this.targetOrigins.includes("*") ||
-        this.targetOrigins.includes(event.origin);
+        this.targetOrigins.some(originRule => {
+          if (originRule === '*') return true;
+          if (originRule instanceof RegExp) return originRule.test(event.origin);
+          return originRule === event.origin;
+        });
+
       if (!isValidOrigin) {
         console.warn(`Message from unauthorized origin: ${event.origin}`);
         return;
       }
+
+      // 记录最后一次接收到消息的域名
+      this._lastReceivedOrigin = event.origin;
 
       if (!event.data) {
         console.warn("Received empty message");
@@ -135,8 +150,26 @@ class IframeMessenger {
         this.pendingMessages.set(messageId, { resolve, reject, timer });
       }
 
-      // 如果包含通配符,则向所有域名发送
-      if (this.targetOrigins.includes("*")) {
+      // 获取最后一次接收到消息的域名
+      const lastReceivedOrigin = this._lastReceivedOrigin;
+      
+      // 如果有最后接收到的域名，优先使用该域名发送
+      if (lastReceivedOrigin && this.targetOrigins.some(originRule => {
+        if (originRule === '*') return true;
+        if (originRule instanceof RegExp) return originRule.test(lastReceivedOrigin);
+        return originRule === lastReceivedOrigin;
+      })) {
+        this.targetWindow.postMessage(
+          {
+            type,
+            data,
+            from: this.sourceName,
+            messageId,
+          },
+          lastReceivedOrigin
+        );
+      } else {
+        // 如果没有最后接收到的域名或域名不在白名单中，则使用通配符
         this.targetWindow.postMessage(
           {
             type,
@@ -146,22 +179,6 @@ class IframeMessenger {
           },
           "*"
         );
-      } else {
-        // 向所有允许的域名发送消息
-        this.targetOrigins.forEach((origin) => {
-          if (origin !== "*") {
-            // 如果不是通配符,则向指定域名发送
-            this.targetWindow.postMessage(
-              {
-                type,
-                data,
-                from: this.sourceName,
-                messageId,
-              },
-              origin
-            );
-          }
-        });
       }
 
       // connect和disconnect消息直接resolve
@@ -173,62 +190,51 @@ class IframeMessenger {
 
   connect() {
     this.isConnected = true;
-    // 向所有允许的域名发送连接消息
-    if (this.targetOrigins.includes("*")) {
+    // 如果有最后接收到的域名，优先使用
+    if (this._lastReceivedOrigin) {
       this.targetWindow?.postMessage(
         {
           type: "connect", 
           data: { status: "connected" },
           from: this.sourceName,
         },
-        "*"
+        this._lastReceivedOrigin
       );
     } else {
-      this.targetOrigins.forEach((origin) => {
-        try {
-          this.targetWindow?.postMessage(
-            {
-              type: "connect",
-              data: { status: "connected" },
-              from: this.sourceName,
-            },
-            origin
-          );
-        } catch (error) {
-          console.warn(`Failed to send disconnect message to ${origin}:`, error);
-        }
-      });
+      // 没有最后接收到的域名，使用通配符发送
+      this.targetWindow?.postMessage(
+        {
+          type: "connect",
+          data: { status: "connected" },
+          from: this.sourceName,
+        },
+        "*"
+      );
     }
-  
   }
 
   disconnect() {
     this.isConnected = false;
-    // 向所有允许的域名发送断开连接消息
-    if (this.targetOrigins.includes("*")) {
+    // 如果有最后接收到的域名，优先使用
+    if (this._lastReceivedOrigin) {
       this.targetWindow?.postMessage(
         {
           type: "disconnect", 
           data: { status: "disconnected" },
           from: this.sourceName,
         },
-        "*"
+        this._lastReceivedOrigin
       );
     } else {
-      this.targetOrigins.forEach((origin) => {
-        try {
-          this.targetWindow?.postMessage(
-            {
-              type: "disconnect",
-              data: { status: "disconnected" },
-              from: this.sourceName,
-            },
-            origin
-          );
-        } catch (error) {
-          console.warn(`Failed to send disconnect message to ${origin}:`, error);
-        }
-      });
+      // 没有最后接收到的域名，使用通配符发送
+      this.targetWindow?.postMessage(
+        {
+          type: "disconnect",
+          data: { status: "disconnected" },
+          from: this.sourceName,
+        },
+        "*"
+      );
     }
   }
 

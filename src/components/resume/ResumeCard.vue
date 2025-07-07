@@ -370,9 +370,8 @@ const openDetailInNewWindow = (url) => {
   // 打开新窗口
   window.open(
     url,
-    name,
-    `height=${iHeight},innerHeight=${iHeight},width=${iWidth},innerWidth=${iWidth},top=${iTop},left=${iLeft},status=no,toolbar=no,menubar=no,location=no,resizable=no,scrollbars=0,titlebar=no`
-  );
+    '_blank'
+  );  
 }
 
 // 替换openDetailInNewWindow2函数
