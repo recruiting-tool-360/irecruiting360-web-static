@@ -94,7 +94,7 @@ export function job51DomGenerator() {
       ` : '';
 
       // 个人优势
-      const skillsHtml = data?.pskillslabel && data?.pskillslabel?.length > 0 ? `
+      const skillsHtml = data?.selfintro || (data?.pskillslabel && data?.pskillslabel?.length > 0) ? `
           <div class="section">
               <h3 class="section-title">个人优势</h3>
               
@@ -216,7 +216,7 @@ export function job51DomGenerator() {
       const itSkillHtml = data?.itskill && data?.itskill?.length > 0 ? `
           <div class="section">
               <h3 class="section-title">技能/语言</h3>
-              <div class="pl-15px" style="display: flex; flex-direction: row; gap: 20px;">
+              <div class="pl-15px" style="display: flex; flex-direction: row; gap: 20px;flex-wrap: wrap;">
                   ${data?.itskill?.map(skill => {
                       // 根据能力等级设置样式
                       let skillStyle = '';
@@ -230,7 +230,7 @@ export function job51DomGenerator() {
                       
                       return `
                           <div style="margin-bottom: 8px; display: flex;align-items: center;">
-                              <div style="font-weight: 600;">${skill?.ittype}</div>
+                              <div style="font-weight: 600;margin-right: 4px;">${skill?.ittype}</div>
                               <div class="skill-tag" style="${skillStyle} margin: 0;">${skill?.ability}</div>
                           </div>
                       `;
