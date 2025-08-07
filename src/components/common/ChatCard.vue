@@ -1392,8 +1392,9 @@ defineExpose({
 
 .chat-message-time {
   font-size: 0.7rem;
-  margin-top: 4px;
-  text-align: right;
+  margin-top: auto;
+  margin-right: auto;
+  text-align: left;
 }
 
 .chat-message-user .chat-message-time {
