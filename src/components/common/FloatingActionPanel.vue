@@ -13,7 +13,7 @@
       >
         <q-tooltip>{{ isPanelCollapsed ? '展开面板' : '收起面板' }}</q-tooltip>
       </q-btn>
-      
+
       <q-btn
         v-morph:chat-btn:chat-morph:300.resize="morphState"
         round

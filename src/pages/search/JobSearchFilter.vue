@@ -790,6 +790,7 @@ watch(() => showFilterPanel.value, (newVal) => {
 //重置当前工作地址
 const resetCurrentWorkPlace = () => {
   currentWorkPlaceVal.value = '';
+  expectedWorkLocationLabelVal.value='上海市';
 }
 
 // 暴露给父组件的方法

@@ -1,36 +1,46 @@
 <template>
-  <q-item class="resume-item q-mb-md rounded-borders"
-          :style="`border-left: ${resume.isRead ? 'revert-layer' : '4px solid var(--q-primary-70)'}`"
-          v-ripple clickable @click="viewDetail" :data-id="resume.id" :data-resume-id="resume.id">
-    <!-- 头部：基本信息 -->
-    <q-item-section>
-      <div class="row justify-between items-center q-pb-sm">
-        <!--   已读图标     -->
-        <div class="absolute-top-left" v-if="resume.isRead">
-          <q-avatar square class="q-mr-sm" size="md">
-            <img :src="'/index/header/searchPage/read.svg'"/>
-          </q-avatar>
-        </div>
-        <!-- 左侧：姓名、性别、年龄、工作经验 -->
-        <div class="col-8">
-          <div class="row items-center">
-            <q-avatar class="q-mr-sm" size="lg">
-              <img :src="`${resume.gender === 1 ? '/index/header/icons/geekMan.svg' : '/index/header/icons/geekWoman.svg'}`" />
+  <div @click="viewDetail" :data-id="resume.id" :data-resume-id="resume.id">
+    <q-item class="resume-item q-mb-md rounded-borders"
+            :style="`border-left: ${resume.isRead ? 'revert-layer' : '4px solid var(--q-primary-70)'}; cursor:pointer`"
+    >
+      <!-- 头部：基本信息 -->
+      <q-item-section>
+        <div class="row justify-between items-center q-pb-sm">
+          <!--   已读图标     -->
+          <div class="absolute-top-left" v-if="resume.isRead">
+            <q-avatar square class="q-mr-sm" size="md">
+              <img :src="'/index/header/searchPage/read.svg'"/>
             </q-avatar>
-            <span class="text-h6 text-grey-8 q-mr-sm">{{ resume.name }}</span>
-            <q-badge v-if="resume.gender === 1" color="blue-5" class="q-mr-sm">男</q-badge>
-            <q-badge v-else-if="resume.gender === 0" color="pink-5" class="q-mr-sm">女</q-badge>
-            <span class="text-grey-8">{{ resume.ageDesc }}</span>
-            <q-badge outline v-if="resume.experienceYear" rounded color="primary" class="q-ml-md q-px-sm">{{ resume.experienceYear === -1 ? '应届生' : `${resume.experienceYear}年经验` }}</q-badge>
-            <q-badge  outline rounded color="teal" class="q-ml-sm q-px-sm">{{ resume.degree }}</q-badge>
-            <q-badge outline v-if="resume.status" rounded color="warning" class="q-ml-sm q-px-sm">{{ resume.status }}</q-badge>
-            <q-badge outline v-if="resume.intention" rounded color="purple" class="q-ml-sm q-px-sm">{{ resume.intention || '未填写' }}</q-badge>
-            <q-badge outline rounded color="grey-7" class="q-ml-sm q-px-sm">
-              <q-avatar size="12px" class="q-mx-sm">
-                <img :src="getChannelImage(resume.channel)" />
-              </q-avatar>
-              {{ resume.channel }}</q-badge>
           </div>
+          <!-- 左侧：姓名、性别、年龄、工作经验 -->
+          <div class="col-8">
+            <div class="row items-center">
+              <q-avatar class="q-mr-sm" size="lg">
+                <img
+                    :src="`${resume.gender === 1 ? '/index/header/icons/geekMan.svg' : '/index/header/icons/geekWoman.svg'}`"/>
+              </q-avatar>
+              <span class="text-h6 q-mr-sm">{{ resume.name }}</span>
+              <q-badge v-if="resume.gender === 1" color="blue-5" class="q-mr-sm">男</q-badge>
+              <q-badge v-else-if="resume.gender === 0" color="pink-5" class="q-mr-sm">女</q-badge>
+              <span class="text-grey-8">{{ resume.ageDesc }}</span>
+              <q-badge outline v-if="resume.experienceYear" rounded color="primary" class="q-ml-md q-px-sm">
+                {{ resume.experienceYear === -1 ? '应届生' : `${resume.experienceYear}年经验` }}
+              </q-badge>
+              <q-badge outline rounded color="teal" class="q-ml-sm q-px-sm">{{ resume.degree }}</q-badge>
+              <q-badge outline v-if="resume.status" rounded color="warning" class="q-ml-sm q-px-sm">{{
+                  resume.status
+                }}
+              </q-badge>
+              <q-badge outline v-if="resume.intention" rounded color="purple" class="q-ml-sm q-px-sm">
+                {{ resume.intention || '未填写' }}
+              </q-badge>
+              <q-badge outline rounded color="grey-7" class="q-ml-sm q-px-sm">
+                <q-avatar size="12px" class="q-mr-xs">
+                  <img :src="getChannelImage(resume.channel)"/>
+                </q-avatar>
+                {{ resume.channel }}
+              </q-badge>
+            </div>
 
           <div class="q-mt-sm">
             <div v-if="resume.description" class="text-body2 text-grey-7 q-mt-xs description-text">
@@ -222,28 +232,30 @@
 <!--        <p class="q-ml-lg q-mt-xs text-body2 description-text">{{ resume.description }}</p>-->
 <!--      </div>-->
 
-      <!-- 底部标签和操作按钮 -->
-      <div class="row justify-end items-center">
-<!--        <div>-->
-<!--          <q-chip-->
-<!--            v-if="resume.status"-->
-<!--            outline-->
-<!--            :color="getStatusColor(resume.status)"-->
-<!--            size="sm"-->
-<!--          >-->
-<!--            {{ resume.status }}-->
-<!--          </q-chip>-->
-<!--          <q-chip outline color="grey-7" size="sm">-->
-<!--            {{ resume.channel }}-->
-<!--          </q-chip>-->
-<!--        </div>-->
-<!--        <div>-->
-<!--          <q-btn flat color="primary" label="详情" size="sm" @click.stop="viewDetail" />-->
-<!--          <q-btn color="primary" label="约面试" size="sm" @click.stop="scheduleInterview" />-->
-<!--        </div>-->
-      </div>
-    </q-item-section>
-  </q-item>
+        <!-- 底部标签和操作按钮 -->
+        <div class="row justify-end items-center">
+          <!--        <div>-->
+          <!--          <q-chip-->
+          <!--            v-if="resume.status"-->
+          <!--            outline-->
+          <!--            :color="getStatusColor(resume.status)"-->
+          <!--            size="sm"-->
+          <!--          >-->
+          <!--            {{ resume.status }}-->
+          <!--          </q-chip>-->
+          <!--          <q-chip outline color="grey-7" size="sm">-->
+          <!--            {{ resume.channel }}-->
+          <!--          </q-chip>-->
+          <!--        </div>-->
+          <!--        <div>-->
+          <!--          <q-btn flat color="primary" label="详情" size="sm" @click.stop="viewDetail" />-->
+          <!--          <q-btn color="primary" label="约面试" size="sm" @click.stop="scheduleInterview" />-->
+          <!--        </div>-->
+        </div>
+      </q-item-section>
+    </q-item>
+  </div>
+
   <AIResumeEvaluation
     v-model:visible="showAIEvaluation"
     :resume-data="resume"
@@ -1064,7 +1076,6 @@ onMounted(() => {
 }
 
 .resume-item:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   transform: translateY(-3px);
 }
 
