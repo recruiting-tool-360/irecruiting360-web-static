@@ -35,7 +35,7 @@
     </div>
 
     <div class="resume-content">
-      <div class="operation-sticky row q-mb-md items-center justify-between">
+      <div class="operation-sticky row q-mb-sm items-center justify-between">
         <div class="text-subtitle1 text-weight-medium full-width flex justify-between">
           <div class="row items-center">
             <q-checkbox v-if="resumeBatchMode" v-model="allSelected" :indeterminate="selectedIds.length > 0 && selectedIds.length < filteredResumes.length" class="q-mr-md" size="xs">

@@ -7,69 +7,69 @@
     </div>
 
     <q-card flat bordered class="search-filter-card q-px-xs" style="min-height: 90vh">
-      <q-card-section class="q-pa-sm channel-sticky">
+      <q-card-section class="q-pa-xs channel-sticky">
         <!-- 渠道标签和操作按钮区域 -->
         <div class="row no-wrap">
           <!-- 渠道标签区域 (7/12) -->
           <div class="col-9 channel-container" style="">
             <q-tabs
-              v-model="selectedChannel"
-              dense
-              inline-label
-              no-caps
-              @update:model-value="handleChannelSelection"
-              class="channel-tabs bg-white text-grey-9 text-bold shadow-2 flex justify-lg-start"
-              active-color="primary"
-              align="left"
-              indicator-color="primary"
-              :breakpoint="0"
+                v-model="selectedChannel"
+                dense
+                inline-label
+                no-caps
+                @update:model-value="handleChannelSelection"
+                class="channel-tabs bg-white text-grey-9 text-bold shadow-2 flex justify-lg-start"
+                active-color="primary"
+                align="left"
+                indicator-color="primary"
+                :breakpoint="0"
             >
               <!-- 渠道聚合 Tab -->
               <q-tab
-                name="ALL"
-                @click="handleChannelSelection('ALL')"
-                class="channel-tab"
+                  name="ALL"
+                  @click="handleChannelSelection('ALL')"
+                  class="channel-tab"
               >
                 <q-avatar size="sm" color="primary" text-color="white" class="q-mr-sm">
                   {{ allChannelStatus.ALL?.name?.charAt(0)?.toUpperCase() || '?' }}
                 </q-avatar>
                 <span class="text-subtitle2">{{allChannelStatus.ALL.name}}</span>
-<!--                <q-badge v-if="allChannelStatus.ALL.dataSize > 0" color="red-5" floating>-->
-<!--                  {{ allChannelStatus.ALL.dataSize }}-->
-<!--                </q-badge>-->
+                <!--                <q-badge v-if="allChannelStatus.ALL.dataSize > 0" color="red-5" floating>-->
+                <!--                  {{ allChannelStatus.ALL.dataSize }}-->
+                <!--                </q-badge>-->
               </q-tab>
 
               <!-- 动态显示的渠道选项 -->
               <q-tab
-                v-for="channel in visibleChannels"
-                :key="channel.key"
-                :name="channel.key"
-                v-show="getChannelDisable(channel.key)"
-                @click="handleChannelSelection(channel.key)"
-                class="channel-tab"
+                  v-for="channel in visibleChannels"
+                  :key="channel.key"
+                  :name="channel.key"
+                  v-show="getChannelDisable(channel.key)"
+                  @click="handleChannelSelection(channel.key)"
+                  class="channel-tab"
               >
-<!--                <q-badge class="" :color="channel.login?'green':'red'" floating>{{ channel.login ? '已登录' : '未登录' }}</q-badge>-->
+                <!--                <q-badge class="" :color="channel.login?'green':'red'" floating>{{ channel.login ? '已登录' : '未登录' }}</q-badge>-->
                 <q-avatar size="xs" color="white" text-color="primary" class="q-mr-sm">
-<!--                  {{ channel?.name?.charAt(0)?.toUpperCase() || '?' }}-->
+                  <!--                  {{ channel?.name?.charAt(0)?.toUpperCase() || '?' }}-->
                   <img :src="channel.logo" />
                 </q-avatar>
                 <span class="text-subtitle2">{{channel.name}}</span>
                 <span class="login-status-container" v-if="!channel.login">
-                  (<span 
-                    class="q-ma-none q-pa-none cursor-pointer text-bold" 
+                  (<span
+                    class="q-ma-none q-pa-none cursor-pointer text-bold"
                     :class="channel.login ? 'text-primary' : 'text-grey'"
-                  >{{ channel.login ? '已登录' : '未登录' }}</span>
-                  <q-btn 
-                    v-if="!channel.login" 
-                    flat 
-                    dense 
-                    round 
-                    icon="refresh" 
-                    size="xs" 
-                    class="refresh-btn"
-                    @click.stop="refreshChannelLogin(channel.key)"
-                    @mouseenter="hideTabTooltip(channel.key)"
-                    @mouseleave="showTabTooltip(channel.key)"
+                >{{ channel.login ? '已登录' : '未登录' }}</span>
+                  <q-btn
+                      v-if="!channel.login"
+                      flat
+                      dense
+                      round
+                      icon="refresh"
+                      size="xs"
+                      class="refresh-btn"
+                      @click.stop="refreshChannelLogin(channel.key)"
+                      @mouseenter="hideTabTooltip(channel.key)"
+                      @mouseleave="showTabTooltip(channel.key)"
                   >
                     <q-tooltip>刷新登录状态</q-tooltip>
                   </q-btn>)
@@ -77,9 +77,9 @@
                 <q-badge v-if="channel.dataSize > 0" color="red-5" floating>
                   {{ channel.dataSize }}
                 </q-badge>
-                <q-tooltip 
-                  :ref="(el) => setTooltipRef(el, channel.key)"
-                  :delay="100"
+                <q-tooltip
+                    :ref="(el) => setTooltipRef(el, channel.key)"
+                    :delay="100"
                 >
                   {{ !getChannelDisable(channel.key) ? '已禁用' : (channel.login ? '已登录' : '请登录')}}
                 </q-tooltip>
@@ -87,10 +87,10 @@
 
               <!-- 收藏 Tab -->
               <q-tab
-                v-if="chatId && !isHidden"
-                name="Collect"
-                @click="handleChannelSelection('Collect')"
-                class="channel-tab"
+                  v-if="chatId && !isHidden"
+                  name="Collect"
+                  @click="handleChannelSelection('Collect')"
+                  class="channel-tab"
               >
                 <q-avatar size="sm" color="primary" text-color="white" class="q-mr-sm">
                   {{ allChannelStatus.Collect?.name?.charAt(0)?.toUpperCase() || '?' }}
@@ -103,22 +103,22 @@
 
               <!-- 更多渠道下拉菜单 -->
               <q-btn-dropdown
-                v-if="hiddenChannels.length > 0"
-                auto-close
-                stretch
-                flat
-                icon="more_horiz"
-                class="text-primary more-dropdown"
+                  v-if="hiddenChannels.length > 0"
+                  auto-close
+                  stretch
+                  flat
+                  icon="more_horiz"
+                  class="text-primary more-dropdown"
               >
                 <q-list>
                   <q-item
-                    v-for="channel in hiddenChannels"
-                    v-show="channel.key!=='LIEPIN'"
-                    :key="channel.key"
-                    clickable
-                    v-close-popup
-                    @click="handleChannelSelection(channel.key)"
-                    class="channel-dropdown-item"
+                      v-for="channel in hiddenChannels"
+                      v-show="channel.key!=='LIEPIN'"
+                      :key="channel.key"
+                      clickable
+                      v-close-popup
+                      @click="handleChannelSelection(channel.key)"
+                      class="channel-dropdown-item"
                   >
                     <q-item-section>
                       <div>
@@ -129,20 +129,20 @@
                         <q-badge class="q-ml-xs q-mb-xs" rounded align="middle" :color="!getChannelDisable(channel.key) ? 'grey' : (channel.login ? 'green' : 'red')" outline>
                           {{ !getChannelDisable(channel.key) ? '已禁用' : (channel.login ? '已登录' : '未登录') }}
                         </q-badge>
-                    </div>
+                      </div>
                     </q-item-section>
                     <q-item-section side v-if="channel.dataSize > 0">
                       <q-badge color="red-5">{{ channel.dataSize }}</q-badge>
                     </q-item-section>
                     <q-item-section side v-if="!channel.login" class="text-grey-6">
-                      <q-btn 
-                        flat 
-                        dense 
-                        round 
-                        icon="refresh" 
-                        size="xs" 
-                        class="refresh-btn"
-                        @click.stop="refreshChannelLogin(channel.key)"
+                      <q-btn
+                          flat
+                          dense
+                          round
+                          icon="refresh"
+                          size="xs"
+                          class="refresh-btn"
+                          @click.stop="refreshChannelLogin(channel.key)"
                       >
                         <q-tooltip>刷新登录状态</q-tooltip>
                       </q-btn>
@@ -161,22 +161,22 @@
               <!-- 左侧操作 -->
               <div class="col-auto">
                 <q-checkbox
-                  v-model="onlyShowUnread"
-                  label="未读"
-                  size="xs"
-                  dense
-                  class="q-mr-sm text-bold"
-                  :class="onlyShowUnread?'text-primary' : 'text-grey-7'"
-                  @update:model-value="handleUnreadChange"
+                    v-model="onlyShowUnread"
+                    label="未读"
+                    size="xs"
+                    dense
+                    class="q-mr-sm text-bold"
+                    :class="onlyShowUnread?'text-primary' : 'text-grey-7'"
+                    @update:model-value="handleUnreadChange"
                 />
 
                 <q-btn
-                  v-if="selectedChannel  !== 'Collect'"
-                  flat
-                  dense
-                  :color="aiSort ? 'primary' : 'grey-7'"
-                  @click="toggleAiSort"
-                  class="q-mr-sm"
+                    v-if="selectedChannel  !== 'Collect'"
+                    flat
+                    dense
+                    :color="aiSort ? 'primary' : 'grey-7'"
+                    @click="toggleAiSort"
+                    class="q-mr-sm"
                 >
                   <q-icon :name="aiSort ? 'auto_awesome' : 'sort'" size="xs"></q-icon>
                   AI排序
@@ -186,33 +186,33 @@
 
               <!-- 右侧操作 -->
               <div class="col-auto">
-<!--                <q-btn-->
-<!--                  flat-->
-<!--                  dense-->
-<!--                  color="primary"-->
-<!--                  @click="loadMoreData"-->
-<!--                  class="q-mr-sm"-->
-<!--                >-->
-<!--                  <q-icon name="refresh" size="xs"></q-icon>-->
-<!--                  加载更多数据-->
-<!--                  <q-tooltip>加载更多数据</q-tooltip>-->
-<!--                </q-btn>-->
+                <!--                <q-btn-->
+                <!--                  flat-->
+                <!--                  dense-->
+                <!--                  color="primary"-->
+                <!--                  @click="loadMoreData"-->
+                <!--                  class="q-mr-sm"-->
+                <!--                >-->
+                <!--                  <q-icon name="refresh" size="xs"></q-icon>-->
+                <!--                  加载更多数据-->
+                <!--                  <q-tooltip>加载更多数据</q-tooltip>-->
+                <!--                </q-btn>-->
 
                 <!-- 更多操作下拉菜单 -->
                 <q-btn-dropdown
-                  flat
-                  dense
-                  color="primary"
-                  icon="more_vert"
-                  label=""
+                    flat
+                    dense
+                    color="primary"
+                    icon="more_vert"
+                    label=""
                 >
                   <q-list>
-<!--                    <q-item clickable v-close-popup @click="exportData">-->
-<!--                      <q-item-section avatar>-->
-<!--                        <q-icon name="download" color="primary" />-->
-<!--                      </q-item-section>-->
-<!--                      <q-item-section>导出数据</q-item-section>-->
-<!--                    </q-item>-->
+                    <!--                    <q-item clickable v-close-popup @click="exportData">-->
+                    <!--                      <q-item-section avatar>-->
+                    <!--                        <q-icon name="download" color="primary" />-->
+                    <!--                      </q-item-section>-->
+                    <!--                      <q-item-section>导出数据</q-item-section>-->
+                    <!--                    </q-item>-->
 
                     <q-item clickable v-close-popup @click="toggleBatchMode">
                       <q-item-section avatar>
@@ -221,12 +221,12 @@
                       <q-item-section>{{ store.getters.getResumeBatchMode ? '关闭批量操作' : '开启批量操作' }}</q-item-section>
                     </q-item>
 
-<!--                    <q-item clickable v-close-popup @click="markAllAsRead">-->
-<!--                      <q-item-section avatar>-->
-<!--                        <q-icon name="mark_email_read" color="blue" />-->
-<!--                      </q-item-section>-->
-<!--                      <q-item-section>标记所有为已读</q-item-section>-->
-<!--                    </q-item>-->
+                    <!--                    <q-item clickable v-close-popup @click="markAllAsRead">-->
+                    <!--                      <q-item-section avatar>-->
+                    <!--                        <q-icon name="mark_email_read" color="blue" />-->
+                    <!--                      </q-item-section>-->
+                    <!--                      <q-item-section>标记所有为已读</q-item-section>-->
+                    <!--                    </q-item>-->
 
                     <q-separator />
 
@@ -245,24 +245,24 @@
       </q-card-section>
 
       <!-- 内容区域 -->
-      <q-card-section class="list-container">
+      <q-card-section class="list-container q-py-none">
 <!--        <div v-if="isLoading && !hasData" class="flex flex-center q-pa-xl">-->
 <!--          <q-spinner color="primary" size="3em" />-->
 <!--          <div class="q-ml-sm text-subtitle1">正在加载数据...</div>-->
 <!--        </div>-->
 
-<!--        <div v-else-if="!hasData" class="flex flex-center column q-pa-xl">-->
-<!--          <q-icon name="search_off" size="4em" color="grey-5" />-->
-<!--          <div class="text-subtitle1 q-mt-md text-grey-7">暂无数据</div>-->
-<!--          <q-btn-->
-<!--            outline-->
-<!--            color="primary"-->
-<!--            class="q-mt-md"-->
-<!--            icon="refresh"-->
-<!--            label="刷新"-->
-<!--            @click="loadMoreData"-->
-<!--          />-->
-<!--        </div>-->
+        <!--        <div v-else-if="!hasData" class="flex flex-center column q-pa-xl">-->
+        <!--          <q-icon name="search_off" size="4em" color="grey-5" />-->
+        <!--          <div class="text-subtitle1 q-mt-md text-grey-7">暂无数据</div>-->
+        <!--          <q-btn-->
+        <!--            outline-->
+        <!--            color="primary"-->
+        <!--            class="q-mt-md"-->
+        <!--            icon="refresh"-->
+        <!--            label="刷新"-->
+        <!--            @click="loadMoreData"-->
+        <!--          />-->
+        <!--        </div>-->
 
         <div class="search-result-container">
           <!-- 使用v-show替代动态组件加载 -->
@@ -289,8 +289,8 @@
 
     <!-- 添加渠道设置对话框 -->
     <channel-settings-dialog
-      v-model:visible="showSettingsDialog"
-      @save-channel-config="saveChannelEnable"
+        v-model:visible="showSettingsDialog"
+        @save-channel-config="saveChannelEnable"
     />
 
     <!-- 添加插件安装提醒对话框 -->
@@ -298,10 +298,10 @@
 
     <!-- 添加强制更新对话框 -->
     <force-update-dialog
-      v-model:visible="showForceUpdateDialog"
-      :current-version="currentVersion"
-      :latest-version="latestVersion"
-      @update="handleForceUpdate"
+        v-model:visible="showForceUpdateDialog"
+        :current-version="currentVersion"
+        :latest-version="latestVersion"
+        @update="handleForceUpdate"
     />
   </div>
 </template>
@@ -369,8 +369,8 @@ const allChannelStatus = computed(() => store.getters.getChannelConf);
 // 所有第三方渠道配置
 const allThirdPartyChannelConfig = computed(() => {
   return Object.entries(allChannelStatus.value)
-    .filter(([key, channel]) => !(key === 'ALL' || key === 'Collect'))
-    .map(([key, channel]) => ({ ...channel }));
+      .filter(([key, channel]) => !(key === 'ALL' || key === 'Collect'))
+      .map(([key, channel]) => ({ ...channel }));
 });
 
 //渠道设置配置
@@ -589,11 +589,11 @@ const verifyComponentMapping = () => {
     console.log('现有渠道映射:', channelComponents);
     // 尝试从对象上获取信息
     console.log('渠道键和名称详情:',
-      Object.keys(allChannelStatus.value).map(key => ({
-        key,
-        name: allChannelStatus.value[key].name,
-        matchedComponent: channelComponents[key] ? 'Yes' : 'No'
-      }))
+        Object.keys(allChannelStatus.value).map(key => ({
+          key,
+          name: allChannelStatus.value[key].name,
+          matchedComponent: channelComponents[key] ? 'Yes' : 'No'
+        }))
     );
   } else {
     componentLoadError.value = false;
@@ -622,10 +622,10 @@ const checkPluginInstalled = async () => {
     // 直接通过初始化插件配置来检查插件是否安装
     const result = await initializePluginConfig();
     return result &&
-           result.baseConfigResult &&
-           result.cookieConfigResult &&
-           result.baseConfigResult.success &&
-           result.cookieConfigResult.success;
+        result.baseConfigResult &&
+        result.cookieConfigResult &&
+        result.baseConfigResult.success &&
+        result.cookieConfigResult.success;
   } catch (error) {
     console.error('插件检测失败:', error);
     // $q.notify({
@@ -696,31 +696,31 @@ const checkChannelLoginStatus = async () => {
   ];
 
   const results = await Promise.allSettled(
-    checkPromises.map(async ({ key, check }) => {
-      try {
-        const result = await check();
-        const isLoggedIn = result;
+      checkPromises.map(async ({ key, check }) => {
+        try {
+          const result = await check();
+          const isLoggedIn = result;
 
-        // 更新登录状态
-        store.commit('changeChannelConfLogin', {
-          key: key,
-          value: isLoggedIn
-        });
-
-        // 如果登录了，不再禁用
-        if (isLoggedIn) {
-          store.commit('changeChannelConfDisable', {
+          // 更新登录状态
+          store.commit('changeChannelConfLogin', {
             key: key,
-            value: false
+            value: isLoggedIn
           });
-        }
 
-        return { key, isLoggedIn };
-      } catch (error) {
-        console.error(`${key} 登录状态检查失败:`, error);
-        return { key, isLoggedIn: false };
-      }
-    })
+          // 如果登录了，不再禁用
+          if (isLoggedIn) {
+            store.commit('changeChannelConfDisable', {
+              key: key,
+              value: false
+            });
+          }
+
+          return { key, isLoggedIn };
+        } catch (error) {
+          console.error(`${key} 登录状态检查失败:`, error);
+          return { key, isLoggedIn: false };
+        }
+      })
   );
 
   // console.log('渠道登录状态检查结果:', results);
@@ -753,10 +753,10 @@ const initPluginAndChannels = async () => {
   console.log('插件是否需要更新：', pluginUpdateSwitch);
   currentVersion.value = pluginUpdateSwitch.localVersion;
   latestVersion.value = pluginUpdateSwitch.remoteVersion;
-  
+
   // 根据检测结果设置强制更新开关状态
   store.commit('setForceUpdateVisible', pluginUpdateSwitch.flag);
-  
+
   if(pluginUpdateSwitch.flag){
     // 显示强制更新对话框
     showForceUpdateDialog.value = true;
@@ -1179,15 +1179,15 @@ const handleUnreadChange = (value) => {
 const forceUpdateChannelView = async () => {
   // 获取最新的渠道状态信息
   const latestChannelStatus = store.getters.getChannelConf;
-  
+
   // 强制更新渠道显示
   await nextTick();
-  
+
   // 重新构建渠道列表
   let allChannels = Object.entries(latestChannelStatus)
-    .filter(([key]) => !(key === 'ALL' || key === 'Collect'))
-    .map(([key, channel]) => ({ ...channel }));
-  
+      .filter(([key]) => !(key === 'ALL' || key === 'Collect'))
+      .map(([key, channel]) => ({ ...channel }));
+
   // 根据可用空间分配渠道
   const containerWidth = document.querySelector('.channel-container')?.offsetWidth || 800;
   const tabBarPadding = 20;
@@ -1197,7 +1197,7 @@ const forceUpdateChannelView = async () => {
   const remainingWidth = availableWidth - fixedTabsWidth;
   const averageTabWidth = 110;
   const maxVisibleTabs = Math.floor(remainingWidth / averageTabWidth);
-  
+
   if (maxVisibleTabs >= allChannels.length) {
     visibleChannels.value = [...allChannels];
     hiddenChannels.value = [];
@@ -1205,21 +1205,21 @@ const forceUpdateChannelView = async () => {
     visibleChannels.value = [...allChannels.slice(0, Math.max(0, maxVisibleTabs))];
     hiddenChannels.value = [...allChannels.slice(Math.max(0, maxVisibleTabs))];
   }
-  
+
   // 告知 Vue 这些数组已经变化
   visibleChannels.value = [...visibleChannels.value];
   hiddenChannels.value = [...hiddenChannels.value];
-  
+
   // 等待 UI 更新
   await nextTick();
 };
 
 // 添加刷新渠道登录状态的方法
 const refreshChannelLogin = async (key) => {
-  
+
   try {
     let result = false;
-    
+
     // 根据渠道类型执行不同的登录检查逻辑
     switch (key) {
       case 'BOSS':
@@ -1238,13 +1238,13 @@ const refreshChannelLogin = async (key) => {
         console.warn(`未知渠道: ${key}`);
         break;
     }
-    
+
     // 更新渠道登录状态
     store.commit('changeChannelConfLogin', {
       key: key,
       value: result
     });
-    
+
     // 如果登录了，不再禁用
     if (result) {
       store.commit('changeChannelConfDisable', {
@@ -1252,25 +1252,25 @@ const refreshChannelLogin = async (key) => {
         value: false
       });
     }
-    
+
     // 强制更新渠道视图
     await forceUpdateChannelView();
-    
+
     // 显示结果通知
     $q.notify({
-      message: result 
-        ? `${allChannelStatus.value[key]?.name || key} 已成功登录` 
-        : `${allChannelStatus.value[key]?.name || key} 未登录，请先在浏览器中登录该网站`,
+      message: result
+          ? `${allChannelStatus.value[key]?.name || key} 已成功登录`
+          : `${allChannelStatus.value[key]?.name || key} 未登录，请先在浏览器中登录该网站`,
       color: result ? 'positive' : 'gray',
       icon: result ? 'check_circle' : 'warning',
       position: 'top',
       timeout: 1500
     });
-    
+
     return result;
   } catch (error) {
     console.error(`${key} 登录状态检查失败:`, error);
-    
+
     // 显示错误通知
     $q.notify({
       message: `${allChannelStatus.value[key]?.name || key} 登录状态检查失败`,
@@ -1279,7 +1279,7 @@ const refreshChannelLogin = async (key) => {
       position: 'top',
       timeout: 3000
     });
-    
+
     return false;
   } finally {
     // 关闭加载提示
@@ -1312,7 +1312,7 @@ const hideTabTooltip = (key) => {
   }
 };
 
-// 显示tab tooltip  
+// 显示tab tooltip
 const showTabTooltip = (key) => {
   const tooltip = tooltipRefs.value[key];
   if (tooltip && typeof tooltip.show === 'function') {
@@ -1343,7 +1343,7 @@ const showTabTooltip = (key) => {
   transition: all 0.3s;
   position: relative;
   min-width: auto;
-  padding: 0 8px;
+  padding: 0 12px;
 }
 
 .login-status-container {

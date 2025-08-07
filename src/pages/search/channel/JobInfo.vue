@@ -6,7 +6,7 @@
     </div>
 
     <div v-else-if="!hasData" class="flex flex-center column q-pa-xl" style="margin-top: 16%">
-      <q-avatar square>
+      <q-avatar square size="120px">
         <img :src="'/image/notData.png'">
       </q-avatar>
       <div class="text-subtitle1 q-mt-md text-grey-7">暂无数据</div>

@@ -10,7 +10,6 @@
 
         <div class="absolute-bottom-left text-center q-pb-lg">
           <q-btn
-            color="primary"
             label="安装插件"
             size="md"
             class="plugin-install-btn q-py-sm q-px-md q-ml-xl q-mb-lg"
@@ -111,5 +110,7 @@ defineExpose({
   font-weight: bold;
   font-size: 1.1rem;
   border-radius: 8px;
+  color: white;
+  background-color: #1f7cff;
 }
 </style>

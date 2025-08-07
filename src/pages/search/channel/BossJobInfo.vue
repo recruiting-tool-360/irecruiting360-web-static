@@ -18,7 +18,7 @@
         <div class="text-caption q-mt-sm text-grey-7  full-width text-center">登录后可查看更多职位信息</div>
       </div>
       <div v-else class="full-width" style="display: contents">
-        <q-avatar square>
+        <q-avatar square size="120px">
           <img :src="'/image/notData.png'">
         </q-avatar>
         <div class="text-subtitle1 q-mt-md text-grey-7">暂无{{channelConfig.name}}数据</div>

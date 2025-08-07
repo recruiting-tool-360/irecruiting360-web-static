@@ -69,8 +69,14 @@
           :class="['chat-message', msg.type === 'user' ? 'chat-message-user' : 'chat-message-bot']"
         >
           <div class="chat-message-avatar">
-            <q-avatar :color="msg.type === 'user' ? 'primary' : 'secondary'" text-color="white" size="28px" :class="`${msg.type === 'user'?'invisible':''}`">
-              {{ msg.type === 'user' ? '我' : 'AI' }}
+            <q-avatar v-if="!visibleThirdSwitchPlus" size="28px"
+            :color="msg.type === 'user' ? 'primary' : 'secondary'" text-color="white"
+            :class="`${msg.type === 'user'?'invisible':''}`"
+            >
+              AI
+            </q-avatar>
+            <q-avatar v-else size="28px" :class="`${msg.type === 'user'?'invisible':''}`">
+              <img src="/image/AIavatar.png">
             </q-avatar>
           </div>
           <div class="chat-message-content">
@@ -89,6 +95,7 @@
 
             <!-- 消息操作按钮 -->
             <div v-if="msg.type === 'bot' && !(chatFluxStatus && index === displayMessages.length - 1)" class="message-actions">
+              <div class="chat-message-time text-grey-6">{{ msg.time || '' }}</div>
               <q-btn v-if="!chatFluxStatus" class="btn-common" flat size="sm" icon="content_copy" @click="handleCopy(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')" outline color="primary" text-color="#1F2329" label="复制">
                 <q-tooltip>复制</q-tooltip>
               </q-btn>
@@ -99,8 +106,6 @@
                 <q-tooltip>聚合搜索</q-tooltip>
               </q-btn>
             </div>
-
-            <div class="chat-message-time text-grey-6">{{ msg.time || '' }}</div>
           </div>
         </div>
       </div>
@@ -135,16 +140,17 @@
         </div>
       </div>
       <!--  输入框    -->
-      <div class="input-container q-mt-md">
+      <div class="input-container">
         <q-input
-          v-model="chatMessage"
-          borderless
-          type="textarea"
-          :input-style="{ maxHeight: '150px', overflow: 'auto', resize: 'none' }"
-          placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
-          class="full-width message-input"
-          @keydown.enter.exact.prevent="() => sendChatMessage()"
-          @keydown.shift.enter.prevent="newLine"
+            v-model="chatMessage"
+            borderless
+            type="textarea"
+            autogrow
+            :input-style="{maxHeight: '50vh',minHeight: '40px',height:'40px',overflow: 'auto',resize: 'none'}"
+            placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
+            class="full-width message-input"
+            @keydown.enter.exact.prevent="() => sendChatMessage()"
+            @keydown.shift.enter.prevent="newLine"
         >
           <template v-slot:hint v-if="!chatFluxStatus">
             <span class="text-grey-6">Shift+Enter 换行，Enter 发送</span>
@@ -345,15 +351,112 @@ const parseMarkdown = (content) => {
   return md.render(content || '');
 };
 
-// 复制消息内容
+const parseMarkdownCopy = (content) => {
+  let html = md.render(content || '');
+
+  // 定义需要处理的特定标题
+  const titles = ['专业技能', '软实力要求', '相关经历'];
+  // 正则表达式匹配包含特定标题的div结构
+  const regex = new RegExp(
+      `(<div[^>]*>\\s*<div[^>]*>\\s*(${titles.join('|')})[^<]*</div>\\s*<div[^>]*>)([\\s\\S]*?)(</div>\\s*</div>)`,
+      'gi'
+  );
+
+  // 替换处理
+  html = html.replace(regex, (match, prefix, title, content, suffix) => {
+    // 匹配内容部分中的每个条目div
+    const itemRegex = /<div[^>]*>([\s\S]*?)<\/div>/gi;
+    let lastIndex = 0;
+    let result = '';
+    let itemMatch;
+    let items = [];
+
+    // 收集所有条目
+    while ((itemMatch = itemRegex.exec(content)) !== null) {
+      items.push({
+        full: itemMatch[0],
+        inner: itemMatch[1],
+        start: itemMatch.index,
+        end: itemRegex.lastIndex
+      });
+    }
+
+    // 重新构建内容，在非最后一个条目末尾添加分号
+    items.forEach((item, index) => {
+      // 添加当前条目之前的内容（原始文本或空白）
+      result += content.substring(lastIndex, item.start);
+      result += item.full.replace(/([^>])(<\/div>)$/, '$1；$2');
+      lastIndex = item.end;
+    });
+
+    // 添加条目之后的内容
+    result += content.substring(lastIndex);
+
+    return prefix + result + suffix;
+  });
+console.log('html',html)
+  return html;
+};
+
 const handleCopy = (content) => {
   try {
     // 创建临时元素提取纯文本
     const tempElement = document.createElement('div');
-    tempElement.innerHTML = parseMarkdown(content);
-    const textToCopy = tempElement.innerText || tempElement.textContent;
+    tempElement.innerHTML = parseMarkdownCopy(content);
+    const plainText = tempElement.innerText || tempElement.textContent;
 
-    navigator.clipboard.writeText(textToCopy);
+    // 分割自然语言描述和结构化数据部分
+    const descriptionEndIndex = plainText.indexOf('职位：');
+    let naturalLanguage = '';
+    let structuredData = '';
+
+    if (descriptionEndIndex !== -1) {
+      naturalLanguage = plainText.substring(0, descriptionEndIndex).trim();
+      structuredData = plainText.substring(descriptionEndIndex);
+    } else {
+      naturalLanguage = plainText;
+    }
+
+    const fields = {
+      position: extractField(structuredData, /职位：(.*?)(?=工作地点：|$)/),
+      location: extractField(structuredData, /工作地点：([\s\S]*?)(?=(?:工作经验：|学历要求：|$))/),
+      experience: extractField(structuredData, /工作经验：([\s\S]*?)(?=(?:学历要求：|薪资范围：|$))/),
+      education: extractField(structuredData, /学历要求：([\s\S]*?)(?=(?:薪资范围：|专业技能：|$))/),
+      salary: extractField(structuredData, /薪资范围：([\s\S]*?)(?=(?:专业技能：|软实力要求：|$))/),
+      skills: extractField(structuredData, /专业技能：([\s\S]*?)(?=(?:软实力要求：|相关经历：|$))/),
+      softSkills: extractField(structuredData, /软实力要求：([\s\S]*?)(?=(?:相关经历：|$))/),
+      relatedExperience: extractField(structuredData, /相关经历：([\s\S]*)/)
+    };
+
+    // 构建格式化的文本 - 确保自然语言描述保持单行
+    let formattedText = naturalLanguage.replace(/\s+/g, ' ').trim();
+
+    if (fields.position) {
+      formattedText += `\n职位：${fields.position}`;
+    }
+
+    if (fields.location || fields.experience || fields.education) {
+      formattedText += `\n工作地点：${fields.location || ''}  工作经验：${fields.experience || ''}  学历要求：${fields.education || ''}`;
+    }
+
+    if (fields.salary) {
+      formattedText += `  薪资范围：${fields.salary}`;
+    }
+
+    if (fields.skills) {
+      formattedText += `\n专业技能：${fields.skills}`;
+    }
+
+    if (fields.softSkills) {
+      formattedText += `\n软实力要求：${fields.softSkills}`;
+    }
+
+    if (fields.relatedExperience) {
+      formattedText += `\n相关经历：${fields.relatedExperience}`;
+    }
+
+    // 复制格式化后的文本
+    navigator.clipboard.writeText(formattedText);
     $q.notify({
       message: '复制成功',
       color: 'positive',
@@ -369,6 +472,12 @@ const handleCopy = (content) => {
     });
   }
 };
+
+// 辅助函数：从文本中提取字段
+function extractField(text, regex) {
+  const match = text.match(regex);
+  return match ? match[1].trim() : '';
+}
 
 //新建聊天
 const handleNewChat = () => {
@@ -585,7 +694,7 @@ const largePanelStyle = computed(() => {
   if (visibleThirdSwitchPlus.value) {
     return chatPanelLargeStyle.value;
   }
-  
+
   // 正常模式
   if (props.containerWidth && props.containerHeight) {
     return {
@@ -618,7 +727,7 @@ const chatPanelLargeStyle = computed(() => {
     width: props.containerWidth ? `${props.containerWidth}px` : 'calc(100% - 280px)', // 默认减去左侧菜单宽度
     left: props.containerLeft ? `${props.containerLeft}px` : '280px' // 默认与左侧菜单宽度一致
   };
-  
+
   // 当 visibleThirdSwitchPlus 为 true 时，header 高度为 0
   if (visibleThirdSwitchPlus.value) {
     return {
@@ -626,7 +735,7 @@ const chatPanelLargeStyle = computed(() => {
       top: '0',
       height: '100vh'
     };
-  } 
+  }
   // 当header可见时，调整top位置
   else if (headerVisible.value) {
     return {
@@ -1114,7 +1223,7 @@ onMounted(() => {
 // 插入消息到输入框的方法
 const insertMessageToInput = async (msg) => {
   console.log('接收到外部消息，准备插入到输入框:', msg);
-  
+
   // 确保聊天框是最大状态
   if (!props.expanded) {
     console.log('切换聊天框到最大状态');
@@ -1122,18 +1231,18 @@ const insertMessageToInput = async (msg) => {
     emit('update:expanded', true);
     // 触发切换事件
     emit('toggle-expand');
-    
+
     // 等待动画完成
     await new Promise(resolve => setTimeout(resolve, 500));
   }
-  
+
   // 确保聊天面板可见
   if (!props.visible) {
     console.log('显示聊天面板');
     emit('open-chat');
     await nextTick();
   }
-  
+
   fillMessageToInput(msg)
 };
 
