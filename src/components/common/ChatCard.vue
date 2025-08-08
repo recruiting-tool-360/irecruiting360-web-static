@@ -1261,11 +1261,15 @@ const adjustHeight = () => {
     const textarea = inputRef.value?.$el?.querySelector('textarea');
     if (!textarea) return;
 
-    const contentHeight = textarea.scrollHeight;
+    // 关键修复：空内容时强制使用最小高度
+    if (!chatMessage.value.trim()) {
+      textarea.style.height = '40px';
+      return;
+    }
 
-    // 计算新高度（限制在40px ~ 50vh之间）
+    const contentHeight = textarea.scrollHeight;
     const minHeight = 40;
-    const maxHeight = window.innerHeight * 0.5; // 50vh
+    const maxHeight = window.innerHeight * 0.5;
     let newHeight = contentHeight;
 
     if (newHeight < minHeight) newHeight = minHeight;
