@@ -146,12 +146,13 @@
             v-model="chatMessage"
             borderless
             type="textarea"
-            :input-style="{minHeight: '40px',maxHeight:'50vh',height:'40px',overflow: 'auto',resize: 'none'}"
+            autogrow
+            :input-style="{minHeight: '40px',maxHeight:maxHeight,height:'40px',overflow: 'auto',resize: 'none'}"
             placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
             class="full-width message-input"
             @keydown.enter.exact.prevent="() => sendChatMessage()"
             @keydown.shift.enter.prevent="newLine"
-            @input="adjustHeight"
+            @input="setMaxHeight"
         >
           <template v-slot:hint v-if="!chatFluxStatus">
             <span class="text-grey-6">Shift+Enter 换行，Enter 发送</span>
@@ -221,6 +222,7 @@ const isFirstMessage = ref(false);
 const isNewChat = ref(true);
 //jobSearchFilterRef
 const jobSearchFilterRef = computed(() => store.getters.getJobSearchFilterRefValue);
+const maxHeight = ref('');
 
 const msgYYY = '我已经为你生成了大致搜索条件，系统会依据这个生成完整搜索条件来精准查找合适简历。大致搜索条件是：2025 届毕业生，本科及以上计算机相关专业，对算法有兴趣，强编码能力，熟悉 linux 开发环境，掌握机器学习等相关技术，有相关领域经验优先。接下来系统会自动处理，你稍作等待就能看到符合要求的简历啦。\n' +
     '[&AI_SEARCH&]\n' +
@@ -299,7 +301,7 @@ const emit = defineEmits([
 const chatMessage = ref('');
 const isAnimating = ref(false);
 const chatCardRef = ref(null);
-const inputRef = ref(null);
+// const inputRef = ref(null);
 
 // 拖动功能相关状态
 const isDragging = ref(false);
@@ -1256,42 +1258,46 @@ const fillMessageToInput = async (msg) => {
   }
 }
 
-const adjustHeight = () => {
-  nextTick(() => {
-    const textarea = inputRef.value?.$el?.querySelector('textarea');
-    if (!textarea) return;
-
-    const contentHeight = textarea.scrollHeight;
-
-    // 计算新高度（限制在40px ~ 50vh之间）
-    const minHeight = 40;
-    const maxHeight = window.innerHeight * 0.5; // 50vh
-    let newHeight = contentHeight;
-
-    if (newHeight < minHeight) newHeight = minHeight;
-    if (newHeight > maxHeight) newHeight = maxHeight;
-
-    textarea.style.height = `${newHeight}px`;
-  });
+const setMaxHeight = () => {
+  maxHeight.value = '50vh';
 };
 
-const handleResize = () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(adjustHeight, 100);
-};
-let resizeTimer = null;
-
-onMounted(() => {
-  window.addEventListener('resize', handleResize);
-  adjustHeight(); // 初始化调整
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize);
-});
-
-// 监听内容变化
-watch(chatMessage, adjustHeight);
+// const adjustHeight = () => {
+//   nextTick(() => {
+//     const textarea = inputRef.value?.$el?.querySelector('textarea');
+//     if (!textarea) return;
+//
+//     const contentHeight = textarea.scrollHeight;
+//
+//     // 计算新高度（限制在40px ~ 50vh之间）
+//     const minHeight = 40;
+//     const maxHeight = window.innerHeight * 0.5; // 50vh
+//     let newHeight = contentHeight;
+//
+//     if (newHeight < minHeight) newHeight = minHeight;
+//     if (newHeight > maxHeight) newHeight = maxHeight;
+//
+//     textarea.style.height = `${newHeight}px`;
+//   });
+// };
+//
+// const handleResize = () => {
+//   clearTimeout(resizeTimer);
+//   resizeTimer = setTimeout(adjustHeight, 100);
+// };
+// let resizeTimer = null;
+//
+// onMounted(() => {
+//   window.addEventListener('resize', handleResize);
+//   adjustHeight(); // 初始化调整
+// });
+//
+// onBeforeUnmount(() => {
+//   window.removeEventListener('resize', handleResize);
+// });
+//
+// // 监听内容变化
+// watch(chatMessage, adjustHeight);
 
 // 向外暴露方法
 defineExpose({
