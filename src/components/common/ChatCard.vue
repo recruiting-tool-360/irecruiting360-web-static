@@ -142,15 +142,16 @@
       <!--  输入框    -->
       <div class="input-container">
         <q-input
+            ref="inputRef"
             v-model="chatMessage"
             borderless
             type="textarea"
-            autogrow
             :input-style="{maxHeight: '50vh',minHeight: '40px',height:'40px',overflow: 'auto',resize: 'none'}"
             placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
             class="full-width message-input"
             @keydown.enter.exact.prevent="() => sendChatMessage()"
             @keydown.shift.enter.prevent="newLine"
+            @input="adjustHeight"
         >
           <template v-slot:hint v-if="!chatFluxStatus">
             <span class="text-grey-6">Shift+Enter 换行，Enter 发送</span>
@@ -179,7 +180,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch , onBeforeUnmount} from 'vue';
 import { useStore } from 'vuex';
 import { useQuasar } from 'quasar';
 import MarkdownIt from 'markdown-it';
@@ -298,6 +299,7 @@ const emit = defineEmits([
 const chatMessage = ref('');
 const isAnimating = ref(false);
 const chatCardRef = ref(null);
+const inputRef = ref(null);
 
 // 拖动功能相关状态
 const isDragging = ref(false);
@@ -1253,6 +1255,43 @@ const fillMessageToInput = async (msg) => {
     }, 500);
   }
 }
+
+const adjustHeight = () => {
+  nextTick(() => {
+    const textarea = inputRef.value?.$el?.querySelector('textarea');
+    if (!textarea) return;
+
+    const contentHeight = textarea.scrollHeight;
+
+    // 计算新高度（限制在40px ~ 50vh之间）
+    const minHeight = 40;
+    const maxHeight = window.innerHeight * 0.5; // 50vh
+    let newHeight = contentHeight;
+
+    if (newHeight < minHeight) newHeight = minHeight;
+    if (newHeight > maxHeight) newHeight = maxHeight;
+
+    textarea.style.height = `${newHeight}px`;
+  });
+};
+
+const handleResize = () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(adjustHeight, 100);
+};
+let resizeTimer = null;
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize);
+  adjustHeight(); // 初始化调整
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize);
+});
+
+// 监听内容变化
+watch(chatMessage, adjustHeight);
 
 // 向外暴露方法
 defineExpose({
