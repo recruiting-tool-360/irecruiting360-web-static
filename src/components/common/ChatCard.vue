@@ -146,7 +146,7 @@
             v-model="chatMessage"
             borderless
             type="textarea"
-            :input-style="{maxHeight: '50vh',minHeight: '40px',height:'40px',overflow: 'auto',resize: 'none'}"
+            :input-style="{maxHeight: '100px',minHeight: '40px',height:'40px',overflow: 'auto',resize: 'none'}"
             placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
             class="full-width message-input"
             @keydown.enter.exact.prevent="() => sendChatMessage()"
