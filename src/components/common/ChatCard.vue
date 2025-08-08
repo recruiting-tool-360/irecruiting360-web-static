@@ -1,56 +1,56 @@
 <!-- 聊天卡片组件 (使用Morph动画) -->
 <template>
   <q-card
-    v-morph:chat-card:chat-morph:300.resize="morphState"
-    class="chat-panel"
-    :class="[
+      v-morph:chat-card:chat-morph:300.resize="morphState"
+      class="chat-panel"
+      :class="[
       expanded ? 'chat-panel-large' : 'chat-panel-small',
       !expanded ? 'draggable-panel' : '',
       verticalExpanded && !expanded ? 'vertical-expanded' : '',
       expanded && visibleThirdSwitchPlus ? 'third-party-mode' : ''
     ]"
-    v-show="visible"
-    :style="[
+      v-show="visible"
+      :style="[
       expanded ? (visibleThirdSwitchPlus ? chatPanelLargeStyle : largePanelStyle) : panelPosition,
       expanded && visibleThirdSwitchPlus ? { width: 'calc(100% - 280px)', left: '280px', right: '0' } : {}
     ]"
-    ref="chatCardRef"
+      ref="chatCardRef"
   >
     <q-card-section
-      class="row items-center justify-between q-py-sm"
-      @mousedown="!expanded && startDrag($event)"
+        class="row items-center justify-between q-py-sm"
+        @mousedown="!expanded && startDrag($event)"
     >
       <div class="text-h6 text-grey-9 invisible" style="user-select: none">
         {{(messages.length === 0 && internalMessages.length === 0 && !isFirstMessage)?'':'AI 智能招聘助手'}}
       </div>
       <div>
         <q-btn
-          flat
-          round
-          dense
-          :icon="expanded ? 'fullscreen_exit' : 'fullscreen'"
-          @click="toggleExpand"
-          :disable="isAnimating"
+            flat
+            round
+            dense
+            :icon="expanded ? 'fullscreen_exit' : 'fullscreen'"
+            @click="toggleExpand"
+            :disable="isAnimating"
         >
           <q-tooltip>{{ expanded ? '缩小' : '放大' }}</q-tooltip>
         </q-btn>
         <q-btn
-          flat
-          round
-          dense
-          :icon="verticalExpanded ? 'unfold_less' : 'unfold_more'"
-          @click="toggleVerticalExpand"
-          :disable="isAnimating"
+            flat
+            round
+            dense
+            :icon="verticalExpanded ? 'unfold_less' : 'unfold_more'"
+            @click="toggleVerticalExpand"
+            :disable="isAnimating"
         >
           <q-tooltip>{{ verticalExpanded ? '纵向缩小' : '纵向放大' }}</q-tooltip>
         </q-btn>
         <q-btn
-          flat
-          round
-          dense
-          icon="remove"
-          @click="$emit('close')"
-          :disable="isAnimating"
+            flat
+            round
+            dense
+            icon="remove"
+            @click="$emit('close')"
+            :disable="isAnimating"
         />
       </div>
     </q-card-section>
@@ -64,14 +64,14 @@
       </div>
       <div v-else class="chat-messages">
         <div
-          v-for="(msg, index) in displayMessages"
-          :key="msg.id || index"
-          :class="['chat-message', msg.type === 'user' ? 'chat-message-user' : 'chat-message-bot']"
+            v-for="(msg, index) in displayMessages"
+            :key="msg.id || index"
+            :class="['chat-message', msg.type === 'user' ? 'chat-message-user' : 'chat-message-bot']"
         >
           <div class="chat-message-avatar">
             <q-avatar v-if="!visibleThirdSwitchPlus" size="28px"
-            :color="msg.type === 'user' ? 'primary' : 'secondary'" text-color="white"
-            :class="`${msg.type === 'user'?'invisible':''}`"
+                      :color="msg.type === 'user' ? 'primary' : 'secondary'" text-color="white"
+                      :class="`${msg.type === 'user'?'invisible':''}`"
             >
               AI
             </q-avatar>
@@ -112,8 +112,8 @@
     </q-card-section>
 
     <q-card-section style="cursor: auto"
-      :key="isFirstMessage ? 'bottom-input' : 'center-input'"
-      :class="[
+                    :key="isFirstMessage ? 'bottom-input' : 'center-input'"
+                    :class="[
         'chat-input q-pa-sm q-my-md',
         {'centered-input': isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage}
       ]"
@@ -146,7 +146,7 @@
             v-model="chatMessage"
             borderless
             type="textarea"
-            :input-style="{maxHeight: '100px',minHeight: '40px',height:'40px',overflow: 'auto',resize: 'none'}"
+            :input-style="{minHeight: '40px',maxHeight:'50vh',height:'40px',overflow: 'auto',resize: 'none'}"
             placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
             class="full-width message-input"
             @keydown.enter.exact.prevent="() => sendChatMessage()"
@@ -163,13 +163,13 @@
             Shift+Enter 换行，Enter 发送
           </q-badge>
           <q-btn
-            round
-            dense
-            :loading="chatFluxStatus"
-            color="primary"
-            icon="send"
-            @click="() => sendChatMessage()"
-            class="send-button"
+              round
+              dense
+              :loading="chatFluxStatus"
+              color="primary"
+              icon="send"
+              @click="() => sendChatMessage()"
+              class="send-button"
           >
             <q-tooltip>{{ chatFluxStatus ? '停止输出' : '发送' }}</q-tooltip>
           </q-btn>
@@ -223,9 +223,9 @@ const isNewChat = ref(true);
 const jobSearchFilterRef = computed(() => store.getters.getJobSearchFilterRefValue);
 
 const msgYYY = '我已经为你生成了大致搜索条件，系统会依据这个生成完整搜索条件来精准查找合适简历。大致搜索条件是：2025 届毕业生，本科及以上计算机相关专业，对算法有兴趣，强编码能力，熟悉 linux 开发环境，掌握机器学习等相关技术，有相关领域经验优先。接下来系统会自动处理，你稍作等待就能看到符合要求的简历啦。\n' +
-  '[&AI_SEARCH&]\n' +
-  '\n' +
-  '<div style=\'background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 10px 0;\'><div><div style=\'display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;\'><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>职位：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>算法工程师</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>工作经验：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>应届生</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>学历要求：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>本科/硕士/博士</div></div></div><div style=\'margin-top: 5px;\'><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>专业技能：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备强悍的编码能力，熟悉linux开发环境，熟悉Hadoop/Hive优先</div><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备扎实的数据结构功底，熟悉机器学习、深度学习、图计算、自然语言处理、数据挖掘、分布式计算中一项或多项</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>软实力要求：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的数理基础和逻辑分析能力</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>对解决具有挑战性的问题充满激情</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-panel; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的主动性和团队合作精神</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>相关经历：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #fff7e6; color: #fa8c16; border: 1px solid #ffd591; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>有搜索引擎、推荐系统、计算广告、图像、互联网风控、智能客服、平台治理等相关领域经验者优先</div></div></div></div></div>';
+    '[&AI_SEARCH&]\n' +
+    '\n' +
+    '<div style=\'background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 10px 0;\'><div><div style=\'display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;\'><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>职位：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>算法工程师</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>工作经验：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>应届生</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>学历要求：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>本科/硕士/博士</div></div></div><div style=\'margin-top: 5px;\'><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>专业技能：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备强悍的编码能力，熟悉linux开发环境，熟悉Hadoop/Hive优先</div><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备扎实的数据结构功底，熟悉机器学习、深度学习、图计算、自然语言处理、数据挖掘、分布式计算中一项或多项</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>软实力要求：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的数理基础和逻辑分析能力</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>对解决具有挑战性的问题充满激情</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-panel; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的主动性和团队合作精神</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>相关经历：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #fff7e6; color: #fa8c16; border: 1px solid #ffd591; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>有搜索引擎、推荐系统、计算广告、图像、互联网风控、智能客服、平台治理等相关领域经验者优先</div></div></div></div></div>';
 // 添加内部消息列表
 const internalMessages = ref([]);
 
@@ -396,7 +396,7 @@ const parseMarkdownCopy = (content) => {
 
     return prefix + result + suffix;
   });
-console.log('html',html)
+  console.log('html',html)
   return html;
 };
 
@@ -1088,42 +1088,42 @@ const sendChatMessage = async (msg) => {
 
       // 发送 AI 请求
       fetchStream(
-        `${process.env.VUE_APP_API_BASE_URL}/ihire/chat/streamChat`,
-        aiRequestMsg,
-        (message) => {
-          try {
-            const jsonString = message.replace(/^data:/, "").trim();
-            if (!jsonString) return;
+          `${process.env.VUE_APP_API_BASE_URL}/ihire/chat/streamChat`,
+          aiRequestMsg,
+          (message) => {
+            try {
+              const jsonString = message.replace(/^data:/, "").trim();
+              if (!jsonString) return;
 
-            const msg = JSON.parse(jsonString);
-            console.log("收到流式响应:", msg);
-            setMsgContainer(msg);
-          } catch (error) {
+              const msg = JSON.parse(jsonString);
+              console.log("收到流式响应:", msg);
+              setMsgContainer(msg);
+            } catch (error) {
+              chatFluxStatus.value = false;
+              console.error("消息解析错误:", error, message);
+              addErrorResponse(messageText, error);
+            }
+            nextTick(() => {
+              scrollChatToBottom();
+            });
+          },
+          (error) => {
             chatFluxStatus.value = false;
-            console.error("消息解析错误:", error, message);
-            addErrorResponse(messageText, error);
-          }
-          nextTick(() => {
-            scrollChatToBottom();
-          });
-        },
-        (error) => {
-          chatFluxStatus.value = false;
-          console.error("Stream error:", error);
-          $q.notify({
-            message: '发送失败: ' + (error?.message || '网络错误'),
-            color: 'negative',
-            position: 'top',
-            timeout: 3000
-          });
+            console.error("Stream error:", error);
+            $q.notify({
+              message: '发送失败: ' + (error?.message || '网络错误'),
+              color: 'negative',
+              position: 'top',
+              timeout: 3000
+            });
 
-          addErrorResponse(messageText, error);
-        },
-        () => {
-          chatFluxStatus.value = false;
-          console.log("聊天正常结束");
-        },
-        abortController.value // 传入 AbortController
+            addErrorResponse(messageText, error);
+          },
+          () => {
+            chatFluxStatus.value = false;
+            console.log("聊天正常结束");
+          },
+          abortController.value // 传入 AbortController
       );
     } catch (streamError) {
       console.error("流式响应出错:", streamError);
@@ -1261,15 +1261,11 @@ const adjustHeight = () => {
     const textarea = inputRef.value?.$el?.querySelector('textarea');
     if (!textarea) return;
 
-    // 关键修复：空内容时强制使用最小高度
-    if (!chatMessage.value.trim()) {
-      textarea.style.height = '40px';
-      return;
-    }
-
     const contentHeight = textarea.scrollHeight;
+
+    // 计算新高度（限制在40px ~ 50vh之间）
     const minHeight = 40;
-    const maxHeight = window.innerHeight * 0.5;
+    const maxHeight = window.innerHeight * 0.5; // 50vh
     let newHeight = contentHeight;
 
     if (newHeight < minHeight) newHeight = minHeight;
