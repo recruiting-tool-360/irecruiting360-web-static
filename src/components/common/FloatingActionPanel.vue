@@ -325,7 +325,7 @@ onMounted(() => {
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 1000;
+  z-index: 999;
   display: flex;
   flex-direction: column;
   align-items: center;
