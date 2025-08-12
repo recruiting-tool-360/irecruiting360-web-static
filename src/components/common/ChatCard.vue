@@ -1605,7 +1605,7 @@ defineExpose({
   display: flex;
   flex-direction: column;
   position: relative;
-  padding: 10px 12px;
+  padding: 10px 24px;
   border-radius: 32px;
   background-color: #f5f5f5;
   box-shadow: 0 1px 2px rgba(0,0,0,0.05) inset;
