@@ -1,40 +1,51 @@
 <template>
   <div class="relative-position">
     <!-- 右侧固定按钮面板 -->
-    <div class="fixed-right-panel" ref="fixedPanelRef" :class="{'panel-collapsed': isPanelCollapsed}">
-      <!-- 收起/展开控制按钮 -->
+    <div class="panel-collapse-button" ref="fixedPanelRef"
+         :class="{'panel-collapsed': isPanelCollapsed, 'panel-hovered': isHovering}"
+         @mouseenter="isHovering = true"
+         @mouseleave="isHovering = false"
+         :style="hoverTransform"
+    >
       <q-btn
-        round
-        size="sm"
-        color="primary"
-        :icon="isPanelCollapsed ? 'chevron_left' : 'chevron_right'"
-        class="collapse-btn q-mb-sm"
-        @click="togglePanelCollapse"
+          round
+          size="sm"
+          color="primary"
+          :icon="isPanelCollapsed ? 'chevron_left' : 'chevron_right'"
+          class="collapse-btn q-mb-sm"
+          @click="togglePanelCollapse"
       >
         <q-tooltip>{{ isPanelCollapsed ? '展开面板' : '收起面板' }}</q-tooltip>
       </q-btn>
-
+    </div>
+    <div class="fixed-right-panel" ref="fixedPanelRef"
+         :class="{'panel-collapsed': isPanelCollapsed, 'panel-hovered': isHovering}"
+         @mouseenter="isHovering = true"
+         @mouseleave="isHovering = false"
+         :style="hoverTransform"
+    >
       <q-btn
-        v-morph:chat-btn:chat-morph:300.resize="morphState"
-        round
-        size="md"
-        class="q-mb-md bg-white text-primary action-btn"
-        label="AI"
-        @click="toggleChatPanel"
+          v-morph:chat-btn:chat-morph:300.resize="morphState"
+          round
+          size="md"
+          class="q-mb-md bg-white text-primary action-btn"
+          label="AI"
+          @click="toggleChatPanel"
       >
-<!--        <q-icon name="chat" color="primary"></q-icon>-->
-<!--        <q-avatar size="sm" color="primary" text-color="white" class="q-mr-sm">-->
-<!--          AI-->
-<!--        </q-avatar>-->
-<!--        AI-->
+        <!--        <q-icon name="chat" color="primary"></q-icon>-->
+        <!--        <q-avatar size="sm" color="primary" text-color="white" class="q-mr-sm">-->
+        <!--          AI-->
+        <!--        </q-avatar>-->
+        <!--        AI-->
         <q-tooltip>AI助手</q-tooltip>
       </q-btn>
 
-<!--      <q-btn round color="primary" :icon="resumeIndexVisible ? 'visibility' : 'visibility_off'" size="md" class="q-mb-md action-btn" @click="toggleRightNav">-->
-<!--        <q-tooltip>{{ resumeIndexVisible ? '隐藏' : '显示' }}数据列表导航</q-tooltip>-->
-<!--      </q-btn>-->
+      <!--      <q-btn round color="primary" :icon="resumeIndexVisible ? 'visibility' : 'visibility_off'" size="md" class="q-mb-md action-btn" @click="toggleRightNav">-->
+      <!--        <q-tooltip>{{ resumeIndexVisible ? '隐藏' : '显示' }}数据列表导航</q-tooltip>-->
+      <!--      </q-btn>-->
 
-      <q-btn round color="primary" :icon="showQueueMonitor ? 'camera_outdoor' : 'camera_indoor'" size="md" class="q-mb-md action-btn" @click="toggleQueueMonitor">
+      <q-btn round color="primary" :icon="showQueueMonitor ? 'camera_outdoor' : 'camera_indoor'" size="md"
+             class="q-mb-md action-btn" @click="toggleQueueMonitor">
         <q-tooltip>{{ showQueueMonitor ? '隐藏' : '显示' }}AI执行监视器</q-tooltip>
       </q-btn>
 
@@ -42,34 +53,35 @@
         <q-tooltip>回到顶部</q-tooltip>
       </q-btn>
     </div>
-
     <!-- 使用ChatCard组件代替内联代码 -->
     <ChatCard
-      ref="chatCardRef"
-      :visible="showChatPanel"
-      :expanded="chatPanelExpanded"
-      :morph-state="morphState"
-      :messages="chatMessages"
-      :container-width="props.containerWidth"
-      :container-height="props.containerHeight"
-      :container-top="props.containerTop"
-      :container-left="props.containerLeft"
-      @close="toggleChatPanel"
-      @toggle-expand="toggleChatExpand"
-      @send-message="sendChatMessage"
-      @update:expanded="val => chatPanelExpanded = val"
-      @open-chat="showChatPanel = true"
+        ref="chatCardRef"
+        :visible="showChatPanel"
+        :expanded="chatPanelExpanded"
+        :morph-state="morphState"
+        :messages="chatMessages"
+        :container-width="props.containerWidth"
+        :container-height="props.containerHeight"
+        :container-top="props.containerTop"
+        :container-left="props.containerLeft"
+        @close="toggleChatPanel"
+        @toggle-expand="toggleChatExpand"
+        @send-message="sendChatMessage"
+        @update:expanded="val => chatPanelExpanded = val"
+        @open-chat="showChatPanel = true"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
-import { useStore } from 'vuex'; // 引入useStore
+import {ref, computed, nextTick, onMounted, onUnmounted} from 'vue';
+import {useStore} from 'vuex'; // 引入useStore
 import ChatCard from './ChatCard.vue'; // 引入ChatCard组件
 
 // 获取store实例
 const store = useStore();
+
+const isHovering = ref(false);
 
 // 定义组件属性
 const props = defineProps({
@@ -180,7 +192,7 @@ const effectiveContainerTop = computed(() => {
 const largePanelStyle = computed(() => {
   // 计算合适的宽度，减去左侧菜单宽度
   const effectiveWidth = window.innerWidth - props.containerLeft;
-  
+
   if (props.containerWidth && props.containerHeight) {
     return {
       width: visibleThirdSwitchPlus.value ? `${effectiveWidth}px` : `${props.containerWidth}px`,
@@ -208,8 +220,7 @@ const resumeIndexVisible = computed({
 });
 const showChatPanel = ref(true);
 const chatPanelExpanded = ref(true);
-const chatMessages = ref([
-]);
+const chatMessages = ref([]);
 
 // Morph状态控制
 const morphState = computed(() => {
@@ -294,7 +305,12 @@ const scrollToTop = () => {
   });
 };
 
-onMounted(()=>{
+const hoverTransform = computed(() => ({
+  transform: isHovering.value ? 'translateX(-5px)' : 'translateX(0)',
+  transition: 'transform 0.3s ease'
+}));
+
+onMounted(() => {
   if (chatCardRef.value) {
     //初始化ref
     store.commit('changeChatCardRef', chatCardRef.value);
@@ -317,16 +333,22 @@ onMounted(()=>{
   padding: 8px;
   border-radius: 20px;
   background-color: rgba(255, 255, 255, 0.1);
-  //backdrop-filter: blur(5px);
 }
+
+.fixed-right-panel.panel-collapsed {
+  width: 0;
+  padding: 0;
+}
+
 
 /* 鼠标悬停时面板效果 */
-.fixed-right-panel:hover {
-  right: 15px;
-  //background-color: rgba(255, 255, 255, 0.2);
-  //box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-}
 
+/*
+.fixed-right-panel:hover {
+  right:auto;
+}
+right: 15px;
+*/
 /* 收起状态的面板样式 */
 .panel-collapsed .action-btn {
   transform: translateX(60px);
@@ -334,12 +356,10 @@ onMounted(()=>{
   pointer-events: none;
 }
 
-/* 收起按钮始终可见 */
 .collapse-btn {
-  transform: none !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  transition: all 0.3s ease;
+  margin-bottom: 100px;
+  margin-right: 6px;
+  pointer-events: auto;
 }
 
 .collapse-btn:hover {
@@ -354,30 +374,55 @@ onMounted(()=>{
   overflow: visible;
 }
 
-/* 按钮悬停效果 */
-.fixed-right-panel :deep(.q-btn:hover) {
-  transform: scale(1.15);
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-}
 
-/* AI按钮特殊效果 */
-.fixed-right-panel :deep(.bg-white.text-primary:hover) {
-  background: linear-gradient(135deg, #fff 0%, #e6f7ff 100%) !important;
-  transform: scale(1.15) rotate(5deg);
-}
-
-/* 导航按钮特殊效果 */
-.fixed-right-panel :deep(.q-btn:nth-child(2):hover) {
+.fixed-right-panel :deep(.q-btn:nth-child(1):hover) {
   transform: scale(1.15) translateX(-5px);
 }
 
 /* 监视器按钮特殊效果 */
-.fixed-right-panel :deep(.q-btn:nth-child(3):hover) {
+.fixed-right-panel :deep(.q-btn:nth-child(2):hover) {
   transform: scale(1.15) rotate(-5deg);
 }
 
 /* 回到顶部按钮特殊效果 */
 .fixed-right-panel :deep(.q-btn:last-child:hover) {
   transform: scale(1.15) translateY(-5px);
+}
+
+/* 右侧固定按钮面板样式 */
+.panel-collapse-button {
+  position: fixed;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: all 0.3s ease;
+  padding: 8px;
+  border-radius: 20px;
+  background-color: rgba(255, 255, 255, 0.1);
+  margin-top: -40px;
+  pointer-events: none;
+}
+
+.panel-collapse-button.panel-collapsed {
+  pointer-events: none;
+}
+
+/* 鼠标悬停时面板效果 */
+
+/*
+.panel-collapse-button:hover {
+  right:auto;
+}
+right: 15px;
+*/
+/* 按钮通用样式 */
+.panel-collapse-button :deep(.q-btn) {
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  overflow: visible;
 }
 </style>
