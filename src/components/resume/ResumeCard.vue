@@ -747,20 +747,20 @@ const searchALlResumes = async (resume) => {
       const { data: channelSearchCondition } = await saveCondition(searchConditionRequestObj);
       // 获取所有渠道的简历数据
       const jobListRequestDTO = await searchALlResumesRequest(channelSearchCondition);
-
       // 获取相似简历
       let jobList = [];
-      try {
-        const { data: jobListData } = await compareResumeSimilarity({
-          searchVO: jobListRequestDTO,
-          resumeBlindId: resume.id,
-          searchConditionId:channelSearchCondition.id
-        });
-        jobList = jobListData;
-      } catch (error) {
-        console.error('获取相似简历失败:', error);
+      if(jobListRequestDTO&&jobListRequestDTO.length>0){
+        try {
+          const { data: jobListData } = await compareResumeSimilarity({
+            searchVO: jobListRequestDTO,
+            resumeBlindId: resume.id,
+            searchConditionId:channelSearchCondition.id
+          });
+          jobList = jobListData;
+        } catch (error) {
+          console.error('获取相似简历失败:', error);
+        }
       }
-
       console.log('相似简历列表:', jobList);
 
       // 清除超时计时器
@@ -814,19 +814,21 @@ const getSimilarResumes = async (resume) => {
 
     // 获取所有渠道的简历数据
     const jobListRequestDTO = await searchALlResumesRequest(channelSearchCondition);
-
-    try {
-      const { data: jobListData } = await compareResumeSimilarityPlus({
-        searchVO: jobListRequestDTO,
-        resumeBlindId: resume.id,
-        searchConditionId:channelSearchCondition.id
-      });
-      jobList = jobListData;
-    } catch (error) {
-      console.error('获取相似简历失败:', error);
+    if(jobListRequestDTO&&jobListRequestDTO.length>0){
+      try {
+        const { data: jobListData } = await compareResumeSimilarityPlus({
+          searchVO: jobListRequestDTO,
+          resumeBlindId: resume.id,
+          searchConditionId:channelSearchCondition.id
+        });
+        jobList = jobListData;
+      } catch (error) {
+        console.error('获取相似简历失败:', error);
+      }
+      //过滤相同人 resume.matchType === 1
+      jobList = Array.isArray(jobList) ? jobList.filter(item => item.matchType === 1) : [];
     }
-    //过滤相同人 resume.matchType === 1
-    jobList = Array.isArray(jobList) ? jobList.filter(item => item.matchType === 1) : [];
+
   } catch (error) {
     throw error; // 向外层抛出错误
   }
@@ -839,8 +841,13 @@ const searchALlResumesRequest = async (channelSearchCondition) => {
   const searchConditionId = channelSearchCondition.id;
   console.log(channelSearchCondition)
   // 过滤已登录的渠道
-  const loggedInChannels = allThirdPartyChannelConfig.value.filter(channel => channel.login);
+  let loggedInChannels = allThirdPartyChannelConfig.value.filter(channel => channel.login);
+  console.log('已登录渠道:', loggedInChannels)
   let jobListRequestDTO = [];
+  if(loggedInChannels.length > 0){
+    loggedInChannels = loggedInChannels.filter(channel => channel.key !== 'LIEPIN');
+    console.log('已登录渠道2:', loggedInChannels)
+  }
 
   if (loggedInChannels.length > 0) {
     // 使用 Promise.all 进行并发处理

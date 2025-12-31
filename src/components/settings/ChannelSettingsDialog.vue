@@ -69,11 +69,11 @@ const defaultChannelConfig = [
     name: "boss直聘",
     enableConfig: true
   },
-  // {
-  //   key: "LIEPIN",
-  //   name: "猎聘",
-  //   enableConfig: true
-  // },
+  {
+    key: "LIEPIN",
+    name: "猎聘",
+    enableConfig: true
+  },
   {
     key: "JOB51",
     name: "前程无忧",

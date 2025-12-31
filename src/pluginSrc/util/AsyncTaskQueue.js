@@ -2,8 +2,8 @@ import { ref } from 'vue';
 
 // 定义默认配置
 const defaultConfig = {
-  minInterval: 2000,  // 最小间隔时间(毫秒)
-  maxInterval: 6000,  // 最大间隔时间(毫秒)
+  minInterval: 3000,  // 最小间隔时间(毫秒)
+  maxInterval: 8000,  // 最大间隔时间(毫秒)
   maxRetries: 3       // 最大重试次数
 };
 

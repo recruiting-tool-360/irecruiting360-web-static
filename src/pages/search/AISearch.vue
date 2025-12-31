@@ -44,7 +44,7 @@
                   v-for="channel in visibleChannels"
                   :key="channel.key"
                   :name="channel.key"
-                  v-show="getChannelDisable(channel.key)"
+                  v-show="channel.effectiveChannel&&getChannelDisable(channel.key)"
                   @click="handleChannelSelection(channel.key)"
                   class="channel-tab"
               >
@@ -113,7 +113,7 @@
                 <q-list>
                   <q-item
                       v-for="channel in hiddenChannels"
-                      v-show="channel.key!=='LIEPIN'"
+                      v-show="channel.effectiveChannel"
                       :key="channel.key"
                       clickable
                       v-close-popup
@@ -311,6 +311,7 @@ import { ref, computed, onMounted, watch, nextTick, inject } from "vue";
 import { useStore } from "vuex";
 import { useQuasar } from "quasar";
 import {
+  apiListenerProcessor,
   pluginBossResultProcessor,
   pluginJob51ResultProcessor, pluginLIEPINResultProcessor,
   pluginResultProcessor, pluginZhiLianResultProcessor
@@ -456,7 +457,10 @@ const channelComponents = {
 const getChannelDisable = (key) => {
   const channelConfig = showSettingsChannelConfig.value.find(config => config.key === key);
   // 如果找到配置且 enableConfig 为 false 则禁用，否则不禁用
-  if(key==='LIEPIN'){
+  // if(key==='LIEPIN'){
+  //   return false;
+  // }
+  if(!channelConfig){
     return false;
   }
   return channelConfig.enableConfig;
@@ -686,7 +690,7 @@ const checkChannelLoginStatus = async () => {
         try {
           // 使用正确的方法检查登录状态
           const result = await LIEPINJobInfoManager.liePinUserStatus();
-          return result && pluginLIEPINResultProcessor(result);
+          return result && apiListenerProcessor(result);
         } catch (error) {
           console.error('猎聘登录检查失败:', error);
           return false;
@@ -1232,7 +1236,7 @@ const refreshChannelLogin = async (key) => {
         result = await ZhiLianJobInfoManager.zhiLianUserStatus().then(res => res && pluginZhiLianResultProcessor(res));
         break;
       case 'LIEPIN':
-        result = await LIEPINJobInfoManager.liePinUserStatus().then(res => res && pluginLIEPINResultProcessor(res));
+        result = await LIEPINJobInfoManager.liePinUserStatus().then(res => res && apiListenerProcessor(res));
         break;
       default:
         console.warn(`未知渠道: ${key}`);

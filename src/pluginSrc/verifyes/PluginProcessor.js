@@ -8,6 +8,19 @@ export const pluginResultProcessor = (responseData)=>{
     return pluginResultProcessorNoData(responseData)&&responseData.responseData.data;
 }
 
+//api 监听结果处理起
+export const apiListenerProcessor = (responseData)=>{
+    return pluginResultProcessor(responseData)&&responseData.responseData.success===true&&responseData.responseData.data.success===true&&responseData.responseData.data.status===200;
+}
+
+export const getListenerProcessorData = (responseData)=>{
+    return responseData.responseData.data.response;
+}
+
+export const getListenerProcessorALlDataAndConfig = (responseData)=>{
+    return responseData.responseData;
+}
+
 
 export const pluginBossResultProcessor = (responseData)=>{
     return pluginResultProcessor(responseData)&&responseData.responseData.data.message&&responseData.responseData.data.message==='Success';

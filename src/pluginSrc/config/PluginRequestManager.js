@@ -13,7 +13,11 @@ export const pluginAllGroup = {
         UNIVERSAL_REQUEST_BACKGROUND_MAIN:"UNIVERSAL_REQUEST_BACKGROUND_MAIN",
         UPDATE_ROLES_CONFIG:"UPDATE_ROLES_CONFIG",
         GET_PLUGIN_VERSION:"GET_PLUGIN_VERSION",
-        ENABLE_IMAGE_CAPTURE:"ENABLE_IMAGE_CAPTURE"
+        ENABLE_IMAGE_CAPTURE:"ENABLE_IMAGE_CAPTURE",
+        PLUGIN_WORK_AREA:"PLUGIN_WORK_AREA",
+        UNIVERSAL_REQUEST_BACKGROUND_MAIN_DETAIL:"UNIVERSAL_REQUEST_BACKGROUND_MAIN_DETAIL",
+        CLOSE_TAB:"CLOSE_TAB",
+        CLOSE_TAB_ACTION:"CLOSE_TAB_ACTION"
     }
 }
 //插件所有group
@@ -61,6 +65,9 @@ export const pluginAllUrls = {
         userStatus:"/api/com.liepin.tiangong.usere.bpc.get-current-info",
         getAllJobList:"/api/com.liepin.searchfront4r.b.search",
         geekInfo:"/api/com.liepin.rresume.usere.pc.get-resume-detail",
+        search:"/search",
+        userLoginInfo:"https://api-im.liepin.com/api/com.liepin.cbp.im.get-user-info",
+        detailInfo:"https://api-lpt.liepin.com/api/com.liepin.rresume.usere.pc.get-resume-detail"
     },
     JOB51:{
         loginURL:"https://ehire.51job.com/Revision/login",

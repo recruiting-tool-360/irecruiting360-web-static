@@ -5,8 +5,9 @@ import {
     pluginKeys
 } from "src/pluginSrc/config/PluginRequestManager";
 import {
-  pluginLIEPINResultProcessor,
-  pluginResultProcessor
+    apiListenerProcessor, getListenerProcessorALlDataAndConfig, getListenerProcessorData,
+    pluginLIEPINResultProcessor,
+    pluginResultProcessor
 } from "src/pluginSrc/verifyes/PluginProcessor";
 import {saveResumeDetail, saveResumeDetailPlus} from "src/api/jobList/JobListApi";
 import qs from "qs";
@@ -83,6 +84,50 @@ export const getLIEPINHeader = async (flag) => {
 
 //猎聘 用户登陆状态
 export const liePinUserStatus = async () => {
+    try {
+        let pluginBaseConfigEmptyDTO = getPluginBaseConfigEmptyDTO();
+        pluginBaseConfigEmptyDTO.parameters = {
+            apiUrl:pluginAllUrls.LIEPIN.loginURL+pluginAllUrls.LIEPIN.search,
+            currentTargetApis:[pluginAllUrls.LIEPIN.userLoginInfo],
+            autoClose:true,
+
+        };
+        pluginBaseConfigEmptyDTO.group = pluginAllGroup.Sys.PLUGIN_WORK_AREA;
+        pluginBaseConfigEmptyDTO.action = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN_DETAIL;
+        return await i360Request(pluginBaseConfigEmptyDTO.action, pluginBaseConfigEmptyDTO);
+    }catch (ex){
+        console.error(ex)
+        return null;
+    }
+
+    // console.log("liePinUserStatus",requestHeader)
+
+    // let pluginBaseConfigEmptyDTO2 = getPluginBaseConfigEmptyDTO();
+    // pluginBaseConfigEmptyDTO2.parameters = {
+    //     apiUrl:"https://lpt.liepin.com/resume/detail?resIdEncode=842560d970R94b17fa282e9&sfrom=R_SEARCH_CONDITION&ck_id=e0da7ba5-f0e9-4b04-98b6-fec8d9db00d9&sk_id=e0da7ba5-f0e9-4b04-98b6-fec8d9db00d9&fk_id=e0da7ba5-f0e9-4b04-98b6-fec8d9db00d9&sv=abtest-page-search_resume-new&st=0&cur_page=0&page_size=20&auth_status=0&res_source=1&index=0&position=1&sss=effcc296ec9d192cd3e592991168499e&sScene=49382s7WS&dqCode=&jobtitleCode=N000058",
+    //     currentTargetApis:["https://api-lpt.liepin.com/api/com.liepin.rresume.usere.pc.get-resume-detail"],
+    //     autoClose:false,
+    //
+    // };
+    // pluginBaseConfigEmptyDTO2.group = pluginAllGroup.Sys.PLUGIN_WORK_AREA;
+    // pluginBaseConfigEmptyDTO2.action = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN_DETAIL;
+    // let requestHeader2 = await i360Request(pluginBaseConfigEmptyDTO2.action, pluginBaseConfigEmptyDTO2);
+    // console.log("liePinUserStatus2",requestHeader2)
+
+    // if(apiListenerProcessor(requestHeader)){
+    //     let listenerProcessorData = getListenerProcessorALlDataAndConfig(requestHeader);
+    //     console.log("liePinUserStatus",listenerProcessorData)
+    //     let pluginCloseTab = getPluginBaseConfigEmptyDTO();
+    //     pluginCloseTab.group = pluginAllGroup.Sys.CLOSE_TAB;
+    //     pluginCloseTab.action = pluginAllGroup.Sys.CLOSE_TAB_ACTION;
+    //     pluginCloseTab.parameters = {
+    //         workWindowId: listenerProcessorData.targetWorkWindowId,
+    //         tabId: listenerProcessorData.targetTabId
+    //     }
+    //     let newVar = await i360Request(pluginCloseTab.action, pluginCloseTab);
+    //     console.log("liePinUserStatus2",newVar)
+    // }
+
   // const headers = await getLIEPINHeader(true);
   // if(!headers||headers.length===0){
   //   // ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
@@ -94,7 +139,7 @@ export const liePinUserStatus = async () => {
   // pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
   // pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.userStatus;
   // return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
-  return;
+  // return;
 }
 
 
@@ -214,7 +259,44 @@ export const findLIEPINJobDetail = async (data)=>{
 
 //查询简历详情
 export const lIEPINJobDetailFN = async (data)=>{
-  return ;
+    const requestParams = JSON.parse(data.originalResumeUrlInfo);
+    console.log("data",requestParams)
+    console.log("data",requestParams.request.resumeUrl)
+    try {
+        let pluginBaseConfigEmptyDTO = getPluginBaseConfigEmptyDTO();
+        let resumeUrl = requestParams.request.resumeUrl;
+        let replaceUrl = resumeUrl.replace("https://lpt.liepin.com/cvview/showresumedetail?","https://lpt.liepin.com/resume/detail?");
+        console.log("replaceUrl",replaceUrl)
+        pluginBaseConfigEmptyDTO.parameters = {
+            apiUrl:replaceUrl,
+            currentTargetApis:[pluginAllUrls.LIEPIN.detailInfo],
+            autoClose:false,
+        };
+        pluginBaseConfigEmptyDTO.group = pluginAllGroup.Sys.PLUGIN_WORK_AREA;
+        pluginBaseConfigEmptyDTO.action = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN_DETAIL;
+        let info = await i360Request(pluginBaseConfigEmptyDTO.action, pluginBaseConfigEmptyDTO);
+        console.log("liepin request ：",info)
+        if(apiListenerProcessor(info)){
+            let processorData = getListenerProcessorData(info);
+            if(processorData){
+                console.log("processorData",processorData)
+                return processorData;
+                // if(pluginLIEPINResultProcessor(processorData)){
+                //     console.log("processorData2",processorData)
+                //     return processorData.data
+                // }else{
+                //     return null;
+                // }
+            }else{
+                return null;
+            }
+        }else{
+            return null;
+        }
+    }catch (ex){
+        console.error(ex)
+        return null;
+    }
   // if(!await checkUserAuth()){
   //   return;
   // }
@@ -248,14 +330,15 @@ const searchResumeInfo = async (params) => {
     const requestParams = {};
     requestParams.pageParamDto = JSON.stringify(params.requestParams);
     //访问猎聘
-    let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
-    pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
-    pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
-    pluginEmptyRequestTemplate.parameters = qs.stringify(requestParams);
-    pluginEmptyRequestTemplate.requestHeader = headers;
-    pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
-    pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.geekInfo;
-    return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+    // let pluginEmptyRequestTemplate = getPluginEmptyRequestTemplate();
+    // pluginEmptyRequestTemplate.group = pluginAllGroup.Sys.UNIVERSAL_REQUEST_BACKGROUND_MAIN;
+    // pluginEmptyRequestTemplate.tabUrl = pluginAllUrls.LIEPIN.loginURL;
+    // pluginEmptyRequestTemplate.parameters = qs.stringify(requestParams);
+    // pluginEmptyRequestTemplate.requestHeader = headers;
+    // pluginEmptyRequestTemplate.requestType = pluginAllRequestType.POST;
+    // pluginEmptyRequestTemplate.requestPath = pluginAllUrls.LIEPIN.baseUrl+pluginAllUrls.LIEPIN.geekInfo;
+    // return await i360Request(pluginEmptyRequestTemplate.action,pluginEmptyRequestTemplate);
+    return ;
 }
 
 export const checkUserAuth = async ()=>{
@@ -315,6 +398,7 @@ export const exeLIEPINJobInfo = async (data) => {
 export const exeQueueJobInfo = async (data) => {
   try {
     let jobInfo = await lIEPINJobDetailFN(data.resume);
+      console.log("excute data",jobInfo)
     if(jobInfo){
       data.content = jobInfo;
       try {
