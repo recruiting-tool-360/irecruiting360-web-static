@@ -59,6 +59,7 @@ import ResumeList from '../../../components/resume/ResumeList.vue';
 import {channelSearchListSimilar} from "src/pluginSrc/channels/BossJobInfoManager";
 import {clearChannel as clearChannelApi} from "src/pluginSrc/util/AsyncTaskQueueManager";
 import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
+import { openChannelLoginUrl } from "src/util/openChannelLoginUrl";
 
 // 定义组件属性
 const props = defineProps({
@@ -114,9 +115,9 @@ const searchCount = computed(()=>store.getters.getSearchCount);
 //查询渠道配置
 const showSettingsChannelConfig = computed(()=>store.getters.getUserChannelConfig);
 
-//跳转登陆页
+//跳转登陆页：客户端模式下走 IPC 开独立窗口；浏览器模式下走 window.open
 const goToLogin = () => {
-  window.open(pluginAllUrls.BOSS.loginUrl, '_blank');
+  openChannelLoginUrl('boss', pluginAllUrls.BOSS.loginUrl);
 };
 
 //初始化

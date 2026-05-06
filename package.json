@@ -10,7 +10,9 @@
     "format": "prettier --write \"**/*.{js,vue,scss,html,md,json}\" --ignore-path .gitignore",
     "test": "echo \"No test specified\" && exit 0",
     "dev": "quasar dev",
-    "build": "quasar build"
+    "build": "quasar build",
+    "dev:el": "cd ./electron && yarn dev",
+    "dev:el:local": "DEV_TARGET_URL=http://localhost:8080/ npm run dev:el"
   },
   "dependencies": {
     "@quasar/extras": "^1.16.4",
