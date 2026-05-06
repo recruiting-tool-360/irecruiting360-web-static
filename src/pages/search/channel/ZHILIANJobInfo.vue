@@ -61,6 +61,7 @@ import {channelDataSave, channelDataSavePlus} from "src/pluginSrc/util/CannelMan
 import ResumeList from '../../../components/resume/ResumeList.vue';
 import {clearChannel as clearChannelApi} from "src/pluginSrc/util/AsyncTaskQueueManager";
 import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
+import { openChannelLoginUrl } from "src/util/openChannelLoginUrl";
 
 // 定义组件属性
 const props = defineProps({
@@ -119,9 +120,9 @@ const jobList = computed(() =>{
   // return channelConfig.value.data || [];
 });
 
-//跳转登陆页
+//跳转登陆页：客户端模式下走 IPC 开独立窗口；浏览器模式下走 window.open
 const goToLogin = () => {
-  window.open(pluginAllUrls.ZHILIAN.baseUrl, '_blank');
+  openChannelLoginUrl('zhilian', pluginAllUrls.ZHILIAN.baseUrl);
 };
 
 //初始化

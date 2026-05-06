@@ -11,8 +11,8 @@
     </q-toolbar-title>
 
     <!--  右侧按钮列表  -->
-    <!-- 下载插件 -->
-    <q-btn flat round :size="iconSize" icon="extension" @click="togglePluginDownloadDialog">
+    <!-- 下载插件（客户端模式下隐藏） -->
+    <q-btn v-if="!isClient" flat round :size="iconSize" icon="extension" @click="togglePluginDownloadDialog">
       <q-tooltip>
         下载插件
       </q-tooltip>
@@ -71,8 +71,8 @@
       </q-menu>
     </q-btn>
 
-    <!-- 插件下载对话框 -->
-    <plugin-download-dialog />
+    <!-- 插件下载对话框（客户端模式下不渲染） -->
+    <plugin-download-dialog v-if="!isClient" />
   </q-toolbar>
 </template>
 <script setup>
@@ -87,6 +87,10 @@ import {hexToRgb} from "src/util/index";
 import {userlogout} from "src/api/user/UserApi";
 import notify from "src/util/notify";
 import PluginDownloadDialog from 'src/components/plugins/PluginDownloadDialog.vue';
+import { isElectronClient } from "src/util/openChannelLoginUrl";
+
+// 是否在 Electron 客户端模式下：用于隐藏插件相关入口
+const isClient = isElectronClient();
 
 const store = useStore();
 

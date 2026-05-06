@@ -282,6 +282,7 @@ import {getSearchConditionRequest, getSearchStateValues} from "src/pluginSrc/uti
 import AIResumeEvaluation from 'src/components/resume/AIResumeEvaluation.vue';
 import {markResumeBlindReadStatus, userCollectResume} from "src/api/jobList/JobListApi";
 import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
+import { openExternalSiteUrl } from "src/util/openChannelLoginUrl";
 import { useSendResume } from 'src/hooks/useSendResume';
 import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
@@ -371,19 +372,10 @@ const { isVisible } = usePlanVisibility({
 const { resumeGenerateBase64s } = bossDomGenerator();
 
 // 在新窗口中打开详情页面
+// 客户端模式：通过 IPC 让主进程开独立 BrowserWindow（带对应招聘站 partition cookie）
+// 浏览器模式：保持原 window.open 行为
 const openDetailInNewWindow = (url) => {
-  // 设置窗口参数
-  const name = '_blank';
-  const iWidth = window.screen.availWidth * 0.8;
-  const iHeight = window.screen.availHeight * 0.8;
-  const iTop = (window.screen.availHeight + 30 - iHeight) / 2;
-  const iLeft = (window.screen.availWidth - 10 - iWidth) / 2;
-
-  // 打开新窗口
-  window.open(
-    url,
-    '_blank'
-  );  
+  openExternalSiteUrl(url);
 }
 
 // 替换openDetailInNewWindow2函数

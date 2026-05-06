@@ -307,7 +307,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick, inject } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from "vue";
 import { useStore } from "vuex";
 import { useQuasar } from "quasar";
 import {
@@ -340,6 +340,7 @@ import PluginInstallDialog from 'src/components/plugins/PluginInstallDialog.vue'
 import {needForceUpdate} from "src/pluginSrc/util/pluginVersion";
 import ForceUpdateDialog from 'src/components/plugins/ForceUpdateDialog.vue';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
+import { isElectronClient } from 'src/util/openChannelLoginUrl';
 
 // 定义组件属性
 const props = defineProps({
@@ -618,6 +619,10 @@ const initializePluginConfig = async () => {
 
 // 修改检查插件是否安装函数
 const checkPluginInstalled = async () => {
+  // 客户端模式下：能力由 Electron 客户端提供，不依赖浏览器插件，直接视为已安装
+  if (isElectronClient()) {
+    return true;
+  }
   try {
     // 直接通过初始化插件配置来检查插件是否安装
     const result = await initializePluginConfig();
@@ -730,6 +735,17 @@ const checkChannelLoginStatus = async () => {
 const initPluginAndChannels = async () => {
   // isLoading.value = true;
 
+  // 客户端模式：插件能力由 Electron 主进程的 recruitBridge 提供（见 BasePluginManager 的 ElectronAdapter）。
+  // 跳过浏览器插件版本检测、declarativeNetRequest 规则注册（在主进程启动时已用 webRequest 配置好），
+  // 但仍然需要走 checkChannelLoginStatus 让各招聘站登录态被检测到，并显示在渠道 tab 上。
+  if (isElectronClient()) {
+    store.commit('changePluginInstall', true);
+    // 检查各渠道登录状态：调用方式不变，内部通过 ElectronAdapter 走客户端原生
+    await checkChannelLoginStatus();
+    await forceUpdateChannelView();
+    return;
+  }
+
   // 检查插件安装状态（同时会初始化插件配置）
   const pluginInstalled = await checkPluginInstalled();
   if (!pluginInstalled) {
@@ -779,8 +795,43 @@ const initPluginAndChannels = async () => {
   // isLoading.value = false;
 };
 
+// 客户端模式下：监听主进程推送的"渠道登录态可能变化"事件，自动刷新对应渠道
+// 解决"启动时已登录但 header 还没抓到"和"用户点前往登录后没自动刷新"两个场景
+let unsubscribeChannelStatus = null;
+const setupClientChannelStatusListener = () => {
+  if (!isElectronClient()) return;
+  const recruitBridge = window.api?.recruitBridge;
+  if (!recruitBridge?.onChannelStatusChanged) return;
+
+  // 用 debounce + 去重，避免短时间内大量 webRequest 抓 header 触发刷新风暴
+  const pendingChannels = new Set();
+  let scheduleTimer = null;
+  const flush = () => {
+    scheduleTimer = null;
+    const channels = Array.from(pendingChannels);
+    pendingChannels.clear();
+    channels.forEach((channel) => {
+      console.log('[AISearch] auto-refresh channel login:', channel);
+      refreshChannelLogin(channel).catch((err) =>
+        console.error('refreshChannelLogin error', channel, err)
+      );
+    });
+  };
+
+  unsubscribeChannelStatus = recruitBridge.onChannelStatusChanged(({ channel }) => {
+    if (!channel) return;
+    pendingChannels.add(channel);
+    if (!scheduleTimer) {
+      scheduleTimer = setTimeout(flush, 300);
+    }
+  });
+};
+
 // 初始化时加载渠道显示
 onMounted(async () => {
+  // 客户端模式：先注册监听器，让 hydrate / openSiteWindow 触发的事件不丢
+  setupClientChannelStatusListener();
+
   // 初始化插件和渠道状态
   await initPluginAndChannels();
 
@@ -803,6 +854,14 @@ onMounted(async () => {
 
   // 模拟加载数据，实际项目中可以删除
   // simulateDataLoading();
+});
+
+// 组件卸载时取消监听
+onUnmounted(() => {
+  if (unsubscribeChannelStatus) {
+    try { unsubscribeChannelStatus(); } catch (e) { /* ignore */ }
+    unsubscribeChannelStatus = null;
+  }
 });
 
 // 在组件卸载前移除事件监听
@@ -977,8 +1036,8 @@ const handleChannelSelection = (key) => {
 
 // 执行搜索方法 - 由父组件调用
 const executeSearch = async (searchState) => {
-  //检查插件安装
-  if (!pluginInstalled.value) {
+  //检查插件安装（客户端模式下跳过）
+  if (!pluginInstalled.value && !isElectronClient()) {
     pluginInstallDialogRef.value.openDialog();
     return;
   }
@@ -1289,8 +1348,8 @@ const refreshChannelLogin = async (key) => {
 
 // 添加强制更新对话框的更新处理函数
 const handleForceUpdate = () => {
-  // 打开插件安装对话框
-  if (pluginInstallDialogRef.value) {
+  // 客户端模式下：跳过浏览器插件相关弹窗
+  if (!isElectronClient() && pluginInstallDialogRef.value) {
     pluginInstallDialogRef.value.openDialog();
   }
   // 隐藏强制更新对话框
