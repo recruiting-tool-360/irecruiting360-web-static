@@ -14,8 +14,8 @@
  * 业务侧 SPA 不感知客户端 vs 浏览器，调用方式不变（仍走 i360Request），桥接由 BasePluginManager 完成
  */
 
-import { ipcMain, session, BrowserWindow, type Session } from 'electron'
-import { siteWindowManager, SITE_PARTITION } from './ViewManager'
+import { ipcMain, session, BrowserWindow, type Session, type WebContents } from 'electron'
+import { SITE_PARTITION, tabManager } from './TabManager'
 
 // =============== 配置：站点 → partition / header 抓取规则 / Origin 改写规则 ===============
 
@@ -50,13 +50,6 @@ const STORAGE_TO_CHANNEL: Record<string, string> = {
   ZHILIANResponseStorageKey: 'ZHILIAN',
   LIEPINRequestStorageKey: 'LIEPIN',
   JOB51RequestStorageKey: 'JOB51'
-}
-
-const PARTITION_TO_CHANNEL: Record<string, string> = {
-  [SITE_PARTITION.boss]: 'BOSS',
-  [SITE_PARTITION.zhilian]: 'ZHILIAN',
-  [SITE_PARTITION.liepin]: 'LIEPIN',
-  [SITE_PARTITION.job51]: 'JOB51'
 }
 
 /**
@@ -183,33 +176,33 @@ interface CapturedEntry {
 const HEADER_STORAGE = new Map<string, CapturedEntry>()
 
 /**
- * 主窗口引用：用于在 header 抓到后通知 SPA 刷新登录态
+ * 主页 tab 的 webContents 引用：用于在 header 抓到后通知 SPA 刷新登录态。
+ *
+ * ⚠️ 多标签架构下，"SPA"跑在主页 tab 的 WebContentsView 里，
+ *    不再是主窗口本身的 webContents。所有 send('recruit:*') 都要发到这个 ref。
  */
-let mainWindowRef: BrowserWindow | null = null
+let homeWcRef: WebContents | null = null
 
-export function setMainWindowForBridge(win: BrowserWindow): void {
-  mainWindowRef = win
+export function setHomeWebContentsForBridge(wc: WebContents): void {
+  homeWcRef = wc
 }
 
 /**
- * 写入 header 存储；如果是新值，向主窗口发 IPC 事件，SPA 据此刷新对应渠道登录态
+ * 写入 header 存储；如果是新值，向主页 tab 发 IPC 事件，SPA 据此刷新对应渠道登录态
  */
 function recordCapturedHeaders(storageKey: string, entry: CapturedEntry): void {
   const previous = HEADER_STORAGE.get(storageKey)
   HEADER_STORAGE.set(storageKey, entry)
 
   // 仅在内容变更时通知，避免抖动
-  if (
-    !previous ||
-    JSON.stringify(previous.headersData) !== JSON.stringify(entry.headersData)
-  ) {
+  if (!previous || JSON.stringify(previous.headersData) !== JSON.stringify(entry.headersData)) {
     const channel = STORAGE_TO_CHANNEL[storageKey]
     console.log(
       `[recruitBridge] captured ${storageKey} (channel=${channel}):`,
       Object.keys(entry.headersData).join(',')
     )
-    if (channel && mainWindowRef && !mainWindowRef.isDestroyed()) {
-      mainWindowRef.webContents.send('recruit:headersUpdated', { channel, storageKey })
+    if (channel && homeWcRef && !homeWcRef.isDestroyed()) {
+      homeWcRef.send('recruit:headersUpdated', { channel, storageKey })
     }
   }
 }
@@ -406,16 +399,16 @@ async function universalRequest(args: UniversalRequestArgs): Promise<UniversalRe
     if (v != null) finalHeaders[k] = String(v)
   }
 
-  // 优先尝试在站点窗口里执行 fetch（绕过潜在的指纹/CORS 问题）
+  // 优先尝试在站点 tab 的 webContents 里执行 fetch（绕过潜在的指纹/CORS 问题）
   if (tabUrl) {
     const channel = pickChannelForUrl(tabUrl) ?? pickChannelForUrl(url)
     if (channel) {
-      const win = siteWindowManager.getWindow(channel)
-      if (win) {
+      const wc = tabManager.getSiteWebContentsForChannel(channel)
+      if (wc) {
         try {
-          return await fetchInsideWindow(win, { url, method, headers: finalHeaders, body })
+          return await fetchInsideWebContents(wc, { url, method, headers: finalHeaders, body })
         } catch (err) {
-          console.warn('[recruitBridge] fetch in window failed, fallback ses.fetch', err)
+          console.warn('[recruitBridge] fetch in tab failed, fallback ses.fetch', err)
         }
       }
     }
@@ -468,8 +461,8 @@ async function fetchViaSession(
   }
 }
 
-async function fetchInsideWindow(
-  win: Electron.BrowserWindow,
+async function fetchInsideWebContents(
+  wc: Electron.WebContents,
   args: { url: string; method: string; headers: Record<string, string>; body?: unknown }
 ): Promise<UniversalRequestResult> {
   const bodyStr = args.body == null ? null : serializeBodyForInPage(args.body, args.headers)
@@ -489,14 +482,11 @@ async function fetchInsideWindow(
       return { success: false, message: String(e && e.message || e) };
     }
   })()`
-  const result = (await win.webContents.executeJavaScript(script, true)) as UniversalRequestResult
+  const result = (await wc.executeJavaScript(script, true)) as UniversalRequestResult
   return result
 }
 
-function serializeBody(
-  body: unknown,
-  headers: Record<string, string>
-): string | URLSearchParams {
+function serializeBody(body: unknown, headers: Record<string, string>): string | URLSearchParams {
   if (typeof body === 'string') return body
   const ct = (headers['Content-Type'] ?? headers['content-type'] ?? '').toLowerCase()
   if (ct.includes('json')) return JSON.stringify(body)
@@ -557,29 +547,29 @@ export function registerRecruitBridgeIpc(): void {
     return result
   })
 
-  // openSiteWindow（保留之前的接口）
-  ipcMain.handle(
-    'recruit:openSiteWindow',
-    async (_e, channel: string, url: string) => {
-      if (typeof channel !== 'string' || typeof url !== 'string') {
-        return { success: false, message: 'invalid params' }
-      }
-      if (!/^https?:\/\//i.test(url)) {
-        return { success: false, message: 'url must be http(s)' }
-      }
-      const win = siteWindowManager.openSite(channel, url)
-      // 站点窗口加载完后过 2s 主动通知 SPA 刷新对应渠道登录态
-      // （登录后 BOSS 自家 JS 会发一批 XHR，足够把 zp_token 抓到 HEADER_STORAGE）
-      win.webContents.once('did-finish-load', () => {
+  // openSiteWindow（保留接口名以兼容 SPA；多标签架构下变成"开/激活招聘站 tab"）
+  ipcMain.handle('recruit:openSiteWindow', async (_e, channel: string, url: string) => {
+    if (typeof channel !== 'string' || typeof url !== 'string') {
+      return { success: false, message: 'invalid params' }
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      return { success: false, message: 'url must be http(s)' }
+    }
+    const tabId = tabManager.openOrActivateSiteTab(channel, url)
+    const wc = tabManager.getSiteWebContentsForChannel(channel)
+    // 站点 tab 加载完后过 2s 主动通知主页 SPA 刷新对应渠道登录态
+    // （登录后 BOSS 自家 JS 会发一批 XHR，足够把 zp_token 抓到 HEADER_STORAGE）
+    if (wc) {
+      wc.once('did-finish-load', () => {
         setTimeout(() => {
-          if (mainWindowRef && !mainWindowRef.isDestroyed()) {
-            mainWindowRef.webContents.send('recruit:siteWindowReady', {
+          if (homeWcRef && !homeWcRef.isDestroyed()) {
+            homeWcRef.send('recruit:siteWindowReady', {
               channel: channel.toUpperCase()
             })
           }
         }, 2000)
       })
-      return { success: true }
     }
-  )
+    return { success: true, tabId }
+  })
 }

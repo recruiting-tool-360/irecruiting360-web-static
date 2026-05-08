@@ -11,10 +11,7 @@ const recruitBridge = {
   /**
    * 打开第三方招聘站点登录窗口（独立 BrowserWindow + 独立 partition）
    */
-  openSiteWindow: (
-    channel: string,
-    url: string
-  ): Promise<{ success: boolean; message?: string }> =>
+  openSiteWindow: (channel: string, url: string): Promise<{ success: boolean; message?: string }> =>
     ipcRenderer.invoke('recruit:openSiteWindow', channel, url),
 
   /**
@@ -28,9 +25,7 @@ const recruitBridge = {
   /**
    * 取出当前 partition 下站点 cookie（拼成 "k=v; k=v" 串，与原插件返回格式一致）
    */
-  getCapturedCookies: (
-    storageKey: string
-  ): Promise<{ url: string; cookieData: string } | null> =>
+  getCapturedCookies: (storageKey: string): Promise<{ url: string; cookieData: string } | null> =>
     ipcRenderer.invoke('recruit:getCapturedCookies', storageKey),
 
   /**
@@ -112,6 +107,48 @@ const handover = {
 }
 
 /**
+ * 标签管理（壳层 React 调用）
+ *
+ * 与主进程 TabManager 一一对应。仅壳层 UI 用得到；
+ * 主页 H5 / 招聘站点本来就在自己的 WebContentsView 里，不需要 tab API。
+ */
+export interface TabState {
+  id: string
+  pinned: boolean
+  channel?: string
+  title: string
+  url: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  active: boolean
+}
+
+const tabs = {
+  list: (): Promise<TabState[]> => ipcRenderer.invoke('tabs:list'),
+  create: (opts: { url: string; channel?: string; title?: string }): Promise<string | null> =>
+    ipcRenderer.invoke('tabs:create', opts),
+  activate: (id: string): Promise<boolean> => ipcRenderer.invoke('tabs:activate', id),
+  close: (id: string): Promise<boolean> => ipcRenderer.invoke('tabs:close', id),
+  reorder: (orderedIds: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('tabs:reorder', orderedIds),
+  goBack: (id: string): Promise<void> => ipcRenderer.invoke('tabs:goBack', id),
+  goForward: (id: string): Promise<void> => ipcRenderer.invoke('tabs:goForward', id),
+  reload: (id: string): Promise<void> => ipcRenderer.invoke('tabs:reload', id),
+  /**
+   * 订阅标签状态变化（任何创建 / 激活 / 关闭 / loading / 标题变化都会广播）
+   * @returns 取消订阅函数
+   */
+  onState: (callback: (state: TabState[]) => void): (() => void) => {
+    const handler = (_e: unknown, state: TabState[]): void => callback(state)
+    ipcRenderer.on('tabs:state', handler)
+    return () => {
+      ipcRenderer.removeListener('tabs:state', handler)
+    }
+  }
+}
+
+/**
  * 客户端身份标识：SPA 启动时检测 window.__IKUAIZHAO_NATIVE__ 即可知道
  * 自己跑在 Electron 客户端里（用于隐藏插件相关 UI、走客户端原生能力）
  */
@@ -125,7 +162,7 @@ const native = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', { recruitBridge, handover })
+    contextBridge.exposeInMainWorld('api', { recruitBridge, handover, tabs })
     contextBridge.exposeInMainWorld('__IKUAIZHAO_NATIVE__', native)
   } catch (error) {
     console.error(error)
@@ -134,7 +171,7 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
   // @ts-ignore (define in dts)
-  window.api = { recruitBridge, handover }
+  window.api = { recruitBridge, handover, tabs }
   // @ts-ignore (define in dts)
   window.__IKUAIZHAO_NATIVE__ = native
 }
