@@ -27,10 +27,7 @@ export interface CapturedCookies {
 }
 
 export interface RecruitBridge {
-  openSiteWindow(
-    channel: string,
-    url: string
-  ): Promise<{ success: boolean; message?: string }>
+  openSiteWindow(channel: string, url: string): Promise<{ success: boolean; message?: string }>
 
   getCapturedHeaders(storageKey: string): Promise<CapturedHeaders | null>
 
@@ -59,6 +56,30 @@ export interface HandoverBridge {
   onDeepLink(callback: (data: DeepLinkPayload) => void): () => void
 }
 
+export interface TabState {
+  id: string
+  pinned: boolean
+  channel?: string
+  title: string
+  url: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  active: boolean
+}
+
+export interface TabsBridge {
+  list(): Promise<TabState[]>
+  create(opts: { url: string; channel?: string; title?: string }): Promise<string | null>
+  activate(id: string): Promise<boolean>
+  close(id: string): Promise<boolean>
+  reorder(orderedIds: string[]): Promise<boolean>
+  goBack(id: string): Promise<void>
+  goForward(id: string): Promise<void>
+  reload(id: string): Promise<void>
+  onState(callback: (state: TabState[]) => void): () => void
+}
+
 export interface IKuaiZhaoNative {
   mode: 'electron'
   version: string
@@ -72,6 +93,7 @@ declare global {
     api: {
       recruitBridge: RecruitBridge
       handover: HandoverBridge
+      tabs: TabsBridge
     }
     __IKUAIZHAO_NATIVE__?: IKuaiZhaoNative
   }

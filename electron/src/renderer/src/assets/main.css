@@ -1,254 +1,238 @@
-@import './base.css';
+/**
+ * i快招 客户端壳层样式（自绘标题栏 + Chrome 风格标签栏）
+ * 仅作用于 main BrowserWindow 的壳；真实业务页面跑在 WebContentsView 里，不受这套样式影响。
+ */
 
-body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background-image: url('./wavy-lines.svg');
-  background-size: cover;
-  user-select: none;
+* {
+  box-sizing: border-box;
 }
 
-code {
-  font-weight: 600;
-  padding: 3px 5px;
-  border-radius: 2px;
-  background-color: var(--color-background-mute);
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
   font-family:
-    ui-monospace,
-    SFMono-Regular,
-    SF Mono,
-    Menlo,
-    Consolas,
-    Liberation Mono,
-    monospace;
-  font-size: 85%;
+    system-ui,
+    -apple-system,
+    'Segoe UI Variable',
+    'Segoe UI',
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  font-size: 13px;
+  color: #1f2937;
+  background: #f3f4f6;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
 }
 
 #root {
   display: flex;
-  align-items: center;
-  justify-content: center;
   flex-direction: column;
-  margin-bottom: 80px;
 }
 
-.logo {
-  margin-bottom: 20px;
-  -webkit-user-drag: none;
-  height: 128px;
-  width: 128px;
-  will-change: filter;
-  transition: filter 300ms;
-}
+/* ===== 标题栏（Chrome 同款单行：左侧 mac 红绿灯空隙 / 标签 / 右侧 win 三按钮空隙） ===== */
 
-.logo:hover {
-  filter: drop-shadow(0 0 1.2em #6988e6aa);
-}
-
-.creator {
-  font-size: 14px;
-  line-height: 16px;
-  color: var(--ev-c-text-2);
-  font-weight: 600;
-  margin-bottom: 10px;
-}
-
-.text {
-  font-size: 28px;
-  color: var(--ev-c-text-1);
-  font-weight: 700;
-  line-height: 32px;
-  text-align: center;
-  margin: 0 10px;
-  padding: 16px 0;
-}
-
-.tip {
-  font-size: 16px;
-  line-height: 24px;
-  color: var(--ev-c-text-2);
-  font-weight: 600;
-}
-
-.react {
-  background: -webkit-linear-gradient(315deg, #087ea4 55%, #7c93ee);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
-
-.ts {
-  background: -webkit-linear-gradient(315deg, #3178c6 45%, #f0dc4e);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
-
-.actions {
+.shell {
+  flex: 1;
   display: flex;
-  padding-top: 32px;
-  margin: -6px;
-  flex-wrap: wrap;
-  justify-content: flex-start;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.action {
+.titlebar {
+  height: 40px;
+  display: flex;
+  align-items: stretch;
+  background: #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+  -webkit-app-region: drag;
   flex-shrink: 0;
-  padding: 6px;
 }
 
-.action a {
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
-  border: 1px solid transparent;
-  text-align: center;
-  font-weight: 600;
-  white-space: nowrap;
-  border-radius: 20px;
-  padding: 0 20px;
-  line-height: 38px;
-  font-size: 14px;
-  border-color: var(--ev-button-alt-border);
-  color: var(--ev-button-alt-text);
-  background-color: var(--ev-button-alt-bg);
+/* mac：左侧给红绿灯（系统在 ~78x40 区域绘制） */
+.titlebar.platform-darwin .titlebar-left-spacer {
+  width: 78px;
+  flex-shrink: 0;
 }
 
-.action a:hover {
-  border-color: var(--ev-button-alt-hover-border);
-  color: var(--ev-button-alt-hover-text);
-  background-color: var(--ev-button-alt-hover-bg);
+/* win/linux：右侧给系统三按钮（titleBarOverlay 在 138x40 区域绘制） */
+.titlebar:not(.platform-darwin) .titlebar-right-spacer {
+  width: 138px;
+  flex-shrink: 0;
 }
 
-.versions {
-  position: absolute;
-  bottom: 30px;
-  margin: 0 auto;
-  padding: 15px 0;
-  font-family: 'Menlo', 'Lucida Console', monospace;
-  display: inline-flex;
-  overflow: hidden;
-  align-items: center;
-  border-radius: 22px;
-  background-color: #202127;
-  backdrop-filter: blur(24px);
+/* ===== 标签栏 ===== */
+
+.tab-bar {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 0 0 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  /* 整体可拖（标签栏末尾空白也能拖动窗口）；单个 tab 通过 .tab 的 no-drag 屏蔽 */
+  -webkit-app-region: drag;
 }
 
-.versions li {
-  display: block;
-  float: left;
-  border-right: 1px solid var(--ev-c-gray-1);
-  padding: 0 20px;
-  font-size: 14px;
-  line-height: 14px;
-  opacity: 0.8;
-  &:last-child {
-    border: none;
-  }
+.tab-bar::-webkit-scrollbar {
+  display: none;
 }
 
-@media (max-width: 720px) {
-  .text {
-    font-size: 20px;
-  }
-}
-
-@media (max-width: 620px) {
-  .versions {
-    display: none;
-  }
-}
-
-@media (max-width: 350px) {
-  .tip,
-  .actions {
-    display: none;
-  }
-}
-
-.loader-container {
+.tab {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
   gap: 6px;
+  height: 34px;
+  min-width: 92px;
+  max-width: 240px;
+  padding: 0 10px 0 12px;
+  background: transparent;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  transition: background-color 0.12s;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #4b5563;
+  -webkit-app-region: no-drag;
 }
 
-.loader {
-  position: relative;
-  width: 120px;
-  height: 120px;
-  background: linear-gradient(45deg, #ff0057, #ff7b00, #ffee00, #00ff87, #00c3ff, #8a2be2, #ff0057);
-  background-size: 600% 600%;
-  animation: gradientShift 3s ease infinite;
-  box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
-  overflow: hidden;
+.tab:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
-/* 中心空心效果：利用伪元素挖洞 */
-.loader::before {
+.tab.active {
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 -1px 0 #e5e7eb inset;
+}
+
+.tab.dragging {
+  opacity: 0.5;
+}
+
+.tab.drop-before::before,
+.tab.drop-after::after {
   content: '';
   position: absolute;
-  top: 15%;
-  left: 15%;
-  width: 70%;
-  height: 70%;
-  background: #0e0e0e;
-  animation: pulse 1.2s ease-in-out infinite alternate;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: #1677ff;
+  border-radius: 1px;
+}
+.tab.drop-before::before {
+  left: -1px;
+}
+.tab.drop-after::after {
+  right: -1px;
 }
 
-/* 渐变颜色流动 */
-@keyframes gradientShift {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
-/* 中心方块脉动 */
-@keyframes pulse {
-  0% {
-    transform: scale(1);
-  }
-  100% {
-    transform: scale(0.7);
-  }
-}
-
-.load-text {
+.tab-favicon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
   color: #fff;
-  font-family: 'Segoe UI', sans-serif;
-  letter-spacing: 2px;
-  animation: textColor 4s linear infinite;
 }
 
-/* 文字颜色渐变切换 */
-@keyframes textColor {
-  0% {
-    color: #ff0057;
+.tab-favicon.boss {
+  background: #00d068;
+}
+.tab-favicon.zhilian {
+  background: #1677ff;
+}
+.tab-favicon.liepin {
+  background: #ff7b00;
+}
+.tab-favicon.job51 {
+  background: #d72121;
+}
+.tab-favicon.home {
+  background: linear-gradient(135deg, #1677ff, #69b1ff);
+  font-size: 8px;
+  letter-spacing: -0.5px;
+}
+.tab-favicon.unknown {
+  background: #9ca3af;
+}
+
+.tab-favicon.loading {
+  background: transparent;
+  border: 2px solid #d1d5db;
+  border-top-color: #1677ff;
+  border-radius: 50%;
+  animation: tab-spin 0.8s linear infinite;
+}
+
+@keyframes tab-spin {
+  to {
+    transform: rotate(360deg);
   }
-  20% {
-    color: #ff7b00;
-  }
-  40% {
-    color: #ffee00;
-  }
-  60% {
-    color: #00ff87;
-  }
-  80% {
-    color: #00c3ff;
-  }
-  100% {
-    color: #ff0057;
-  }
+}
+
+.tab-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #6b7280;
+  font-size: 16px;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background-color 0.12s;
+}
+
+.tab-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #111827;
+}
+
+.tab.pinned {
+  min-width: auto;
+  max-width: 140px;
+}
+
+/* 主页 tab 不渲染关闭按钮（决策 C） */
+
+/* ===== 加载占位（壳本身没有内容；真实内容在 WebContentsView 里） ===== */
+
+.shell-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 12px;
 }
