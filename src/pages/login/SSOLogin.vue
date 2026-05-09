@@ -58,31 +58,75 @@ const { proxy } = getCurrentInstance();
 const iframeMsg = proxy.$iframeMessenger;
 
 // ====== 入口 A：iframe init 消息（i 人事 iframe 嵌入老 URL 时） ======
-iframeMsg.on('init', (data, context) => {
-  if (context.from !== 'ihr-recruit-assistant') return;
+//
+// ⚠️ 仅在浏览器/iframe 模式下挂载！
+//
+// 客户端模式下 deep link payload 通过入口 B/C 进入流程，再由 runFromDeepLinkPayload
+// 调 iframeMsg.injectInit() 灌给 shim。shim 会 emit 'init' 给业务（MainLayout 等），
+// 但 SSOLogin 自己**不能**再监听 init，否则会触发"SSO 流程跑两次"的死循环
+// （shim 把 from 伪装为 'ihr-recruit-assistant' 通过校验 → 入口 A 又跑一次 handleSSOLogin）
+if (!isElectronClient()) {
+  iframeMsg.on('init', (data, context) => {
+    if (context.from !== 'ihr-recruit-assistant') return;
 
-  store.commit('changeAppStatus', {
-    isSingleSignOn: true,
-    sourceKey: context.from
+    store.commit('changeAppStatus', {
+      isSingleSignOn: true,
+      sourceKey: context.from
+    });
+
+    iframeParams.value = data;
+    updateGloalColor(data?.sysConfig?.color);
+
+    handleSSOLogin(data);
+
+    return Promise.resolve(true);
   });
 
-  iframeParams.value = data;
-  updateGloalColor(data?.sysConfig?.color);
+  // 主题色推送（客户端自带主题，shim 也不 emit themeColor，不需要在客户端模式挂）
+  iframeMsg.on('themeColor', (data, context) => {
+    if (context.from !== 'ihr-recruit-assistant') return;
+    return updateGloalColor(data?.sysConfig?.color);
+  });
+}
 
-  handleSSOLogin(data);
-
-  return Promise.resolve(true);
-});
-
-// 主题色推送
-iframeMsg.on('themeColor', (data, context) => {
-  if (context.from !== 'ihr-recruit-assistant') return;
-  return updateGloalColor(data?.sysConfig?.color);
-});
+// ====== 入口 D：从 ClientLauncher 兜底跳过来（客户端唤起失败、用户选"在浏览器继续"） ======
+function consumeLauncherFallback() {
+  try {
+    const raw = sessionStorage.getItem('ikuaizhao:fallbackInitPayload');
+    if (!raw) return false;
+    sessionStorage.removeItem('ikuaizhao:fallbackInitPayload');
+    const data = JSON.parse(raw);
+    if (!data?.ssoConfig) return false;
+    iframeParams.value = data;
+    updateGloalColor(data?.sysConfig?.color);
+    handleSSOLogin(data);
+    return true;
+  } catch (e) {
+    console.error('[SSOLogin] consumeLauncherFallback error:', e);
+    return false;
+  }
+}
 
 // ====== SSO 登录核心流程 ======
-const handleSSOLogin = async (iframeMessage) => {
-  if (!iframeMessage) return;
+//
+// 幂等保护：用 module-level Promise 串行化 handleSSOLogin 调用。
+// 任何并发触发（入口 A/B/C/D 互相竞速、deep link 多次到达、Vue HMR 重挂载等）
+// 都只会跑一次完整 SSO 流程，避免后端被打 N 遍。
+let ssoInflight = null;
+
+const handleSSOLogin = (iframeMessage) => {
+  if (!iframeMessage) return Promise.resolve();
+  if (ssoInflight) {
+    console.log('[SSOLogin] 已有正在跑的 SSO 流程，复用同一个 Promise');
+    return ssoInflight;
+  }
+  ssoInflight = doSSOLogin(iframeMessage).finally(() => {
+    ssoInflight = null;
+  });
+  return ssoInflight;
+};
+
+const doSSOLogin = async (iframeMessage) => {
   try {
     loading.value = true;
 
@@ -157,18 +201,76 @@ const updateGloalColor = (color) => {
 // ====== 入口 B+C：客户端模式下读 deep link payload + 监听后续 deep link ======
 
 /**
- * 把 deep link payload 重组成与 i 人事 init 推送相同结构后跑 SSO
+ * 决策 D10：deep link payload 里只放 positionIds（控 URL 长度上限），
+ * positionList 在客户端启动后通过 ihrBridge.getApplicationPosition() 重建。
+ *
+ * 这样 createChat(positionList) 仍能拿到完整职位列表，业务零感知。
+ *
+ * 失败时返回空数组（降级），让流程继续；用户进入主页后业务还能再次拉取。
  */
-function runFromDeepLinkPayload(p) {
+async function rebuildPositionList(positionIds) {
+  try {
+    const ihrBridge = window?.api?.ihrBridge;
+    if (!ihrBridge || !Array.isArray(positionIds) || positionIds.length === 0) {
+      return [];
+    }
+    const res = await ihrBridge.getApplicationPosition();
+    const all = res?.success && Array.isArray(res?.data) ? res.data : [];
+    const idSet = new Set(positionIds);
+    return all
+      .filter((item) => idSet.has(item.headcountId))
+      .map((item) => ({
+        ...item,
+        positionId: item.headcountId,
+        name: `${item.positionName ?? ''} (${item.headcountCode ?? ''})`,
+        // jd 暂留空，由 ihrBridge.batchGetPositionDetailByIds 接入后补；
+        // mock 阶段也是空的，对原流程兼容
+        jd: ''
+      }));
+  } catch (e) {
+    console.error('[SSOLogin] rebuildPositionList failed:', e);
+    return [];
+  }
+}
+
+/**
+ * 把 deep link payload 重组成与 i 人事 init 推送相同结构后跑 SSO，
+ * 并通过 messenger shim 的 injectInit() 把 payload 灌进去，
+ * 让后续业务页面 iframeMsg.on('init', cb) 也能拿到（替代原来 postMessage 推送的角色）。
+ *
+ * payload schema 见 docs/client-launcher-flow.md §4.2
+ */
+async function runFromDeepLinkPayload(p) {
   if (!p?.ssoConfig) return;
+
+  // 0) 回填 positionList（D10：deep link 只传 positionIds，避免 URL 超长）
+  let positionList = Array.isArray(p.positionList) ? p.positionList : [];
+  if (positionList.length === 0 && Array.isArray(p.positionIds) && p.positionIds.length > 0) {
+    positionList = await rebuildPositionList(p.positionIds);
+  }
+
+  // 1) 跑 SSO 登录（沿用原 init 消息的形态）
   const fakeInitMessage = {
     ssoConfig: p.ssoConfig,
     sysConfig: p.sysConfig,
-    positionList: [] // deep link 不传 positionList（URL 长度限制；客户端 getChatList 兜底）
+    positionList
   };
   iframeParams.value = fakeInitMessage;
   updateGloalColor(p.sysConfig?.color);
   handleSSOLogin(fakeInitMessage);
+
+  // 2) 把"业务字段"灌进 messenger shim：让后续业务模块的
+  //    iframeMsg.on('init') 监听器在客户端模式下也能拿到 payload。
+  //    （shim 同时会写 sessionStorage，跨路由切换也能复用）
+  if (typeof iframeMsg?.injectInit === 'function') {
+    iframeMsg.injectInit({
+      positionList, // 已回填
+      positionIds: p.positionIds,
+      sysConfig: p.sysConfig,
+      ssoConfig: p.ssoConfig,
+      companyConfig: p.companyConfig
+    });
+  }
 }
 
 async function consumeClientHandover() {
@@ -178,7 +280,7 @@ async function consumeClientHandover() {
   try {
     const pending = await handover.getPendingPayload();
     if (pending && pending.action === 'sso' && pending.payload) {
-      runFromDeepLinkPayload(pending.payload);
+      await runFromDeepLinkPayload(pending.payload);
       return true;
     }
   } catch (err) {
@@ -199,7 +301,7 @@ onMounted(async () => {
     if (window?.api?.handover?.onDeepLink) {
       unsubscribeDeepLink = window.api.handover.onDeepLink((data) => {
         if (data?.action === 'sso' && data?.payload) {
-          runFromDeepLinkPayload(data.payload);
+          void runFromDeepLinkPayload(data.payload);
         }
       });
     }
@@ -211,7 +313,11 @@ onMounted(async () => {
     return;
   }
 
-  // 浏览器模式：30 秒等不到 init 消息就报超时
+  // 浏览器模式：先看是不是从 ClientLauncher 兜底跳过来的（用户选"在浏览器继续"）
+  const fellBack = consumeLauncherFallback();
+  if (fellBack) return;
+
+  // 30 秒等不到 init 消息就报超时
   timeoutHandle = setTimeout(() => {
     if (loading.value) {
       loading.value = false;

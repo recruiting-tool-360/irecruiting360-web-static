@@ -19,7 +19,13 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:linux": "electron-vite build && electron-builder --linux",
+    "build:mac:dev": "electron-vite build && electron-builder --mac --config.mac.identity=null --config.mac.notarize=false",
+    "build:win:dev": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false WIN_CSC_LINK= npm run build && electron-builder --win",
+    "build:mac:dir": "electron-vite build && electron-builder --mac --dir --config.mac.identity=null",
+    "build:win:dir": "npm run build && electron-builder --win --dir --config.win.signtoolOptions=null",
+    "build:mac:release": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --config.mac.notarize=true",
+    "build:win:release": "node ./scripts/check-release-env.js win && npm run build && electron-builder --win"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -35,6 +41,7 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.3",
+    "cross-env": "^10.1.0",
     "electron": "^38.1.2",
     "electron-builder": "^25.1.8",
     "electron-vite": "^4.0.1",

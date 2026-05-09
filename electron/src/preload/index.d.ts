@@ -80,6 +80,28 @@ export interface TabsBridge {
   onState(callback: (state: TabState[]) => void): () => void
 }
 
+export interface IhrApiResult<T = unknown> {
+  success: boolean
+  code?: number
+  message?: string
+  data?: T
+}
+
+export interface IhrBridge {
+  getApplicationPosition(): Promise<IhrApiResult>
+  getSharedCandidateResume(): Promise<IhrApiResult>
+  sharedCandidateResumeInit(): Promise<IhrApiResult>
+  batchGetPositionDetailByIds(ids: string[]): Promise<IhrApiResult>
+  assignPositions(req: Record<string, unknown>): Promise<IhrApiResult>
+  addPools(req: Record<string, unknown>): Promise<IhrApiResult>
+  uploadFile(arg: {
+    arrayBuffer: ArrayBuffer
+    name: string
+    mime?: string
+    centralUpload?: boolean
+  }): Promise<IhrApiResult>
+}
+
 export interface IKuaiZhaoNative {
   mode: 'electron'
   version: string
@@ -94,6 +116,7 @@ declare global {
       recruitBridge: RecruitBridge
       handover: HandoverBridge
       tabs: TabsBridge
+      ihrBridge: IhrBridge
     }
     __IKUAIZHAO_NATIVE__?: IKuaiZhaoNative
   }

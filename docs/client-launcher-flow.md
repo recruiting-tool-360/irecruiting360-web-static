@@ -25,27 +25,36 @@ postMessage 给 iframe 内的 i快招 H5。
                 postMessage(resumeList/iframe-back)
 ```
 
-### 目标（客户端模式）
+### 目标（客户端模式 — 最小侵入版）
 
-i人事工作台 `/recruit/recruit-assistant` **不再**直接嵌入 iframe。
-新增中转页 `/client-launcher`，由它：
+**核心原则：i 人事侧零代码改动**，所有改动收敛到 i 快招项目。
 
-1. 收齐启动数据（同原 `init` payload）
-2. 触发 `ikuaizhao://sso?d=<base64url>&v=1` 唤起 i快招 Electron 客户端
-3. 兜底显示"下载客户端 / 重新尝试"引导
-
-老的 iframe 入口可以**保留**做兼容，但作为降级路径。
+i 人事工作台 `/recruit/recruit-assistant` 的 iframe **沿用 postMessage init 推送**机制，仅把 iframe `src`
+从 `https://login.ihire365.com/sso-login` 替换为 `https://login.ihire365.com/client-launcher`：
 
 ```
-i人事工作台
-   ├─ /recruit/recruit-assistant?...   (老 iframe 入口，兼容用)
-   └─ /client-launcher?...             (新入口：唤起客户端)
-                ↓ ikuaizhao://sso?d=…
-        ┌──────────────────────────┐
-        │  i快招 Electron 客户端     │
-        │  主页 tab → /sso-login   │ → SSOLogin.vue 消费 payload
-        └──────────────────────────┘
+原:  <iframe src="https://login.ihire365.com/sso-login" />
+新:  <iframe src="https://login.ihire365.com/client-launcher" />
 ```
+
+i 人事侧 init / themeColor / resumeList / iframe-back 等 postMessage 消息**全部不变**，
+i 快招的 `/client-launcher` 页面接管 init 后触发 deep link 唤起客户端。
+
+```
+i 人事工作台 /recruit/recruit-assistant?...
+     │  <iframe src=https://login.ihire365.com/client-launcher>
+     │  postMessage(init) {positionList, ssoConfig, sysConfig, companyConfig}
+     ▼
+i 快招 H5 /client-launcher  (浏览器 / iframe 内)
+     │  接收 init → 拼 deep link
+     ▼  ikuaizhao://sso?d=<base64url>&v=1
+┌──────────────────────────┐
+│  i 快招 Electron 客户端    │
+│  主页 tab → /sso-login   │ → SSOLogin.vue 消费 payload
+└──────────────────────────┘
+```
+
+老的 `/sso-login` 入口**保留**做浏览器/插件降级路径，对未启用客户端的租户继续生效。
 
 ---
 
@@ -55,27 +64,28 @@ i人事工作台
 sequenceDiagram
     autonumber
     participant U as 用户
-    participant W as i人事工作台 React
-    participant L as /client-launcher 页面
-    participant OS as 操作系统 (LaunchServices)
+    participant W as i 人事工作台 (父页面)
+    participant L as i 快招 /client-launcher (iframe 内)
+    participant OS as 操作系统 LaunchServices
     participant E as Electron 客户端 (主进程)
-    participant H as i快招主页 tab (Vue)
+    participant H as i 快招主页 tab (Vue)
 
-    U->>W: 点击"AI 招聘助手 / 候选人详情"入口
-    W->>L: 跳转 /client-launcher?headcountId=...
-    L->>L: 1. 收齐数据 (positionList / sysConfig / ssoConfig / companyConfig)
-    L->>L: 2. 组装 payload + base64url 编码
-    L->>OS: 3. 触发 ikuaizhao://sso?d=...&v=1
+    U->>W: 点击 "AI 招聘助手 / 候选人详情" 入口
+    W->>L: iframe.src = https://login.ihire365.com/client-launcher
+    W->>L: postMessage('init', {positionList, ssoConfig, sysConfig, companyConfig})
+    L->>L: 1. iframeMsg.on('init') 收到 payload
+    L->>L: 2. 裁切大字段 + base64url 编码（positionList → positionIds）
+    L->>OS: 3. anchor.click() 触发 ikuaizhao://sso?d=...&v=1
     OS-->>E: 4. open-url / second-instance
-    E->>H: 5. 创建/激活主页 tab,navigate 到 /sso-login
+    E->>H: 5. 创建/激活主页 tab, navigate 到 /sso-login
     H->>E: 6. handover.getPendingPayload()
     E-->>H: 7. 返回缓存的 payload
-    H->>H: 8. SSOLogin.vue 消费 payload 完成登录
-    Note over L: 与此同时,L 监听 window blur / visibility / 可选本机回调
-    alt 唤起成功
-        L->>L: 显示"客户端已打开,可关闭本页"
-    else 1.5~3s 内未失焦
-        L->>L: 显示"未检测到客户端,请下载安装"
+    H->>H: 8. SSOLogin.vue + messenger shim 消费 payload, 完成 SSO + 灌 init
+    Note over L: 与此同时,L 监听 window blur / visibility 兜底
+    alt 唤起成功（≤1.5s 失焦）
+        L->>L: state=succeeded "客户端已启动"
+    else 1.5s 未失焦
+        L->>L: state=missing "未检测到客户端" + 下载按钮
     end
 ```
 
@@ -504,32 +514,79 @@ export function createElectronMessengerShim() {
 
 ## 7. 改动清单
 
-### 7.1 i人事 (`ihr360-recruit-static`)
+### 7.1 i 人事 (`ihr360-recruit-static`) — 仅一行 iframe src 替换
 
 | 文件 | 改动 | 工时 |
 |---|---|---|
-| `src/router/...` 路由表 | 新增 `/client-launcher` | 0.1d |
-| `src/pages/client-launcher/index.tsx` | 新建（核心页面 + 状态机 + 失焦兜底） | 0.5d |
-| `src/pages/client-launcher/buildPayload.ts` | 新建（数据收集，复用 recruit-assistant 逻辑） | 0.3d |
-| `src/pages/client-launcher/codec.ts` | 新建（与 i快招 deepLinkCodec.js 等价的编码） | 0.1d |
-| `src/pages/recruit-assistant/index.tsx` | （可选）头部加"打开新版客户端"入口指向 `/client-launcher` | 0.1d |
+| `src/pages/recruit-assistant/index.tsx` | 把 iframe `src` 从 `…/sso-login` 改为 `…/client-launcher`（按租户灰度可外挂开关） | 0.05d |
 
-### 7.2 i快招 H5 (`irecruiting360-web-static/src/`)
+> i 人事侧**不需要**新建 launcher 页面 / codec / buildPayload。  
+> postMessage `init` / `themeColor` / `resumeList` / `iframe-back` 协议**全部不变**。
+
+**ready-to-use patch**（给 i 人事工程师，复制即可）：
+
+```diff
+// src/pages/recruit-assistant/index.tsx 约 L656
+
+   {this.state.loadingCompleted ? (
+     <iframe
+       id='iframeArea'
+-      src='http://localhost:8080/sso-login' // 纳速码ip
++      src={this.getEntryUrl()}             // 走开关 → 客户端唤起 / 老 SSO
+       scrolling={"yes"}
+       sandbox='allow-clipboard-write allow-same-origin allow-scripts ...'
+       ...
+     />
+   ) : null}
+```
+
+在同一个组件里加：
+
+```ts
+/**
+ * 客户端唤起灰度开关（按租户 / feature flag / 环境变量任选其一）
+ * - true:  iframe 嵌 i 快招的 /client-launcher，自动唤起 Electron 客户端
+ * - false: iframe 嵌老的 /sso-login，浏览器内直接走 SSO（兼容老用户）
+ */
+private isClientLauncherEnabled(): boolean {
+  // 任选实现：
+  // 1) 环境变量：return process.env.REACT_APP_CLIENT_LAUNCHER_ENABLED === 'true';
+  // 2) 灰度租户白名单：const tenantId = currentCompany?.companyId; return WHITELIST.has(tenantId);
+  // 3) 后端 feature flag：return store.getState().features.clientLauncher;
+  return false; // 默认关闭，按租户开放
+}
+
+private getEntryUrl(): string {
+  // 生产线上把 hardcode 换成对应环境配置即可
+  const BASE = 'http://localhost:8080';
+  return this.isClientLauncherEnabled()
+    ? `${BASE}/client-launcher`
+    : `${BASE}/sso-login`;
+}
+```
+
+如此即完成 i 人事侧全部改动。其他**所有逻辑**（postMessage 推 init / themeColor / 接收 resumeList / iframe-back）一行都不改。
+
+### 7.2 i 快招 H5 (`irecruiting360-web-static/src/`)
 
 | 文件 | 改动 | 工时 |
 |---|---|---|
-| `src/util/electronMessengerShim.js` | 新建 | 0.3d |
-| `src/boot/iframe-messenger.js` | 检测 `isElectronClient` 后用 shim | 0.1d |
-| `src/util/clientPlatform.js` | 已有 `isElectronClient`，复用 | 0 |
-| `src/pages/SSOLogin.vue` | 客户端模式下从 `handover.getPendingPayload()` 取 payload，写 sessionStorage，兼容原 postMessage 流 | 0.3d |
+| `src/router/routes.js` | `/client-launcher` 路由（**已预留**指向 `pages/login/ClientLauncher.vue`） | 0 |
+| `src/pages/login/ClientLauncher.vue` | **新建** — 状态机 + 接收 i 人事 postMessage init + 拼 deep link + 失焦兜底 + 下载引导 + Electron 客户端内重定向到主页 | 0.5d |
+| `src/util/electronMessengerShim.js` | **已新建** — Electron 模式下 messenger 替身，`on/post/injectInit` | 完成 |
+| `src/boot/iframe-messenger.js` | **已改** — 客户端模式用 shim，浏览器/iframe 走原 IframeMessenger | 完成 |
+| `src/pages/login/SSOLogin.vue` | **已改** — `runFromDeepLinkPayload` 拿到 payload 后调 `iframeMsg.injectInit` | 完成 |
+| `src/util/deepLinkCodec.js` / `src/hooks/useClientLauncher.js` / `src/util/clientPlatform.js` | 已有，直接复用 | 0 |
 
-### 7.3 i快招 Electron (`irecruiting360-web-static/electron/`)
+### 7.3 i 快招 Electron (`irecruiting360-web-static/electron/`)
 
 | 文件 | 改动 | 工时 |
 |---|---|---|
-| `electron/src/main/util/deepLinkCodec.ts` | 已有；扩展 schema 验证 v=1 必需字段 | 0.1d |
-| `electron/src/main/index.ts` | `pathForAction` 增加 `open-chat` / `import-resume` 路由映射 | 0.1d |
-| `electron/src/preload/index.ts` | 新增 `window.api.ihrBridge.*`（D6 方案 B 配套） | 见 ihrBridge 单独工单 |
+| `electron/src/main/ihrBridge.ts` | **已新建** — i 人事业务桥（mock）：assignPositions/addPools/uploadFile/... | 完成 |
+| `electron/src/main/index.ts` | **已改** — 注册 ihrBridge IPC；`pathForAction` 增加 `open-chat` / `import-resume`（待补） | 部分完成 |
+| `electron/src/preload/index.ts` | **已改** — 暴露 `window.api.ihrBridge.*` | 完成 |
+| `electron/src/preload/index.d.ts` | **已改** — `IhrBridge` / `IhrApiResult` 类型 | 完成 |
+| `electron/src/main/util/deepLinkCodec.ts` | 已有；可扩展 schema 强校验 v=1 必需字段（可选） | 0.1d |
 
 ---
 
@@ -580,3 +637,4 @@ export function createElectronMessengerShim() {
 | 日期 | 作者 | 变更 |
 |---|---|---|
 | 2026-05-08 | lewin | 初稿：iframe → /client-launcher 迁移设计 |
+| 2026-05-09 | lewin | 调整为最小侵入版：i 人事侧零新代码，只换 iframe src。Launcher 页面收敛到 i 快招 `pages/login/ClientLauncher.vue`，复用现有 IframeMessenger + useClientLauncher。落地 ihrBridge mock + electronMessengerShim + ClientLauncher.vue 三件套。|

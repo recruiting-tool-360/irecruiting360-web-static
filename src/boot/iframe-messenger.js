@@ -1,5 +1,9 @@
 import { boot } from "quasar/wrappers";
 import IframeMessenger from "src/util/iframeMessenger";
+import {
+  createElectronMessengerShim,
+  isElectronClient
+} from "src/util/electronMessengerShim";
 
 // 原始域名列表 - 用于测试域名规则
 const originalDomains = [
@@ -128,15 +132,28 @@ if (process.env.DEV) {
 }
 
 export default boot(({ app }) => {
-  // 初始化 IframeMessenger
-  const iframeMessenger = new IframeMessenger({
-    targetWindow: window.parent,
-    targetOrigin,
-    sourceName: "kuaizhao"
-  });
+  let iframeMessenger;
 
-  // 连接
-  iframeMessenger.connect();
+  if (isElectronClient()) {
+    // ====== Electron 客户端模式：用 shim 兼容 ======
+    // 业务代码 (this.$iframeMessenger.on/post/...) 完全保持原样；
+    // shim 内部把 init 事件源换成 sessionStorage / SSOLogin.injectInit，
+    // 把 post('resumeList') 等转到 window.api.ihrBridge.* IPC。
+    // 详见 docs/client-launcher-flow.md
+    iframeMessenger = createElectronMessengerShim();
+    if (process.env.DEV) {
+      console.log("[iframe-messenger] Electron 客户端模式，使用 shim");
+    }
+  } else {
+    // ====== 浏览器 / i 人事 iframe 模式：原 postMessage 路径 ======
+    iframeMessenger = new IframeMessenger({
+      targetWindow: window.parent,
+      targetOrigin,
+      sourceName: "kuaizhao"
+    });
+    iframeMessenger.connect();
+  }
+
   // 挂载到全局
   app.config.globalProperties.$iframeMessenger = iframeMessenger;
   // 页面卸载前清理

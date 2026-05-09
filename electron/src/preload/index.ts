@@ -107,6 +107,50 @@ const handover = {
 }
 
 /**
+ * iHR 业务桥（取代 i 人事 iframe 模式下父端 React 调网关 + postMessage 推送的角色）
+ *
+ * 与主进程 ihrBridge.ts 的 IPC 一一对应。i 快招 SPA 在客户端模式下通过 messenger shim
+ * 把原本走 postMessage 的业务调用 (resumeList / assign-position / talent-pool / ...) 转到这里。
+ */
+const ihrBridge = {
+  getApplicationPosition: (): Promise<IhrApiResult> =>
+    ipcRenderer.invoke('ihrBridge:getApplicationPosition'),
+
+  getSharedCandidateResume: (): Promise<IhrApiResult> =>
+    ipcRenderer.invoke('ihrBridge:getSharedCandidateResume'),
+
+  sharedCandidateResumeInit: (): Promise<IhrApiResult> =>
+    ipcRenderer.invoke('ihrBridge:sharedCandidateResumeInit'),
+
+  batchGetPositionDetailByIds: (ids: string[]): Promise<IhrApiResult> =>
+    ipcRenderer.invoke('ihrBridge:batchGetPositionDetailByIds', ids),
+
+  assignPositions: (req: Record<string, unknown>): Promise<IhrApiResult> =>
+    ipcRenderer.invoke('ihrBridge:assignPositions', req),
+
+  addPools: (req: Record<string, unknown>): Promise<IhrApiResult> =>
+    ipcRenderer.invoke('ihrBridge:addPools', req),
+
+  /**
+   * 简历文件上传：通过 ArrayBuffer + 元数据 IPC 序列化到主进程
+   * （Blob 不能直接走 IPC，shim 端会自动调 file.arrayBuffer() 完成转换）
+   */
+  uploadFile: (arg: {
+    arrayBuffer: ArrayBuffer
+    name: string
+    mime?: string
+    centralUpload?: boolean
+  }): Promise<IhrApiResult> => ipcRenderer.invoke('ihrBridge:uploadFile', arg)
+}
+
+interface IhrApiResult<T = unknown> {
+  success: boolean
+  code?: number
+  message?: string
+  data?: T
+}
+
+/**
  * 标签管理（壳层 React 调用）
  *
  * 与主进程 TabManager 一一对应。仅壳层 UI 用得到；
@@ -162,7 +206,7 @@ const native = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', { recruitBridge, handover, tabs })
+    contextBridge.exposeInMainWorld('api', { recruitBridge, handover, tabs, ihrBridge })
     contextBridge.exposeInMainWorld('__IKUAIZHAO_NATIVE__', native)
   } catch (error) {
     console.error(error)
@@ -171,7 +215,7 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
   // @ts-ignore (define in dts)
-  window.api = { recruitBridge, handover, tabs }
+  window.api = { recruitBridge, handover, tabs, ihrBridge }
   // @ts-ignore (define in dts)
   window.__IKUAIZHAO_NATIVE__ = native
 }
