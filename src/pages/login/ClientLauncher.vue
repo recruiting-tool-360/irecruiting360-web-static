@@ -21,7 +21,14 @@
         <div class="subtitle">
           如果系统提示"是否打开 i 快招"，请点击允许；
           <br />
-          客户端打开后，本页可以关闭。
+          客户端启动后会被本页确定性探测到，无需手动确认。
+        </div>
+        <!-- 读秒：让用户知道还在等，不会以为卡死 -->
+        <div class="elapsed-tip">
+          已等待 {{ elapsedSec }}s（每 0.25s 探测一次客户端状态），{{ Math.max(0, timeoutSec - elapsedSec) }}s 后判为未安装
+        </div>
+        <div class="actions">
+          <q-btn flat color="grey-7" label="放弃等待" @click="handleCancelWait" />
         </div>
       </template>
 
@@ -37,12 +44,12 @@
         </div>
       </template>
 
-      <!-- 唤起失败：未安装 / 被拦截 / 内嵌 webview -->
+      <!-- 唤起失败：未安装 / 被拦截 / 内嵌 webview / 探测超时 -->
       <template v-else-if="state === 'missing'">
         <div class="error-icon" aria-hidden>!</div>
         <div class="title">未检测到 i 快招客户端</div>
         <div class="subtitle">
-          {{ errorMsg || '请确认已安装客户端，并允许浏览器唤起协议；若未安装，请下载安装。' }}
+          {{ errorMsg || '探测端口 127.0.0.1:53531 没有响应。请确认已安装客户端并启动；若未安装，请下载。' }}
         </div>
         <div class="actions">
           <q-btn
@@ -84,7 +91,11 @@
  *   1. boot/iframe-messenger.js 已在 mount 阶段建立 IframeMessenger 与父页面（i 人事招聘工作台）的连接
  *   2. 父端 postMessage 'init' 带 payload（positionList / sysConfig / ssoConfig / companyConfig）
  *   3. 本页 onMounted 注册 iframeMsg.on('init', cb)，拿到 payload 后调 useClientLauncher.tryLaunch('sso', payload)
- *   4. 失焦/visibility 兜底探测（1.5s）→ succeeded / missing
+ *   4. tryLaunch 通过 fetch http://127.0.0.1:53531/__ikuaizhao/health 确定性探测：
+ *      - 客户端已在跑 → 立即 succeeded（拉协议把窗口提到前台）
+ *      - 客户端未在跑 → 触发 deep link → 每 250ms 轮询 /health → 命中即 succeeded
+ *      - 8s 仍探测不到 → missing
+ *      不再依赖 window.blur / visibilitychange 启发式（详见 useClientLauncher.js 注释）
  *
  * 几个关键边界：
  *   - 已经在 Electron 客户端里跑（isElectronClient() === true）：直接 push('/'), 避免套娃唤起
@@ -117,6 +128,15 @@ const state = ref('waiting-init');
 const errorMsg = ref('');
 const initPayload = ref(null);
 
+// 读秒（launching 状态下显示已等待 / 剩余时间），与 useClientLauncher.onTick 对齐
+const elapsedMs = ref(0);
+const LAUNCH_TIMEOUT_MS = 8000; // 与 useClientLauncher 默认值保持一致；首次冷启动需要覆盖 dialog 阅读时间
+const timeoutSec = Math.ceil(LAUNCH_TIMEOUT_MS / 1000);
+const elapsedSec = computed(() => Math.floor(elapsedMs.value / 1000));
+
+// 持有当前 tryLaunch 的句柄，供「我已打开 / 放弃等待」按钮调用
+let currentLaunchHandle = null;
+
 const isEmbedded = computed(() => isInsideEmbeddedWebview());
 const osLabel = computed(() => osLabelOf());
 const hasInitData = computed(() => !!initPayload.value);
@@ -147,6 +167,7 @@ async function launchWithPayload(payload) {
   }
 
   state.value = 'launching';
+  elapsedMs.value = 0;
 
   // 把 i 人事推过来的 init payload 直接丢给 deep link，
   // 决策 D10：positionList 不进 URL（URL 长度上限），在客户端启动后由 ihrBridge 自取。
@@ -162,7 +183,15 @@ async function launchWithPayload(payload) {
   };
 
   try {
-    const ok = await tryLaunch(intent.value, dlPayload, { timeoutMs: 1500 });
+    const handle = tryLaunch(intent.value, dlPayload, {
+      timeoutMs: LAUNCH_TIMEOUT_MS,
+      onTick: (ms) => {
+        elapsedMs.value = ms;
+      }
+    });
+    currentLaunchHandle = handle;
+    const ok = await handle.promise;
+    currentLaunchHandle = null;
     state.value = ok ? 'succeeded' : 'missing';
     if (!ok) {
       errorMsg.value = isEmbedded.value
@@ -171,6 +200,7 @@ async function launchWithPayload(payload) {
     }
   } catch (e) {
     console.error('[ClientLauncher] tryLaunch failed:', e);
+    currentLaunchHandle = null;
     state.value = 'missing';
     errorMsg.value = e?.message || '唤起客户端时发生错误';
   }
@@ -180,6 +210,11 @@ async function launchWithPayload(payload) {
 async function handleManualOpen() {
   if (!initPayload.value) return;
   await launchWithPayload(initPayload.value);
+}
+
+// launching 状态下用户点「放弃等待」：直接 resolve(false) → 进 missing 状态
+function handleCancelWait() {
+  currentLaunchHandle?.cancel?.();
 }
 
 function handleDownload() {
@@ -361,6 +396,18 @@ onUnmounted(() => {
 .platform-tip {
   margin-top: 18px;
   font-size: 12px;
+  color: #9ca3af;
+}
+
+.elapsed-tip {
+  margin-top: 4px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+}
+
+.subtitle .hint {
   color: #9ca3af;
 }
 

@@ -25,6 +25,8 @@
     "build:mac:dir": "electron-vite build && electron-builder --mac --dir --config.mac.identity=null",
     "build:win:dir": "npm run build && electron-builder --win --dir --config.win.signtoolOptions=null",
     "build:mac:release": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --config.mac.notarize=true",
+    "build:mac:release:arm64": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --arm64 --config.mac.notarize=true",
+    "build:mac:release:x64": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --x64 --config.mac.notarize=true",
     "build:win:release": "node ./scripts/check-release-env.js win && npm run build && electron-builder --win"
   },
   "dependencies": {

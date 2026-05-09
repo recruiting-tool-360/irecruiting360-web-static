@@ -102,6 +102,38 @@ export interface IhrBridge {
   }): Promise<IhrApiResult>
 }
 
+/**
+ * 浏览器 → 客户端 SPA 数据通道
+ *
+ * 来源：浏览器侧 POST http://127.0.0.1:53531/__ikuaizhao/dispatch
+ *      → probe server 透传到 home tab webContents
+ *      → preload 把它整理成 on/onAny 订阅 API
+ *
+ * 业务侧只关心 type，主进程层不参与 type/payload 校验，新增 type 不需要客户端发版。
+ */
+export interface BrowserBridgeMessage {
+  v: 1
+  type: string
+  payload?: unknown
+  requestId?: string
+}
+
+export interface BrowserBridge {
+  /**
+   * 订阅指定 type 的浏览器消息
+   * @returns 取消订阅函数
+   */
+  on(
+    type: string,
+    callback: (payload: unknown, ctx: { type: string; requestId?: string; v: 1 }) => void
+  ): () => void
+  /**
+   * 订阅所有 type 的兜底监听（debug / logger 用，业务一般用 on(type, cb)）
+   * @returns 取消订阅函数
+   */
+  onAny(callback: (data: BrowserBridgeMessage) => void): () => void
+}
+
 export interface IKuaiZhaoNative {
   mode: 'electron'
   version: string
@@ -117,6 +149,7 @@ declare global {
       handover: HandoverBridge
       tabs: TabsBridge
       ihrBridge: IhrBridge
+      browserBridge: BrowserBridge
     }
     __IKUAIZHAO_NATIVE__?: IKuaiZhaoNative
   }

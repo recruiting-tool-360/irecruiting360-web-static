@@ -83,7 +83,13 @@ mac:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
 
-  # 双架构：x64（Intel Mac）+ arm64（Apple Silicon），dmg 给用户安装，zip 给 electron-updater 增量更新
+  # 双架构：x64（Intel Mac）+ arm64（Apple Silicon）
+  # dmg 给用户安装，zip 给 electron-updater 增量更新用
+  #
+  # ⚠️ 国内访问 Apple notary S3 不稳，双架构同时公证容易超时（HTTPClientError.deadlineExceeded）
+  # 解决办法：
+  #   ① 开 VPN/代理（最稳）
+  #   ② 单架构分两次跑（命令行 override：electron-builder --mac --x64 / --mac --arm64）
   target:
     - target: dmg
       arch:

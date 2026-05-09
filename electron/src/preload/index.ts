@@ -193,6 +193,56 @@ const tabs = {
 }
 
 /**
+ * 浏览器 → 客户端 SPA 数据通道（probe server /__ikuaizhao/dispatch 转发）
+ *
+ * 用法：
+ *   const off = window.api.browserBridge.on('navigate', (payload, ctx) => {
+ *     console.log('from browser:', payload, 'requestId:', ctx.requestId)
+ *   })
+ *   // ...
+ *   off()
+ *
+ * 关键设计：
+ *   - 主进程**不解析 type/payload**，原样从 HTTP body 透传到本事件
+ *   - SPA 侧自己分发：按 type 注册不同 handler；新业务加 type 时 SPA 升级即可，**客户端无需重打包**
+ *   - 因为是同机 HTTP，payload 大小不再受 deep link URL 长度限制
+ *   - 安全：probe server 只 listen 127.0.0.1，外网打不进；SPA 侧需自行做 type 白名单 / 权限校验
+ */
+const browserBridge = {
+  on: (
+    type: string,
+    callback: (payload: unknown, ctx: { type: string; requestId?: string; v: 1 }) => void
+  ): (() => void) => {
+    const handler = (
+      _e: unknown,
+      data: { v: 1; type: string; payload?: unknown; requestId?: string }
+    ): void => {
+      if (!data || data.type !== type) return
+      callback(data.payload, { type: data.type, requestId: data.requestId, v: data.v })
+    }
+    ipcRenderer.on('app:browser-data', handler)
+    return () => {
+      ipcRenderer.removeListener('app:browser-data', handler)
+    }
+  },
+  /**
+   * 监听任意 type 的兜底入口（一般业务用上面的 on(type, cb)，这个适合 logger / debug 用）
+   */
+  onAny: (
+    callback: (data: { v: 1; type: string; payload?: unknown; requestId?: string }) => void
+  ): (() => void) => {
+    const handler = (
+      _e: unknown,
+      data: { v: 1; type: string; payload?: unknown; requestId?: string }
+    ): void => callback(data)
+    ipcRenderer.on('app:browser-data', handler)
+    return () => {
+      ipcRenderer.removeListener('app:browser-data', handler)
+    }
+  }
+}
+
+/**
  * 客户端身份标识：SPA 启动时检测 window.__IKUAIZHAO_NATIVE__ 即可知道
  * 自己跑在 Electron 客户端里（用于隐藏插件相关 UI、走客户端原生能力）
  */
@@ -206,7 +256,13 @@ const native = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', { recruitBridge, handover, tabs, ihrBridge })
+    contextBridge.exposeInMainWorld('api', {
+      recruitBridge,
+      handover,
+      tabs,
+      ihrBridge,
+      browserBridge
+    })
     contextBridge.exposeInMainWorld('__IKUAIZHAO_NATIVE__', native)
   } catch (error) {
     console.error(error)
@@ -215,7 +271,7 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
   // @ts-ignore (define in dts)
-  window.api = { recruitBridge, handover, tabs, ihrBridge }
+  window.api = { recruitBridge, handover, tabs, ihrBridge, browserBridge }
   // @ts-ignore (define in dts)
   window.__IKUAIZHAO_NATIVE__ = native
 }
