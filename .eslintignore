@@ -5,3 +5,8 @@
 /node_modules
 .eslintrc.cjs
 /quasar.config.*.temporary.compiled*
+
+# electron 子项目有自己独立的 flat config (electron/eslint.config.mjs)
+# 用了 @typescript-eslint 插件，外层 Quasar/Vue 的 eslintrc 不认识这些规则，
+# 直接整体忽略，避免 "Definition for rule '@typescript-eslint/...' was not found"
+/electron

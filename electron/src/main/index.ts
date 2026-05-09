@@ -13,6 +13,7 @@ import {
 } from './recruitBridge'
 import { registerIhrBridgeIpc } from './ihrBridge'
 import { parseDeepLink, isPayloadFresh, type ParsedDeepLink } from './util/deepLinkCodec'
+import { startProbeServer, setHomeWebContentsForProbe } from './probeServer'
 
 /**
  * 远端 SPA 部署地址（生产 / 默认开发回退用）
@@ -154,8 +155,42 @@ function handleDeepLink(url: string): void {
 
 /**
  * 协议注册：让操作系统知道 ikuaizhao:// 由本应用处理
+ *
+ * ⚠️ 关于 dev 模式：
+ *   `electron-vite dev` 跑的是 node_modules/electron/dist/Electron.app（裸 Electron），
+ *   如果调用 setAsDefaultProtocolClient(scheme, execPath, [argv[1]])，会把
+ *   ikuaizhao:// 协议在 macOS LaunchServices 数据库里**永久绑定**到 node_modules
+ *   下那个 Electron.app（bundle id = com.github.Electron，CFBundleName = "Electron"）。
+ *
+ *   后果：
+ *     - dev 进程退出后注册依然在
+ *     - 用户已安装的正式 i快招.app **未运行**时，浏览器再触发 ikuaizhao:// 会弹
+ *       「要打开 Electron 吗？」并启动 node_modules 里的裸 Electron demo
+ *     - 安装的 i快招.app 运行时表现正常（macOS 把 URL 路由给运行中的实例）
+ *
+ *   所以 dev 模式下默认**不注册**全局协议，避免污染 LSDB。
+ *   如果开发者确实需要在 dev 下测试 deep link 唤起，设 DEV_REGISTER_PROTOCOL=1。
+ *   生产打包后由 electron-builder 通过 Info.plist 的 CFBundleURLTypes 自动注册，
+ *   不会走这条路径，is.dev 始终是 false。
  */
 function registerProtocolClient(): void {
+  if (is.dev) {
+    if (process.env.DEV_REGISTER_PROTOCOL !== '1') {
+      console.log(
+        `[main] dev mode: skip setAsDefaultProtocolClient('${DEEP_LINK_PROTOCOL}') ` +
+          `to avoid polluting macOS LaunchServices with node_modules/electron/dist/Electron.app. ` +
+          `Set DEV_REGISTER_PROTOCOL=1 to enable.`
+      )
+      return
+    }
+    console.warn(
+      `[main] dev mode + DEV_REGISTER_PROTOCOL=1: registering ${DEEP_LINK_PROTOCOL}:// to ` +
+        `${process.execPath}. ` +
+        `This will override the installed i快招.app's protocol registration on macOS. ` +
+        `Run 'npm run reset-protocol' (or the lsregister command in docs) after dev exits to clean up.`
+    )
+  }
+
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
@@ -288,10 +323,12 @@ function createMainWindow(): BrowserWindow {
       preloadPath: join(__dirname, '../preload/index.js')
     })
 
-    // 把主页 tab 的 webContents 注入 recruitBridge，让 header 抓取事件能推到 SPA
+    // 把主页 tab 的 webContents 注入 recruitBridge / probe dispatch，
+    // 让 header 抓取事件、浏览器侧 POST /__ikuaizhao/dispatch 都能推到 SPA
     const homeWc = tabManager.getHomeWebContents()
     if (homeWc) {
       setHomeWebContentsForBridge(homeWc)
+      setHomeWebContentsForProbe(homeWc)
     }
 
     // 主窗口创建之后再做 hydrate（让主页 SPA 先正常加载）
@@ -380,6 +417,10 @@ app.whenReady().then(() => {
   })
 
   registerProtocolClient()
+
+  // 启动 127.0.0.1:53531 health probe server，让浏览器侧（i 快招 H5 /client-launcher）
+  // 能用 fetch 确定性探测客户端是否在跑，取代基于 window.blur 的启发式探测
+  startProbeServer()
 
   // 启动时一次性给 4 个招聘站 partition 装配 webRequest 抓 header
   setupSiteSessions()

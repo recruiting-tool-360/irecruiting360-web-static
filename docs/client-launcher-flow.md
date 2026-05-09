@@ -126,11 +126,15 @@ sequenceDiagram
                         │  loading             │ 收数据 + 组装 payload
                         └──────────┬───────────┘
                                    ▼
-                        ┌──────────────────────┐
-                        │  launching           │ 触发 deep link, 等失焦
-                        └──┬───────────┬───────┘
-                ≤1.5s 失焦 │           │ 超时未失焦
-                           ▼           ▼
+                        ┌─────────────────────────────────┐
+                        │  launching                      │
+                        │  ① pre-probe /health            │
+                        │  ② 拉 deep link                  │
+                        │  ③ poll /health 每 250ms         │
+                        └──┬───────────────────┬──────────┘
+              /health 命中 │                   │ 8s 超时未命中
+              / 用户取消    │                   │ / 用户主动取消
+                           ▼                   ▼
                 ┌────────────────┐  ┌─────────────────────┐
                 │  succeeded     │  │  missing            │
                 │ "客户端已打开"  │  │ "未检测到客户端"     │
@@ -138,7 +142,42 @@ sequenceDiagram
                 └────────────────┘  └─────────────────────┘
 ```
 
-> 决策点 D8：失焦兜底超时（1500ms / 3000ms） — 默认 1500ms
+> 决策点 D8：客户端探测策略 — **2026-05-09 v2 重写**
+>
+> ### 老方案（已废弃）：window.blur + visibilitychange 启发式
+>
+> 监听 `window.blur` / `document.visibilityState='hidden'` 当作「客户端起来抢焦点了」的信号，
+> 配合一个超时 fallback。问题：
+>
+> - 首次唤起时 Chrome 弹「要打开 i 快招 吗？」对话框，**dialog 打开期间浏览器并不会失焦**
+>   （它是浏览器内置 modal，焦点未离开 tab）。1500ms / 8000ms 计时器都可能跑赢用户读 dialog
+>   的时间，导致首次必然误判 missing。
+> - 多窗口 / 分屏 / Spaces 场景 blur 不会触发。
+> - 用户随便点 dock 图标 blur 误发，造成假 succeeded。
+> - 一直需要兜底「我已打开」按钮做 UX hack。
+>
+> ### 新方案：客户端起 health probe HTTP server
+>
+> 业界标准做法（Slack / Zoom / Teams / Spotify）：客户端主进程绑定 `127.0.0.1:53531` 起一个
+> 只读 HTTP server，浏览器 `fetch /__ikuaizhao/health` 即可**确定性**判断客户端是否在跑。
+>
+> 实现：
+>
+> - Electron 侧：[`electron/src/main/probeServer.ts`](../electron/src/main/probeServer.ts) — 启动时 listen，
+>   返回 `{ v, appVersion, pid, startedAt, ts }`，CORS 全开 + Private Network Access 头开。
+> - 浏览器侧：[`src/hooks/useClientLauncher.js`](../src/hooks/useClientLauncher.js) `tryLaunch` 流程：
+>   1. **pre-probe**：先 fetch 一次，命中 → 客户端在跑 → 触发 deep link 把窗口提前 → 立即 succeeded
+>   2. 没命中 → 触发 deep link 拉起客户端
+>   3. 每 250ms 轮询 `/health`，命中即 succeeded
+>   4. 8s 仍未命中 → missing
+>
+> 安全：
+> - 仅监听 `127.0.0.1`，外网 / 局域网都打不进
+> - 端点只读，不接受任何写操作
+> - 现代浏览器（Chrome 94+ / Safari 16+ / Firefox）允许 HTTPS 页面 fetch http://127.0.0.1，无 mixed content 阻断
+>
+> 端口冲突 fallback：如果 53531 被占（多开 i 快招实例），server 静默退出，浏览器 fetch 始终失败 → 8s
+> 超时 → missing。多开本就是边缘场景，可接受。
 
 ### 3.4 关键代码骨架
 
@@ -391,6 +430,96 @@ interface DeepLinkPayload_v1 {
 
 > 决策点 D10：positionList 上限策略 — 建议 (a) 永远只传 `positionIds`，positionList 在客户端启动后调 `ihrBridge` 自取（最干净）
 
+> **D13 替代方案**：不想被 URL 长度卡死、也不想让大字段绕到 ihrBridge 自取，
+> 可以走 [§4.4 数据通道（probe server / dispatch）](#44-数据通道probe-server--dispatch)：
+> deep link 只带「最小必要 SSO 字段」拉起客户端，确认 succeeded 后再 POST 大 payload。
+
+---
+
+## 4.4 数据通道（probe server / dispatch）
+
+### 为什么需要
+
+deep link 只解决「OS 怎么把请求路由给客户端」的问题，存在两大限制：
+
+1. **URL 长度上限**（Win 8KB / Linux ~2MB / macOS ~512KB），大 payload 走不动。
+2. **协议字段升级要求客户端发版**：每加一种 `intent` / 新字段，主进程的 `pathForAction` /
+   payload schema 都要改一遍，发不出客户端版本就用不上。
+
+### 实现
+
+客户端主进程已经在跑一个 `127.0.0.1:53531` HTTP server（probe server，原本只为 `/health` 探活）。
+顺手加一个 `POST /__ikuaizhao/dispatch` 端点，做**透传式**数据通道：
+
+```
+浏览器                     probe server (主进程)            home tab WebContents (i 快招 SPA)
+   │ POST /__ikuaizhao/dispatch    │                              │
+   │ {                             │                              │
+   │   v: 1,                       │                              │
+   │   type: 'launcher:big-init',  │                              │
+   │   payload: { jdList: [...] }, │                              │
+   │   requestId: 'uuid'           │                              │
+   │ }                             │                              │
+   │ ─────────────────────────────>│                              │
+   │                               │ wc.send('app:browser-data',  │
+   │                               │         body)                │
+   │                               │ ────────────────────────────>│ window.api.browserBridge
+   │                               │                              │   .on(type, callback)
+   │ <── 200 { ok, dispatched }────│                              │
+```
+
+关键性质：
+
+- **主进程不解析 `type` / `payload`**，原样从 HTTP body 透传到 `app:browser-data` IPC 事件
+- **新业务只升级 H5**：H5 想加 `type` 直接发，SPA 加监听处理；客户端**零改动**
+- **不再受 URL 长度限制**：单次 body 上限 8MB（probe server `MAX_BODY_BYTES`），实际业务远用不到
+- **同源安全**：只 listen `127.0.0.1`，外网/局域网打不进；`Access-Control-Allow-Private-Network: true`
+  让 HTTPS 页面也能 fetch（Chrome PNA 规范）
+
+### 浏览器侧 API
+
+```js
+import { sendToClient } from 'src/util/clientBridge';
+
+const res = await sendToClient('launcher:big-init', { jdList: [/* ... */] });
+if (!res.ok) {
+  // res.reason: 'not-running' | 'no-renderer' | 'invalid-body' | 'timeout' | ...
+}
+```
+
+### 客户端 SPA 侧 API（仅在 Electron 客户端模式下可用）
+
+```ts
+// 客户端 SPA 启动时一次性注册
+const off = window.api.browserBridge.on('launcher:big-init', (payload, ctx) => {
+  console.log('从浏览器收到 big-init', payload, 'requestId:', ctx.requestId);
+  // 业务处理：写 store / 写 sessionStorage / 触发某 view 加载...
+});
+```
+
+### 推荐组合用法
+
+deep link 拉起 + dispatch 推大 payload：
+
+```
+1. 浏览器：useClientLauncher.tryLaunch('sso', smallSSOPayload)
+   → pre-probe / deep link / poll → succeeded
+2. 浏览器：sendToClient('launcher:position-detail', { positions: [/* 1000 条 */] })
+   → 主进程透传 → SPA on('launcher:position-detail') 监听到
+3. 浏览器关闭页 / 跳路由
+```
+
+deep link 只放最关键的 SSO 字段，所有大字段走 dispatch；`positionIds` / `positionList` 都不需要进 URL。
+
+### 安全注意
+
+probe server 只 listen `127.0.0.1`，但同机任何进程都能 POST。如果业务侧某个 type 触发敏感操作（删数据、调 API 改服务端状态），SPA 必须自行做：
+
+1. **type 白名单**：只接受预期的 type，未知 type 一律忽略
+2. **来源校验**：payload 里带父端签名 / 时间戳 / nonce，SPA 校验通过才执行
+
+主进程层不做这事，刻意保持「dumb pipe」让协议升级零成本。
+
 ---
 
 ## 5. Electron 客户端侧（已实现 / 待补）
@@ -576,6 +705,7 @@ private getEntryUrl(): string {
 | `src/util/electronMessengerShim.js` | **已新建** — Electron 模式下 messenger 替身，`on/post/injectInit` | 完成 |
 | `src/boot/iframe-messenger.js` | **已改** — 客户端模式用 shim，浏览器/iframe 走原 IframeMessenger | 完成 |
 | `src/pages/login/SSOLogin.vue` | **已改** — `runFromDeepLinkPayload` 拿到 payload 后调 `iframeMsg.injectInit` | 完成 |
+| `src/util/clientBridge.js` | **已新建** — 浏览器 → 客户端 SPA 数据通道封装 `sendToClient(type, payload)`，走 probe server `/__ikuaizhao/dispatch`，规避 deep link URL 长度限制 + 协议升级要发版的痛点 | 完成 |
 | `src/util/deepLinkCodec.js` / `src/hooks/useClientLauncher.js` / `src/util/clientPlatform.js` | 已有，直接复用 | 0 |
 
 ### 7.3 i 快招 Electron (`irecruiting360-web-static/electron/`)
@@ -583,9 +713,10 @@ private getEntryUrl(): string {
 | 文件 | 改动 | 工时 |
 |---|---|---|
 | `electron/src/main/ihrBridge.ts` | **已新建** — i 人事业务桥（mock）：assignPositions/addPools/uploadFile/... | 完成 |
-| `electron/src/main/index.ts` | **已改** — 注册 ihrBridge IPC；`pathForAction` 增加 `open-chat` / `import-resume`（待补） | 部分完成 |
-| `electron/src/preload/index.ts` | **已改** — 暴露 `window.api.ihrBridge.*` | 完成 |
-| `electron/src/preload/index.d.ts` | **已改** — `IhrBridge` / `IhrApiResult` 类型 | 完成 |
+| `electron/src/main/index.ts` | **已改** — 注册 ihrBridge IPC；`pathForAction` 增加 `open-chat` / `import-resume`（待补）；启动 probe server + 注入 home wc | 部分完成 |
+| `electron/src/main/probeServer.ts` | **已新建** — `127.0.0.1:53531` HTTP server，提供 `/health`（确定性活性探测）+ `/dispatch`（透传式数据通道） | 完成 |
+| `electron/src/preload/index.ts` | **已改** — 暴露 `window.api.ihrBridge.*` 和 `window.api.browserBridge.on(type, cb)` | 完成 |
+| `electron/src/preload/index.d.ts` | **已改** — `IhrBridge` / `IhrApiResult` / `BrowserBridge` / `BrowserBridgeMessage` 类型 | 完成 |
 | `electron/src/main/util/deepLinkCodec.ts` | 已有；可扩展 schema 强校验 v=1 必需字段（可选） | 0.1d |
 
 ---
@@ -601,7 +732,8 @@ private getEntryUrl(): string {
 | **D5** | `iframe-back` | 转 `tabs:goBack(home)` |
 | **D6** | 迁移方案 | **方案 B：messenger shim**，业务代码零改动 |
 | **D7** | `extendData.from` 来自客户端冷启动时填什么 | `'electron-launcher'` |
-| **D8** | /client-launcher 失焦兜底超时 | 1500ms |
+| **D8** | /client-launcher 客户端探测 | v2 (2026-05-09)：客户端起 127.0.0.1:53531 health probe，浏览器 fetch 确定性探测；废弃 blur 启发式 |
+| **D13** | 大 payload / 协议升级 | probe server 加 `POST /__ikuaizhao/dispatch` 透传式数据通道；主进程不解析 type/payload，新业务 SPA 升级即可，客户端零改动；规避 deep link URL 长度限制（详见 §4.4） |
 | **D9** | 客户端下载页 | `https://download.ihire365.com/ikuaizhao`（与插件下载共域，待运维确认） |
 | **D10** | positionList 上限 | 永远只放 `positionIds`，positionList 在客户端启动后自取 |
 | **D11** | payload 持久化 | 主页 tab 写 `sessionStorage('ikuaizhao:initPayload')` |
@@ -638,3 +770,6 @@ private getEntryUrl(): string {
 |---|---|---|
 | 2026-05-08 | lewin | 初稿：iframe → /client-launcher 迁移设计 |
 | 2026-05-09 | lewin | 调整为最小侵入版：i 人事侧零新代码，只换 iframe src。Launcher 页面收敛到 i 快招 `pages/login/ClientLauncher.vue`，复用现有 IframeMessenger + useClientLauncher。落地 ihrBridge mock + electronMessengerShim + ClientLauncher.vue 三件套。|
+| 2026-05-09 | lewin | D8 失焦兜底超时 1500ms → 8000ms：覆盖首次 Chrome dialog 阅读时间 + macOS 冷启动；新增 launching 状态读秒 + 「我已打开客户端 / 放弃等待」手动按钮；missing 状态新增「我已打开」兜底翻转，覆盖多窗口 / 分屏 blur 漏发场景。|
+| 2026-05-09 | lewin | **D8 v2 重写**：废弃 window.blur / visibilitychange 启发式探测，改为客户端起 127.0.0.1:53531 health probe HTTP server + 浏览器 fetch 轮询确定性探测。新增 `electron/src/main/probeServer.ts`，重写 `useClientLauncher.js` 的 tryLaunch（pre-probe → 拉协议 → 每 250ms poll /health）。移除 ClientLauncher.vue 的「我已打开」UX hack 按钮（不再需要兜底，探测本身确定性）。|
+| 2026-05-09 | lewin | **D13 数据通道**：probe server 加 `POST /__ikuaizhao/dispatch` 端点，做浏览器 → SPA 透传式数据通道。主进程不解析 type/payload，新业务字段 SPA 升级即可，**客户端无需重发版**。新增 `src/util/clientBridge.js` 的 `sendToClient(type, payload)`；preload 暴露 `window.api.browserBridge.on(type, cb)`；类型见 `electron/src/preload/index.d.ts` 的 `BrowserBridge`。|
