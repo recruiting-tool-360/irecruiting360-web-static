@@ -1,0 +1,232 @@
+/**
+ * Electron 客户端模式下的 IframeMessenger Shim
+ *
+ * 客户端模式下 i 快招主页跑在 Electron 主窗口的 WebContentsView 里，没有父 iframe，
+ * 因此原 boot/iframe-messenger.js 提供的 postMessage 通道全部失效。
+ *
+ * 本模块返回一个**与 IframeMessenger 同名同接口**的对象，让业务代码
+ * （this.$iframeMessenger.on/post/...）保持原样：
+ *
+ *   -     on('init', cb)         冷启动从 sessionStorage（'ikuaizhao:initPayload'）补发；
+ *                            后续 SSOLogin 拿到 deep link payload 后会调 injectInit() 触发
+ *   - on('themeColor', cb)   noop（客户端自带主题；如需联动后续可改 ihrBridge.getTheme()）
+ *   - on('ihrSuccessIds', cb) 业务 post('resumeList', ...) 完成后由 shim 自己 emit
+ *   - post('connect') / post('disconnect')   noop
+ *   - post('resumeList', { action: 'assign-position', ... })   → ihrBridge.assignPositions
+ *   - post('resumeList', { action: 'talent-pool',     ... })   → ihrBridge.addPools
+ *   - post('iframe-back')                                       → tabs.goBack(home tab)
+ *   - post('themeColor', ...)                                   noop
+ *
+ * 与 IframeMessenger 行为差异：
+ *   - 客户端模式下无任何真实 postMessage 收发；所有"事件"都是 shim 内部模拟
+ *   - on('init') 注册后无需等待 — 如果 sessionStorage / 已注入 缓存里有 payload，立即同步触发
+ *   - emit 事件时 context.from 伪装成 'ihr-recruit-assistant'，让业务代码 0 改动通过来源判断
+ *
+ * 详见 docs/client-launcher-flow.md
+ */
+
+const SS_KEY_INIT = 'ikuaizhao:initPayload';
+
+/**
+ * shim emit 事件时模拟的 context.from / origin。
+ *
+ * ⚠️ 关键设计：from 必须是 'ihr-recruit-assistant'。
+ *
+ * 业务代码（MainLayout.vue 'ihrSuccessIds' / SSOLogin.vue 'init' 'themeColor' 等）
+ * 都有 `if (context.from !== 'ihr-recruit-assistant') return;` 来源判断，
+ * 用于过滤恶意 origin 注入。客户端模式下 shim 是受信内部模拟，
+ * 必须伪装成 i 人事推过来的，业务代码才能 0 改动跑通。
+ *
+ * origin 业务代码不读，写一个标记串方便日志追溯即可。
+ */
+const ELECTRON_CTX = { from: 'ihr-recruit-assistant', origin: 'electron://shim' };
+
+/**
+ * @returns {boolean}
+ */
+function isElectronClient() {
+  if (typeof window === 'undefined') return false;
+  const native = window.__IKUAIZHAO_NATIVE__;
+  return !!native && native.mode === 'electron';
+}
+
+/**
+ * 渲染端把 File / Blob 序列化为可走 IPC 的 ArrayBuffer + 元数据
+ */
+async function fileToTransfer(file) {
+  if (!file) return null;
+  if (typeof file.arrayBuffer !== 'function') {
+    throw new Error('uploadFile 入参必须是 File 或 Blob');
+  }
+  return {
+    arrayBuffer: await file.arrayBuffer(),
+    name: file.name || 'upload.bin',
+    mime: file.type || 'application/octet-stream'
+  };
+}
+
+/**
+ * 创建客户端模式下的 messenger（与 IframeMessenger 接口对齐）
+ */
+export function createElectronMessengerShim() {
+  /** @type {Map<string, Function>} */
+  const handlers = new Map();
+  /** @type {object | null} */
+  let cachedInit = readInitFromSession();
+
+  const ihrBridge = window?.api?.ihrBridge;
+  const tabs = window?.api?.tabs;
+
+  function readInitFromSession() {
+    try {
+      const raw = sessionStorage.getItem(SS_KEY_INIT);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function writeInitToSession(payload) {
+    try {
+      sessionStorage.setItem(SS_KEY_INIT, JSON.stringify(payload));
+    } catch (e) {
+      console.warn('[electronShim] writeInitToSession failed:', e);
+    }
+  }
+
+  function emit(type, data) {
+    const cb = handlers.get(type);
+    if (typeof cb === 'function') {
+      try {
+        cb(data, ELECTRON_CTX);
+      } catch (e) {
+        console.error(`[electronShim] handler '${type}' threw:`, e);
+      }
+    }
+  }
+
+  // ============= 公共接口 =============
+
+  /**
+   * 由 SSOLogin.vue 等首次拿到 deep link payload 的消费者调用，
+   * 把"业务部分"灌进来，触发 init 事件 + 持久化
+   */
+  function injectInit(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    cachedInit = {
+      positionList: payload.positionList,
+      positionIds: payload.positionIds,
+      sysConfig: payload.sysConfig,
+      ssoConfig: payload.ssoConfig,
+      companyConfig: payload.companyConfig
+    };
+    writeInitToSession(cachedInit);
+    emit('init', cachedInit);
+  }
+
+  function on(type, callback) {
+    handlers.set(type, callback);
+    if (type === 'init') {
+      // 晚到的监听器自动补发（业务页面 onMounted 才注册时大概率走这条路径）
+      const data = cachedInit ?? readInitFromSession();
+      if (data) {
+        cachedInit = data;
+        // 用微任务异步触发，避免 on() 调用栈里同步回调引发意外
+        Promise.resolve().then(() => emit('init', data));
+      }
+    }
+  }
+
+  function off(type) {
+    handlers.delete(type);
+  }
+
+  /**
+   * post 转 IPC 调用；返回与 IframeMessenger.post 一致的 { data } 形态
+   */
+  async function post(type, data) {
+    switch (type) {
+      case 'connect':
+      case 'disconnect':
+        return { data: null };
+
+      case 'themeColor':
+        // 客户端自带主题（D4），忽略；如需联动可改成 ihrBridge.getTheme()
+        return { data: null };
+
+      case 'iframe-back':
+        try {
+          await tabs?.goBack?.('home');
+        } catch (e) {
+          console.warn('[electronShim] iframe-back failed:', e);
+        }
+        return { data: null };
+
+      case 'resumeList': {
+        if (!ihrBridge) {
+          console.error('[electronShim] window.api.ihrBridge missing');
+          return { data: { code: -1, message: 'ihrBridge unavailable' } };
+        }
+        const action = data?.action;
+        try {
+          let result = null;
+          if (action === 'assign-position') {
+            result = await ihrBridge.assignPositions(data ?? {});
+          } else if (action === 'talent-pool') {
+            result = await ihrBridge.addPools(data ?? {});
+          } else {
+            console.warn('[electronShim] unknown resumeList action:', action);
+            return { data: { code: -1, message: `unknown action: ${action}` } };
+          }
+          // 模拟 iframe 模式下父端 onConfirm 后回推 ihrSuccessIds 的语义
+          // （让业务代码 iframeMsg.on('ihrSuccessIds') 监听器在客户端模式下也能触发）
+          if (result?.success && result.data) {
+            const successPayload = {
+              type: result.data.type,
+              successResumeIds: result.data.successResumeIds,
+              failRepeatResumeIds: result.data.failRepeatResumeIds,
+              failOtherResumeIds: result.data.failOtherResumeIds
+            };
+            // 异步触发，让 post() 的 await 先 resolve
+            Promise.resolve().then(() => emit('ihrSuccessIds', successPayload));
+          }
+          return { data: result };
+        } catch (e) {
+          console.error('[electronShim] resumeList failed:', e);
+          return { data: { code: -1, message: String(e?.message || e) } };
+        }
+      }
+
+      default:
+        console.warn('[electronShim] unknown post type:', type);
+        return { data: null };
+    }
+  }
+
+  function connect() {
+    /* noop */
+  }
+  function disconnect() {
+    /* noop */
+  }
+  function destroy() {
+    handlers.clear();
+  }
+
+  return {
+    // 与 IframeMessenger 同名 API（业务代码原样可用）
+    on,
+    off,
+    post,
+    connect,
+    disconnect,
+    destroy,
+    // shim 独有：让 SSOLogin 等把 deep link payload 灌进来
+    injectInit,
+    // 直通：让消费者按需调用
+    ihrBridge,
+    isElectronShim: true
+  };
+}
+
+export { isElectronClient };

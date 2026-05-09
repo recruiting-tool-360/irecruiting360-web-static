@@ -2,6 +2,9 @@ appId: com.ihire365.ikuaizhao
 productName: i快招
 directories:
   buildResources: build
+# afterPack 钩子：macOS 打包完后如果没真实签名，自动 ad-hoc 签
+# 让 dev 包在 Apple Silicon 上能直接双击运行（不签的 .app 在 arm64 会被内核 kill）
+afterPack: build/afterPack.js
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -23,22 +26,98 @@ protocols:
       - ikuaizhao
 
 win:
+  icon: resources/icons/icon.ico
   executableName: ikuaizhao
+  # ===== Windows 代码签名 =====
+  #
+  # 行为分两档：
+  #
+  # ① npm run build:win:dev / build:win:dir
+  #    → 通过命令行 --config.win.signtoolOptions=null 强制覆盖跳过签名
+  #    → 出未签名 exe（SmartScreen 弹"未知发布者"，用户点"仍要运行"能装）
+  #
+  # ② npm run build:win:release
+  #    → 用下面的 signtoolOptions 走真实签名
+  #    → 需要配 env：
+  #         export WIN_CSC_LINK="$HOME/secure/CodeSigning.pfx"
+  #         export WIN_CSC_KEY_PASSWORD="<.pfx 密码>"
+  #    → macOS 上交叉签：先 `brew install osslsigncode`，electron-builder 自动调它替代 signtool.exe
+  #
+  # 详见 docs/windows-release.md
+  # 架构：x64 + arm64
+  # electron-builder 会输出三个产物：
+  #   - i快招-1.0.0-x64-setup.exe       100 MB  专用 x64
+  #   - i快招-1.0.0-arm64-setup.exe     100 MB  专用 arm64
+  #   - i快招-1.0.0-setup.exe           200 MB  合并包,自动检测安装对应 arch ← 对外发这个
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  # 默认行为：
+  #   有 WIN_CSC_LINK env (.pfx)            → electron-builder 自动签 + 用默认时间戳服务器
+  #   没 env 或 build:win:dev 命令显式跳过   → 不签名，出未签名 exe（SmartScreen 警告但能装）
+  #
+  # publisherName 在 25.x 移到了 signtoolOptions 下；dev 模式不签名时这块整段被跳过，无副作用
+  signtoolOptions:
+    publisherName:
+      - i快招
+      - ihire365.com
+    signingHashAlgorithms:
+      - sha256
+    timeStampServer: http://timestamp.sectigo.com
+    rfc3161TimeStampServer: http://timestamp.sectigo.com
+
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+
 mac:
+  icon: resources/icons/icon.icns
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+
+  # 双架构：x64（Intel Mac）+ arm64（Apple Silicon），dmg 给用户安装，zip 给 electron-updater 增量更新
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+
+  # ===== macOS 代码签名 + 公证（默认 adhoc 自签，本地能跑）=====
+  #
+  # ① 开发期（无证书）：npm run build:mac:dev / build:mac:dir
+  #    → identity=null 强制 adhoc 签名；notarize=false 不公证。
+  #    → 用户首次运行需要"右键 → 打开"绕过 Gatekeeper（macOS 警告"无法验证开发者"）。
+  #    → Apple Silicon 强制要求至少 adhoc 签名才能运行（不签会 zsh: killed）。
+  #
+  # ② 正式签名 + 公证：先准备好 Apple Developer 证书 + App-specific password
+  #    export CSC_LINK="/path/to/DeveloperID.p12"      # 或 .keychain 里有 identity 也可以自动找到
+  #    export CSC_KEY_PASSWORD="p12 密码"
+  #    export APPLE_ID="dev@ihire365.com"               # 公证用 Apple ID
+  #    export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+  #    export APPLE_TEAM_ID="ABCD1234EF"               # 团队 ID（10 位）
+  #    npm run build:mac:release
+  #    → electron-builder 自动用 Developer ID 签名 + notarytool 公证。
+  #    → 公证完成后用 staple 钉到 .dmg / .app 里，离线分发也能通过 Gatekeeper。
+  #
+  # 详见 docs/client-signing-guide.md / docs/build-and-package.md
   notarize: false
+  hardenedRuntime: true                # 公证强制要求；adhoc 也允许开
+  gatekeeperAssess: false              # 跳过本地 spctl 校验，加快打包
+
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${productName}-${version}-${arch}.${ext}
 linux:
   target:
     - AppImage
@@ -47,7 +126,7 @@ linux:
   maintainer: electronjs.org
   category: Utility
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${productName}-${version}-${arch}.${ext}
 npmRebuild: false
 publish:
   provider: generic

@@ -11,6 +11,7 @@ import {
   hydrateLoggedInSites,
   setHomeWebContentsForBridge
 } from './recruitBridge'
+import { registerIhrBridgeIpc } from './ihrBridge'
 import { parseDeepLink, isPayloadFresh, type ParsedDeepLink } from './util/deepLinkCodec'
 
 /**
@@ -58,14 +59,23 @@ function joinPath(baseUrl: string, p: string): string {
 
 /**
  * deep link action → SPA 路由路径的映射（让客户端启动后命中正确页面）
+ *
+ * 设计原则：
+ *   - 客户端冷启动时用户尚未登录，所有 intent 都必须先经过 /sso-login 完成 SSO
+ *   - SSO 成功后 SPA `router.push('/')` 进主页
+ *   - 主页 / 业务模块从 sessionStorage('ikuaizhao:initPayload') 取 payload，
+ *     根据 payload.intent 字段（或 payload.action）分发到具体业务（导入简历 / 打开聊天 / ...）
+ *
+ * 因此本函数当前仅区分"已知 vs 未知"——已知 action 一律走 /sso-login，
+ * 未知 action 返回 null（main/index.ts 走默认主页加载逻辑）。
  */
+const KNOWN_ACTIONS = new Set(['sso', 'open-chat', 'import-resume'])
+
 function pathForAction(action: string): string | null {
-  switch (action) {
-    case 'sso':
-      return '/sso-login' // SSOLogin.vue onMounted 时会消费 pending payload
-    default:
-      return null
+  if (KNOWN_ACTIONS.has(action)) {
+    return '/sso-login'
   }
+  return null
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -210,15 +220,15 @@ function createMainWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     title: WINDOW_TITLE,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#171717',
     autoHideMenuBar: true,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    // Win/Linux：让系统自绘三按钮在右上 138x40 区域，颜色与壳层标题栏一致
+    // Win/Linux：让系统自绘三按钮在右上 138x40 区域，颜色与壳层标题栏一致（深色主题）
     titleBarOverlay: isMac
       ? false
       : {
-          color: '#f3f4f6',
-          symbolColor: '#374151',
+          color: '#171717',
+          symbolColor: '#e5e7eb',
           height: 40
         },
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -375,6 +385,9 @@ app.whenReady().then(() => {
   setupSiteSessions()
 
   registerRecruitBridgeIpc()
+
+  // i 人事招聘业务桥（取代 iframe 模式下父端 React 调网关 + postMessage 推送的角色）
+  registerIhrBridgeIpc()
 
   registerIpc()
 

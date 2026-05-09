@@ -26,8 +26,8 @@ body {
     'Microsoft YaHei',
     sans-serif;
   font-size: 13px;
-  color: #1f2937;
-  background: #f3f4f6;
+  color: #ffffff;
+  background: #171717;
   user-select: none;
   -webkit-user-select: none;
   overflow: hidden;
@@ -51,8 +51,8 @@ body {
   height: 40px;
   display: flex;
   align-items: stretch;
-  background: #f3f4f6;
-  border-bottom: 1px solid #e5e7eb;
+  background: #171717;
+  border-bottom: 1px solid #262626;
   -webkit-app-region: drag;
   flex-shrink: 0;
 }
@@ -103,18 +103,20 @@ body {
   transition: background-color 0.12s;
   flex-shrink: 0;
   font-size: 12px;
-  color: #4b5563;
+  color: #ffffff;
   -webkit-app-region: no-drag;
 }
 
 .tab:hover {
-  background: rgba(0, 0, 0, 0.04);
+  /* tailwind neutral-800 = #262626 */
+  background: #262626;
 }
 
 .tab.active {
-  background: #ffffff;
-  color: #111827;
-  box-shadow: 0 -1px 0 #e5e7eb inset;
+  /* 激活态：比 hover 略亮的灰，与窗口暗色背景区分但保持深色一致 */
+  background: #404040;
+  color: #ffffff;
+  box-shadow: 0 -1px 0 #525252 inset;
 }
 
 .tab.dragging {
@@ -203,7 +205,7 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #6b7280;
+  color: #d4d4d4;
   font-size: 16px;
   line-height: 1;
   background: transparent;
@@ -215,8 +217,8 @@ body {
 }
 
 .tab-close:hover {
-  background: rgba(0, 0, 0, 0.08);
-  color: #111827;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
 }
 
 .tab.pinned {
@@ -233,6 +235,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9ca3af;
+  color: #525252;
   font-size: 12px;
+  background: #171717;
 }
