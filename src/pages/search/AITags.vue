@@ -483,36 +483,37 @@ const ensureCriteria = () => {
 // 初始化时确保criteria存在
 ensureCriteria();
 
-// 创建计算属性以允许标签更新
-const professionalSkills = computed({
-  get: () => props.modelValue.criteria?.professional_skills || [],
+const criteria = computed({
+  get: () => ({
+    professional_skills: props.modelValue.criteria?.professional_skills || [],
+    soft_skills: props.modelValue.criteria?.soft_skills || [],
+    work_experience: props.modelValue.criteria?.work_experience || [],
+  }),
   set: (value) => {
-    const updatedValue = { ...props.modelValue };
-    if (!updatedValue.criteria) updatedValue.criteria = {};
-    updatedValue.criteria.professional_skills = value;
+    const updatedValue = { 
+      ...props.modelValue,
+      criteria: {
+        ...props.modelValue.criteria,
+        ...value
+      }
+    };
     emit('update:modelValue', updatedValue);
   }
 });
 
-const softSkills = computed({
-  get: () => props.modelValue.criteria?.soft_skills || [],
+const createCriteriaComputed = (key) => computed({
+  get: () => props.modelValue.criteria?.[key] || [],
   set: (value) => {
     const updatedValue = { ...props.modelValue };
     if (!updatedValue.criteria) updatedValue.criteria = {};
-    updatedValue.criteria.soft_skills = value;
+    updatedValue.criteria[key] = value;
     emit('update:modelValue', updatedValue);
   }
 });
 
-const workExperience = computed({
-  get: () => props.modelValue.criteria?.work_experience || [],
-  set: (value) => {
-    const updatedValue = { ...props.modelValue };
-    if (!updatedValue.criteria) updatedValue.criteria = {};
-    updatedValue.criteria.work_experience = value;
-    emit('update:modelValue', updatedValue);
-  }
-});
+const professionalSkills = createCriteriaComputed('professional_skills');
+const softSkills = createCriteriaComputed('soft_skills');
+const workExperience = createCriteriaComputed('work_experience');
 
 // 预设标签
 const professionalSkillsPresets = ref([
@@ -743,19 +744,20 @@ const addTag = (tag, array, callback) => {
   }
 };
 
-// 打开所有标签编辑对话框
 const openAllTagsEditor = () => {
   showAllTagsDialog.value = true;
-  editableProSkills.value = [...professionalSkills.value];
-  editableSoftSkills.value = [...softSkills.value];
-  editableWorkExp.value = [...workExperience.value];
+  // 从聚合的criteria中获取初始值
+  editableProSkills.value = [...criteria.value.professional_skills];
+  editableSoftSkills.value = [...criteria.value.soft_skills];
+  editableWorkExp.value = [...criteria.value.work_experience];
 };
 
-// 保存所有标签
 const saveAllTags = () => {
-  professionalSkills.value = [...editableProSkills.value];
-  softSkills.value = [...editableSoftSkills.value];
-  workExperience.value = [...editableWorkExp.value];
+  criteria.value = {
+    professional_skills: [...editableProSkills.value],
+    soft_skills: [...editableSoftSkills.value],
+    work_experience: [...editableWorkExp.value]
+  };
   showAllTagsDialog.value = false;
 };
 
