@@ -5,13 +5,21 @@ directories:
 # afterPack 钩子：macOS 打包完后如果没真实签名，自动 ad-hoc 签
 # 让 dev 包在 Apple Silicon 上能直接双击运行（不签的 .app 在 arm64 会被内核 kill）
 afterPack: build/afterPack.js
+# files：显式白名单 + 关键排除，避免 dist*/ build*/ scripts/ 等临时目录被一股脑打进 app.asar
+# （历史教训：dist-arm64-backup 不在默认排除列表里，会被 include 成 650MB 体积）
 files:
+  - out/**
+  - resources/**
+  - package.json
+  - 'node_modules/**'
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{dist,dist-*,build,scripts}/**'
+  - '!**/{__pycache__,*.tsbuildinfo,*.map}'
 asarUnpack:
   - resources/**
 
