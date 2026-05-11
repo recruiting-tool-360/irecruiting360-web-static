@@ -32,7 +32,6 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "electron-icon-builder": "^2.0.1",
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
@@ -46,6 +45,7 @@
     "cross-env": "^10.1.0",
     "electron": "^38.1.2",
     "electron-builder": "^25.1.8",
+    "electron-icon-builder": "^2.0.1",
     "electron-vite": "^4.0.1",
     "eslint": "^9.36.0",
     "eslint-plugin-react": "^7.37.5",
