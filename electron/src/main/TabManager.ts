@@ -39,6 +39,12 @@ interface InternalTab {
   channel?: string
   title: string
   view: WebContentsView
+  /**
+   * 隐藏 tab：tab 仍然有 webContents / view（可以 loadURL / executeJavaScript），
+   * 但不会出现在 TabBar UI 上，也不会被自动 activate。
+   * 用于 tabFetcher 这类静默抓取场景（用户视觉无感）。
+   */
+  hidden?: boolean
 }
 
 // =============== 配置 ===============
@@ -51,14 +57,18 @@ export const SITE_PARTITION: Record<string, string> = {
   boss: 'persist:ihr360-boss',
   zhilian: 'persist:ihr360-zhilian',
   liepin: 'persist:ihr360-liepin',
-  job51: 'persist:ihr360-job51'
+  job51: 'persist:ihr360-job51',
+  // i 人事 manage 系统：不是招聘渠道，但同样需要 partition + cookie 持久化
+  // 与 ihrBridge.ts 的 IHR_MANAGE_PARTITION 必须一致
+  'ihr-manage': 'persist:ihr360-ihr-manage'
 }
 
 const SITE_TITLE: Record<string, string> = {
   boss: 'BOSS 直聘',
   zhilian: '智联招聘',
   liepin: '猎聘',
-  job51: '前程无忧'
+  job51: '前程无忧',
+  'ihr-manage': 'i 人事工作台'
 }
 
 const HOME_TITLE = 'i快招'
@@ -144,27 +154,39 @@ class TabManager {
   // ----- 创建：招聘站点 tab（紧挨当前 active 右侧） -----
 
   /**
-   * 打开或激活某 channel 的招聘站点 tab。
-   * - 已存在该 channel tab → 激活并按需 navigate
-   * - 不存在 → 新建并激活，插入到 currentActive 之后
+   * 打开招聘站点 tab：
+   *   • 已有 tab 的 URL 与目标 URL 完全相同 → 激活该 tab（不重复开）
+   *   • 否则新建一个 tab（即使同 channel 已有其它 tab 也新开）
+   *
+   * 设计原因：用户体验上"点链接"就应该是"新窗口"，跟浏览器一致；
+   * 之前按 channel 唯一会把现有 tab 内容覆盖掉，丢失浏览历史，体验差。
+   * 完全相同 URL 复用，避免用户重复点击产生大量重复 tab。
    */
-  openOrActivateSiteTab(channel: string, url: string): string {
+  openOrActivateSiteTab(
+    channel: string,
+    url: string,
+    opts?: { hidden?: boolean }
+  ): string {
     if (!this.mainWindow) throw new Error('TabManager: mainWindow not set')
     const key = (channel || '').toLowerCase()
     const partition = SITE_PARTITION[key] ?? `persist:ihr360-site-${key}`
     const title = SITE_TITLE[key] ?? (channel || '新标签')
+    const isHidden = !!opts?.hidden
 
-    // 已存在同 channel 的 tab → 激活
-    for (const tab of this.tabs.values()) {
-      if (tab.channel === key) {
+    // 1) 已有 tab 的 URL 完全相同 → 激活复用，不新开
+    //    hidden 模式不复用现有可见 tab（否则会把用户当前正在浏览的 tab 偷偷变成隐藏 tab）
+    if (url && !isHidden) {
+      for (const tab of this.tabs.values()) {
+        if (tab.pinned) continue // 跳过 home tab（home 永远不是招聘站点）
+        if (tab.hidden) continue // 隐藏 tab 不参与"同 URL 复用"
         const currentUrl = tab.view.webContents.getURL()
-        if (currentUrl !== url && url) {
-          void tab.view.webContents.loadURL(url)
+        if (currentUrl && sameUrl(currentUrl, url)) {
+          this.activate(tab.id)
+          return tab.id
         }
-        this.activate(tab.id)
-        return tab.id
       }
     }
+    // 2) URL 不同 → 新开 tab（即使同 channel 已经有其它 tab）
 
     const siteSession = session.fromPartition(partition)
     const view = new WebContentsView({
@@ -184,7 +206,8 @@ class TabManager {
       pinned: false,
       channel: key,
       title,
-      view
+      view,
+      hidden: isHidden
     }
     this.attachViewListeners(tab)
     this.attachSiteWindowOpenHandler(tab)
@@ -193,7 +216,8 @@ class TabManager {
     this.mainWindow.contentView.addChildView(view)
     this.tabs.set(id, tab)
 
-    // 紧挨当前 active 右侧插入（决策 E.b）
+    // 紧挨当前 active 右侧插入（决策 E.b）；hidden tab 仍加进 order（统一管理 / close），
+    // 只是 getTabs() 会过滤它，所以 TabBar 上看不到。
     const insertAfter = this.activeId ? this.order.indexOf(this.activeId) : -1
     if (insertAfter >= 0) {
       this.order.splice(insertAfter + 1, 0, id)
@@ -202,7 +226,13 @@ class TabManager {
     }
 
     void view.webContents.loadURL(url)
-    this.activate(id)
+    if (isHidden) {
+      // hidden tab：不 activate（保持原 active 不变），不显式 broadcast（getTabs 会过滤掉它）
+      // 仅 updateBounds 一次，确保 hidden view 的尺寸保持 0x0 不占主窗口
+      this.updateBounds()
+    } else {
+      this.activate(id)
+    }
     return id
   }
 
@@ -227,10 +257,10 @@ class TabManager {
     const idx = this.order.indexOf(id)
     if (idx < 0) return false
 
-    // 计算下一个激活的 tab：右侧 > 左侧 > home
+    // 计算下一个激活的 tab：右侧 > 左侧 > home（跳过 hidden tab）
     let nextActive: string | null = null
     if (this.activeId === id) {
-      nextActive = this.order[idx + 1] ?? this.order[idx - 1] ?? this.homeTabId
+      nextActive = this.findVisibleNeighborTabId(idx) ?? this.homeTabId
     } else {
       nextActive = this.activeId
     }
@@ -323,6 +353,14 @@ class TabManager {
     return tab?.view.webContents ?? null
   }
 
+  /** 按 tabId 拿 webContents（给 tabFetcher 等需要操作特定 tab 的工具用） */
+  getWebContentsById(id: string): Electron.WebContents | null {
+    const tab = this.tabs.get(id)
+    if (!tab) return null
+    if (tab.view.webContents.isDestroyed()) return null
+    return tab.view.webContents
+  }
+
   /**
    * 给定 channel 找到对应的招聘站 tab webContents（如果有）。
    * 用于 universalRequest 在站点 tab 内 executeJavaScript 发 fetch（替代原 siteWindowManager.getWindow）。
@@ -338,7 +376,31 @@ class TabManager {
   }
 
   getTabs(): TabState[] {
-    return this.order.map((id) => this.toState(id)).filter((x): x is TabState => x !== null)
+    return this.order
+      .map((id) => {
+        const tab = this.tabs.get(id)
+        if (tab?.hidden) return null // hidden tab 不出现在 TabBar
+        return this.toState(id)
+      })
+      .filter((x): x is TabState => x !== null)
+  }
+
+  /**
+   * 给定 order 索引，找右侧最近的非 pinned 非 hidden tab id；找不到再找左侧。
+   * 用于 close 时计算 nextActive，跳过 hidden tab。
+   */
+  private findVisibleNeighborTabId(idx: number): string | null {
+    for (let i = idx + 1; i < this.order.length; i++) {
+      const id = this.order[i]
+      const t = this.tabs.get(id)
+      if (t && !t.hidden) return id
+    }
+    for (let i = idx - 1; i >= 0; i--) {
+      const id = this.order[i]
+      const t = this.tabs.get(id)
+      if (t && !t.hidden) return id
+    }
+    return null
   }
 
   // ----- 内部：bounds / state ----
@@ -434,22 +496,16 @@ class TabManager {
 
   /**
    * 招聘站点 tab 的 setWindowOpenHandler：
-   * 站点内的 target=_blank 直接在当前 tab 内导航（与原 ViewManager 行为一致）。
-   * 跨站招聘域 → 新标签；其他外链 → 系统浏览器。
+   *   • 招聘域 URL（同站 / 跨站都算） → 走 openOrActivateSiteTab
+   *     ↳ URL 相同复用，URL 不同新开（不再覆盖当前 tab）
+   *   • 非招聘域 → 系统浏览器
    */
   private attachSiteWindowOpenHandler(tab: InternalTab): void {
     tab.view.webContents.setWindowOpenHandler(({ url: newUrl }) => {
       if (!newUrl) return { action: 'deny' }
       const targetChannel = pickChannelForUrl(newUrl)
-      if (targetChannel && targetChannel !== tab.channel) {
+      if (targetChannel) {
         this.openOrActivateSiteTab(targetChannel, newUrl)
-        return { action: 'deny' }
-      }
-      // 同站新窗口 → 在当前 tab 内 navigate
-      const currentChannel = tab.channel
-      const isSameSite = currentChannel ? targetChannel === currentChannel : false
-      if (isSameSite || !targetChannel) {
-        void tab.view.webContents.loadURL(newUrl)
       } else {
         void shell.openExternal(newUrl)
       }
@@ -500,6 +556,31 @@ export function pickChannelForUrl(url: string): string | null {
   if (host.endsWith('liepin.com')) return 'liepin'
   if (host.endsWith('51job.com')) return 'job51'
   return null
+}
+
+/**
+ * 判断两个 URL 是否"实质相同"（用于 openOrActivateSiteTab 复用判定）。
+ * 容忍以下无意义差异：
+ *   - 协议大小写、host 大小写
+ *   - 末尾斜杠（path 上）
+ *   - URL 末尾 fragment hash（同一页面的锚点）
+ * 不容忍 query string 顺序差异（同样的 query 不同顺序视为不同 URL，避免误判）
+ */
+function sameUrl(a: string, b: string): boolean {
+  if (a === b) return true
+  try {
+    const ua = new URL(a)
+    const ub = new URL(b)
+    if (ua.protocol !== ub.protocol) return false
+    if (ua.host.toLowerCase() !== ub.host.toLowerCase()) return false
+    const normPath = (p: string): string => (p.endsWith('/') && p.length > 1 ? p.slice(0, -1) : p)
+    if (normPath(ua.pathname) !== normPath(ub.pathname)) return false
+    if (ua.search !== ub.search) return false
+    // 忽略 hash（同一页内锚点跳转，不需要新开 tab）
+    return true
+  } catch {
+    return false
+  }
 }
 
 export const tabManager = new TabManager()

@@ -11,7 +11,14 @@ import {
   hydrateLoggedInSites,
   setHomeWebContentsForBridge
 } from './recruitBridge'
-import { registerIhrBridgeIpc } from './ihrBridge'
+import { registerIhrBridgeIpc, setManageUrl, syncCookiesFromLauncher } from './ihrBridge'
+import { registerHiddenViewIpc } from './hiddenViewRunner'
+import { registerTabFetcherIpc } from './tabFetcher'
+import {
+  loadStoredLauncherData,
+  persistDeepLinkPayload,
+  clearStoredLauncherData
+} from './util/launcherStore'
 import { parseDeepLink, isPayloadFresh, type ParsedDeepLink } from './util/deepLinkCodec'
 import { startProbeServer, setHomeWebContentsForProbe } from './probeServer'
 
@@ -113,6 +120,31 @@ function handleDeepLink(url: string): void {
     return
   }
   console.log('[main] deep link received:', parsed.action, 'v=' + parsed.version)
+
+  // 把 launcher 探测到的 i 人事父页 origin 透传给 ihrBridge
+  // 让"加入人才库/分配职位"等业务请求走对应环境（qa2 / vip / 私有部署 manage 域）
+  const ihrManageUrl = (parsed.payload as { ihrManageUrl?: unknown })?.ihrManageUrl
+  if (typeof ihrManageUrl === 'string' && ihrManageUrl) {
+    setManageUrl(ihrManageUrl)
+  }
+
+  // 把 launcher 拿到的 manage cookie 字符串写入 partition
+  // （前提：i 人事 manage 父页的非 HttpOnly cookie 通过 postMessage 推给了 launcher）
+  const manageCookies = (parsed.payload as { manageCookies?: unknown })?.manageCookies
+  if (typeof manageCookies === 'string' && manageCookies) {
+    void syncCookiesFromLauncher(manageCookies).then((res) => {
+      console.log(`[main] syncCookiesFromLauncher: ok=${res.ok} written=${res.written}`)
+    })
+  }
+
+  // 把整个 deep link payload 持久化到磁盘
+  // 下次用户直接启动客户端（不走 deep link）时，业务侧可通过 launcher:getStoredPayload IPC 兜底拿数据
+  try {
+    persistDeepLinkPayload(parsed.payload as Record<string, unknown>)
+  } catch (e) {
+    console.warn('[main] persist launcher payload failed:', e)
+  }
+
   rememberPendingDeepLink(parsed)
 
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -364,6 +396,28 @@ function registerIpc(): void {
     return pending
   })
 
+  // ========== Launcher 持久化数据 IPC ==========
+  //
+  // 用户首次通过 deep link 唤起客户端时，payload（含 ihrManageUrl / ssoConfig / sysConfig / ...）
+  // 被写入 userData/launcher-data.json。
+  // 下次用户直接启动客户端（双击图标，没 deep link），SPA 可以读这里兜底。
+
+  /** 拿磁盘上持久化的整个 launcher 数据（含 ihrManageUrl + 上次 deep link payload） */
+  ipcMain.handle('launcher:getStored', () => {
+    try {
+      return loadStoredLauncherData()
+    } catch (e) {
+      console.warn('[main] launcher:getStored failed:', e)
+      return {}
+    }
+  })
+
+  /** 清除持久化数据（用户退出登录时调） */
+  ipcMain.handle('launcher:clearStored', () => {
+    clearStoredLauncherData()
+    return true
+  })
+
   // ========== 标签管理 IPC ==========
 
   ipcMain.handle('tabs:list', () => tabManager.getTabs())
@@ -405,6 +459,21 @@ function registerIpc(): void {
     if (typeof id !== 'string') return
     tabManager.reload(id)
   })
+
+  // ========== Automation：隐藏 view 抓接口 ==========
+  //
+  // 用户不可见地起一个 BrowserWindow（show:false），加载指定页面，
+  // 通过 CDP 监听某个接口 response body，拿到后立即销毁窗口。
+  // 与 tab 系统完全解耦：不进 TabBar、不影响主窗口、cookie 走指定 partition。
+  registerHiddenViewIpc()
+
+  // ========== Automation：新开 tab 抓接口（用户视觉可见） ==========
+  //
+  // 复用现有 TabManager 创建一个真实的招聘站 tab（用户能在 TabBar 上看到，
+  // 但焦点会立刻切回原来的 tab，不打断浏览）。tab 加载完成后用
+  // webContents.executeJavaScript 在 tab 上下文里发 fetch 拿数据，然后关闭 tab。
+  // 替代 hiddenViewRunner 的兜底方案（hidden BrowserWindow 在某些 Electron / macOS 版本下不稳）。
+  registerTabFetcherIpc()
 }
 
 // =============== App 生命周期 ===============

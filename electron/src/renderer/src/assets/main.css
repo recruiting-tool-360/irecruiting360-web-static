@@ -71,17 +71,41 @@ body {
 
 /* ===== 标签栏 ===== */
 
+/* 固定区：home tab，不参与滚动，标签再多也始终可见在最左 */
+.tab-bar-pinned {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 0 0 6px;
+  flex-shrink: 0;
+  /* 跟 .tab-bar 同基线，但不滚动 */
+  -webkit-app-region: drag;
+}
+
+/* 滚动区：招聘站点 tab，溢出可滚 */
 .tab-bar {
   flex: 1;
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  padding: 6px 0 0 6px;
+  padding: 6px 0 0 4px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   /* 整体可拖（标签栏末尾空白也能拖动窗口）；单个 tab 通过 .tab 的 no-drag 屏蔽 */
   -webkit-app-region: drag;
+  /* 防止 flex 容器被内部子项撑开导致挤掉固定区 */
+  min-width: 0;
+}
+
+/*
+ * 末尾 12px 占位：直接用 .tab-bar 的 padding-right 在 overflow-x:auto 容器里会被浏览器
+ * "吞掉"（滚动到底时仍紧贴右边）；只能用伪元素强制在滚动内容流末尾占位。
+ */
+.tab-bar::after {
+  content: '';
+  flex: 0 0 12px;
+  align-self: stretch;
 }
 
 .tab-bar::-webkit-scrollbar {
@@ -94,14 +118,19 @@ body {
   align-items: center;
   gap: 6px;
   height: 34px;
-  min-width: 92px;
-  max-width: 240px;
-  padding: 0 10px 0 12px;
+  /* 标签宽度策略：
+     - 理想宽度 180px（基础值，少量 tab 时显示完整标题）
+     - tab 数量多时按比例缩，最小 110px（保证 favicon + 2 字 + 省略号 + close 都能塞下）
+     - 缩到 110px 仍容不下 → 触发 .tab-bar 的 overflow-x 滚动
+     - 不扩大（无 flex-grow），跟 Chrome 一致 */
+  flex: 0 1 180px;
+  min-width: 110px;
+  padding: 0 8px 0 10px;
   background: transparent;
   border-radius: 8px 8px 0 0;
   cursor: pointer;
-  transition: background-color 0.12s;
-  flex-shrink: 0;
+  /* 关闭/新增 tab 时其它 tab 宽度变化平滑 */
+  transition: background-color 0.12s, flex-basis 0.16s ease;
   font-size: 12px;
   color: #ffffff;
   -webkit-app-region: no-drag;
@@ -165,6 +194,10 @@ body {
 .tab-favicon.job51 {
   background: #d72121;
 }
+.tab-favicon.ihr-manage {
+  /* i 人事工作台用紫色，与招聘渠道区分 */
+  background: #722ed1;
+}
 .tab-favicon.home {
   background: linear-gradient(135deg, #1677ff, #69b1ff);
   font-size: 8px;
@@ -222,8 +255,9 @@ body {
 }
 
 .tab.pinned {
-  min-width: auto;
-  max-width: 140px;
+  /* 主页 tab：固定宽度，永不收缩（位于不滚动的 .tab-bar-pinned 容器内） */
+  flex: 0 0 110px;
+  min-width: 110px;
 }
 
 /* 主页 tab 不渲染关闭按钮（决策 C） */

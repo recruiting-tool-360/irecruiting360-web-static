@@ -81,8 +81,30 @@
           </div>
           <div class="chat-message-content">
             <div class="chat-message-bubble">
-              <!-- 使用v-html和Markdown渲染 -->
-              <div v-if="msg.type === 'bot'" v-html="parseMarkdown(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')"></div>
+              <!--
+                bot 消息分两种渲染：
+                  1. 含 [&AI_SEARCH&]（AI 职位画像）→ 用 wrapper 包住 JD html + AIProfileActionPanel，
+                     wrapper 提供统一的浅灰边框 + 圆角，并在样式上重置 markdown 内层 JD div 自带的 inline border
+                     这样"搜索牛人/推荐牛人 + 配置卡片"视觉上嵌在同一个 JD 卡片的边框内
+                  2. 普通 bot 消息 → 直接 v-html
+              -->
+              <template v-if="msg.type === 'bot' && msg.content && msg.content.includes('[&AI_SEARCH&]')">
+                <div class="ai-jd-container">
+                  <div
+                    class="ai-jd-content"
+                    v-html="parseMarkdown(msg.content.replace('[&AI_SEARCH&]', ''))"
+                  ></div>
+                  <AIProfileActionPanel
+                    v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
+                    :message="msg"
+                    @change="(s) => handleActionPanelChange(msg, s)"
+                  />
+                </div>
+              </template>
+              <div
+                v-else-if="msg.type === 'bot'"
+                v-html="parseMarkdown(msg.content || '')"
+              ></div>
               <div v-else class="bot-message-formatted">{{ msg.content || '' }}</div>
 
               <!-- 添加AI输出中的动画 -->
@@ -175,6 +197,18 @@
         </div>
       </div>
     </q-card-section>
+
+    <!--
+      客户端模式专用：渠道未全登录时显示"请先登录招聘渠道"面板。
+      放在 q-card 内最末尾 + absolute inset-0，覆盖**整个聊天卡片**（标题 + 内容 + 输入框）。
+      模糊背景能盖住下方所有 UI，效果更明显。
+    -->
+    <LoginRequiredPanel
+      v-if="showLoginRequiredPanel"
+      class="chat-login-overlay"
+      @complete="handleLoginRequiredComplete"
+      @dismiss="handleLoginRequiredDismiss"
+    />
   </q-card>
 </template>
 
@@ -187,9 +221,63 @@ import hljs from 'highlight.js';
 import { getChatHistory, getCurrentConditionByChatId } from 'src/api/chat/ChatApi';
 import { fetchStream } from 'src/api/chat/ChatUtil2';
 import { v4 as uuidv4 } from 'uuid';
+import LoginRequiredPanel from 'src/components/clients/LoginRequiredPanel.vue';
+import AIProfileActionPanel from 'src/components/clients/AIProfileActionPanel.vue';
+import { isElectronClient } from 'src/util/openChannelLoginUrl';
 
 const store = useStore();
 const $q = useQuasar();
+
+/* ============ 客户端模式：渠道未登录时挡住聊天，提示先登录 ============ */
+
+// 用户主动关闭"请先登录"面板后这里置 true；后续 chatId 变化（切换会话）会重置
+const loginRequiredDismissed = ref(false);
+
+const showLoginRequiredPanel = computed(() => {
+  if (!isElectronClient()) return false;
+  if (loginRequiredDismissed.value) return false;
+  const conf = store.getters.getChannelConf || {};
+  const userCfg = store.getters.getUserChannelConfig || [];
+  const isEnabled = (k) => {
+    if (!Array.isArray(userCfg) || userCfg.length === 0) return true;
+    const e = userCfg.find((c) => c.key === k);
+    return e ? !!e.enableConfig : true;
+  };
+  const keys = ['BOSS', 'ZHILIAN', 'JOB51'].filter(isEnabled);
+  if (keys.length === 0) return false; // 没启用任何渠道 → 不弹
+  // 任一已启用渠道未登录就展示
+  return keys.some((k) => !conf[k]?.login);
+});
+
+function handleLoginRequiredComplete() {
+  // 全部登录完了，用户点"开始搜索"——关掉面板（此时本来就不会再显示，因为所有渠道已登录）
+  loginRequiredDismissed.value = true;
+}
+
+function handleLoginRequiredDismiss() {
+  // 用户点"稍后再说"——暂时关掉，本会话内不再显示
+  loginRequiredDismissed.value = true;
+}
+// 注：每次切会话重置 dismissed 的 watch 放在下方 props 定义之后
+
+/* ============ AI 职位画像 action 面板状态：搜索/推荐 模块 + Boss 职位 + 简历数 ============ */
+// 按 msg.id 索引；后续"聚合搜索"按钮触发时读这里的值作为入参
+const actionPanelStateByMsgId = ref({});
+
+function handleActionPanelChange(msg, state) {
+  if (!msg || !msg.id) return;
+  actionPanelStateByMsgId.value = {
+    ...actionPanelStateByMsgId.value,
+    [msg.id]: state
+  };
+}
+
+/** 给"聚合搜索"等按钮读用 */
+function getActionPanelState(msg) {
+  return actionPanelStateByMsgId.value[msg?.id] || null;
+}
+// 暂存到本地变量，避免未使用 lint 报警；如父组件需要可改 defineExpose 暴露
+void getActionPanelState;
 
 // Markdown配置
 const md = new MarkdownIt({
@@ -275,6 +363,18 @@ const props = defineProps({
   chatId: {
     type: String,
     default: ''
+  }
+});
+
+// 每次切换会话（点左侧不同职位/会话）都重置 dismissed 状态，
+// 让"未登录提示"面板在新会话里重新显示一次（如果有渠道未登录）
+//
+// 业务流程：用户点左侧职位 → store.getters.getLatestChatId 变化（FloatingActionPanel
+// 没给 ChatCard 传 chatId prop，切换靠 store 同步），所以这里 watch store getter。
+const latestChatIdForLogin = computed(() => store.getters.getLatestChatId);
+watch(latestChatIdForLogin, (newId, oldId) => {
+  if (newId !== oldId) {
+    loginRequiredDismissed.value = false;
   }
 });
 
@@ -1272,6 +1372,29 @@ defineExpose({
 </script>
 
 <style scoped>
+/*
+  AI 职位画像消息（含 [&AI_SEARCH&]）专用 wrapper：
+    - 提供统一的浅灰边框 + 圆角，把 markdown 渲染出的 JD 卡片和下方
+      AIProfileActionPanel 视觉上包在同一个边框内
+    - 用 :deep() 穿透 v-html 内容，重置 markdown JD div 自带的 inline border/padding/margin，
+      避免双层边框
+*/
+.ai-jd-container {
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 15px;
+  margin: 10px 0;
+}
+.ai-jd-content :deep(> div) {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+
 /* 聊天面板样式 */
 .chat-panel {
   position: fixed;
@@ -1338,6 +1461,8 @@ defineExpose({
   background-color: white;
   padding: 16px;
   transition: all 0.4s ease;
+  /* LoginRequiredPanel absolute inset-0 模糊背板要相对本容器定位 */
+  position: relative;
 }
 
 .chat-input {

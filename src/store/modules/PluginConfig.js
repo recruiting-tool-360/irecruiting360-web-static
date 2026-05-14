@@ -4,6 +4,9 @@ export default {
         pluginInstall: false,
         pluginDownloadDialogVisible: false,
         forceUpdateVisible: false,
+        // 客户端模式下 i 人事 manage 系统认证过期 / 未登录时弹的"i 人事账号授权"框
+        // 由 electronMessengerShim 检测到 ihrBridge 返回 NOT_LOGGED_IN 时打开
+        ihrAuthModalVisible: false,
         resumeIndexVisible: false,
         fixedPanelPosition: {
             right: 10,
@@ -30,6 +33,9 @@ export default {
         },
         setForceUpdateVisible(state, payload) {
             state.forceUpdateVisible = payload;
+        },
+        setIhrAuthModalVisible(state, payload) {
+            state.ihrAuthModalVisible = !!payload;
         },
         toggleResumeIndexVisible(state) {
             state.resumeIndexVisible = !state.resumeIndexVisible;
@@ -60,6 +66,9 @@ export default {
         },
         getForceUpdateVisible(state) {
             return state.forceUpdateVisible;
+        },
+        getIhrAuthModalVisible(state) {
+            return state.ihrAuthModalVisible;
         },
         getResumeIndexVisible(state) {
             return state.resumeIndexVisible;

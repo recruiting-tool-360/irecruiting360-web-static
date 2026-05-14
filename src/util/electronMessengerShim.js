@@ -50,6 +50,20 @@ function isElectronClient() {
   return !!native && native.mode === 'electron';
 }
 
+// Vuex store 用顶层 import 拿；shim 不被任何 store 模块依赖，无循环依赖风险
+import store from 'src/store';
+
+/**
+ * 触发"i 人事账号授权"弹框（MainLayout 渲染 IhrAuthModal 订阅这个 Vuex state）。
+ */
+function showIhrAuthModal() {
+  try {
+    store?.commit?.('setIhrAuthModalVisible', true);
+  } catch (e) {
+    console.warn('[electronShim] auth modal commit failed:', e);
+  }
+}
+
 /**
  * 渲染端把 File / Blob 序列化为可走 IPC 的 ArrayBuffer + 元数据
  */
@@ -128,12 +142,47 @@ export function createElectronMessengerShim() {
     handlers.set(type, callback);
     if (type === 'init') {
       // 晚到的监听器自动补发（业务页面 onMounted 才注册时大概率走这条路径）
+      // 三级 fallback：内存 cache → sessionStorage（本次会话）→ 持久化磁盘（跨次启动）
       const data = cachedInit ?? readInitFromSession();
       if (data) {
         cachedInit = data;
-        // 用微任务异步触发，避免 on() 调用栈里同步回调引发意外
         Promise.resolve().then(() => emit('init', data));
+      } else {
+        // 内存 + sessionStorage 都没拿到 → 尝试读主进程持久化的 launcher 数据
+        // 这是"用户直接启动客户端，没走 deep link"的场景
+        void tryHydrateFromStoredLauncherData().then((restored) => {
+          if (restored && handlers.has('init')) {
+            emit('init', restored);
+          }
+        });
       }
+    }
+  }
+
+  /**
+   * 尝试从主进程持久化的 launcher 数据恢复 init payload。
+   * 仅在本次会话从未拿到过 init（cachedInit/sessionStorage 都空）时触发。
+   */
+  async function tryHydrateFromStoredLauncherData() {
+    try {
+      const handover = window?.api?.handover;
+      const stored = await handover?.getStoredLauncherData?.();
+      const last = stored?.lastInitPayload;
+      if (!last || typeof last !== 'object') return null;
+      const restored = {
+        positionList: last.positionList,
+        positionIds: last.positionIds,
+        sysConfig: last.sysConfig,
+        ssoConfig: last.ssoConfig,
+        companyConfig: last.companyConfig
+      };
+      cachedInit = restored;
+      writeInitToSession(restored);
+      console.log('[electronShim] hydrated init from stored launcher data');
+      return restored;
+    } catch (e) {
+      console.warn('[electronShim] hydrate from stored launcher failed:', e);
+      return null;
     }
   }
 
@@ -178,8 +227,26 @@ export function createElectronMessengerShim() {
             console.warn('[electronShim] unknown resumeList action:', action);
             return { data: { code: -1, message: `unknown action: ${action}` } };
           }
+
+          // 未登录 i 人事工作台 / 会话失效 → 弹"i 人事账号授权"对话框
+          // 用户点弹框里"登录账号"按钮 → 走系统浏览器打开 manage 登录页
+          // （MainLayout 渲染 IhrAuthModal，订阅 store.getters.getIhrAuthModalVisible）
+          if (result?.errorCode === 'NOT_LOGGED_IN') {
+            console.warn('[electronShim] manage not logged in, showing auth modal');
+            try {
+              showIhrAuthModal();
+            } catch (e) {
+              console.warn('[electronShim] showIhrAuthModal failed:', e);
+            }
+            return { data: result };
+          }
+
           // 模拟 iframe 模式下父端 onConfirm 后回推 ihrSuccessIds 的语义
           // （让业务代码 iframeMsg.on('ihrSuccessIds') 监听器在客户端模式下也能触发）
+          //
+          // ⚠️ 真接入完整流程是"两次 addPools + 用户决策 modal"，当前 shim 只做单次直调，
+          //    待 i 快招 SPA 移植 TalentPoolModal / 校验结果 Modal 后，这里改为只转发
+          //    单次 API 调用，由 SPA 自己控制两次 addPools 的时序。
           if (result?.success && result.data) {
             const successPayload = {
               type: result.data.type,
@@ -187,8 +254,17 @@ export function createElectronMessengerShim() {
               failRepeatResumeIds: result.data.failRepeatResumeIds,
               failOtherResumeIds: result.data.failOtherResumeIds
             };
-            // 异步触发，让 post() 的 await 先 resolve
-            Promise.resolve().then(() => emit('ihrSuccessIds', successPayload));
+            // 空 successResumeIds（mock 模式 / 真实校验阶段都可能为空）就不触发后续状态同步
+            // 避免下游 POST /importResume 收到空数组报错
+            const hasAnyResult =
+              (successPayload.successResumeIds?.length || 0) +
+                (successPayload.failRepeatResumeIds?.length || 0) +
+                (successPayload.failOtherResumeIds?.length || 0) >
+              0;
+            if (hasAnyResult) {
+              // 异步触发，让 post() 的 await 先 resolve
+              Promise.resolve().then(() => emit('ihrSuccessIds', successPayload));
+            }
           }
           return { data: result };
         } catch (e) {

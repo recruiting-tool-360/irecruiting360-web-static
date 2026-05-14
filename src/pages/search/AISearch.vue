@@ -812,7 +812,8 @@ const setupClientChannelStatusListener = () => {
     pendingChannels.clear();
     channels.forEach((channel) => {
       console.log('[AISearch] auto-refresh channel login:', channel);
-      refreshChannelLogin(channel).catch((err) =>
+      // silent=true：客户端 webRequest 自动触发的后台刷新，不弹 toast 打扰用户
+      refreshChannelLogin(channel, { silent: true }).catch((err) =>
         console.error('refreshChannelLogin error', channel, err)
       );
     });
@@ -1273,9 +1274,15 @@ const forceUpdateChannelView = async () => {
   await nextTick();
 };
 
-// 添加刷新渠道登录状态的方法
-const refreshChannelLogin = async (key) => {
-
+/**
+ * 刷新渠道登录状态
+ * @param {string} key  渠道 key（BOSS / ZHILIAN / JOB51 / LIEPIN）
+ * @param {{silent?: boolean}} opts
+ *   silent=true 时不弹 toast（用于客户端 webRequest 自动触发的静默更新；
+ *   手动点刷新按钮时不传，默认 false 会弹 toast）
+ */
+const refreshChannelLogin = async (key, opts = {}) => {
+  const silent = !!opts.silent;
   try {
     let result = false;
 
@@ -1315,16 +1322,21 @@ const refreshChannelLogin = async (key) => {
     // 强制更新渠道视图
     await forceUpdateChannelView();
 
-    // 显示结果通知
-    $q.notify({
-      message: result
-          ? `${allChannelStatus.value[key]?.name || key} 已成功登录`
-          : `${allChannelStatus.value[key]?.name || key} 未登录，请先在浏览器中登录该网站`,
-      color: result ? 'positive' : 'gray',
-      icon: result ? 'check_circle' : 'warning',
-      position: 'top',
-      timeout: 1500
-    });
+    // 静默刷新不弹 toast（客户端自动触发场景）
+    if (!silent) {
+      const channelName = allChannelStatus.value[key]?.name || key;
+      // 客户端模式下用户应该"在客户端的新 tab 里登录"，不是浏览器
+      const failHint = isElectronClient()
+        ? `${channelName} 未登录，请点击顶部「${channelName}」按钮在客户端中登录`
+        : `${channelName} 未登录，请先在浏览器中登录该网站`;
+      $q.notify({
+        message: result ? `${channelName} 已成功登录` : failHint,
+        color: result ? 'positive' : 'gray',
+        icon: result ? 'check_circle' : 'warning',
+        position: 'top',
+        timeout: 1500
+      });
+    }
 
     return result;
   } catch (error) {

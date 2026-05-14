@@ -142,8 +142,12 @@ linux:
 appImage:
   artifactName: ${productName}-${version}-${arch}.${ext}
 npmRebuild: false
+# 自动更新元数据所在地（用于 electron-updater 拼 latest.yml 里 url 字段的相对路径）
+# 改成 https:// 之后 electron-updater 不会有 "insecure" 警告
 publish:
   provider: generic
-  url: https://example.com/auto-updates
+  url: http://download.ihr360.com/ikuaizhao/
+  channel: latest
+  useMultipleRangeRequest: true
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/

@@ -41,6 +41,9 @@ export function TabBar({ platform }: Props): React.JSX.Element {
   }, [])
 
   const orderedIds = useMemo(() => tabs.map((t) => t.id), [tabs])
+  // 拆分：pinned（home）固定不滚，scrollable（招聘站点）才进可滚容器
+  const pinnedTabs = useMemo(() => tabs.filter((t) => t.pinned), [tabs])
+  const scrollTabs = useMemo(() => tabs.filter((t) => !t.pinned), [tabs])
 
   const handleClick = (id: string): void => {
     void window.api.tabs.activate(id)
@@ -112,7 +115,7 @@ export function TabBar({ platform }: Props): React.JSX.Element {
   const renderFavicon = (tab: TabState): React.JSX.Element => {
     if (tab.loading) return <span className="tab-favicon loading" aria-hidden />
     const channel = tab.channel ?? 'unknown'
-    const knownChannels = ['home', 'boss', 'zhilian', 'liepin', 'job51']
+    const knownChannels = ['home', 'boss', 'zhilian', 'liepin', 'job51', 'ihr-manage']
     const cls = knownChannels.includes(channel) ? channel : 'unknown'
     const letter = displayInitial(tab, channel)
     return (
@@ -122,57 +125,67 @@ export function TabBar({ platform }: Props): React.JSX.Element {
     )
   }
 
+  const renderTab = (tab: TabState): React.JSX.Element => {
+    const isDragging = dragId === tab.id
+    const dropClass =
+      dropTarget?.id === tab.id ? (dropTarget.before ? 'drop-before' : 'drop-after') : ''
+    const cls = [
+      'tab',
+      tab.active ? 'active' : '',
+      tab.pinned ? 'pinned' : '',
+      isDragging ? 'dragging' : '',
+      dropClass
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    const title = tab.pinned ? HOME_DISPLAY : tab.title || tab.url || '新标签'
+
+    return (
+      <div
+        key={tab.id}
+        role="tab"
+        aria-selected={tab.active}
+        className={cls}
+        draggable={!tab.pinned}
+        onClick={() => handleClick(tab.id)}
+        onDragStart={(e) => handleDragStart(tab.id, e)}
+        onDragOver={(e) => handleDragOver(tab.id, e)}
+        onDragEnd={handleDragEnd}
+        onDrop={(e) => handleDrop(tab.id, e)}
+        title={title}
+      >
+        {renderFavicon(tab)}
+        <span className="tab-title">{title}</span>
+        {!tab.pinned ? (
+          <button
+            type="button"
+            className="tab-close"
+            onClick={(e) => handleClose(tab.id, e)}
+            aria-label="关闭标签"
+            title="关闭标签"
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <div className={`titlebar platform-${platform}`}>
       {platform === 'darwin' ? <div className="titlebar-left-spacer" /> : null}
 
-      <div className="tab-bar" role="tablist">
-        {tabs.map((tab) => {
-          const isDragging = dragId === tab.id
-          const dropClass =
-            dropTarget?.id === tab.id ? (dropTarget.before ? 'drop-before' : 'drop-after') : ''
-          const cls = [
-            'tab',
-            tab.active ? 'active' : '',
-            tab.pinned ? 'pinned' : '',
-            isDragging ? 'dragging' : '',
-            dropClass
-          ]
-            .filter(Boolean)
-            .join(' ')
+      {/* 固定区：home / pinned tab —— 不参与水平滚动，标签再多也始终可见 */}
+      {pinnedTabs.length > 0 ? (
+        <div className="tab-bar-pinned" role="tablist" aria-label="固定标签">
+          {pinnedTabs.map(renderTab)}
+        </div>
+      ) : null}
 
-          const title = tab.pinned ? HOME_DISPLAY : tab.title || tab.url || '新标签'
-
-          return (
-            <div
-              key={tab.id}
-              role="tab"
-              aria-selected={tab.active}
-              className={cls}
-              draggable={!tab.pinned}
-              onClick={() => handleClick(tab.id)}
-              onDragStart={(e) => handleDragStart(tab.id, e)}
-              onDragOver={(e) => handleDragOver(tab.id, e)}
-              onDragEnd={handleDragEnd}
-              onDrop={(e) => handleDrop(tab.id, e)}
-              title={title}
-            >
-              {renderFavicon(tab)}
-              <span className="tab-title">{title}</span>
-              {!tab.pinned ? (
-                <button
-                  type="button"
-                  className="tab-close"
-                  onClick={(e) => handleClose(tab.id, e)}
-                  aria-label="关闭标签"
-                  title="关闭标签"
-                >
-                  ×
-                </button>
-              ) : null}
-            </div>
-          )
-        })}
+      {/* 滚动区：招聘站点 tab —— overflow-x: auto，溢出可滚 */}
+      <div className="tab-bar" role="tablist" aria-label="标签">
+        {scrollTabs.map(renderTab)}
       </div>
 
       {platform !== 'darwin' ? <div className="titlebar-right-spacer" /> : null}
@@ -186,6 +199,7 @@ function displayInitial(tab: TabState, channel: string): string {
   if (channel === 'zhilian') return 'Z'
   if (channel === 'liepin') return 'L'
   if (channel === 'job51') return '5'
+  if (channel === 'ihr-manage') return 'i'
   const t = (tab.title || tab.url || '').trim()
   return t ? t.charAt(0).toUpperCase() : '?'
 }
