@@ -51,9 +51,23 @@ export interface DeepLinkPayload {
   rawUrl: string
 }
 
+export interface StoredLauncherData {
+  /** 上次 deep link 写入的 i 人事 manage URL */
+  ihrManageUrl?: string
+  /** 上次 deep link payload 的完整副本（含 ssoConfig / sysConfig 等业务字段） */
+  lastInitPayload?: Record<string, unknown>
+  /** 写入时间戳 */
+  savedAt?: number
+  /** 写入来源（'deep-link' / 'setManageUrl' 等） */
+  source?: string
+}
+
 export interface HandoverBridge {
   getPendingPayload(): Promise<DeepLinkPayload | null>
   onDeepLink(callback: (data: DeepLinkPayload) => void): () => void
+  /** 跨次启动持久化的 launcher 数据，业务侧用作冷启动兜底 */
+  getStoredLauncherData(): Promise<StoredLauncherData>
+  clearStoredLauncherData(): Promise<boolean>
 }
 
 export interface TabState {
@@ -82,9 +96,20 @@ export interface TabsBridge {
 
 export interface IhrApiResult<T = unknown> {
   success: boolean
-  code?: number
+  code?: number | string
   message?: string
   data?: T
+  httpStatus?: number
+  /** 'NOT_LOGGED_IN' 表示需要引导用户先登录 i 人事 manage 系统 */
+  errorCode?: 'NOT_LOGGED_IN' | 'NETWORK' | 'PARSE' | 'OTHER'
+}
+
+export interface IhrManageAuthStatus {
+  /** IHR_MANAGE_URL 是否已配（false 表示走 mock 模式，无需登录） */
+  enabled: boolean
+  hasCookies: boolean
+  cookieCount: number
+  manageUrl: string
 }
 
 export interface IhrBridge {
@@ -100,6 +125,20 @@ export interface IhrBridge {
     mime?: string
     centralUpload?: boolean
   }): Promise<IhrApiResult>
+  /** 检查 manage partition 是否已登录 */
+  checkManageAuth(): Promise<IhrManageAuthStatus>
+  /**
+   * 引导用户登录 i 人事 manage 系统。
+   * @param opts.useSystemBrowser true → shell.openExternal 走系统浏览器
+   *                              false / undefined → 主窗口新开 tab
+   * @param opts.loginPath 拼到 manageUrl 后面的登录路径，默认 '/'
+   */
+  openManageLoginTab(opts?: { useSystemBrowser?: boolean; loginPath?: string }): Promise<{
+    ok: boolean
+    manageUrl: string
+    message?: string
+    via?: 'systemBrowser' | 'clientTab'
+  }>
 }
 
 /**
@@ -134,6 +173,118 @@ export interface BrowserBridge {
   onAny(callback: (data: BrowserBridgeMessage) => void): () => void
 }
 
+/**
+ * Automation：隐藏 view 抓接口
+ *
+ * 在 main 进程起 show:false 的 BrowserWindow，加载 pageUrl，
+ * 用 CDP 监听匹配的接口 response body。窗口对用户完全不可见，
+ * 拿到第一条匹配的响应（或超时）后自动销毁。
+ */
+export interface HiddenCaptureRequest {
+  /** 要加载的页面 URL（接口由该页面自然触发） */
+  pageUrl: string
+  /** session partition，与对应招聘 tab 共用以继承登录态，如 'persist:ihr360-boss' */
+  partition: string
+  /** 抓取规则 */
+  capture: {
+    /** URL 包含的子串 */
+    urlIncludes?: string
+    /** URL 正则（字符串形式，main 进程 new RegExp(p)） */
+    urlPattern?: string
+    /** HTTP 方法过滤；不传 = 任意 */
+    method?: string
+    /** 命中第一条立即返回（默认 true） */
+    matchFirst?: boolean
+  }
+  /** 单次任务超时 ms，默认 15000 */
+  timeoutMs?: number
+  /** 覆盖默认桌面 Chrome UA */
+  userAgent?: string
+  /** 额外请求头（追加到所有出站请求） */
+  extraHeaders?: Record<string, string>
+}
+
+export interface HiddenCaptured {
+  url: string
+  method: string
+  status: number
+  /** 尝试 JSON.parse 后的 body；失败时为 null */
+  bodyJson: unknown | null
+  /** 文本 body（base64 已解码） */
+  bodyText: string | null
+  /** body 字节数（解码后） */
+  bodyBytes: number
+  responseHeaders: Record<string, string>
+  durationMs: number
+}
+
+export interface HiddenCaptureResult {
+  ok: boolean
+  data?: HiddenCaptured
+  error?: {
+    code:
+      | 'TIMEOUT'
+      | 'PAGE_LOAD_FAILED'
+      | 'CDP_ATTACH_FAILED'
+      | 'CDP_ERROR'
+      | 'GET_BODY_FAILED'
+      | 'BAD_REQUEST'
+      | 'CANCELLED'
+    message: string
+  }
+  logs?: string[]
+}
+
+export interface TabFetchRequest {
+  /** 招聘站渠道：'boss' / 'zhilian' / 'job51' / ... */
+  channel: string
+  /** tab 加载的页面 URL（决定 Referer / 同源） */
+  pageUrl: string
+  /** tab 加载完成后要在 tab 上下文里 fetch 的接口 URL */
+  apiUrl: string
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+  /** 抓完是否保留 tab，默认 false 抓完关 */
+  keepTab?: boolean
+  /** 是否让 tab 出现在 TabBar 并 activate（默认 false：hidden 模式，用户无感知） */
+  visible?: boolean
+  navTimeoutMs?: number
+  fetchTimeoutMs?: number
+}
+
+export interface TabFetchData {
+  status: number
+  url: string
+  bodyText: string
+  bodyJson: unknown | null
+  bodyBytes: number
+  durationMs: number
+  finalPageUrl: string
+}
+
+export interface TabFetchResult {
+  ok: boolean
+  data?: TabFetchData
+  error?: {
+    code:
+      | 'BAD_REQUEST'
+      | 'NAV_TIMEOUT'
+      | 'NAV_FAILED'
+      | 'FETCH_FAILED'
+      | 'FETCH_TIMEOUT'
+      | 'TAB_NOT_FOUND'
+      | 'UNEXPECTED'
+    message: string
+  }
+  logs?: string[]
+}
+
+export interface AutomationBridge {
+  captureFromHiddenView(req: HiddenCaptureRequest): Promise<HiddenCaptureResult>
+  captureViaNewTab(req: TabFetchRequest): Promise<TabFetchResult>
+}
+
 export interface IKuaiZhaoNative {
   mode: 'electron'
   version: string
@@ -150,6 +301,7 @@ declare global {
       tabs: TabsBridge
       ihrBridge: IhrBridge
       browserBridge: BrowserBridge
+      automation: AutomationBridge
     }
     __IKUAIZHAO_NATIVE__?: IKuaiZhaoNative
   }

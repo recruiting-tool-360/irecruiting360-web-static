@@ -140,14 +140,35 @@ const ihrBridge = {
     name: string
     mime?: string
     centralUpload?: boolean
-  }): Promise<IhrApiResult> => ipcRenderer.invoke('ihrBridge:uploadFile', arg)
+  }): Promise<IhrApiResult> => ipcRenderer.invoke('ihrBridge:uploadFile', arg),
+
+  /**
+   * 检查 i 人事 manage 系统是否已登录（看 partition 里有无 cookie）。
+   * 业务侧调 addPools/assignPositions 等接口时若返回 errorCode='NOT_LOGGED_IN'，
+   * 应弹引导调 openManageLoginTab 让用户登录一次。
+   */
+  checkManageAuth: (): Promise<{
+    enabled: boolean
+    hasCookies: boolean
+    cookieCount: number
+    manageUrl: string
+  }> => ipcRenderer.invoke('ihrBridge:checkManageAuth'),
+
+  /**
+   * 在主窗口里新开 tab 加载 i 人事 manage 入口，引导用户登录。
+   * 登录成功后 cookie 持久化到该 partition，之后 ihrBridge 所有调用自动带 cookie。
+   */
+  openManageLoginTab: (): Promise<{ ok: boolean; manageUrl: string; message?: string }> =>
+    ipcRenderer.invoke('ihrBridge:openManageLoginTab')
 }
 
 interface IhrApiResult<T = unknown> {
   success: boolean
-  code?: number
+  code?: number | string
   message?: string
   data?: T
+  httpStatus?: number
+  errorCode?: 'NOT_LOGGED_IN' | 'NETWORK' | 'PARSE' | 'OTHER'
 }
 
 /**
@@ -208,6 +229,84 @@ const tabs = {
  *   - 因为是同机 HTTP，payload 大小不再受 deep link URL 长度限制
  *   - 安全：probe server 只 listen 127.0.0.1，外网打不进；SPA 侧需自行做 type 白名单 / 权限校验
  */
+/**
+ * Automation：隐藏窗口抓接口
+ *
+ * 设计：
+ *   - 调用方传 `pageUrl + partition + capture.urlIncludes`，主进程开 show:false 的窗口加载该页面
+ *   - 用 CDP 监听匹配的接口，第一条命中后拿 response body 返回
+ *   - 拿到/超时/失败后窗口自动销毁，**用户全程不可见**
+ *
+ * 典型用例：BOSS 我的职位列表
+ *   await window.api.automation.captureFromHiddenView({
+ *     pageUrl: 'https://www.zhipin.com/web/frame/job/list-new',
+ *     partition: 'persist:ihr360-boss',  // 复用 BOSS tab 的登录态
+ *     capture: { urlIncludes: '/wapi/zpjob/job/data/list' },
+ *     timeoutMs: 15000,
+ *   })
+ *   // → { ok: true, data: { bodyJson, status, url, ... } }
+ */
+const automation = {
+  captureFromHiddenView: (req: {
+    pageUrl: string
+    partition: string
+    capture: {
+      urlIncludes?: string
+      urlPattern?: string
+      method?: string
+      matchFirst?: boolean
+    }
+    timeoutMs?: number
+    userAgent?: string
+    extraHeaders?: Record<string, string>
+  }): Promise<{
+    ok: boolean
+    data?: {
+      url: string
+      method: string
+      status: number
+      bodyJson: unknown | null
+      bodyText: string | null
+      bodyBytes: number
+      responseHeaders: Record<string, string>
+      durationMs: number
+    }
+    error?: { code: string; message: string }
+    logs?: string[]
+  }> => ipcRenderer.invoke('automation:captureFromHiddenView', req),
+
+  /**
+   * 在新开的招聘站 tab 里发同源 fetch 拿接口数据（用户可见，但焦点不被切走）。
+   * tab 加载完成后通过 webContents.executeJavaScript 执行 fetch，拿到结果后关闭 tab。
+   */
+  captureViaNewTab: (req: {
+    channel: string
+    pageUrl: string
+    apiUrl: string
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    keepTab?: boolean
+    /** 是否在 TabBar 显示这个 tab（默认 false → hidden 模式，用户无感知） */
+    visible?: boolean
+    navTimeoutMs?: number
+    fetchTimeoutMs?: number
+  }): Promise<{
+    ok: boolean
+    data?: {
+      status: number
+      url: string
+      bodyText: string
+      bodyJson: unknown | null
+      bodyBytes: number
+      durationMs: number
+      finalPageUrl: string
+    }
+    error?: { code: string; message: string }
+    logs?: string[]
+  }> => ipcRenderer.invoke('automation:captureViaNewTab', req)
+}
+
 const browserBridge = {
   on: (
     type: string,
@@ -261,7 +360,8 @@ if (process.contextIsolated) {
       handover,
       tabs,
       ihrBridge,
-      browserBridge
+      browserBridge,
+      automation
     })
     contextBridge.exposeInMainWorld('__IKUAIZHAO_NATIVE__', native)
   } catch (error) {
@@ -271,7 +371,7 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
   // @ts-ignore (define in dts)
-  window.api = { recruitBridge, handover, tabs, ihrBridge, browserBridge }
+  window.api = { recruitBridge, handover, tabs, ihrBridge, browserBridge, automation }
   // @ts-ignore (define in dts)
   window.__IKUAIZHAO_NATIVE__ = native
 }

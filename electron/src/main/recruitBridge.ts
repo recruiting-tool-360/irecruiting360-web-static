@@ -38,7 +38,9 @@ const SITE_HYDRATE_URLS: Record<string, string> = {
   boss: `${SITE_BASE_URLS.boss}/web/user/`,
   zhilian: `${SITE_BASE_URLS.zhilian}/`,
   liepin: `${SITE_BASE_URLS.liepinLogin}/`,
-  job51: 'https://ehire.51job.com/Revision/login'
+  // 51job 的登录校验需要从 telescope_authority 接口拿 property header
+  // 工作台 (Revision/talent/search) 加载时会自动调这个接口；未登录则会被站点 JS 跳回登录页（无副作用）
+  job51: 'https://ehire.51job.com/Revision/talent/search'
 }
 
 /**
@@ -49,6 +51,7 @@ const STORAGE_TO_CHANNEL: Record<string, string> = {
   ZHILIANRequestStorageKey: 'ZHILIAN',
   ZHILIANResponseStorageKey: 'ZHILIAN',
   LIEPINRequestStorageKey: 'LIEPIN',
+  JOB51URLASStorageKey: 'JOB51',
   JOB51RequestStorageKey: 'JOB51'
 }
 
@@ -64,7 +67,17 @@ interface HeaderCapture {
   urlFilter: string
   /** 监听请求头还是响应头 */
   type: 'request' | 'response'
+  /**
+   * 要抓的 header 名单（按 lowercase 匹配，存到 picked[target]）。
+   * captureUrl=true 时此字段被忽略。
+   */
   watchHeaders: string[]
+  /**
+   * 不抓 header，而是把命中 urlFilter 的请求**完整 URL**（含 query string）
+   * 存为 picked.url。用于 51job Property 这类把数据塞在 query string 里的接口。
+   * 对齐插件 background/index.ts 的 urlHandler 行为。
+   */
+  captureUrl?: boolean
   storageKey: string
 }
 
@@ -108,6 +121,32 @@ const HEADER_CAPTURES: HeaderCapture[] = [
     type: 'request',
     watchHeaders: ['Accesstoken', 'Guid', 'Terminaltype'],
     storageKey: 'JOB51RequestStorageKey'
+  },
+  // 51Job Property 信息（含 guid 等，登录态校验用 getJob51PropertyInfo 必读）
+  //
+  // ⚠️ 这里 property 不是 HTTP 请求头，而是请求 URL 的 query string 参数：
+  //    .../telescope_authority?property={"guid":"...","brandid":...}
+  //
+  // 插件 background/index.ts 的 urlHandler 行为：监听到这两个 URL 的请求时，
+  // 把 details.url（完整 URL，含 query string）存为 headersData.url；
+  // 业务侧 Job51InfoManager.getJob51PropertyInfo 用 new URL(...).searchParams.get('property') 提取。
+  //
+  // captureUrl=true 启用这个特殊抓取模式（详见 HeaderCapture 注释）。
+  {
+    partition: SITE_PARTITION.job51,
+    urlFilter: 'https://ehirej.51job.com/jobvalueadded/exchange-rights/telescope_authority*',
+    type: 'request',
+    watchHeaders: [],
+    captureUrl: true,
+    storageKey: 'JOB51URLASStorageKey'
+  },
+  {
+    partition: SITE_PARTITION.job51,
+    urlFilter: 'https://ehirej.51job.com/login/dologin/getlastip*',
+    type: 'request',
+    watchHeaders: [],
+    captureUrl: true,
+    storageKey: 'JOB51URLASStorageKey'
   }
 ]
 
@@ -164,6 +203,21 @@ function pickPartitionForUrl(url: string): string | null {
   const channel = pickChannelForUrl(url)
   if (!channel) return null
   return SITE_PARTITION[channel] ?? null
+}
+
+/**
+ * 把 Electron webRequest 的 URL 通配 pattern（包含 `*`）转成精确匹配的正则。
+ * 同 partition 下有多条 HEADER_CAPTURES 时，handler 会被批量调用，需要逐条 filter 精确判定。
+ *
+ * 例：
+ *   pattern = 'https://ehirej.51job.com/login/dologin/getlastip*'
+ *   match   = 'https://ehirej.51job.com/login/dologin/getlastip?key=xxx'  → true
+ *   noMatch = 'https://ehirej.51job.com/foo'                             → false
+ */
+function matchUrlFilter(url: string, pattern: string): boolean {
+  // 把 * 替换为 .*，其它特殊字符转义；不区分大小写（HTTP URL 大小写不敏感的部分仅限 host）
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+  return new RegExp('^' + escaped + '$').test(url)
 }
 
 // =============== 内存存储：取代 chrome.storage.local ===============
@@ -226,12 +280,22 @@ function ensureSessionConfigured(partition: string): Session {
     ses.webRequest.onBeforeSendHeaders({ urls: allUrls }, (details, callback) => {
       try {
         for (const cap of requestCaptures) {
-          const picked: Record<string, string> = {}
-          for (const target of cap.watchHeaders) {
-            for (const [k, v] of Object.entries(details.requestHeaders)) {
-              if (k.toLowerCase() === target.toLowerCase()) {
-                picked[target] = String(v)
-                break
+          // Electron webRequest 的 urlFilter 已经过滤过了，但一个 partition 上有多条规则时
+          // 都会一起进入这个 handler；需要逐条用 urlFilter 精确判定当前请求是否匹配该规则。
+          if (!matchUrlFilter(details.url, cap.urlFilter)) continue
+
+          let picked: Record<string, string>
+          if (cap.captureUrl) {
+            // 特殊模式：把请求 URL 自身存起来（51job Property 走 query string）
+            picked = { url: details.url }
+          } else {
+            picked = {}
+            for (const target of cap.watchHeaders) {
+              for (const [k, v] of Object.entries(details.requestHeaders)) {
+                if (k.toLowerCase() === target.toLowerCase()) {
+                  picked[target] = String(v)
+                  break
+                }
               }
             }
           }
