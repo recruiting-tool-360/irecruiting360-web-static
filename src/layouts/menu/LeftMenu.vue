@@ -14,10 +14,19 @@
       </q-btn>
     </div>
 
-    <!-- i人事融合相关样式 -->
+    <!--
+      i人事融合 / 客户端模式下的顶部 header
+      1:1 参考 ihraisaas/src/components/AIAssistant/JobList.tsx 第 38-42 行：
+        p-4 border-b border-neutral-100 flex items-center justify-between
+          h3 text-sm font-semibold text-neutral-800: "招聘中职位"
+          span text-[10px] bg-neutral-100 px-2 py-0.5 rounded-full text-neutral-500: "X个职位"
+    -->
     <div v-if="visibleThirdSwitchPlus">
-      <span class="iHR-title">招聘中职位</span>
-      <div v-if="tipsStatus" class="iHR-menu-tips flex relative-position q-pa-sm q-mr-sm q-mb-sm">
+      <div class="iHR-list-header">
+        <h3 class="iHR-list-title">招聘中职位</h3>
+        <span class="iHR-list-count">{{ chatList?.length || 0 }}个职位</span>
+      </div>
+      <div v-if="tipsStatus" class="iHR-menu-tips flex relative-position q-pa-sm q-mx-sm q-mb-sm">
         <div>
           <q-icon class="q-mr-sm" name="info" size="xs" style="color: var(--q-primary-90)" />
         </div>
@@ -27,8 +36,93 @@
     </div>
 <!--    <q-separator />-->
 
-    <!-- 聊天列表 -->
-    <q-list padding class="rounded-borders  text-grey-9 q-pt-none">
+    <!--
+      职位列表渲染：
+        - 三方融合 / 客户端模式（visibleThirdSwitchPlus=true）：1:1 还原 ihraisaas JobList
+          一行 [Pin + 标题 + 状态icon]，下一行编号
+        - 普通模式：保留原 q-item 结构
+    -->
+    <template v-if="visibleThirdSwitchPlus">
+      <div class="iHR-job-list">
+        <div
+          v-for="item in sortedChatList"
+          :key="item.id"
+          class="job-item"
+          :class="{
+            active: currentChatId === item.id,
+            pinned: isItemPinned(item.id)
+          }"
+          @click="selectChat(item)"
+        >
+          <div class="job-item-content">
+            <!-- 第一行：pin + 标题（1:1 对照 ihraisaas JobList.tsx 67-88） -->
+            <div class="job-item-row">
+              <button
+                type="button"
+                class="pin-btn"
+                :class="{ active: isItemPinned(item.id) }"
+                :title="isItemPinned(item.id) ? '取消置顶' : '置顶职位'"
+                @click="togglePin(item.id, $event)"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  :fill="isItemPinned(item.id) ? 'currentColor' : 'none'"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 17v5" />
+                  <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+                </svg>
+              </button>
+              <h4 class="job-title">{{ parseJobName(item.name).title || item.name }}</h4>
+            </div>
+            <!--
+              第二行（仅在有 code 时）：编号 + 右侧 briefcase
+              1:1 对照 ihraisaas JobList.tsx 113-147
+            -->
+            <div v-if="parseJobName(item.name).code" class="job-item-row job-item-row-bottom">
+              <p class="job-code">({{ parseJobName(item.name).code }})</p>
+              <button
+                type="button"
+                class="recruit-btn"
+                :title="planInfo?.sendJdAuth
+                  ? '自动发送当前职位的JD信息至AI招聘助理'
+                  : '您当前无职位管理模块权限'"
+                @click="handleRecruitAction(item); $event.stopPropagation()"
+              >
+                <!-- Briefcase (lucide) - w-3 h-3 = 12px -->
+                <svg
+                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                  <rect width="20" height="14" x="2" y="6" rx="2" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="chatList.length === 0 && !loading" class="job-empty">暂无数据</div>
+        <div v-if="loading" class="job-empty">
+          <q-spinner color="primary" size="1.5em" />
+          <div class="q-mt-xs text-grey text-caption">加载中...</div>
+        </div>
+      </div>
+    </template>
+
+    <!-- 普通模式：保留原 q-item 结构 -->
+    <q-list v-else padding class="rounded-borders text-grey-9 q-pt-none">
       <q-item
         class="iHR-item-style q-py-md"
         v-for="(item,index) in chatList"
@@ -47,10 +141,10 @@
 
         <q-item-section>
           <q-item-label>{{ item.name }}</q-item-label>
-          <q-item-label v-if="!visibleThirdSwitchPlus" caption>{{ item.createTime }}</q-item-label>
+          <q-item-label caption>{{ item.createTime }}</q-item-label>
         </q-item-section>
 
-        <q-item-section side v-if="!visibleThirdSwitchPlus">
+        <q-item-section side>
           <q-btn
             round
             flat
@@ -78,38 +172,12 @@
             </q-menu>
           </q-btn>
         </q-item-section>
-
-        <!-- 招聘按钮，仅在三方企业模式下显示 -->
-        <q-item-section side v-if="visibleThirdSwitchPlus">
-          <q-btn
-            round
-            flat
-            dense
-            icon="next_week"
-            size="sm"
-            color="primary"
-            @click.stop="handleRecruitAction(item)"
-            class="recruit-action-btn"
-          >
-            <q-tooltip anchor="center right" self="center left" max-width="270px">
-              {{
-                planInfo?.sendJdAuth
-                  ?"自动发送当前职位的JD信息至AI招聘助理，AI将根据JD信息理解并挖掘招聘需求生成聚合搜索条件"
-                  :"您当前无职位管理模块权限，无法获取招聘需求信息，请联系管理员开通权限或者直接发送招聘需求信息至AI招聘助理"
-              }}
-            </q-tooltip>
-          </q-btn>
-        </q-item-section>
       </q-item>
 
-      <!-- 没有聊天记录时显示 -->
       <q-item v-if="chatList.length === 0 && !loading">
-        <q-item-section class="text-center text-grey">
-          暂无数据
-        </q-item-section>
+        <q-item-section class="text-center text-grey">暂无数据</q-item-section>
       </q-item>
 
-      <!-- 加载中 -->
       <q-item v-if="loading">
         <q-item-section class="text-center">
           <q-spinner color="primary" size="1.5em" />
@@ -187,6 +255,41 @@ const userInfo = computed(() => store.getters.getUserInfo);
 const loading = ref(false)
 const tipsStatus = ref(true)
 const chatList = computed(() => store.getters.getChatList) // 使用Vuex中的聊天列表
+
+/* ===== 置顶 & 排序（1:1 对照 ihraisaas JobList.tsx 第 24-29 行 sortedJobs） ===== */
+const pinnedJobIds = computed(() => store.getters.getPinnedJobIds || [])
+
+/** 列表渲染时用：置顶项排在前面 */
+const sortedChatList = computed(() => {
+  const all = Array.isArray(chatList.value) ? chatList.value : []
+  const pinSet = new Set(pinnedJobIds.value)
+  return [...all].sort((a, b) => {
+    const aP = pinSet.has(a?.id)
+    const bP = pinSet.has(b?.id)
+    if (aP && !bP) return -1
+    if (!aP && bP) return 1
+    return 0
+  })
+})
+
+/** 该 chat 当前是否置顶 */
+function isItemPinned(id) {
+  return pinnedJobIds.value.includes(id)
+}
+
+/** 切换置顶（事件 stopPropagation 防止冒泡触发选中） */
+function togglePin(id, ev) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation()
+  store.commit('togglePinJob', id)
+}
+
+/** 解析 chat.name 形如 "研发 (10001)" → { title: '研发', code: '10001' }；解析失败时 title=整 name */
+function parseJobName(name) {
+  const raw = String(name || '').trim()
+  const m = raw.match(/^(.*?)\s*\(([^)]+)\)\s*$/)
+  if (m) return { title: m[1].trim(), code: m[2].trim() }
+  return { title: raw, code: '' }
+}
 const currentChatId = computed(() => store.getters.getLatestChatId || '')
 const renameDialogVisible = ref(false)
 const newName = ref('')
@@ -325,16 +428,21 @@ const selectChat = (item) => {
   console.log('选择聊天:', item);
 
   try {
-    // 刷新搜索条件
-    if (jobSearchFilterRef.value) {
+    // 刷新搜索条件（嵌入式模式下 JobSearchFilter 只在 results 视图渲染，
+    // chat 视图时 ref 可能为 null —— 防御性判空，不抛异常）
+    if (jobSearchFilterRef.value && typeof jobSearchFilterRef.value.refreshSearchCondition === 'function') {
       jobSearchFilterRef.value.refreshSearchCondition(item.id);
-      // 清空AI输入框，不改变AI弹窗状态
-      chatCardRef.value.fillMessageToInput("");
-
     } else {
-      console.warn('jobSearchFilterRef不可用，无法刷新搜索条件');
+      console.warn('jobSearchFilterRef 不可用，跳过 refreshSearchCondition');
     }
-    
+
+    // 清空 AI 输入框（同上，嵌入式 ChatCard ref 可能为 null）
+    if (chatCardRef.value && typeof chatCardRef.value.fillMessageToInput === 'function') {
+      chatCardRef.value.fillMessageToInput("");
+    } else {
+      console.warn('chatCardRef 不可用，跳过 fillMessageToInput');
+    }
+
     // 清空聚合渠道数据
     store.commit('changeChannelConfData', {key: 'ALL', value: []});
 
@@ -527,23 +635,163 @@ watch(() => store.getters.getNeedRefreshList, async (needRefresh) => {
   background: var(--q-primary-20)
 
 .iHR-style
-  padding: 0 8px;
+  padding: 0
+  background: #fff
 
-  .iHR-item-style
-    border: 1px solid rgba(0, 0, 0, 0.12)
-    border-radius: 6px
+  // 列表 header（1:1 对照 ihraisaas JobList.tsx 第 38-42 行）
+  .iHR-list-header
+    display: flex
+    align-items: center
+    justify-content: space-between
+    padding: 16px // p-4
+    border-bottom: 1px solid #f5f5f5 // border-neutral-100
 
-  .iHR-title
-    display: inline-block
-    font-size: 16px
-    font-weight: 400
-    margin: 10px 0
+  .iHR-list-title
+    margin: 0
+    font-size: 14px // text-sm
+    font-weight: 600 // font-semibold
+    color: #262626 // text-neutral-800
+    letter-spacing: -0.005em
+
+  .iHR-list-count
+    font-size: 10px // text-[10px]
+    background: #f5f5f5 // bg-neutral-100
+    padding: 2px 8px // px-2 py-0.5
+    border-radius: 9999px // rounded-full
+    color: #737373 // text-neutral-500
+    font-weight: 500 // font-medium
+    line-height: 1.4
 
   .iHR-menu-tips
+    margin: 12px 12px 8px 12px
     border-radius: 10px
     line-height: 22px
     background-color: var(--q-primary-10)
     padding-right: 23px
+
+  // ===== 新版职位列表（1:1 ihraisaas JobList.tsx 第 50-130 行）=====
+  .iHR-job-list
+    padding: 4px 12px 8px 12px
+    display: flex
+    flex-direction: column
+    gap: 2px // 紧凑：列表项之间几乎无 gap
+    overflow-y: auto
+
+  // 1:1 对照 ihraisaas JobList.tsx 第 51-149 行
+  .job-item
+    width: 100%
+    text-align: left
+    background: #fff
+    border: 1px solid #e5e7eb // border-neutral-200
+    border-radius: 8px // rounded-lg
+    padding: 12px // p-3（与 ihraisaas 一致）
+    cursor: pointer
+    transition: all 0.2s
+
+    &:hover:not(.active)
+      border-color: #99f6e4 // hover:border-primary-200
+      background: #fafafa // hover:bg-neutral-50
+
+    &.active
+      border-color: #14b8a6 // border-primary-500
+      background: #f0fdfa // bg-primary-50
+      box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.1)
+
+    &.pinned:not(.active)
+      border-color: #ccfbf1 // border-primary-200
+      background: rgba(240, 253, 250, 0.125) // bg-primary-50/20
+
+  .job-item-content
+    flex: 1
+    min-width: 0
+    padding-right: 4px // pr-1
+
+  // 行布局：第一行 pin+title；第二行 code+briefcase
+  .job-item-row
+    display: flex
+    align-items: center
+    justify-content: space-between
+    gap: 4px
+
+  // 第二行（编号 + briefcase）：margin-top 用 title 的 mb-0.5 替代
+  .job-item-row-bottom
+    margin-top: 0 // title 的 mb-0.5 已经提供间距
+
+  .pin-btn
+    display: inline-flex
+    align-items: center
+    justify-content: center
+    margin-right: 6px // mr-1.5
+    padding: 2px // p-0.5
+    border: 0
+    background: transparent
+    border-radius: 4px // rounded
+    color: #d4d4d8 // 默认 text-neutral-300
+    cursor: pointer
+    transition: all 0.15s
+    flex-shrink: 0
+
+    &:hover
+      color: #2dd4bf // hover:text-primary-400
+      background: #f5f5f5 // hover:bg-neutral-100
+
+    &.active
+      color: #14b8a6 // text-primary-500
+      background: #f0fdfa // bg-primary-50
+
+  // 1:1 对照 h4 className="text-sm font-medium truncate mb-0.5"
+  .job-title
+    margin: 0 0 2px 0 // mb-0.5
+    font-size: 14px // text-sm
+    font-weight: 500 // font-medium
+    color: #262626 // text-neutral-800
+    white-space: nowrap
+    overflow: hidden
+    text-overflow: ellipsis
+    line-height: 1.5
+    min-width: 0
+    flex: 1
+
+  .job-item.active .job-title
+    color: #14b8a6 // text-primary-500
+
+  // 1:1 对照 p className="text-xs text-neutral-500 font-mono"
+  .job-code
+    margin: 0
+    font-size: 12px // text-xs
+    color: #737373 // text-neutral-500
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace
+    line-height: 1.4
+
+  // briefcase 按钮：1:1 对照 ihraisaas idle 时的 Briefcase className="w-3 h-3 text-neutral-300"
+  .recruit-btn
+    display: inline-flex
+    align-items: center
+    justify-content: center
+    padding: 0
+    border: 0
+    background: transparent
+    color: #d4d4d8 // text-neutral-300
+    cursor: pointer
+    transition: color 0.15s
+    flex-shrink: 0
+
+    &:hover
+      color: #14b8a6 // primary-500
+
+  .job-item.active .recruit-btn
+    color: #2dd4bf // selected 时变 primary-400（跟 ihraisaas line 134 一致）
+
+  .job-empty
+    padding: 16px
+    text-align: center
+    color: #a3a3a3
+    font-size: 12px
+
+  // 老 q-item 样式保留（非客户端模式仍可能用到）
+  .iHR-item-style
+    border: 1px solid rgba(0, 0, 0, 0.12)
+    border-radius: 6px
 
   .iHR-menu-link
     border-color: var(--q-primary-90) !important

@@ -7,6 +7,7 @@ import ChannelConfig from "src/store/modules/ChannelConfig";
 import UserConfig from "src/store/modules/UserConfig";
 import SimilarResumeConfig from "src/store/modules/SimilarResumeConfig";
 import BossData from "src/store/modules/BossData";
+import PinnedJobs from "src/store/modules/PinnedJobs";
 import createPersistedState from "vuex-persistedstate";
 import chatList from './modules/chatList'
 
@@ -17,7 +18,7 @@ const store = createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig,BossData
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig,BossData,PinnedJobs
   },
   plugins: [
     createPersistedState({
@@ -37,6 +38,8 @@ const store = createStore({
         "BossData.jobList",
         "BossData.totalSize",
         "BossData.lastFetchedAt",
+        // 左侧职位列表的置顶状态（参考 ihraisaas JobList.isPinned）
+        "PinnedJobs.pinnedJobIds",
       ],
     })
   ],

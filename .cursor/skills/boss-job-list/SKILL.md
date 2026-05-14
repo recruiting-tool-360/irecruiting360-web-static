@@ -23,7 +23,7 @@ unobservable to the user.
 
 **This skill does NOT generate a Playwright `scriptCode` string.** That
 mechanism (`window.api.automation.runScript`) runs scripts inside an
-*existing* tab's `WebContentsView`, which would disrupt whatever the user
+_existing_ tab's `WebContentsView`, which would disrupt whatever the user
 is doing in their BOSS tab. The hidden window approach below is independent
 of the tab system.
 
@@ -69,6 +69,7 @@ Why the captured response cannot be obtained with `session.webRequest`:
 ## When to use
 
 User says any of:
+
 - "BOSS 我的职位列表 / 获取 BOSS 职位 / 拉职位 / 我发布的职位"
 - "调用 `/wapi/zpjob/job/data/list`"
 - "用隐藏窗口抓 / 静默抓 / 不打扰用户 / 用户看不见地拉数据"
@@ -140,27 +141,27 @@ raw `captureFromHiddenView` IPC unless the user specifically requests it.
 Default snippet:
 
 ```js
-import { fetchBossJobList } from 'src/util/automation/bossJobList'
+import { fetchBossJobList } from "src/util/automation/bossJobList";
 
 const res = await fetchBossJobList({
   page: 1,
-  searchStr: '',         // 可选关键词
+  searchStr: "", // 可选关键词
   // position / type / comId / tagIdStr 一般无需传，0/空即可
-  timeoutMs: 15000,
-})
+  timeoutMs: 15000
+});
 
 if (!res.ok) {
-  if (res.errorCode === 'LOGIN_EXPIRED') {
+  if (res.errorCode === "LOGIN_EXPIRED") {
     // 引导用户在 BOSS tab 重新登录
-  } else if (res.errorCode === 'TIMEOUT') {
+  } else if (res.errorCode === "TIMEOUT") {
     // 隐藏窗口超时；可重试或检查网络
   } else {
-    console.warn('fetchBossJobList failed:', res.errorCode, res.message)
+    console.warn("fetchBossJobList failed:", res.errorCode, res.message);
   }
-  return
+  return;
 }
 
-const { totalSize, hasMore, data: jobs } = res.zpData
+const { totalSize, hasMore, data: jobs } = res.zpData;
 // jobs[i].encryptJobId / jobName / jobStatus / salaryDesc / ...
 ```
 
@@ -168,33 +169,33 @@ If the user wants raw control (e.g. capture another BOSS endpoint), use:
 
 ```js
 const r = await window.api.automation.captureFromHiddenView({
-  pageUrl: 'https://www.zhipin.com/web/frame/job/list-new',
-  partition: 'persist:ihr360-boss',
-  capture: { urlIncludes: '/wapi/zpjob/job/data/list', method: 'GET' },
-  timeoutMs: 15000,
-})
+  pageUrl: "https://www.zhipin.com/web/frame/job/list-new",
+  partition: "persist:ihr360-boss",
+  capture: { urlIncludes: "/wapi/zpjob/job/data/list", method: "GET" },
+  timeoutMs: 15000
+});
 ```
 
 ## Field reference (`zpData.data[i]`)
 
 From `docs/boss地址资料.md` lines 18-101 — keep field names as-is, don't rename.
 
-| 字段                  | 含义                          |
-|----------------------|------------------------------|
-| `encryptJobId` / `encryptId` | 加密职位 ID（推荐主键）   |
-| `jobName` / `positionName` | 职位名                    |
-| `jobStatus`          | `0` 招聘中 / `3` 已关闭         |
-| `jobAuditStatus`     | `1`/`3` 等审核状态              |
-| `city` / `locationName` / `addressShowText` | 城市 / 地址 |
-| `experienceName`     | 经验文案 ("5-10年" 等)          |
-| `degreeName`         | 学历文案                       |
-| `jobTypeName`        | "全职" / "实习"                |
-| `salaryDesc`         | "15-25K" / "150-200元/天" 等   |
-| `lowSalary` / `highSalary` / `salaryMonth` | 薪资数值     |
-| `viewCount` / `concatCount` / `interestCount` | 浏览/沟通/感兴趣 |
-| `addTime` / `addTimeDesc` | 发布时间                  |
-| `brandName` / `brandLogo` / `comId` / `brandId` | 公司 |
-| `skillRequire`       | 技能要求逗号分隔                |
+| 字段                                            | 含义                          |
+| ----------------------------------------------- | ----------------------------- |
+| `encryptJobId` / `encryptId`                    | 加密职位 ID（推荐主键）       |
+| `jobName` / `positionName`                      | 职位名                        |
+| `jobStatus`                                     | `0` 招聘中 / `3` 已关闭       |
+| `jobAuditStatus`                                | `1`/`3` 等审核状态            |
+| `city` / `locationName` / `addressShowText`     | 城市 / 地址                   |
+| `experienceName`                                | 经验文案 ("5-10 年" 等)       |
+| `degreeName`                                    | 学历文案                      |
+| `jobTypeName`                                   | "全职" / "实习"               |
+| `salaryDesc`                                    | "15-25K" / "150-200 元/天" 等 |
+| `lowSalary` / `highSalary` / `salaryMonth`      | 薪资数值                      |
+| `viewCount` / `concatCount` / `interestCount`   | 浏览/沟通/感兴趣              |
+| `addTime` / `addTimeDesc`                       | 发布时间                      |
+| `brandName` / `brandLogo` / `comId` / `brandId` | 公司                          |
+| `skillRequire`                                  | 技能要求逗号分隔              |
 
 ## Why it's user-invisible (design notes)
 
