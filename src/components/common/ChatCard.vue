@@ -4,60 +4,80 @@
     v-morph:chat-card:chat-morph:300.resize="morphState"
     class="chat-panel"
     :class="[
-      expanded ? 'chat-panel-large' : 'chat-panel-small',
-      !expanded ? 'draggable-panel' : '',
-      verticalExpanded && !expanded ? 'vertical-expanded' : '',
-      expanded && visibleThirdSwitchPlus ? 'third-party-mode' : ''
+      embedded ? 'chat-panel-host' : expanded ? 'chat-panel-large' : 'chat-panel-small',
+      !embedded && !expanded ? 'draggable-panel' : '',
+      verticalExpanded && !expanded && !embedded ? 'vertical-expanded' : '',
+      !embedded && expanded && visibleThirdSwitchPlus ? 'third-party-mode embedded' : ''
     ]"
     v-show="visible"
     :style="[
-      expanded ? (visibleThirdSwitchPlus ? chatPanelLargeStyle : largePanelStyle) : panelPosition,
-      expanded && visibleThirdSwitchPlus ? { width: 'calc(100% - 280px)', left: '280px', right: '0' } : {}
+      embedded
+        ? {}
+        : expanded
+        ? visibleThirdSwitchPlus
+          ? chatPanelLargeStyle
+          : largePanelStyle
+        : panelPosition
     ]"
     ref="chatCardRef"
   >
-    <q-card-section
-      class="row items-center justify-between q-py-sm"
-      @mousedown="!expanded && startDrag($event)"
-    >
-      <div class="text-h6 text-grey-9 invisible" style="user-select: none">
-        {{(messages.length === 0 && internalMessages.length === 0 && !isFirstMessage)?'':'AI 智能招聘助手'}}
+    <!--
+      Workspace Toolbar
+      embedded=true 时由外层 WorkspaceContainer 提供统一 toolbar，本组件不重复渲染
+      fixed/floating 模式下保留这块 toolbar（含放大/纵向放大/关闭按钮）
+    -->
+    <div v-if="!embedded" class="workspace-toolbar" @mousedown="!expanded && startDrag($event)">
+      <div class="toolbar-left">
+        <h2 class="toolbar-title">{{ currentJobTitle || "AI 聚合控制台" }}</h2>
+        <span v-if="currentJobCode" class="toolbar-job-code">{{ currentJobCode }}</span>
       </div>
-      <div>
+      <div class="toolbar-right">
         <q-btn
           flat
           round
           dense
+          size="sm"
           :icon="expanded ? 'fullscreen_exit' : 'fullscreen'"
           @click="toggleExpand"
           :disable="isAnimating"
+          class="toolbar-btn"
         >
-          <q-tooltip>{{ expanded ? '缩小' : '放大' }}</q-tooltip>
+          <q-tooltip>{{ expanded ? "缩小" : "放大" }}</q-tooltip>
         </q-btn>
         <q-btn
           flat
           round
           dense
+          size="sm"
           :icon="verticalExpanded ? 'unfold_less' : 'unfold_more'"
           @click="toggleVerticalExpand"
           :disable="isAnimating"
+          class="toolbar-btn"
         >
-          <q-tooltip>{{ verticalExpanded ? '纵向缩小' : '纵向放大' }}</q-tooltip>
+          <q-tooltip>{{ verticalExpanded ? "纵向缩小" : "纵向放大" }}</q-tooltip>
         </q-btn>
         <q-btn
           flat
           round
           dense
+          size="sm"
           icon="remove"
           @click="$emit('close')"
           :disable="isAnimating"
+          class="toolbar-btn"
         />
       </div>
-    </q-card-section>
+    </div>
 
-    <q-card-section class="chat-content" :class="{'expanded-content': expanded}" style="cursor: auto">
-      <div v-if="messages.length === 0 && internalMessages.length === 0" class="text-center text-grey q-pa-md empty-message-hint">
-      </div>
+    <q-card-section
+      class="chat-content"
+      :class="{ 'expanded-content': expanded }"
+      style="cursor: auto"
+    >
+      <div
+        v-if="messages.length === 0 && internalMessages.length === 0"
+        class="text-center text-grey q-pa-md empty-message-hint"
+      ></div>
       <div v-else-if="loading" class="loading-container">
         <q-spinner color="primary" size="3em" />
         <div class="q-mt-sm text-grey">正在加载聊天历史...</div>
@@ -69,27 +89,52 @@
           :class="['chat-message', msg.type === 'user' ? 'chat-message-user' : 'chat-message-bot']"
         >
           <div class="chat-message-avatar">
-            <q-avatar v-if="!visibleThirdSwitchPlus" size="28px"
-            :color="msg.type === 'user' ? 'primary' : 'secondary'" text-color="white"
-            :class="`${msg.type === 'user'?'invisible':''}`"
+            <q-avatar
+              v-if="!visibleThirdSwitchPlus"
+              size="28px"
+              :color="msg.type === 'user' ? 'primary' : 'secondary'"
+              text-color="white"
+              :class="`${msg.type === 'user' ? 'invisible' : ''}`"
             >
               AI
             </q-avatar>
-            <q-avatar v-else size="28px" :class="`${msg.type === 'user'?'invisible':''}`">
-              <img src="/image/AIavatar.png">
+            <q-avatar v-else size="28px" :class="`${msg.type === 'user' ? 'invisible' : ''}`">
+              <img src="/image/AIavatar.png" />
             </q-avatar>
           </div>
           <div class="chat-message-content">
             <div class="chat-message-bubble">
               <!--
-                bot 消息分两种渲染：
-                  1. 含 [&AI_SEARCH&]（AI 职位画像）→ 用 wrapper 包住 JD html + AIProfileActionPanel，
-                     wrapper 提供统一的浅灰边框 + 圆角，并在样式上重置 markdown 内层 JD div 自带的 inline border
-                     这样"搜索牛人/推荐牛人 + 配置卡片"视觉上嵌在同一个 JD 卡片的边框内
-                  2. 普通 bot 消息 → 直接 v-html
+                bot 消息分三种渲染：
+                  1. 含 [&AI_SEARCH&] 且能成功解析出结构化 JD 数据
+                     → 用 AIProfileCard（1:1 复刻 ihraisaas 风格）渲染基础字段 + chip 列表 +
+                       ActionPanel（搜索牛人 / 推荐牛人 + 配置卡片）
+                  2. 含 [&AI_SEARCH&] 但解析失败（结构变了 / 老数据）→ fallback 老 ai-jd-container
+                  3. 普通 bot 消息 → 直接 v-html
               -->
-              <template v-if="msg.type === 'bot' && msg.content && msg.content.includes('[&AI_SEARCH&]')">
-                <div class="ai-jd-container">
+              <template
+                v-if="msg.type === 'bot' && msg.content && msg.content.includes('[&AI_SEARCH&]')"
+              >
+                <template v-if="parseAISearchJD(msg.content)">
+                  <!-- 结构化 profile 卡片：自带 header（标题 + 复制/编辑）+ ActionPanel（底部启动聚合搜索按钮） -->
+                  <AIProfileCard
+                    :profile="parseAISearchJD(msg.content)"
+                    @copy="handleCopy(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')"
+                    @edit="handleEdit(msg)"
+                  >
+                    <template #action>
+                      <AIProfileActionPanel
+                        v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
+                        :message="msg"
+                        @change="(s) => handleActionPanelChange(msg, s)"
+                        @aggregate="() => handleSearch(msg)"
+                        @view-results="emit('view-results')"
+                      />
+                    </template>
+                  </AIProfileCard>
+                </template>
+                <!-- fallback：解析失败时用老的 markdown 渲染 + ActionPanel -->
+                <div v-else class="ai-jd-container">
                   <div
                     class="ai-jd-content"
                     v-html="parseMarkdown(msg.content.replace('[&AI_SEARCH&]', ''))"
@@ -98,34 +143,49 @@
                     v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
                     :message="msg"
                     @change="(s) => handleActionPanelChange(msg, s)"
+                    @aggregate="() => handleSearch(msg)"
+                    @view-results="emit('view-results')"
                   />
                 </div>
               </template>
-              <div
-                v-else-if="msg.type === 'bot'"
-                v-html="parseMarkdown(msg.content || '')"
-              ></div>
-              <div v-else class="bot-message-formatted">{{ msg.content || '' }}</div>
+              <div v-else-if="msg.type === 'bot'" v-html="parseMarkdown(msg.content || '')"></div>
+              <div v-else class="bot-message-formatted">{{ msg.content || "" }}</div>
 
               <!-- 添加AI输出中的动画 -->
-              <div v-if="chatFluxStatus && index === displayMessages.length - 1 && msg.type === 'bot'" class="typing-indicator">
+              <div
+                v-if="chatFluxStatus && index === displayMessages.length - 1 && msg.type === 'bot'"
+                class="typing-indicator"
+              >
                 <span>~~</span>
                 <span>~~</span>
                 <span>~~</span>
               </div>
             </div>
 
-            <!-- 消息操作按钮 -->
-            <div v-if="msg.type === 'bot' && !(chatFluxStatus && index === displayMessages.length - 1)" class="message-actions">
-              <div class="chat-message-time text-grey-6">{{ msg.time || '' }}</div>
-              <q-btn v-if="!chatFluxStatus" class="btn-common" flat size="sm" icon="content_copy" @click="handleCopy(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')" outline color="primary" text-color="#1F2329" label="复制">
+            <!--
+              消息操作按钮（旧 message-actions）
+                - AI_SEARCH 消息：复制/编辑/聚合搜索 三个按钮已迁移到 AIProfileCard header / ActionPanel 底部，
+                  这里只保留时间显示（避免冗余）；
+                - 普通 bot 消息：保留"复制"按钮
+            -->
+            <div
+              v-if="msg.type === 'bot' && !(chatFluxStatus && index === displayMessages.length - 1)"
+              class="message-actions"
+            >
+              <div class="chat-message-time text-grey-6">{{ msg.time || "" }}</div>
+              <q-btn
+                v-if="!chatFluxStatus && !(msg.content && msg.content.includes('[&AI_SEARCH&]'))"
+                class="btn-common"
+                flat
+                size="sm"
+                icon="content_copy"
+                @click="handleCopy(msg.content || '')"
+                outline
+                color="primary"
+                text-color="#1F2329"
+                label="复制"
+              >
                 <q-tooltip>复制</q-tooltip>
-              </q-btn>
-              <q-btn v-if="msg.content && msg.content.includes('[&AI_SEARCH&]')" class="btn-common" flat size="sm" icon="edit" @click="handleEdit(msg)" text-color="#1F2329" label="编辑">
-                <q-tooltip>编辑</q-tooltip>
-              </q-btn>
-              <q-btn v-if="msg.content && msg.content.includes('[&AI_SEARCH&]')" class="btn-common aggregation-search" flat size="sm" icon="search" @click="handleSearch(msg)" label="聚合搜索" :style="{marginLeft: '2px'}">
-                <q-tooltip>聚合搜索</q-tooltip>
               </q-btn>
             </div>
           </div>
@@ -133,15 +193,24 @@
       </div>
     </q-card-section>
 
-    <q-card-section style="cursor: auto"
+    <q-card-section
+      style="cursor: auto"
       :key="isFirstMessage ? 'bottom-input' : 'center-input'"
       :class="[
         'chat-input q-pa-sm q-my-md',
-        {'centered-input': isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage}
+        {
+          'centered-input':
+            isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage
+        }
       ]"
     >
       <!--  初始化展示内容    -->
-      <div v-if="isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage" class="q-pa-md q-mb-md rounded-borders">
+      <div
+        v-if="
+          isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage
+        "
+        class="q-pa-md q-mb-md rounded-borders"
+      >
         <div class="text-center q-mb-md">
           <q-avatar size="xl">
             <img src="/logo/logo2.svg" />
@@ -164,15 +233,21 @@
       <!--  输入框    -->
       <div class="input-container">
         <q-input
-            v-model="chatMessage"
-            borderless
-            type="textarea"
-            autogrow
-            :input-style="{maxHeight: inputMaxHeight,minHeight: '40px',height:'40px',overflow: 'auto',resize: 'none'}"
-            placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
-            class="full-width message-input"
-            @keydown.enter.exact.prevent="() => sendChatMessage()"
-            @keydown.shift.enter.prevent="newLine"
+          v-model="chatMessage"
+          borderless
+          type="textarea"
+          autogrow
+          :input-style="{
+            maxHeight: inputMaxHeight,
+            minHeight: '40px',
+            height: '40px',
+            overflow: 'auto',
+            resize: 'none'
+          }"
+          placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
+          class="full-width message-input"
+          @keydown.enter.exact.prevent="() => sendChatMessage()"
+          @keydown.shift.enter.prevent="newLine"
         >
           <template v-slot:hint v-if="!chatFluxStatus">
             <span class="text-grey-6">Shift+Enter 换行，Enter 发送</span>
@@ -180,9 +255,7 @@
         </q-input>
 
         <div class="send-button-container">
-          <q-badge class="bg-transparent text-grey-8">
-            Shift+Enter 换行，Enter 发送
-          </q-badge>
+          <q-badge class="bg-transparent text-grey-8"> Shift+Enter 换行，Enter 发送 </q-badge>
           <q-btn
             round
             dense
@@ -192,7 +265,7 @@
             @click="() => sendChatMessage()"
             class="send-button"
           >
-            <q-tooltip>{{ chatFluxStatus ? '停止输出' : '发送' }}</q-tooltip>
+            <q-tooltip>{{ chatFluxStatus ? "停止输出" : "发送" }}</q-tooltip>
           </q-btn>
         </div>
       </div>
@@ -213,17 +286,19 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
-import { useStore } from 'vuex';
-import { useQuasar } from 'quasar';
-import MarkdownIt from 'markdown-it';
-import hljs from 'highlight.js';
-import { getChatHistory, getCurrentConditionByChatId } from 'src/api/chat/ChatApi';
-import { fetchStream } from 'src/api/chat/ChatUtil2';
-import { v4 as uuidv4 } from 'uuid';
-import LoginRequiredPanel from 'src/components/clients/LoginRequiredPanel.vue';
-import AIProfileActionPanel from 'src/components/clients/AIProfileActionPanel.vue';
-import { isElectronClient } from 'src/util/openChannelLoginUrl';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { useStore } from "vuex";
+import { useQuasar } from "quasar";
+import MarkdownIt from "markdown-it";
+import hljs from "highlight.js";
+import { getChatHistory, getCurrentConditionByChatId } from "src/api/chat/ChatApi";
+import { fetchStream } from "src/api/chat/ChatUtil2";
+import { v4 as uuidv4 } from "uuid";
+import LoginRequiredPanel from "src/components/clients/LoginRequiredPanel.vue";
+import AIProfileActionPanel from "src/components/clients/AIProfileActionPanel.vue";
+import AIProfileCard from "src/components/clients/AIProfileCard.vue";
+import { parseAISearchJD, getAISearchPrefix } from "src/util/parseAISearchJD";
+import { isElectronClient } from "src/util/openChannelLoginUrl";
 
 const store = useStore();
 const $q = useQuasar();
@@ -243,7 +318,7 @@ const showLoginRequiredPanel = computed(() => {
     const e = userCfg.find((c) => c.key === k);
     return e ? !!e.enableConfig : true;
   };
-  const keys = ['BOSS', 'ZHILIAN', 'JOB51'].filter(isEnabled);
+  const keys = ["BOSS", "ZHILIAN", "JOB51"].filter(isEnabled);
   if (keys.length === 0) return false; // 没启用任何渠道 → 不弹
   // 任一已启用渠道未登录就展示
   return keys.some((k) => !conf[k]?.login);
@@ -287,7 +362,7 @@ const md = new MarkdownIt({
       try {
         return hljs.highlight(str, { language: lang }).value;
       } catch (err) {
-        console.warn('Failed to highlight:', err);
+        console.warn("Failed to highlight:", err);
         return str;
       }
     }
@@ -301,18 +376,42 @@ const abortController = ref(null);
 const loading = ref(false);
 const sending = ref(false);
 const isComposing = ref(false);
-const currentChatId = ref('');
+const currentChatId = ref("");
 const userInfo = computed(() => store.getters.getUserInfo);
-const latestChatId = computed(()=>store.getters.getLatestChatId)
+const latestChatId = computed(() => store.getters.getLatestChatId);
+
+/**
+ * 当前选中职位标题 + 代码（用在 workspace toolbar 左侧）
+ * chat.name 现存格式如 "研发 (10001)" / "测试 (10002)"：左半为职位名，括号内为代码
+ * 解析失败时 title=整个 name，code=''
+ */
+const currentChatEntity = computed(() => {
+  const id = latestChatId.value;
+  if (!id) return null;
+  const getById = store.getters.getChatById;
+  return typeof getById === "function" ? getById(id) : null;
+});
+const currentJobTitle = computed(() => {
+  const name = currentChatEntity.value?.name || "";
+  if (!name) return "";
+  const m = name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  return m ? m[1].trim() : name.trim();
+});
+const currentJobCode = computed(() => {
+  const name = currentChatEntity.value?.name || "";
+  const m = name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  return m ? m[2].trim() : "";
+});
 const isFirstMessage = ref(false);
 const isNewChat = ref(true);
 //jobSearchFilterRef
 const jobSearchFilterRef = computed(() => store.getters.getJobSearchFilterRefValue);
 
-const msgYYY = '我已经为你生成了大致搜索条件，系统会依据这个生成完整搜索条件来精准查找合适简历。大致搜索条件是：2025 届毕业生，本科及以上计算机相关专业，对算法有兴趣，强编码能力，熟悉 linux 开发环境，掌握机器学习等相关技术，有相关领域经验优先。接下来系统会自动处理，你稍作等待就能看到符合要求的简历啦。\n' +
-  '[&AI_SEARCH&]\n' +
-  '\n' +
-  '<div style=\'background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 10px 0;\'><div><div style=\'display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;\'><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>职位：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>算法工程师</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>工作经验：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>应届生</div></div><div style=\'flex: 1 1 45%; min-width: 200px;\'><div style=\'font-weight: bold; margin-bottom: 3px;\'>学历要求：</div><div style=\'color: #333; padding: 3px 0; font-size: 14px;\'>本科/硕士/博士</div></div></div><div style=\'margin-top: 5px;\'><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>专业技能：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备强悍的编码能力，熟悉linux开发环境，熟悉Hadoop/Hive优先</div><div style=\'background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备扎实的数据结构功底，熟悉机器学习、深度学习、图计算、自然语言处理、数据挖掘、分布式计算中一项或多项</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>软实力要求：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的数理基础和逻辑分析能力</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>对解决具有挑战性的问题充满激情</div><div style=\'background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-panel; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>具备较好的主动性和团队合作精神</div></div></div><div style=\'margin-bottom: 8px;\'><div style=\'font-weight: bold; margin-bottom: 4px;\'>相关经历：</div><div style=\'display: flex; flex-wrap: wrap; gap: 5px;\'><div style=\'background: #fff7e6; color: #fa8c16; border: 1px solid #ffd591; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;\'>有搜索引擎、推荐系统、计算广告、图像、互联网风控、智能客服、平台治理等相关领域经验者优先</div></div></div></div></div>';
+const msgYYY =
+  "我已经为你生成了大致搜索条件，系统会依据这个生成完整搜索条件来精准查找合适简历。大致搜索条件是：2025 届毕业生，本科及以上计算机相关专业，对算法有兴趣，强编码能力，熟悉 linux 开发环境，掌握机器学习等相关技术，有相关领域经验优先。接下来系统会自动处理，你稍作等待就能看到符合要求的简历啦。\n" +
+  "[&AI_SEARCH&]\n" +
+  "\n" +
+  "<div style='background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 10px 0;'><div><div style='display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;'><div style='flex: 1 1 45%; min-width: 200px;'><div style='font-weight: bold; margin-bottom: 3px;'>职位：</div><div style='color: #333; padding: 3px 0; font-size: 14px;'>算法工程师</div></div><div style='flex: 1 1 45%; min-width: 200px;'><div style='font-weight: bold; margin-bottom: 3px;'>工作经验：</div><div style='color: #333; padding: 3px 0; font-size: 14px;'>应届生</div></div><div style='flex: 1 1 45%; min-width: 200px;'><div style='font-weight: bold; margin-bottom: 3px;'>学历要求：</div><div style='color: #333; padding: 3px 0; font-size: 14px;'>本科/硕士/博士</div></div></div><div style='margin-top: 5px;'><div style='margin-bottom: 8px;'><div style='font-weight: bold; margin-bottom: 4px;'>专业技能：</div><div style='display: flex; flex-wrap: wrap; gap: 5px;'><div style='background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;'>具备强悍的编码能力，熟悉linux开发环境，熟悉Hadoop/Hive优先</div><div style='background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;'>具备扎实的数据结构功底，熟悉机器学习、深度学习、图计算、自然语言处理、数据挖掘、分布式计算中一项或多项</div></div></div><div style='margin-bottom: 8px;'><div style='font-weight: bold; margin-bottom: 4px;'>软实力要求：</div><div style='display: flex; flex-wrap: wrap; gap: 5px;'><div style='background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;'>具备较好的数理基础和逻辑分析能力</div><div style='background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;'>对解决具有挑战性的问题充满激情</div><div style='background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 4px; padding: 2px 8px; display: inline-panel; margin-right: 5px; margin-bottom: 5px; font-size: 13px;'>具备较好的主动性和团队合作精神</div></div></div><div style='margin-bottom: 8px;'><div style='font-weight: bold; margin-bottom: 4px;'>相关经历：</div><div style='display: flex; flex-wrap: wrap; gap: 5px;'><div style='background: #fff7e6; color: #fa8c16; border: 1px solid #ffd591; border-radius: 4px; padding: 2px 8px; display: inline-block; margin-right: 5px; margin-bottom: 5px; font-size: 13px;'>有搜索引擎、推荐系统、计算广告、图像、互联网风控、智能客服、平台治理等相关领域经验者优先</div></div></div></div></div>";
 // 添加内部消息列表
 const internalMessages = ref([]);
 
@@ -333,7 +432,7 @@ const props = defineProps({
   },
   morphState: {
     type: String,
-    default: 'chat-card'
+    default: "chat-card"
   },
   messages: {
     type: Array,
@@ -362,7 +461,18 @@ const props = defineProps({
   },
   chatId: {
     type: String,
-    default: ''
+    default: ""
+  },
+  /**
+   * 嵌入式模式：作为 WorkspaceContainer 的子组件挂载在白色大卡片内。
+   * 此模式下：
+   *   - 不渲染自己的 workspace-toolbar（由外层 WorkspaceContainer 提供）
+   *   - 不使用 fixed 定位，撑满父容器
+   *   - 强制 expanded=true 视为放大态（无放大/缩小按钮）
+   */
+  embedded: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -380,22 +490,24 @@ watch(latestChatIdForLogin, (newId, oldId) => {
 
 // 定义事件
 const emit = defineEmits([
-  'close',
-  'toggle-expand',
-  'send-message',
-  'update:expanded',
-  'edit-search',  // 添加编辑搜索条件事件
-  'aggregate-search',  // 添加聚合搜索事件
-  'stop-stream',  // 添加停止流式输出事件
-  'load-history-complete', // 添加历史加载完成事件
-  'add-message', // 添加新消息添加事件
-  'message-added', // 添加新消息添加事件
-  'chat-reset', // 添加聊天重置事件
-  'open-chat' // 添加打开聊天面板事件
+  "close",
+  "toggle-expand",
+  "send-message",
+  "update:expanded",
+  "edit-search", // 添加编辑搜索条件事件
+  "aggregate-search", // 添加聚合搜索事件
+  "aggregate", // 嵌入式模式：向父级（WorkspaceContainer）请求切换到 results 视图
+  "view-results", // 调试 / 测试：直接切到 results 视图（不触发真正聚合）
+  "stop-stream", // 添加停止流式输出事件
+  "load-history-complete", // 添加历史加载完成事件
+  "add-message", // 添加新消息添加事件
+  "message-added", // 添加新消息添加事件
+  "chat-reset", // 添加聊天重置事件
+  "open-chat" // 添加打开聊天面板事件
 ]);
 
 // 聊天消息输入
-const chatMessage = ref('');
+const chatMessage = ref("");
 const isAnimating = ref(false);
 const chatCardRef = ref(null);
 
@@ -406,8 +518,8 @@ const initialY = ref(0);
 const offsetX = ref(0);
 const offsetY = ref(0);
 const defaultPosition = {
-  right: '80px',
-  bottom: '20px'
+  right: "80px",
+  bottom: "20px"
 };
 
 // 添加垂直展开状态
@@ -418,28 +530,31 @@ const aiSearchRef = computed(() => store.getters.getAiSearchRefValue);
 // 计算面板位置样式
 const panelPosition = computed(() => {
   // 纵向展开时的样式
-  const verticalStyle = verticalExpanded.value && !isDragging.value ? {
-    width: '380px',
-    height: 'calc(100vh - 80px)',
-    bottom: '20px',
-    right: '80px',
-    top: 'auto'
-  } : {};
+  const verticalStyle =
+    verticalExpanded.value && !isDragging.value
+      ? {
+          width: "380px",
+          height: "calc(100vh - 80px)",
+          bottom: "20px",
+          right: "80px",
+          top: "auto"
+        }
+      : {};
 
   if (offsetX.value || offsetY.value) {
     return {
-      position: 'fixed',
-      left: offsetX.value ? `${offsetX.value}px` : 'auto',
-      top: offsetY.value ? `${offsetY.value}px` : 'auto',
-      right: !offsetX.value ? defaultPosition.right : 'auto',
-      bottom: !offsetY.value ? defaultPosition.bottom : 'auto',
-      height: verticalExpanded.value ? 'calc(100vh - 80px)' : '500px',
-      width: verticalExpanded.value ? '380px' : undefined,
+      position: "fixed",
+      left: offsetX.value ? `${offsetX.value}px` : "auto",
+      top: offsetY.value ? `${offsetY.value}px` : "auto",
+      right: !offsetX.value ? defaultPosition.right : "auto",
+      bottom: !offsetY.value ? defaultPosition.bottom : "auto",
+      height: verticalExpanded.value ? "calc(100vh - 80px)" : "500px",
+      width: verticalExpanded.value ? "380px" : undefined,
       ...(!isDragging.value ? verticalStyle : {})
     };
   }
   return {
-    position: 'fixed',
+    position: "fixed",
     right: defaultPosition.right,
     bottom: defaultPosition.bottom,
     ...(!isDragging.value ? verticalStyle : {})
@@ -448,18 +563,20 @@ const panelPosition = computed(() => {
 
 // Markdown解析函数
 const parseMarkdown = (content) => {
-  return md.render(content || '');
+  return md.render(content || "");
 };
 
 const parseMarkdownCopy = (content) => {
-  let html = md.render(content || '');
+  let html = md.render(content || "");
 
   // 定义需要处理的特定标题
-  const titles = ['专业技能', '软实力要求', '相关经历'];
+  const titles = ["专业技能", "软实力要求", "相关经历"];
   // 正则表达式匹配包含特定标题的div结构
   const regex = new RegExp(
-      `(<div[^>]*>\\s*<div[^>]*>\\s*(${titles.join('|')})[^<]*</div>\\s*<div[^>]*>)([\\s\\S]*?)(</div>\\s*</div>)`,
-      'gi'
+    `(<div[^>]*>\\s*<div[^>]*>\\s*(${titles.join(
+      "|"
+    )})[^<]*</div>\\s*<div[^>]*>)([\\s\\S]*?)(</div>\\s*</div>)`,
+    "gi"
   );
 
   // 替换处理
@@ -467,7 +584,7 @@ const parseMarkdownCopy = (content) => {
     // 匹配内容部分中的每个条目div
     const itemRegex = /<div[^>]*>([\s\S]*?)<\/div>/gi;
     let lastIndex = 0;
-    let result = '';
+    let result = "";
     let itemMatch;
     let items = [];
 
@@ -485,7 +602,7 @@ const parseMarkdownCopy = (content) => {
     items.forEach((item, index) => {
       // 添加当前条目之前的内容（原始文本或空白）
       result += content.substring(lastIndex, item.start);
-      result += item.full.replace(/([^>])(<\/div>)$/, '$1；$2');
+      result += item.full.replace(/([^>])(<\/div>)$/, "$1；$2");
       lastIndex = item.end;
     });
 
@@ -494,21 +611,21 @@ const parseMarkdownCopy = (content) => {
 
     return prefix + result + suffix;
   });
-console.log('html',html)
+  console.log("html", html);
   return html;
 };
 
 const handleCopy = (content) => {
   try {
     // 创建临时元素提取纯文本
-    const tempElement = document.createElement('div');
+    const tempElement = document.createElement("div");
     tempElement.innerHTML = parseMarkdownCopy(content);
     const plainText = tempElement.innerText || tempElement.textContent;
 
     // 分割自然语言描述和结构化数据部分
-    const descriptionEndIndex = plainText.indexOf('职位：');
-    let naturalLanguage = '';
-    let structuredData = '';
+    const descriptionEndIndex = plainText.indexOf("职位：");
+    let naturalLanguage = "";
+    let structuredData = "";
 
     if (descriptionEndIndex !== -1) {
       naturalLanguage = plainText.substring(0, descriptionEndIndex).trim();
@@ -520,8 +637,14 @@ const handleCopy = (content) => {
     const fields = {
       position: extractField(structuredData, /职位：(.*?)(?=工作地点：|$)/),
       location: extractField(structuredData, /工作地点：([\s\S]*?)(?=(?:工作经验：|学历要求：|$))/),
-      experience: extractField(structuredData, /工作经验：([\s\S]*?)(?=(?:学历要求：|薪资范围：|$))/),
-      education: extractField(structuredData, /学历要求：([\s\S]*?)(?=(?:薪资范围：|专业技能：|$))/),
+      experience: extractField(
+        structuredData,
+        /工作经验：([\s\S]*?)(?=(?:学历要求：|薪资范围：|$))/
+      ),
+      education: extractField(
+        structuredData,
+        /学历要求：([\s\S]*?)(?=(?:薪资范围：|专业技能：|$))/
+      ),
       salary: extractField(structuredData, /薪资范围：([\s\S]*?)(?=(?:专业技能：|软实力要求：|$))/),
       skills: extractField(structuredData, /专业技能：([\s\S]*?)(?=(?:软实力要求：|相关经历：|$))/),
       softSkills: extractField(structuredData, /软实力要求：([\s\S]*?)(?=(?:相关经历：|$))/),
@@ -529,14 +652,16 @@ const handleCopy = (content) => {
     };
 
     // 构建格式化的文本 - 确保自然语言描述保持单行
-    let formattedText = naturalLanguage.replace(/\s+/g, ' ').trim();
+    let formattedText = naturalLanguage.replace(/\s+/g, " ").trim();
 
     if (fields.position) {
       formattedText += `\n职位：${fields.position}`;
     }
 
     if (fields.location || fields.experience || fields.education) {
-      formattedText += `\n工作地点：${fields.location || ''}  工作经验：${fields.experience || ''}  学历要求：${fields.education || ''}`;
+      formattedText += `\n工作地点：${fields.location || ""}  工作经验：${
+        fields.experience || ""
+      }  学历要求：${fields.education || ""}`;
     }
 
     if (fields.salary) {
@@ -558,17 +683,17 @@ const handleCopy = (content) => {
     // 复制格式化后的文本
     navigator.clipboard.writeText(formattedText);
     $q.notify({
-      message: '复制成功',
-      color: 'positive',
-      position: 'top',
+      message: "复制成功",
+      color: "positive",
+      position: "top",
       timeout: 1000
     });
   } catch (err) {
-    console.error('复制失败:', err);
+    console.error("复制失败:", err);
     $q.notify({
-      message: '复制失败',
-      color: 'negative',
-      position: 'top'
+      message: "复制失败",
+      color: "negative",
+      position: "top"
     });
   }
 };
@@ -576,42 +701,42 @@ const handleCopy = (content) => {
 // 辅助函数：从文本中提取字段
 function extractField(text, regex) {
   const match = text.match(regex);
-  return match ? match[1].trim() : '';
+  return match ? match[1].trim() : "";
 }
 
 //新建聊天
 const handleNewChat = () => {
   // 设置为新聊天状态
   isNewChat.value = true;
-  isFirstMessage.value = false;  // 改为 false，表示初始未发送消息状态
+  isFirstMessage.value = false; // 改为 false，表示初始未发送消息状态
 
   // 清空消息
-  store.commit('clearChatMessage');
+  store.commit("clearChatMessage");
   internalMessages.value = [];
 
   // 清空聊天 ID
-  currentChatId.value = '';
-  store.commit('SET_LATEST_CHAT_ID', '');
+  currentChatId.value = "";
+  store.commit("SET_LATEST_CHAT_ID", "");
 
   // 清空搜索条件 ID
-  store.commit('clearSearchConditionId');
+  store.commit("clearSearchConditionId");
 
   // 重置输入框
-  chatMessage.value = '';
+  chatMessage.value = "";
 
   // 确保聊天框始终处于最大状态
   if (!props.expanded) {
     // 如果当前不是最大状态，则更新状态并触发切换
-    emit('update:expanded', true);
-    emit('toggle-expand');
+    emit("update:expanded", true);
+    emit("toggle-expand");
   }
 
-  console.log('已重置到新建聊天状态');
+  console.log("已重置到新建聊天状态");
 
   // 通知外部组件聊天已重置
-  emit('chat-reset');
+  emit("chat-reset");
   // 新增：通知父组件需要打开聊天面板
-  emit('open-chat');
+  emit("open-chat");
 };
 
 // 编辑搜索条件
@@ -626,29 +751,37 @@ const handleEdit = (msg) => {
     toggleExpand();
   }
 
-  console.log("chatID:", currentChatId.value)
+  console.log("chatID:", currentChatId.value);
   //刷新搜索条件
-  jobSearchFilterRef.value.refreshSearchCondition(currentChatId.value)
+  jobSearchFilterRef.value.refreshSearchCondition(currentChatId.value);
 };
 
 // 聚合搜索
 const handleSearch = (msg) => {
-  // emit('aggregate-search', {
-  //   content: msg.content,
-  //   chatId: props.chatId || currentChatId.value
-  // });
-  // 判断对话框是否是缩小状态，如果不是就把它缩小
+  if (props.embedded) {
+    // 嵌入式模式：向父级 WorkspaceContainer 发出切到 results 视图的信号
+    emit("aggregate", { content: msg?.content, chatId: props.chatId || currentChatId.value });
+    // 同时让 results 端可以基于当前 chat 重新搜索（保持原有行为）
+    if (
+      jobSearchFilterRef.value &&
+      typeof jobSearchFilterRef.value.refreshAndSearchFN === "function"
+    ) {
+      jobSearchFilterRef.value.refreshAndSearchFN(currentChatId.value);
+    }
+    return;
+  }
+  // 浮窗模式：判断对话框是否是缩小状态，如果不是就把它缩小
   if (props.expanded) {
     toggleExpand();
   }
-  console.log("chatID:", currentChatId.value)
+  console.log("chatID:", currentChatId.value);
   //刷新搜索条件并搜索
-  jobSearchFilterRef.value.refreshAndSearchFN(currentChatId.value)
+  jobSearchFilterRef.value && jobSearchFilterRef.value.refreshAndSearchFN(currentChatId.value);
 };
 
 // 换行处理
 const newLine = () => {
-  chatMessage.value += '\n';
+  chatMessage.value += "\n";
 };
 
 // 开始拖动
@@ -676,8 +809,8 @@ const startDrag = (event) => {
   isDragging.value = true;
 
   // 添加移动和结束拖动事件监听
-  document.addEventListener('mousemove', doDrag);
-  document.addEventListener('mouseup', endDrag);
+  document.addEventListener("mousemove", doDrag);
+  document.addEventListener("mouseup", endDrag);
 };
 
 // 拖动中
@@ -759,26 +892,29 @@ const endDrag = () => {
     }
   }
 
-  document.removeEventListener('mousemove', doDrag);
-  document.removeEventListener('mouseup', endDrag);
+  document.removeEventListener("mousemove", doDrag);
+  document.removeEventListener("mouseup", endDrag);
 
   // 保存最后位置到本地存储（可选）
   try {
-    localStorage.setItem('chatCardPosition', JSON.stringify({
-      x: offsetX.value,
-      y: offsetY.value
-    }));
+    localStorage.setItem(
+      "chatCardPosition",
+      JSON.stringify({
+        x: offsetX.value,
+        y: offsetY.value
+      })
+    );
   } catch (e) {
-    console.error('无法保存聊天卡片位置:', e);
+    console.error("无法保存聊天卡片位置:", e);
   }
 };
 
 // 清理事件监听
 onUnmounted(() => {
-  document.removeEventListener('mousemove', doDrag);
-  document.removeEventListener('mouseup', endDrag);
-  document.removeEventListener('compositionstart', () => isComposing.value = true);
-  document.removeEventListener('compositionend', () => isComposing.value = false);
+  document.removeEventListener("mousemove", doDrag);
+  document.removeEventListener("mouseup", endDrag);
+  document.removeEventListener("compositionstart", () => (isComposing.value = true));
+  document.removeEventListener("compositionend", () => (isComposing.value = false));
 
   // 中断流式响应
   if (chatFluxStatus.value && abortController.value) {
@@ -814,41 +950,50 @@ const headerHeight = computed(() => store.getters.getHeaderHeight);
 
 //三方显示隐藏控制开关
 const visibleThirdSwitch = computed(() => {
-  return store.getters.getUserInfo?.extendData?.plan || '';
+  return store.getters.getUserInfo?.extendData?.plan || "";
 });
 const visibleThirdSwitchPlus = computed(() => {
-  return ['PlanA'].includes(visibleThirdSwitch.value);
+  return ["PlanA"].includes(visibleThirdSwitch.value);
 });
 
 // 计算大型聊天面板的样式
 const chatPanelLargeStyle = computed(() => {
-  // 基础样式，包含宽度设置
-  const baseStyle = {
-    width: props.containerWidth ? `${props.containerWidth}px` : 'calc(100% - 280px)', // 默认减去左侧菜单宽度
-    left: props.containerLeft ? `${props.containerLeft}px` : '280px' // 默认与左侧菜单宽度一致
-  };
-
-  // 当 visibleThirdSwitchPlus 为 true 时，header 高度为 0
+  // visibleThirdSwitchPlus（i人事融合 / 客户端模式）：
+  // ChatCard 是嵌在右侧灰底主区里的"白卡片"，周围露出 24px padding
+  // 参考 ihraisaas/src/App.tsx 第 959-960 行 p-6 bg-[#f0f2f5] + 白卡片 rounded-2xl shadow-xl
   if (visibleThirdSwitchPlus.value) {
+    const drawerWidth = 300; // 与 MainLayout q-drawer width 一致
+    const padding = 24; // p-6 = 24px
+    // 客户端模式下，q-header（ClientHeader）的实际高度由 .layout-headerA / mini header 决定，
+    // 这里直接用 headerHeight.value（store 维护的 header 高度，未隐藏时一般 40-48px）。
+    const topOffset = (headerHeight.value || 0) + padding;
     return {
-      ...baseStyle,
-      top: '0',
-      height: '100vh'
+      top: `${topOffset}px`,
+      left: `${drawerWidth + padding}px`,
+      right: `${padding}px`,
+      bottom: `${padding}px`,
+      width: "auto",
+      height: "auto"
     };
   }
-  // 当header可见时，调整top位置
-  else if (headerVisible.value) {
+
+  // 非客户端模式：保留原全屏铺满逻辑
+  const baseStyle = {
+    width: props.containerWidth ? `${props.containerWidth}px` : "calc(100% - 280px)",
+    left: props.containerLeft ? `${props.containerLeft}px` : "280px"
+  };
+
+  if (headerVisible.value) {
     return {
       ...baseStyle,
       top: `${headerHeight.value}px`,
       height: `calc(100vh - ${headerHeight.value}px)`
     };
   } else {
-    // header不可见时，占据整个屏幕高度
     return {
       ...baseStyle,
-      top: '0',
-      height: '100vh'
+      top: "0",
+      height: "100vh"
     };
   }
 });
@@ -857,17 +1002,17 @@ const chatPanelLargeStyle = computed(() => {
 const getChatTemplate = () => {
   return {
     id: uuidv4(),
-    role: '',
-    content: '',
+    role: "",
+    content: "",
     created: Math.floor(Date.now() / 1000),
-    chatId: '',
-    searchConditionId: '',
-    model: '',
-    object: '',
-    type: '', // 用户类型，'user' 或 'bot'
+    chatId: "",
+    searchConditionId: "",
+    model: "",
+    object: "",
+    type: "", // 用户类型，'user' 或 'bot'
     time: new Date().toLocaleTimeString(),
     timestamp: new Date().toISOString()
-  }
+  };
 };
 
 // 展开/收缩聊天面板
@@ -876,10 +1021,10 @@ const toggleExpand = () => {
   isAnimating.value = true;
 
   // 反转展开状态
-  emit('update:expanded', !props.expanded);
+  emit("update:expanded", !props.expanded);
 
   // 触发展开/缩小事件
-  emit('toggle-expand');
+  emit("toggle-expand");
 
   // 等待DOM更新后滚动到底部
   nextTick(() => {
@@ -899,7 +1044,7 @@ const toggleVerticalExpand = () => {
   // 如果是大屏模式，先切换到小屏模式再纵向展开
   if (props.expanded) {
     // 先切换到小屏模式
-    emit('update:expanded', false);
+    emit("update:expanded", false);
 
     // 等待小屏切换完成后再进行纵向展开
     setTimeout(() => {
@@ -928,7 +1073,7 @@ const toggleVerticalExpand = () => {
 
 // 滚动聊天到底部
 const scrollChatToBottom = () => {
-  const chatContent = document.querySelector('.chat-content');
+  const chatContent = document.querySelector(".chat-content");
   if (chatContent) {
     chatContent.scrollTop = chatContent.scrollHeight;
   }
@@ -955,8 +1100,8 @@ const loadHistory = async () => {
       //store.commit('clearChatMessage');
 
       // 添加历史消息到内部列表
-      data.chatHistory.forEach(msg => {
-        const messageType = msg.role === 'user' ? 'user' : 'bot';
+      data.chatHistory.forEach((msg) => {
+        const messageType = msg.role === "user" ? "user" : "bot";
         const messageObj = {
           id: msg.id || uuidv4(),
           role: msg.role,
@@ -976,22 +1121,22 @@ const loadHistory = async () => {
     }
 
     // 触发历史加载完成事件
-    emit('load-history-complete', data);
+    emit("load-history-complete", data);
   } catch (e) {
-    console.error('加载历史消息失败:', e);
+    console.error("加载历史消息失败:", e);
     $q.notify({
-      message: '加载历史消息失败',
-      color: 'negative',
-      position: 'top',
+      message: "加载历史消息失败",
+      color: "negative",
+      position: "top",
       timeout: 2000
     });
 
     // 添加错误消息到聊天
     const errorMessage = getChatTemplate();
     errorMessage.id = uuidv4();
-    errorMessage.role = 'assistant';
-    errorMessage.type = 'bot';
-    errorMessage.content = `加载历史消息失败。错误信息: ${e?.message || '未知错误'}`;
+    errorMessage.role = "assistant";
+    errorMessage.type = "bot";
+    errorMessage.content = `加载历史消息失败。错误信息: ${e?.message || "未知错误"}`;
     errorMessage.created = Math.floor(Date.now() / 1000);
     errorMessage.time = new Date().toLocaleTimeString();
     errorMessage.error = true;
@@ -1017,7 +1162,7 @@ const addMessage = (message) => {
   // console.log("消息已添加到内部列表:", message);
 
   // 触发父组件更新(可选)
-  emit('message-added', message);
+  emit("message-added", message);
 
   // 确保聊天滚动到底部
   nextTick(() => {
@@ -1033,7 +1178,7 @@ const setMsgContainer = (msg) => {
   if (content) {
     console.log("处理内容:", content);
 
-    if (content === '[DONE]') {
+    if (content === "[DONE]") {
       console.log("聊天结束", content);
       chatFluxStatus.value = false;
       return;
@@ -1043,7 +1188,7 @@ const setMsgContainer = (msg) => {
     const messages = internalMessages.value;
     console.log("当前内部消息列表:", messages);
 
-    const foundObject = messages.find(item => item.id === msg.id);
+    const foundObject = messages.find((item) => item.id === msg.id);
     if (foundObject) {
       console.log("找到现有消息，更新内容:", foundObject);
       // 更新已存在消息的内容
@@ -1070,9 +1215,9 @@ const setMsgContainer = (msg) => {
         console.log("更新chatId:", msg.chatId);
         currentChatId.value = msg.chatId;
         // 更新 vuex 中的 activeChatId
-        store.commit('SET_ACTIVE_CHAT_ID', msg.chatId);
+        store.commit("SET_ACTIVE_CHAT_ID", msg.chatId);
         // 触发列表刷新
-        store.commit('SET_NEED_REFRESH_LIST', true);
+        store.commit("SET_NEED_REFRESH_LIST", true);
         isNewChat.value = false;
       }
       // 将消息添加到内部列表
@@ -1093,13 +1238,15 @@ const setMsgContainer = (msg) => {
 const addErrorResponse = (userContent, error) => {
   const botMessage = getChatTemplate();
   botMessage.id = uuidv4(); // 确保有唯一ID
-  botMessage.role = 'assistant';
-  botMessage.type = 'bot';
-  botMessage.content = `抱歉，服务器响应出错。请稍后再试或联系管理员。错误信息: ${error?.message || '未知错误'}`;
+  botMessage.role = "assistant";
+  botMessage.type = "bot";
+  botMessage.content = `抱歉，服务器响应出错。请稍后再试或联系管理员。错误信息: ${
+    error?.message || "未知错误"
+  }`;
   botMessage.created = Math.floor(Date.now() / 1000);
   botMessage.time = new Date().toLocaleTimeString();
   botMessage.error = true; // 标记为错误消息
-  botMessage.chatId = currentChatId.value || props.chatId || '';
+  botMessage.chatId = currentChatId.value || props.chatId || "";
 
   // 添加到内部消息列表
   addMessage(botMessage);
@@ -1107,8 +1254,8 @@ const addErrorResponse = (userContent, error) => {
   // 通知服务器处理错误（可选）
   try {
     const errorData = {
-      type: 'error',
-      message: error?.message || '未知错误',
+      type: "error",
+      message: error?.message || "未知错误",
       timestamp: new Date().toISOString(),
       userContent: userContent
     };
@@ -1125,7 +1272,7 @@ const sendChatMessage = async (msg) => {
 
   // 如果正在输出中，则停止输出
   if (chatFluxStatus.value) {
-    emit('stop-stream');
+    emit("stop-stream");
     chatFluxStatus.value = false;
     if (abortController.value) {
       abortController.value.abort();
@@ -1137,7 +1284,7 @@ const sendChatMessage = async (msg) => {
   const messageText = msg || chatMessage.value.trim();
   console.log("发送聊天消息", messageText, sending.value, isComposing.value);
 
-  if (messageText === '') return;
+  if (messageText === "") return;
   if (sending.value) return;
   if (isComposing.value) return;
 
@@ -1146,18 +1293,18 @@ const sendChatMessage = async (msg) => {
     isFirstMessage.value = true;
   }
 
-  chatMessage.value = '';
+  chatMessage.value = "";
   sending.value = true;
 
   try {
     // 添加用户消息
     const userMessage = getChatTemplate();
-    userMessage.role = 'user';
-    userMessage.type = 'user';
+    userMessage.role = "user";
+    userMessage.type = "user";
     userMessage.content = messageText;
     userMessage.created = Math.floor(Date.now() / 1000);
     userMessage.time = new Date().toLocaleTimeString();
-    userMessage.chatId = currentChatId.value || props.chatId || '';
+    userMessage.chatId = currentChatId.value || props.chatId || "";
 
     console.log("准备发送用户消息:", userMessage);
 
@@ -1176,10 +1323,10 @@ const sendChatMessage = async (msg) => {
     try {
       // 准备请求数据
       const aiRequestMsg = {
-        chatId: currentChatId.value || props.chatId || '',
+        chatId: currentChatId.value || props.chatId || "",
         userId: userInfo.value?.id,
         searchConditionId: store.getters.getSearchConditionId,
-        prompt: messageText,
+        prompt: messageText
       };
 
       console.log("准备发送AI请求:", aiRequestMsg);
@@ -1209,9 +1356,9 @@ const sendChatMessage = async (msg) => {
           chatFluxStatus.value = false;
           console.error("Stream error:", error);
           $q.notify({
-            message: '发送失败: ' + (error?.message || '网络错误'),
-            color: 'negative',
-            position: 'top',
+            message: "发送失败: " + (error?.message || "网络错误"),
+            color: "negative",
+            position: "top",
             timeout: 3000
           });
 
@@ -1230,11 +1377,11 @@ const sendChatMessage = async (msg) => {
       addErrorResponse(messageText, streamError);
     }
   } catch (e) {
-    console.error('发送消息失败:', e);
+    console.error("发送消息失败:", e);
     $q.notify({
-      message: '发送失败',
-      color: 'negative',
-      position: 'top'
+      message: "发送失败",
+      color: "negative",
+      position: "top"
     });
     // 添加错误回应
     addErrorResponse(messageText, e);
@@ -1250,32 +1397,40 @@ const endStreamResponse = () => {
 };
 
 // 监听 props.chatId 和 latestChatId 的变化
-watch([() => props.chatId, () => latestChatId.value], ([newChatId, newLatestChatId]) => {
-  // 优先使用 props.chatId，如果为空则使用 latestChatId
-  const effectiveId = newChatId || newLatestChatId;
+watch(
+  [() => props.chatId, () => latestChatId.value],
+  ([newChatId, newLatestChatId]) => {
+    // 优先使用 props.chatId，如果为空则使用 latestChatId
+    const effectiveId = newChatId || newLatestChatId;
 
-  if (effectiveId) {
-    isNewChat.value = false;
-    abortController.value?.abort();
-    chatFluxStatus.value = false;
-    currentChatId.value = effectiveId;  // 更新内部的 chatId
-    loadHistory();  // 加载历史消息
-  } else {
-    currentChatId.value = '';  // 清空内部的 chatId
-    // 这里不清空消息列表，由父组件控制
-  }
-}, { immediate: true });  // 立即执行一次
+    if (effectiveId) {
+      isNewChat.value = false;
+      abortController.value?.abort();
+      chatFluxStatus.value = false;
+      currentChatId.value = effectiveId; // 更新内部的 chatId
+      loadHistory(); // 加载历史消息
+    } else {
+      currentChatId.value = ""; // 清空内部的 chatId
+      // 这里不清空消息列表，由父组件控制
+    }
+  },
+  { immediate: true }
+); // 立即执行一次
 
 // 监听父组件传入的消息变化
-watch(() => props.messages, (newMessages) => {
-  console.log("父组件消息列表更新:", newMessages);
+watch(
+  () => props.messages,
+  (newMessages) => {
+    console.log("父组件消息列表更新:", newMessages);
 
-  // 如果内部消息为空且父组件提供了消息，则使用父组件的消息
-  if (internalMessages.value.length === 0 && newMessages.length > 0) {
-    console.log("使用父组件提供的消息");
-    internalMessages.value = [...newMessages];
-  }
-}, { deep: true });
+    // 如果内部消息为空且父组件提供了消息，则使用父组件的消息
+    if (internalMessages.value.length === 0 && newMessages.length > 0) {
+      console.log("使用父组件提供的消息");
+      internalMessages.value = [...newMessages];
+    }
+  },
+  { deep: true }
+);
 
 // 组件挂载时初始化
 onMounted(() => {
@@ -1288,14 +1443,14 @@ onMounted(() => {
 
   // 尝试从本地存储恢复位置（可选）
   try {
-    const savedPosition = localStorage.getItem('chatCardPosition');
+    const savedPosition = localStorage.getItem("chatCardPosition");
     if (savedPosition) {
       const position = JSON.parse(savedPosition);
       offsetX.value = position.x;
       offsetY.value = position.y;
     }
   } catch (e) {
-    console.error('无法恢复聊天卡片位置:', e);
+    console.error("无法恢复聊天卡片位置:", e);
   }
 
   // 如果父组件传入了消息，则复制到内部消息列表
@@ -1311,39 +1466,39 @@ onMounted(() => {
   // 不添加默认欢迎消息，保持空白聊天
 
   // 绑定键盘事件
-  document.addEventListener('compositionstart', () => {
+  document.addEventListener("compositionstart", () => {
     isComposing.value = true;
   });
 
-  document.addEventListener('compositionend', () => {
+  document.addEventListener("compositionend", () => {
     isComposing.value = false;
   });
 });
 
 // 插入消息到输入框的方法
 const insertMessageToInput = async (msg) => {
-  console.log('接收到外部消息，准备插入到输入框:', msg);
+  console.log("接收到外部消息，准备插入到输入框:", msg);
 
   // 确保聊天框是最大状态
   if (!props.expanded) {
-    console.log('切换聊天框到最大状态');
+    console.log("切换聊天框到最大状态");
     // 更新扩展状态
-    emit('update:expanded', true);
+    emit("update:expanded", true);
     // 触发切换事件
-    emit('toggle-expand');
+    emit("toggle-expand");
 
     // 等待动画完成
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
   // 确保聊天面板可见
   if (!props.visible) {
-    console.log('显示聊天面板');
-    emit('open-chat');
+    console.log("显示聊天面板");
+    emit("open-chat");
     await nextTick();
   }
 
-  fillMessageToInput(msg)
+  fillMessageToInput(msg);
 };
 
 const fillMessageToInput = async (msg) => {
@@ -1352,7 +1507,7 @@ const fillMessageToInput = async (msg) => {
       sendChatMessage(msg);
     }, 500);
   }
-}
+};
 
 const inputMaxHeight = computed(() => {
   const vh = window.innerHeight;
@@ -1372,6 +1527,72 @@ defineExpose({
 </script>
 
 <style scoped>
+/*
+  Workspace Toolbar（1:1 对照 ihraisaas/src/App.tsx 第 975 行）
+    h-12 flex items-center justify-between px-6 border-b border-neutral-50
+    bg-white/50 backdrop-blur-md shrink-0
+*/
+.workspace-toolbar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid #fafafa; /* border-neutral-50 */
+  background: rgba(255, 255, 255, 0.5); /* bg-white/50 */
+  backdrop-filter: blur(12px); /* backdrop-blur-md */
+  -webkit-backdrop-filter: blur(12px);
+  flex-shrink: 0;
+  user-select: none;
+  cursor: grab;
+}
+.workspace-toolbar:active {
+  cursor: grabbing;
+}
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px; /* space-x-4 */
+  min-width: 0;
+}
+.toolbar-title {
+  /* text-sm font-black text-neutral-800 tracking-tight */
+  margin: 0;
+  font-size: 14px;
+  font-weight: 900;
+  color: #262626; /* neutral-800 */
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.toolbar-job-code {
+  /* text-[10px] px-2 py-0.5 bg-neutral-100 text-neutral-500 rounded-md font-mono font-bold */
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 2px 8px;
+  background: #f5f5f5; /* neutral-100 */
+  color: #737373; /* neutral-500 */
+  border-radius: 6px; /* rounded-md */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.toolbar-btn {
+  color: #a3a3a3; /* neutral-400 */
+}
+.toolbar-btn:hover {
+  color: #14b8a6; /* primary-500 */
+}
+
 /*
   AI 职位画像消息（含 [&AI_SEARCH&]）专用 wrapper：
     - 提供统一的浅灰边框 + 圆角，把 markdown 渲染出的 JD 卡片和下方
@@ -1401,10 +1622,10 @@ defineExpose({
   display: flex;
   flex-direction: column;
   z-index: 1000;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
   overflow: hidden;
   border: none;
-  transition: all 0.5s cubic-bezier(0.25, 0.1, 0.25, 1.0);
+  transition: all 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
   transform-origin: bottom right;
   backface-visibility: hidden;
   will-change: transform, opacity, width, height;
@@ -1415,8 +1636,25 @@ defineExpose({
   height: 500px;
   right: 80px;
   bottom: 20px;
-  border-radius: 12px;
+  border-radius: 16px; /* rounded-2xl 对齐 ihraisaas 大卡片 */
+  border: 1px solid #f5f5f5; /* border-neutral-100 */
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); /* shadow-xl */
   transform: translateZ(0);
+}
+
+/*
+  嵌入式模式（embedded=true）：作为 WorkspaceContainer 子组件，撑满父容器
+  外层大卡片样式由 WorkspaceContainer 提供，本组件不再 fixed
+*/
+.chat-panel-host {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  background: transparent !important;
 }
 
 .chat-panel-large {
@@ -1433,6 +1671,19 @@ defineExpose({
   transition: all 0.3s;
 }
 
+/*
+  客户端 / iHR 融合模式专用：嵌入式大白卡片
+    - fixed 定位但 top/left/right/bottom 都留 padding，让外层灰底 #f0f2f5 露出
+    - 圆角 16px、border-neutral-100、shadow-xl，1:1 对照 ihraisaas/src/App.tsx 第 960 行
+*/
+.chat-panel-large.embedded {
+  border-radius: 16px;
+  border: 1px solid #f5f5f5; /* border-neutral-100 */
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); /* shadow-xl */
+  background: #fff;
+  overflow: hidden; /* 让内部圆角生效，不溢出 */
+}
+
 /* 聊天面板垂直展开时的样式 - 仅当不是大屏模式时应用 */
 .chat-panel-small.vertical-expanded {
   height: calc(100vh - 80px) !important;
@@ -1441,7 +1692,7 @@ defineExpose({
   bottom: 20px !important;
   right: 80px !important;
   top: auto !important;
-  border-radius: 12px;
+  border-radius: 16px;
   z-index: 1000;
 }
 
@@ -1505,7 +1756,7 @@ defineExpose({
   padding: 8px 12px 0;
   border-radius: 12px;
   background-color: white;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   word-break: break-word;
 }
 
@@ -1591,7 +1842,7 @@ defineExpose({
       font-size: 12px !important;
       opacity: 1;
       margin-right: 5px;
-      color: #1F2329;
+      color: #1f2329;
     }
 
     &:deep(.block) {
@@ -1602,14 +1853,14 @@ defineExpose({
 
     &:hover {
       background-color: rgba(0, 0, 0, 0.04) !important;
-      border: 1px solid #DDDDDD;
+      border: 1px solid #dddddd;
     }
   }
 
   .aggregation-search {
     border: none !important;
     color: #ffffff;
-    background: linear-gradient(90deg, #5F66F4 0%, #D880DF 100%);
+    background: linear-gradient(90deg, #5f66f4 0%, #d880df 100%);
 
     &:deep(.q-icon) {
       font-size: 14px !important;
@@ -1690,7 +1941,7 @@ defineExpose({
 }
 
 :deep(code) {
-  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
 }
 
 :deep(p) {
@@ -1698,7 +1949,8 @@ defineExpose({
   line-height: 1.6;
 }
 
-:deep(ul), :deep(ol) {
+:deep(ul),
+:deep(ol) {
   margin: 8px 0;
   padding-left: 20px;
 }
@@ -1733,7 +1985,7 @@ defineExpose({
   padding: 10px 24px;
   border-radius: 32px;
   background-color: #f5f5f5;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05) inset;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) inset;
   min-height: 80px;
 }
 
@@ -1783,7 +2035,7 @@ defineExpose({
 }
 
 .send-button {
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   transition: transform 0.2s ease;
 }
 
@@ -1852,7 +2104,7 @@ defineExpose({
   word-wrap: break-word; /* 长单词换行 */
   word-break: break-word; /* 强制长单词换行 */
   line-height: 1.6; /* 行高 */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow-wrap: break-word; /* 兼容性更好的换行 */
 }
 </style>

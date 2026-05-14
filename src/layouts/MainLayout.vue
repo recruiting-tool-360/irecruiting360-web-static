@@ -22,6 +22,14 @@
       <Header></Header>
     </q-header>
 
+    <!--
+      左侧大卡片：招聘中职位列表（LeftMenu）
+      参考 ihraisaas/src/components/AIAssistant/JobList.tsx 整体外观：
+        - 300px 宽
+        - 白底
+        - 右侧 1px 浅边
+        - 顶部 header（招聘中职位 + X个职位 badge）
+    -->
     <q-drawer
       show-if-above
       :v-model="false"
@@ -30,13 +38,17 @@
       :behavior="'desktop'"
       :overlay="false"
       :breakpoint="0"
-      :width="280"
+      :width="300"
+      class="ihr-sidebar"
     >
       <LeftMenu></LeftMenu>
     </q-drawer>
-    <!--    <LeftMenu style="width: 280px"></LeftMenu>-->
 
-    <q-page-container style="background-color: #fbfbfb">
+    <!--
+      右侧大卡片容器：背景灰底 + 内层 padding，让聊天卡片看起来嵌在灰底里
+      （类比 ihraisaas/src/App.tsx 第 959 行 flex-1 flex flex-col p-6 bg-[#f0f2f5] overflow-hidden）
+    -->
+    <q-page-container :class="{ 'ihr-main-area': showClientHeader }">
       <router-view />
     </q-page-container>
     <!-- 无UI的SSE管理组件 -->
@@ -62,10 +74,7 @@ import ChannelSettingsDialog from "src/components/settings/ChannelSettingsDialog
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { useUpdateResumeStatus } from "src/hooks/useUpdateResumeStatus";
 import { importResumeCallbackPlus } from "src/api/jobList/JobListApi";
-import {
-  ensureBossJobList,
-  bindBossLoginListener
-} from "src/util/automation/bossJobListAutoFetch";
+import { ensureBossJobList, bindBossLoginListener } from "src/util/automation/bossJobListAutoFetch";
 const store = useStore();
 
 // 客户端模式：mount 时静默拉一次 BOSS 我的职位列表 + 监听 BOSS 登录成功后自动重拉
@@ -206,8 +215,12 @@ onMounted(() => {
   const inClient = isElectronClient();
   console.log(
     `[MainLayout] mounted: isElectronClient=${inClient}, ` +
-      `__IKUAIZHAO_NATIVE__=${typeof window !== 'undefined' && window.__IKUAIZHAO_NATIVE__ ? 'present' : 'absent'}, ` +
-      `window.api.automation=${typeof window !== 'undefined' && window.api && window.api.automation ? 'present' : 'absent'}`
+      `__IKUAIZHAO_NATIVE__=${
+        typeof window !== "undefined" && window.__IKUAIZHAO_NATIVE__ ? "present" : "absent"
+      }, ` +
+      `window.api.automation=${
+        typeof window !== "undefined" && window.api && window.api.automation ? "present" : "absent"
+      }`
   );
   if (inClient) {
     void ensureBossJobList(store, { reason: "mainlayout_mounted" });
@@ -239,5 +252,22 @@ onUnmounted(() => {
 .client-mini-header-wrap {
   background: transparent !important;
   color: inherit !important;
+}
+
+/*
+  客户端模式下的"两个大卡片"布局（1:1 参考 ihraisaas/src/App.tsx 第 935-1020 行）：
+    - 左侧 q-drawer：白底 + 右侧细边（自带 bordered）+ 顶部 LeftMenu header
+    - 右侧 q-page-container：灰底 #f0f2f5（让里面的 ChatCard 看起来嵌在灰底里）
+*/
+.ihr-sidebar :deep(.q-drawer) {
+  background: #ffffff;
+}
+.ihr-sidebar :deep(.q-drawer__content) {
+  background: #ffffff;
+}
+
+/* 客户端模式：右侧主区灰底，ChatCard 浮在上面看起来像嵌入式大卡片 */
+.ihr-main-area {
+  background-color: #f0f2f5 !important;
 }
 </style>

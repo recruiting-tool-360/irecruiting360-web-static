@@ -19,20 +19,27 @@
     <!-- 模块勾选 + 锁定提示 -->
     <div class="modules-row">
       <div class="modules-left">
+        <!--
+          模块勾选项（1:1 对照 ihraisaas ChatPanel.tsx 929-953）：
+            - w-6 h-6 rounded-lg border shadow-sm（24×24 方框圆角 8px + 浅阴影）
+            - active：bg-primary-500 + border-primary-500 + ring-4 ring-primary-50
+            - 勾：w-4 h-4 text-white（16×16 白色 Check）
+            - 文字：text-xs font-black tracking-tight；active text-primary-600 / inactive text-neutral-500
+        -->
         <span
           class="module-item"
           :class="{ active: selectedModules.search }"
           @click="toggleModule('search')"
         >
-          <span class="check-circle">
+          <span class="check-box">
             <svg
               v-if="selectedModules.search"
               viewBox="0 0 24 24"
-              width="13"
-              height="13"
+              width="16"
+              height="16"
               fill="none"
               stroke="currentColor"
-              stroke-width="3.5"
+              stroke-width="3"
               stroke-linecap="round"
               stroke-linejoin="round"
             >
@@ -46,15 +53,15 @@
           :class="{ active: selectedModules.recommend }"
           @click="toggleModule('recommend')"
         >
-          <span class="check-circle">
+          <span class="check-box">
             <svg
               v-if="selectedModules.recommend"
               viewBox="0 0 24 24"
-              width="13"
-              height="13"
+              width="16"
+              height="16"
               fill="none"
               stroke="currentColor"
-              stroke-width="3.5"
+              stroke-width="3"
               stroke-linecap="round"
               stroke-linejoin="round"
             >
@@ -67,8 +74,13 @@
       <span class="lock-hint">配置已自动锁定</span>
     </div>
 
-    <!-- 推荐牛人 配置卡片 -->
-    <div v-if="selectedModules.recommend" class="config-card">
+    <!--
+      推荐牛人配置区域：
+        外层 .recommend-section 提供 dotted 顶部分隔线（跟上面"模块勾选行"分开）
+        内层 .config-card 才是真正的青色背景卡片
+    -->
+    <div v-if="selectedModules.recommend" class="recommend-section">
+      <div class="config-card">
       <!-- 行 1：匹配 Boss 直聘职位 -->
       <div class="config-row">
         <div class="config-left">
@@ -165,6 +177,57 @@
           <span class="schedule-value">{{ scheduledEndDisplay }}</span>
         </div>
       </div>
+      </div>
+    </div>
+
+    <!-- 底部 CTA：基于深度画像准备搜索策略 + 查看结果（测试） + 启动聚合搜索 -->
+    <div class="bottom-action">
+      <p class="bottom-hint">基于深度画像准备搜索策略</p>
+      <div class="bottom-action-buttons">
+        <!-- 调试 / 测试用：直接切到 results 视图，不真正触发聚合 -->
+        <button
+          type="button"
+          class="view-results-btn"
+          @click="$emit('view-results')"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <span>查看结果</span>
+        </button>
+        <button
+          type="button"
+          class="aggregate-btn"
+          :disabled="aggregateDisabled"
+          @click="$emit('aggregate', getState())"
+        >
+          <svg
+            class="aggregate-icon"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+            <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+          </svg>
+          <span>启动聚合搜索</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -180,7 +243,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['change']);
+const emit = defineEmits(['change', 'aggregate', 'view-results']);
 
 const store = useStore();
 
@@ -290,15 +353,24 @@ const scheduledEndDisplay = computed(() => {
 onMounted(() => startNowTimer());
 onBeforeUnmount(() => stopNowTimer());
 
-watch(
-  () => ({
+function getState() {
+  return {
     selectedModules: selectedModules.value,
     matchedBossJobId: matchedBossJobId.value,
     resumeCount: resumeCountInput.value === '' ? null : Number(resumeCountInput.value)
-  }),
-  (val) => emit('change', val),
-  { deep: true }
-);
+  };
+}
+
+watch(getState, (val) => emit('change', val), { deep: true });
+
+/** 启动按钮禁用条件：两个模块都没勾 / 勾了推荐牛人但没填简历数 */
+const aggregateDisabled = computed(() => {
+  if (!selectedModules.value.search && !selectedModules.value.recommend) return true;
+  if (selectedModules.value.recommend && resumeCountNum.value <= 0) return true;
+  return false;
+});
+
+defineExpose({ getState });
 
 void props;
 </script>
@@ -309,11 +381,20 @@ $accent-hover: #0d9488;
 $accent-bg: #f0fcfc;
 $accent-border: #ccfbf1;
 
+/*
+  ActionPanel 整体结构（参考 ihraisaas ChatPanel.tsx 926-1075）：
+    1. 顶部 dotted 分隔线 + 模块勾选行
+    2. 仅 recommend=true 时插入 .recommend-section（自带 dotted 顶部分隔线）
+    3. .bottom-action（自带 dotted 顶部分隔线）+ "启动聚合搜索"
+  即三段全部用 dotted 顶部分隔线，统一颜色 #e5e7eb (neutral-200)
+*/
 .ai-panel {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px dashed #e4e4e7;
+  padding-top: 16px;
+  border-top: 1px dotted #e5e7eb;
   font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px; /* space-y-4 */
 }
 
 /* ===== 模块勾选行 ===== */
@@ -325,58 +406,70 @@ $accent-border: #ccfbf1;
 .modules-left {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 24px; /* space-x-6 */
 }
 .module-item {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 10px; /* space-x-2.5 */
   cursor: pointer;
   user-select: none;
 
-  .check-circle {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    border: 1.5px solid #d4d4d8;
+  /* 1:1 对照 ihraisaas: w-6 h-6 rounded-lg border shadow-sm */
+  .check-box {
+    width: 24px;
+    height: 24px;
+    border-radius: 8px; /* rounded-lg */
+    border: 1px solid #d4d4d8; /* border-neutral-300 */
     background: #fff;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     transition: all 0.15s;
     color: #fff;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); /* shadow-sm */
+    flex-shrink: 0;
   }
   .module-text {
-    font-size: 13px;
-    font-weight: 600;
-    color: #71717a;
+    font-size: 12px; /* text-xs */
+    font-weight: 900; /* font-black */
+    color: #737373; /* text-neutral-500 */
+    letter-spacing: -0.025em; /* tracking-tight */
     transition: color 0.15s;
-    letter-spacing: -0.01em;
   }
 
   &.active {
-    .check-circle {
-      background: $accent;
-      border-color: $accent;
-      box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.12);
+    .check-box {
+      background: $accent; /* bg-primary-500 */
+      border-color: $accent; /* border-primary-500 */
+      /* ring-4 ring-primary-50 */
+      box-shadow:
+        0 1px 2px 0 rgba(0, 0, 0, 0.05),
+        0 0 0 4px #f0fdfa;
     }
     .module-text {
-      color: $accent;
+      color: #0d9488; /* text-primary-600 */
     }
   }
-  &:hover:not(.active) .check-circle {
-    border-color: lighten($accent, 10%);
+  &:hover:not(.active) .check-box {
+    border-color: #2dd4bf; /* group-hover:border-primary-400 */
   }
 }
 .lock-hint {
-  font-size: 11px;
+  font-size: 10px; /* text-[10px] */
   font-style: italic;
-  color: #a1a1aa;
+  font-weight: 500;
+  color: #a3a3a3; /* text-neutral-400 */
 }
 
-/* ===== 推荐牛人 配置卡片 ===== */
+/* ===== 推荐牛人 配置区域：外层提供 dotted 顶部分隔线（跟"模块勾选行"分开） ===== */
+.recommend-section {
+  padding-top: 16px;
+  border-top: 1px dotted #e5e7eb;
+}
+
+/* ===== 推荐牛人 配置卡片（青色背景，外层 recommend-section 已经提供分隔线） ===== */
 .config-card {
-  margin-top: 14px;
   background: $accent-bg;
   border: 1px solid $accent-border;
   border-radius: 12px;
@@ -480,6 +573,79 @@ $accent-border: #ccfbf1;
   font-size: 12px;
   font-weight: 700;
   color: #a1a1aa;
+}
+
+/* ===== 底部 CTA：启动聚合搜索（自带 dotted 顶部分隔线） ===== */
+.bottom-action {
+  padding-top: 16px;
+  border-top: 1px dotted #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bottom-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 调试 / 测试用按钮：查看结果（切到 results 视图） */
+.view-results-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px dashed #d4d4d8;
+  border-radius: 10px;
+  background: #fff;
+  color: #737373;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.view-results-btn:hover {
+  border-color: $accent;
+  color: $accent;
+  background: #f0fdfa;
+}
+.bottom-hint {
+  margin: 0;
+  font-size: 11px;
+  font-style: italic;
+  color: #a1a1aa;
+}
+.aggregate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #15b8a6 0%, #2dd4bf 50%, #14b8a6 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: 0 8px 16px -4px rgba(20, 184, 166, 0.35);
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+.aggregate-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px -4px rgba(20, 184, 166, 0.5);
+}
+.aggregate-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.aggregate-btn:disabled {
+  background: #d4d4d8;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.aggregate-icon {
+  flex-shrink: 0;
 }
 
 /* schedule info sub-card（输入简历数后展开） */
