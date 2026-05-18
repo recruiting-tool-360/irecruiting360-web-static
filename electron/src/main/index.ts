@@ -11,9 +11,76 @@ import {
   hydrateLoggedInSites,
   setHomeWebContentsForBridge
 } from './recruitBridge'
-import { registerIhrBridgeIpc, setManageUrl, syncCookiesFromLauncher } from './ihrBridge'
+import {
+  registerIhrBridgeIpc,
+  setManageUrl,
+  setAccessToken,
+  syncCookiesFromLauncher
+} from './ihrBridge'
 import { registerHiddenViewIpc } from './hiddenViewRunner'
 import { registerTabFetcherIpc } from './tabFetcher'
+import { registerAutomationRunnerIpc } from './automation/runner'
+import {
+  waitForResponse as siteNetworkWait,
+  getLatest as siteNetworkGetLatest,
+  clearCache as siteNetworkClearCache,
+  listCache as siteNetworkListCache
+} from './siteNetworkCapture'
+import {
+  setOverlayMainWindow,
+  showOverlay,
+  hideOverlay,
+  isOverlayVisible,
+  type OverlayPayload
+} from './automationOverlay'
+import { dispatchClick as cdpDispatchClick } from './cdpInputDispatcher'
+
+/**
+ * ⚠️⚠️⚠️ 不要开 `--remote-debugging-port`！
+ *
+ * 历史教训（2026-05-18）：
+ *   - 开了 9223 → BOSS 探测固定端口，触发反爬 → web 端账号被封 24h
+ *   - 改成 0（随机端口） → BOSS 仍能通过其它指纹（navigator.webdriver / Runtime.evaluate
+ *     痕迹 / DevTools attach 信号等）判断 Chromium 处于 debug 模式 → 同样封 24h
+ *
+ * 一旦开了这个 switch，Chromium 就**在内部留下"被远程调试"的痕迹**，BOSS 风控的
+ * JS 探测就能识别。即使我们不连 Playwright、端口随机，痕迹也存在。
+ *
+ * → **彻底关掉**这个 switch，让 Electron 跟普通用户 Chrome 一样不暴露 debug 入口。
+ * → 代价：playwright-core 的 `chromium.connectOverCDP()` 失效，runScript 接口完全不能用。
+ * → 后续如果要做 BOSS 自动化，**只能用 `webContents.executeJavaScript`**（参考
+ *    tabFetcher.ts / bossJobListAutoFetch.js，已经验证过 BOSS 检测不到），
+ *    而不是 Playwright 方案。
+ *
+ * 如果以后要做"非招聘站"的自动化（不会被风控的内部页面 / 调试用），可以加 env
+ * `ENABLE_REMOTE_DEBUG=1` 时再打开。生产 / 招聘站场景**永远关闭**。
+ */
+if (process.env.ENABLE_REMOTE_DEBUG === '1') {
+  console.warn(
+    '[main] ⚠️ ENABLE_REMOTE_DEBUG=1，打开 Chromium 远程调试端口。BOSS / 智联 / 51job / 猎聘 等反爬站点会识别并封号，仅用于内部调试！'
+  )
+  app.commandLine.appendSwitch('remote-debugging-port', '0')
+}
+
+/**
+ * ⚠️ 不要给 `--remote-allow-origins` 设白名单！
+ *
+ * 一旦显式设了（哪怕 'http://localhost'），Chromium 改成 strict 模式：
+ *   - 必须有 Origin header 且在白名单内才允许
+ *   - playwright-core 用 Node.js `ws` 客户端连 CDP，**不发 Origin header**
+ *   - → playwright-core 自己也被拦，`chromium.connectOverCDP()` 永远等不到 WS 握手
+ *
+ * Chromium 默认行为（不设 switch）：
+ *   - 没 Origin header → 允许（playwright-core 这种 cli 工具走这条）
+ *   - 有 Origin 且不是 localhost → 拒绝（BOSS / 智联等页面 JS 探测走这条）
+ *     并打 ERROR 日志：
+ *       "Rejected an incoming WebSocket connection from the https://www.zhipin.com origin"
+ *
+ * 这个 reject 是好事（防反爬），但 BOSS 拿到的是"连接失败"信号，依然能反推
+ * "页面跑在被远程调试的 Chromium 里"，触发风控。短期接受这条日志，
+ * 专注业务行为伪装；长期可考虑 `--remote-debugging-port=0` 随机端口 +
+ * 通过 CDP devtools page list API 拿到真实端口给 playwright（避开端口探测）。
+ */
 import {
   loadStoredLauncherData,
   persistDeepLinkPayload,
@@ -128,7 +195,22 @@ function handleDeepLink(url: string): void {
     setManageUrl(ihrManageUrl)
   }
 
-  // 把 launcher 拿到的 manage cookie 字符串写入 partition
+  // 把 launcher 调 client/launch 拿到的 accessToken 注入 ihrBridge
+  // 所有 /candidate/AiManager/client/noauth/** 业务调用都会自动拼 ?accessToken=...
+  // 详见 docs/07-ihr-client-usage.md
+  const accessToken = (parsed.payload as { accessToken?: unknown })?.accessToken
+  if (typeof accessToken === 'string' && accessToken) {
+    const accessTokenExpireAt = (parsed.payload as { accessTokenExpireAt?: unknown })
+      ?.accessTokenExpireAt
+    setAccessToken(
+      accessToken,
+      typeof accessTokenExpireAt === 'string' || typeof accessTokenExpireAt === 'number'
+        ? accessTokenExpireAt
+        : null
+    )
+  }
+
+  // 把 launcher 拿到的 manage cookie 字符串写入 partition（兜底，仅用于非 noauth 接口）
   // （前提：i 人事 manage 父页的非 HttpOnly cookie 通过 postMessage 推给了 launcher）
   const manageCookies = (parsed.payload as { manageCookies?: unknown })?.manageCookies
   if (typeof manageCookies === 'string' && manageCookies) {
@@ -343,6 +425,9 @@ function createMainWindow(): BrowserWindow {
   // 主窗口绑定到 TabManager
   tabManager.setMainWindow(mainWindow)
 
+  // 蒙层 view 也绑定主窗口（用于跟随尺寸变化），首次 showOverlay 时才真正创建 view
+  setOverlayMainWindow(mainWindow)
+
   // 壳层 React 加载好之后再创建主页 tab，避免太早 broadcast 状态丢失
   mainWindow.webContents.once('did-finish-load', () => {
     const baseUrl = resolveTargetUrl()
@@ -366,8 +451,9 @@ function createMainWindow(): BrowserWindow {
     // 主窗口创建之后再做 hydrate（让主页 SPA 先正常加载）
     void hydrateLoggedInSites()
 
-    // 开发期默认开 devtools
-    if (is.dev && homeWc && !homeWc.isDestroyed()) {
+    // 开发期可选开 devtools；设 OPEN_HOME_DEVTOOLS=1 才弹，默认不弹
+    // （default 不弹，避免每次启动客户端都强制打开 devtools 面板）
+    if (is.dev && process.env.OPEN_HOME_DEVTOOLS === '1' && homeWc && !homeWc.isDestroyed()) {
       homeWc.openDevTools({ mode: 'detach' })
     }
 
@@ -474,6 +560,82 @@ function registerIpc(): void {
   // webContents.executeJavaScript 在 tab 上下文里发 fetch 拿数据，然后关闭 tab。
   // 替代 hiddenViewRunner 的兜底方案（hidden BrowserWindow 在某些 Electron / macOS 版本下不稳）。
   registerTabFetcherIpc()
+
+  // ========== Automation：Playwright 脚本运行时（docs/automation-protocol.md §4.5/§4.6） ==========
+  //
+  // vm 沙箱 + playwright-core CDP 连接，注入 page/ctx/log/sleep/jitter/AbortSignal，
+  // 前端把"完整 async function body 字符串"发过来在沙箱内执行。
+  registerAutomationRunnerIpc()
+
+  // ========== siteNetworkCapture：长驻 CDP 抓包（替代 Playwright waitForResponse） ==========
+  //
+  // 招聘站 tab 在创建时 TabManager 已经自动 attach。这里只暴露查询接口：
+  //   - waitForResponse: 等下一条匹配 URL 的响应（缓存兜底）
+  //   - getLatest:        立刻取最新一条匹配的（不等）
+  //   - clearCache:       清空缓存（"加载下一页前清掉旧响应"用）
+  ipcMain.handle(
+    'siteNetwork:waitForResponse',
+    async (
+      _e,
+      opts: { siteKey: string; urlPattern: string; timeoutMs?: number; sinceTs?: number }
+    ) => siteNetworkWait(opts)
+  )
+  ipcMain.handle(
+    'siteNetwork:getLatest',
+    async (_e, opts: { siteKey: string; urlPattern: string }) => siteNetworkGetLatest(opts)
+  )
+  ipcMain.handle('siteNetwork:clearCache', async (_e, siteKey: string) => {
+    siteNetworkClearCache(siteKey)
+    return { ok: true }
+  })
+  ipcMain.handle('siteNetwork:listCache', async (_e, siteKey: string) =>
+    siteNetworkListCache(siteKey)
+  )
+
+  // ========== Automation：聚合搜索蒙层 ==========
+  //
+  // 用户启动"AI 聚合搜索"期间，把 BOSS / 智联 / 51job tab 锁住（蒙层覆盖），
+  // 避免用户同步操作触发风控。蒙层是一个独立的 WebContentsView 叠在所有 tab 之上。
+  // 详见 automationOverlay.ts 顶部注释。
+  ipcMain.handle('automation:showOverlay', async (_e, payload: OverlayPayload) => {
+    showOverlay(payload || {})
+    return { ok: true }
+  })
+  ipcMain.handle('automation:hideOverlay', async () => {
+    hideOverlay()
+    return { ok: true }
+  })
+  ipcMain.handle('automation:isOverlayVisible', async () => isOverlayVisible())
+
+  // ========== CDP Input dispatch：同进程 CDP 模拟点击 ==========
+  //
+  // 用途：在招聘站 tab 上"以用户身份"点击元素。同进程 CDP（webContents.debugger）
+  // 发的 Input.dispatchMouseEvent 是 isTrusted=true 的合法事件，跟用户真实点击无差别。
+  //
+  // ❗❗❗ 重要：**必须**不开 `--remote-debugging-port` 启动客户端。本路径的安全前提
+  // 是同进程 CDP，跟 Playwright `connectOverCDP` 完全不同。详见 docs/boss地址资料.md。
+  ipcMain.handle(
+    'automation:clickOnTab',
+    async (
+      _e,
+      opts: { tabId: string; selector: string; pressHoldMs?: number; requireVisible?: boolean }
+    ) => {
+      if (!opts || typeof opts.tabId !== 'string' || typeof opts.selector !== 'string') {
+        return { ok: false, error: { code: 'BAD_REQUEST', message: 'tabId & selector required' } }
+      }
+      const wc = tabManager.getWebContentsById(opts.tabId)
+      if (!wc) {
+        return {
+          ok: false,
+          error: { code: 'TAB_NOT_FOUND', message: `tabId=${opts.tabId} not found` }
+        }
+      }
+      return cdpDispatchClick(wc, opts.selector, {
+        pressHoldMs: opts.pressHoldMs,
+        requireVisible: opts.requireVisible
+      })
+    }
+  )
 }
 
 // =============== App 生命周期 ===============

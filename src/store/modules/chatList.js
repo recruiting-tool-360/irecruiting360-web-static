@@ -3,6 +3,16 @@ const state = {
   needRefreshList: false, // 是否需要刷新列表
   latestChatId: '',//最新chatId
   latestPositionId: '', // 最新职位ID
+  /**
+   * 用户从左侧菜单**主动选中**的职位 id（chat.positionId 或 chat.id），
+   * 跟业务用的 latestChatId 解耦。
+   *
+   *   - 默认空字符串
+   *   - LeftMenu selectChat 时设置
+   *   - UI 空状态（ChatEmptyState）的唯一判定依据
+   *   - 持久化到 localStorage（vuex-persistedstate paths 配置）
+   */
+  chosenJobId: '',
   chatListData: [], // 聊天列表数据
 }
 
@@ -15,6 +25,9 @@ const mutations = {
   },
   SET_LATEST_POSITION_ID(state, positionId) {
     state.latestPositionId = positionId
+  },
+  SET_CHOSEN_JOB_ID(state, jobId) {
+    state.chosenJobId = jobId || ''
   },
   SET_NEED_REFRESH_LIST(state, status) {
     state.needRefreshList = status
@@ -60,6 +73,7 @@ const actions = {
     if (state.latestChatId === chatId) {
       commit('SET_LATEST_CHAT_ID', '')
       commit('SET_LATEST_POSITION_ID', '')
+      commit('SET_CHOSEN_JOB_ID', '')
     }
   }
 }
@@ -68,6 +82,7 @@ const getters = {
   getActiveChatId: state => state.activeChatId,
   getLatestChatId: state => state.latestChatId,
   getLatestPositionId: state => state.latestPositionId,
+  getChosenJobId: state => state.chosenJobId,
   getNeedRefreshList: state => state.needRefreshList,
   getChatList: state => state.chatListData,
   // 获取指定ID的聊天

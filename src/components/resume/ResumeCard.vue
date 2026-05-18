@@ -175,7 +175,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary" 
-                :disable="!(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo"
+                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo"
                 @click.stop="assignJob(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
@@ -193,7 +193,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary"
-                :disable="!(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo" 
+                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo" 
                 @click.stop="addToTalentPool(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
@@ -210,12 +210,14 @@
               </q-btn>
             </template>
             <q-btn flat class="q-ma-xs" size="md" color="primary" 
-              :disable="isSimilarButtonDisabled" 
+              :disable="readOnly || isSimilarButtonDisabled" 
               @click.stop="searchSimilarResumes">
               <q-icon size="xs" class="q-mr-xs" name="search"></q-icon>
               <span>{{ similarButtonText }}</span>
             </q-btn>
-            <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="md" @click.stop="scheduleInterview">
+            <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="md"
+              :disable="readOnly"
+              @click.stop="scheduleInterview">
               <q-icon size="xs" class="q-mr-xs" name="chat"></q-icon>
               <span>立即沟通</span>
             </q-btn>
@@ -303,6 +305,21 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  /**
+   * 只读模式：卡片内的所有"业务联动"动作都被跳过，只 emit 事件给父组件。
+   *
+   * 用途：BOSS 推荐 tab 的匿名候选人（id 是 encryptGeekId）不在 i 人事简历库里，
+   *      不能直接调 `markResumeBlindReadStatus` / `bossHandleViewDetail`（会报 400 /
+   *      JSON.parse undefined）。父组件设 readOnly=true 后，ResumeCard 只负责展示，
+   *      所有交互交给父组件接 emit 后自己处理。
+   *
+   * 受影响的内部函数：viewDetail / handleIsReadData / handleViewDetail
+   * 受影响的按钮：分配职位 / 加入人才库 / 相似简历 / 立即沟通（全部 disabled）
+   */
+  readOnly: {
+    type: Boolean,
+    default: false
+  }
 });
 
 const emit = defineEmits([
@@ -670,9 +687,13 @@ const addToBlacklist = () => {
 
 // 查看详情
 const viewDetail = () => {
-  handleViewDetail(props.resume);
-  //设置已读
-  handleIsReadData(props.resume)
+  // readOnly=true（BOSS 推荐 tab 等匿名场景）跳过所有 i 人事 / 渠道业务联动，
+  // 只 emit 给父组件，由父组件决定后续行为（如打开候选人详情抽屉）
+  if (!props.readOnly) {
+    handleViewDetail(props.resume);
+    //设置已读
+    handleIsReadData(props.resume);
+  }
   emit('detail', props.resume);
 };
 

@@ -16,15 +16,26 @@
   <div class="workspace-outer">
     <div class="workspace-padding">
       <div class="workspace-card">
-        <!-- Workspace Toolbar -->
+        <!--
+          Workspace Toolbar
+          1:1 对照 ihraisaas/src/components/layout/ClientLayout.tsx 第 284-345 行
+          左：title + code badge + "同步已就绪" 绿色 badge（autoSearchCompleted 时显示）
+          右：触发失败（白底带边）+ 刷新 圆形按钮
+        -->
         <div class="workspace-toolbar">
           <div class="toolbar-left">
             <h2 class="toolbar-title">{{ title || 'AI 聚合控制台' }}</h2>
-            <span v-if="code" class="toolbar-job-code">{{ code }}</span>
+            <template v-if="code">
+              <span class="toolbar-job-code">{{ code }}</span>
+              <span v-if="autoSearchCompleted" class="toolbar-sync-ready">
+                <span class="dot"></span>
+                <span>同步已就绪</span>
+              </span>
+            </template>
           </div>
           <div class="toolbar-right">
             <slot name="toolbar-right">
-              <!-- 默认渲染：触发失败 + 清空对话（参考 ihraisaas） -->
+              <!-- 触发失败 / 锁定失败：1:1 对照 ihraisaas 第 305-316 行 -->
               <button
                 v-if="showFailButton"
                 type="button"
@@ -32,11 +43,12 @@
                 :class="{ 'tb-action-active': simulateFail }"
                 @click="$emit('toggle-simulate-fail')"
               >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg viewBox="0 0 24 24" width="12" height="12" :fill="simulateFail ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
                 </svg>
                 <span>{{ simulateFail ? '锁定失败' : '触发失败' }}</span>
               </button>
+              <!-- 刷新按钮（圆形，ihraisaas 第 317-326 行：RefreshCcw + p-2 hover:bg-neutral-100 rounded-xl） -->
               <button
                 v-if="showClearChat"
                 type="button"
@@ -44,7 +56,7 @@
                 title="清空当前对话"
                 @click="$emit('clear-chat')"
               >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                   <path d="M3 3v5h5" />
                   <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
@@ -70,6 +82,8 @@ defineProps({
   title: { type: String, default: '' },
   /** 标题旁的代码 badge */
   code: { type: String, default: '' },
+  /** 同步已就绪状态（绿色 badge）—— 对应 ihraisaas selectedJob.isAutoSearchCompleted */
+  autoSearchCompleted: { type: Boolean, default: false },
   /** 是否显示"触发失败"按钮 */
   showFailButton: { type: Boolean, default: false },
   /** 是否显示"清空对话"按钮（一般 view='chat' 且有消息时显示） */
@@ -101,11 +115,12 @@ defineEmits(['clear-chat', 'toggle-simulate-fail']);
 .workspace-card {
   flex: 1;
   background: #fff;
-  border-radius: 16px; /* rounded-2xl */
-  border: 1px solid #f5f5f5; /* border-neutral-100 */
+  border-radius: 16px; /* rounded-2xl = 1rem (16px) Tailwind v4 default */
+  /* ihraisaas 在 index.css @theme 里把 --color-neutral-100 设为 #F3F4F6 */
+  border: 1px solid #f3f4f6;
   box-shadow:
     0 20px 25px -5px rgba(0, 0, 0, 0.1),
-    0 8px 10px -6px rgba(0, 0, 0, 0.05); /* shadow-xl */
+    0 8px 10px -6px rgba(0, 0, 0, 0.1); /* Tailwind v4 默认 shadow-xl 第二段是 0.1（不是 0.05） */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -146,13 +161,35 @@ defineEmits(['clear-chat', 'toggle-simulate-fail']);
   align-items: center;
   font-size: 10px;
   padding: 2px 8px;
-  background: #f5f5f5;
-  color: #737373;
+  background: #f3f4f6; /* bg-neutral-100 (ihraisaas index.css) */
+  color: #6b7280; /* text-neutral-500 */
   border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700;
   line-height: 1.4;
   flex-shrink: 0;
+}
+
+/* "同步已就绪" badge：text-[9px] px-2 py-0.5 bg-green-50 text-green-600 rounded-full font-black + 圆点 */
+.toolbar-sync-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: #f0fdf4; /* bg-green-50 */
+  color: #16a34a; /* text-green-600 */
+  border-radius: 9999px; /* rounded-full */
+  font-size: 9px;
+  font-weight: 900;
+  flex-shrink: 0;
+  line-height: 1.4;
+  .dot {
+    width: 6px;
+    height: 6px;
+    background: #22c55e; /* green-500 */
+    border-radius: 50%;
+    display: inline-block;
+  }
 }
 .toolbar-right {
   display: flex;
@@ -190,7 +227,8 @@ defineEmits(['clear-chat', 'toggle-simulate-fail']);
     0 0 0 2px #fee2e2;
 }
 
-/* 清空对话 图标按钮 */
+/* 刷新 / 清空对话 圆形 icon 按钮：1:1 对照 ihraisaas line 319-323
+   p-2 hover:bg-neutral-100 rounded-xl text-neutral-400 hover:text-red-500 */
 .tb-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -199,14 +237,14 @@ defineEmits(['clear-chat', 'toggle-simulate-fail']);
   height: 32px;
   border: 0;
   background: transparent;
-  border-radius: 12px;
-  color: #a3a3a3;
+  border-radius: 12px; /* rounded-xl = 12px */
+  color: #9ca3af; /* text-neutral-400 */
   cursor: pointer;
   transition: all 0.15s;
 }
 .tb-icon-btn:hover {
-  background: #f5f5f5;
-  color: #ef4444;
+  background: #f3f4f6; /* bg-neutral-100 */
+  color: #ef4444; /* text-red-500 */
 }
 
 /* ===== 主体 ===== */

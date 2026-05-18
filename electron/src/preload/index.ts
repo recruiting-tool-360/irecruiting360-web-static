@@ -143,16 +143,33 @@ const ihrBridge = {
   }): Promise<IhrApiResult> => ipcRenderer.invoke('ihrBridge:uploadFile', arg),
 
   /**
-   * 检查 i 人事 manage 系统是否已登录（看 partition 里有无 cookie）。
-   * 业务侧调 addPools/assignPositions 等接口时若返回 errorCode='NOT_LOGGED_IN'，
-   * 应弹引导调 openManageLoginTab 让用户登录一次。
+   * 检查 i 人事 manage 系统鉴权状态：
+   *   - manage partition 是否还有 cookie（兜底，仅用于非 noauth 接口）
+   *   - noauth 接口的 accessToken 是否还有效
+   *
+   * 业务侧调 addPools/assignPositions 等 noauth 接口若返回 errorCode='NOT_LOGGED_IN'，
+   * 应弹 IhrAuthModal 引导用户回到招聘工作台触发新一轮 client/launch。
    */
   checkManageAuth: (): Promise<{
     enabled: boolean
     hasCookies: boolean
     cookieCount: number
     manageUrl: string
+    hasAccessToken: boolean
+    accessTokenExpired: boolean
+    accessTokenRemainMs: number
   }> => ipcRenderer.invoke('ihrBridge:checkManageAuth'),
+
+  /**
+   * 单独查询 accessToken 状态。
+   * 用于 SPA 启动后预检 / Devtools 调试。
+   */
+  getAccessTokenStatus: (): Promise<{
+    hasToken: boolean
+    expireAt: number
+    remainMs: number
+    expired: boolean
+  }> => ipcRenderer.invoke('ihrBridge:getAccessTokenStatus'),
 
   /**
    * 在主窗口里新开 tab 加载 i 人事 manage 入口，引导用户登录。
@@ -279,6 +296,110 @@ const automation = {
    * 在新开的招聘站 tab 里发同源 fetch 拿接口数据（用户可见，但焦点不被切走）。
    * tab 加载完成后通过 webContents.executeJavaScript 执行 fetch，拿到结果后关闭 tab。
    */
+  /**
+   * 在已有 tab 内执行 Playwright 脚本（docs/automation-protocol.md §4.5）。
+   * scriptCode 是 async function body 字符串，沙箱内可用 page/ctx/log/sleep/jitter/AbortSignal。
+   */
+  runScript: (req: {
+    tabId: string
+    scriptCode: string
+    ctx?: unknown
+    timeoutMs?: number
+    /** 期望 tab 已加载到的 host（如 'zhipin.com'），解决 loadURL 异步未完成的竞态 */
+    expectedHost?: string
+  }): Promise<{
+    ok: boolean
+    data?: unknown
+    error?: {
+      code:
+        | 'BAD_REQUEST'
+        | 'TAB_NOT_FOUND'
+        | 'PAGE_NOT_FOUND'
+        | 'CDP_CONNECT_FAILED'
+        | 'TIMEOUT'
+        | 'CANCELLED'
+        | 'SCRIPT_ERROR'
+      message: string
+      name?: string
+      stack?: string
+      scriptCode?: string
+    }
+    elapsedMs: number
+    logs: string[]
+  }> => ipcRenderer.invoke('automation:runScript', req),
+
+  /** 取当前激活 tab 信息（runScript 前用） */
+  getActiveTab: (): Promise<{ tabId: string | null; url: string; channel: string | null }> =>
+    ipcRenderer.invoke('automation:getActiveTab'),
+
+  /** 打开或激活某个招聘站 tab（hidden=true 走隐藏模式） */
+  openOrActivate: (opts: {
+    channel: string
+    url: string
+    hidden?: boolean
+  }): Promise<{ tabId: string }> => ipcRenderer.invoke('automation:openOrActivate', opts),
+
+  /** 取消所有在跑的脚本 */
+  cancelAll: (): Promise<{ cancelled: number }> => ipcRenderer.invoke('automation:cancelAll'),
+
+  /**
+   * 蒙层：聚合搜索 / 自动化期间锁住招聘站 tab，提示"客户端执行中，请勿操作"。
+   *
+   * 用法：
+   *   await window.api.automation.showOverlay({ channelName: 'BOSS直聘' })
+   *   try { ...await runBossRecommend(...)... }
+   *   finally { await window.api.automation.hideOverlay() }
+   *
+   * 蒙层是一个独立 WebContentsView 叠在所有 tab 之上，覆盖标签栏下面整片
+   * （tab 切换 / 关闭按钮还能操作）。详见 main 进程 automationOverlay.ts。
+   */
+  showOverlay: (payload?: {
+    title?: string
+    message?: string
+    channelName?: string
+  }): Promise<{ ok: boolean }> => ipcRenderer.invoke('automation:showOverlay', payload ?? {}),
+  hideOverlay: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('automation:hideOverlay'),
+  isOverlayVisible: (): Promise<boolean> => ipcRenderer.invoke('automation:isOverlayVisible'),
+
+  /**
+   * CDP Input dispatchMouseEvent —— 在指定 tab 上模拟一次"用户点击"。
+   *
+   * 跟 runScript 路径完全不同：
+   *   - 走 Electron 自带 `webContents.debugger`（同进程 CDP，无端口、无 WebSocket）
+   *   - `Input.dispatchMouseEvent` 产生的事件 `isTrusted=true`，从 BOSS JS 视角下
+   *     跟用户真实鼠标点击**完全无差别**
+   *   - **不依赖** `--remote-debugging-port`，即便 ENABLE_REMOTE_DEBUG=0 也能用
+   *
+   * 元素定位：主进程内部 `executeJavaScript('document.querySelector(...)')`，
+   * 找不到再扫所有同源 iframe。BOSS 推荐宿主 + iframe 同 zhipin.com 域，OK。
+   *
+   * 使用示例（在主页 SPA 中）：
+   *   const opened = await window.api.automation.openOrActivate({ channel:'boss', url:'.../recommend?jobid=...' })
+   *   await new Promise(r => setTimeout(r, 3000))    // 给 BOSS 自己加载完
+   *   const r = await window.api.automation.clickOnTab({ tabId: opened.tabId, selector: '.filter-wrap' })
+   *   if (r.ok) console.log('clicked at', r.data.x, r.data.y, 'in', r.data.foundIn)
+   */
+  clickOnTab: (opts: {
+    tabId: string
+    selector: string
+    /** 鼠标按下到释放的间隔（ms），默认 50（模拟真实人类点击节奏） */
+    pressHoldMs?: number
+    /** 默认 true：元素必须在 viewport 内才点 */
+    requireVisible?: boolean
+  }): Promise<{
+    ok: boolean
+    data?: {
+      x: number
+      y: number
+      width: number
+      height: number
+      foundIn: string
+      elapsedMs: number
+    }
+    error?: { code: string; message: string }
+    logs: string[]
+  }> => ipcRenderer.invoke('automation:clickOnTab', opts),
+
   captureViaNewTab: (req: {
     channel: string
     pageUrl: string
@@ -342,6 +463,81 @@ const browserBridge = {
 }
 
 /**
+ * siteNetwork：长驻 CDP 抓包查询接口（与 TabManager 配合）
+ *
+ * 招聘站 tab 一打开就被 main 进程 `webContents.debugger.attach` 监听，
+ * 命中 SITE_CAPTURE_MATCHERS 的响应进环形缓冲。本对象提供查询能力，
+ * 业务侧用它替代 Playwright `page.waitForResponse` 路径，零反爬指纹。
+ *
+ * 用法（取 BOSS 推荐首屏）：
+ *   const tsBefore = Date.now()
+ *   await window.api.automation.openOrActivate({ channel: 'boss', url: '.../recommend?jobid=...' })
+ *   const r = await window.api.siteNetwork.waitForResponse({
+ *     siteKey: 'boss',
+ *     urlPattern: '/wapi/zpjob/rec/geek/list',
+ *     timeoutMs: 10000,
+ *     sinceTs: tsBefore,  // 只接受 tab 打开之后的响应
+ *   })
+ *   if (r.ok) { const body = r.data.bodyJson }
+ */
+const siteNetwork = {
+  /**
+   * 等下一条匹配的响应。先扫缓存命中即返回；没命中挂等到 timeoutMs。
+   */
+  waitForResponse: (opts: {
+    siteKey: string
+    urlPattern: string
+    timeoutMs?: number
+    /** 仅接受 receivedAt > sinceTs 的响应（一般传 tab 打开前的 Date.now()） */
+    sinceTs?: number
+  }): Promise<
+    | {
+        ok: true
+        data: {
+          receivedAt: number
+          url: string
+          method: string
+          status: number
+          bodyJson: unknown | null
+          bodyText: string | null
+          bodyBytes: number
+        }
+      }
+    | { ok: false; code: string; message: string }
+  > => ipcRenderer.invoke('siteNetwork:waitForResponse', opts),
+
+  /** 立刻取桶里最新一条匹配的响应（不等） */
+  getLatest: (opts: {
+    siteKey: string
+    urlPattern: string
+  }): Promise<
+    | {
+        ok: true
+        data: {
+          receivedAt: number
+          url: string
+          method: string
+          status: number
+          bodyJson: unknown | null
+          bodyText: string | null
+          bodyBytes: number
+        }
+      }
+    | { ok: false; code: string; message: string }
+  > => ipcRenderer.invoke('siteNetwork:getLatest', opts),
+
+  /** 清空某个 siteKey 的缓存（"加载下一页前清掉旧响应"用） */
+  clearCache: (siteKey: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('siteNetwork:clearCache', siteKey),
+
+  /** 调试：列出当前缓存里所有响应 */
+  listCache: (
+    siteKey: string
+  ): Promise<Array<{ url: string; receivedAt: number; status: number; bodyBytes: number }>> =>
+    ipcRenderer.invoke('siteNetwork:listCache', siteKey)
+}
+
+/**
  * 客户端身份标识：SPA 启动时检测 window.__IKUAIZHAO_NATIVE__ 即可知道
  * 自己跑在 Electron 客户端里（用于隐藏插件相关 UI、走客户端原生能力）
  */
@@ -361,7 +557,8 @@ if (process.contextIsolated) {
       tabs,
       ihrBridge,
       browserBridge,
-      automation
+      automation,
+      siteNetwork
     })
     contextBridge.exposeInMainWorld('__IKUAIZHAO_NATIVE__', native)
   } catch (error) {

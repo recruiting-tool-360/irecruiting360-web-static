@@ -152,19 +152,16 @@ defineEmits(['copy', 'edit']);
 </script>
 
 <style scoped lang="scss">
-/* p-4 rounded-2xl shadow-sm relative w-full bg-white border border-neutral-100 text-neutral-700 */
+/*
+  外壳（背景 / 边框 / 圆角 / 阴影 / padding）由父级 .chat-message-bubble 统一提供，
+  本组件只负责内容布局：垂直 flex + gap 20px（等价 ihraisaas space-y-5）。
+*/
 .ai-profile-card {
-  position: relative;
   width: 100%;
-  padding: 16px;
-  background: #fff;
-  border: 1px solid #f5f5f5;
-  border-radius: 16px;
-  color: #404040;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  color: #404040; /* text-neutral-700 */
   display: flex;
   flex-direction: column;
-  gap: 20px; /* 等价 space-y-5 */
+  gap: 20px;
   font-size: 12px;
   line-height: 1.5;
 }

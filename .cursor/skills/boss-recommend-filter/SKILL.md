@@ -347,3 +347,42 @@ and tell the user the script is now positionally bound to the markup order.
   Playwright API list, error code conventions.
 - `docs/boss地址资料.md` (lines 286-379) — original captured DOM and the
   paired `/wapi/zpjob/rec/geek/list` request URL with query parameters.
+
+## 端到端入口：打开推荐页 + 自动筛选
+
+业务侧（"启动聚合搜索"按钮等场景）通常不会直接 `runScript` 这段 scriptCode —
+而是先确保 BOSS 推荐 tab 已打开到正确的 `?jobid=<encryptJobId>` URL，再让本 skill
+在已经打开的 tab 上跑筛选。
+
+✅ 已封装好的前端函数（**业务侧直接调这个**）：
+
+```js
+import { openBossRecommendForJob } from "src/util/automation/bossRecommend";
+
+const res = await openBossRecommendForJob({
+  encryptJobId: "61e0cd1cbd6016d90nZ80tq5FVVV",   // 来自 zpData.data[i].encryptJobId（boss-job-list）
+  filters: [                                       // 可选 — 不传只跳转打开页
+    { name: "经验要求", value: "25年毕业" },
+    { name: "学历要求", value: "本科" },
+    { name: "薪资待遇", value: "10-20K" },
+  ],
+  waitListMs: 12000
+});
+// res.ok && res.filterResult => { picked, skipped, apiUrl, zpData, geekCount }
+```
+
+内部就两步：
+
+1. `window.api.automation.openOrActivate({ channel: 'boss', url: <buildBossRecommendUrl()> })`
+   → 拼出 `https://www.zhipin.com/web/frame/recommend/?jobid=...&status=0&filterParams=&source=0`，
+   在客户端打开 / 激活 BOSS tab
+2. （`filters` 非空时）`runOnTab(tabId, bossRecommendFilterScript, ctx)` → 本 skill 输出的脚本字符串
+
+只想跳转、不要筛选时，用 `openBossRecommend(encryptJobId)`（不传 filters 即可）。
+
+### 为什么不在本 skill 的 scriptCode 里直接 `page.goto`
+
+- 沙箱里的 `page` 是 playwright-core 通过 CDP 接管的 Electron tab：`page.goto`
+  会强行覆盖用户当前 tab 的导航历史，体验差且容易踩反爬。
+- 客户端有 `TabManager`，专门管"按渠道打开/激活 tab"，复用它确保用户能看到。
+- skill 自身只关心"已经在推荐页"之后的事——筛选 + 等接口数据，**单一职责**。

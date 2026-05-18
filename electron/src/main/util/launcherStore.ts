@@ -29,6 +29,18 @@ export interface StoredLauncherData {
   ihrManageUrl?: string
   /** 上次 deep link payload 的完整副本（按用户要求"全部存"，包含 ssoConfig 等敏感字段） */
   lastInitPayload?: Record<string, unknown>
+  /**
+   * 客户端访问 IHR noauth 包装接口的 JWT token。
+   * 由 IHR Web 调 /candidate/AiManager/client/launch 后通过 deep link 传过来，
+   * ihrBridge 所有 client/noauth 调用都会自动拼 `?accessToken=...`。
+   * 详见 docs/07-ihr-client-usage.md。
+   */
+  accessToken?: string | null
+  /**
+   * accessToken 过期时间（ms 时间戳）。
+   * 文档默认 TTL 1800s；过期后客户端需引导用户回到招聘工作台再次走 client/launch。
+   */
+  accessTokenExpireAt?: number | null
   /** 写入时间戳（用于判断数据新鲜度，目前仅展示用） */
   savedAt?: number
   /** 写入来源（'deep-link' / 'manual'），便于调试 */
@@ -102,14 +114,28 @@ export function clearStoredLauncherData(): void {
 /**
  * 把 deep link payload 全量持久化。
  * - ihrManageUrl 单独抽出来作为顶层字段，方便 ihrBridge 启动时读取
+ * - accessToken / accessTokenExpireAt 抽出来作为顶层字段，方便 ihrBridge 启动时读取
  * - 其余 payload（包括 ssoConfig 等）整体存到 lastInitPayload
  */
 export function persistDeepLinkPayload(payload: Record<string, unknown> | undefined | null): void {
   if (!payload || typeof payload !== 'object') return
   const ihrManageUrl =
     typeof payload.ihrManageUrl === 'string' ? (payload.ihrManageUrl as string) : undefined
+  const accessToken =
+    typeof payload.accessToken === 'string' ? (payload.accessToken as string) : undefined
+  // accessTokenExpireAt 可能是 ISO 字符串（来自后端）或已转好的 ms 数字
+  let accessTokenExpireAt: number | undefined
+  const rawExpire = payload.accessTokenExpireAt
+  if (typeof rawExpire === 'number' && Number.isFinite(rawExpire)) {
+    accessTokenExpireAt = rawExpire
+  } else if (typeof rawExpire === 'string' && rawExpire) {
+    const ts = Date.parse(rawExpire)
+    if (Number.isFinite(ts)) accessTokenExpireAt = ts
+  }
   saveStoredLauncherData({
     ...(ihrManageUrl ? { ihrManageUrl } : {}),
+    ...(accessToken ? { accessToken } : {}),
+    ...(accessTokenExpireAt ? { accessTokenExpireAt } : {}),
     lastInitPayload: payload,
     source: 'deep-link'
   })
