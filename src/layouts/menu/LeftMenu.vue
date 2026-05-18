@@ -341,33 +341,23 @@ const loadChatList = async () => {
       // 然后再处理三方企业的选择逻辑
       await nextTick();
       
-      //如果是三方企业相应的修改逻辑
-      if(formattedChatList.length > 0 && visibleThirdSwitchPlus.value){
-        //来自于菜单
-        if(isFromThirdMenu.value){
-          console.log('三方企业，自动选择第一个聊天:', formattedChatList[0]);
-          selectChat(formattedChatList[0]);
-        }else if(isFromCandidateList.value){
-          const filteredList = [formattedChatList.find(item => item.positionId === headcountId.value)].filter(Boolean);
-          
-          // 判断是否有选中职位，并且查询该职位历史记录，为空则填充JD
-          if(Array.isArray(filteredList) && filteredList.length === 1) {
-            getChatHistory(filteredList[0].id, userInfo.value?.id).then(res => {
-              console.log("res", res);
-              if(res.success === "success") {
-                const isFill = Array.isArray(res.data.chatHistory) && res.data.chatHistory.length === 0;
-                handleRecruitAction(filteredList[0], isFill);
-              }
-            })
-          }
-          console.log(store.getters.getUserInfo?.extendData?.headcountId, '三方企业，默认待职位描述:', filteredList[0]);
+      // 列表加载后的精确分支处理（不再自动选第一个）：
+      //   - 从 i 人事 "招聘助理" 菜单进来（isFromThirdMenu）：以前会自动选第一个，
+      //     现已改成依赖用户主动选 / vuex-persistedstate 恢复的 selectPositionId
+      //   - 从候选人详情 "招聘工作流" 跳来（isFromCandidateList）：仍然按 headcountId 精确定位，
+      //     这是业务跳转携带的明确意图，不属于"默认选第一个"
+      if (formattedChatList.length > 0 && visibleThirdSwitchPlus.value && isFromCandidateList.value) {
+        const filteredList = [formattedChatList.find(item => item.positionId === headcountId.value)].filter(Boolean);
+        if (Array.isArray(filteredList) && filteredList.length === 1) {
+          getChatHistory(filteredList[0].id, userInfo.value?.id).then(res => {
+            console.log('res', res);
+            if (res.success === 'success') {
+              const isFill = Array.isArray(res.data.chatHistory) && res.data.chatHistory.length === 0;
+              handleRecruitAction(filteredList[0], isFill);
+            }
+          });
         }
-      } else {
-        console.log('不满足自动选择条件:', {
-          hasChats: formattedChatList.length > 0,
-          isThirdParty: visibleThirdSwitchPlus.value,
-          isFromMenu: isFromThirdMenu.value
-        });
+        console.log(headcountId.value, '三方企业，候选人列表跳转定位职位:', filteredList[0]);
       }
     } else {
       console.error('加载聊天列表失败, 响应不符合预期:', response);
@@ -416,6 +406,12 @@ const setVuexData  = (item) => {
     store.commit('SET_LATEST_POSITION_ID', '');
     console.log('职位ID为空，已清除');
   }
+
+  // 设置 UI 用的"用户主动选中职位 id"（独立持久化，跟 latestChatId 解耦）
+  // 用 item.positionId 优先；缺失时退回 item.id 兜底（保证有值）
+  const chosenId = item.positionId || item.id || '';
+  store.commit('SET_CHOSEN_JOB_ID', chosenId);
+  console.log('已设置用户选中职位 ID (chosenJobId):', chosenId);
 }
 
 // 选择聊天
@@ -536,40 +532,11 @@ const handleDelete = async (item) => {
 // 组件挂载时加载数据
 onMounted(() => {
   loadChatList()
-  
-  // 添加一个延迟执行的备选方案，确保在列表加载后能自动选择
-  setTimeout(() => {
-    if (chatList.value && chatList.value.length > 0 && 
-        visibleThirdSwitchPlus.value && isFromThirdMenu.value && 
-        !currentChatId.value) {
-      console.log('延迟执行：聊天列表已加载，自动选择第一个聊天');
-      selectChat(chatList.value[0]);
-    }
-  }, 1000); // 1秒后检查
+
+  // 不再无脑选第一个 —— 用户上次选中的职位由 vuex-persistedstate 自动从 localStorage
+  // 恢复（chatList.latestChatId 已在 store/index.js paths 持久化）。
+  // 如果 localStorage 没记录，currentChatId 保持空，右侧显示 ChatEmptyState 引导用户手动选。
 })
-
-// 可选：添加一个更可靠的多次尝试机制
-let autoSelectAttempts = 0;
-const maxAutoSelectAttempts = 3;
-
-const tryAutoSelectFirstChat = () => {
-  if (autoSelectAttempts >= maxAutoSelectAttempts) {
-    console.log('已达到最大尝试次数，停止自动选择');
-    return;
-  }
-  
-  if (chatList.value && chatList.value.length > 0 && 
-      visibleThirdSwitchPlus.value && isFromThirdMenu.value && 
-      !currentChatId.value) {
-    console.log(`尝试 ${autoSelectAttempts + 1}/${maxAutoSelectAttempts}：自动选择第一个聊天`);
-    selectChat(chatList.value[0]);
-    autoSelectAttempts++;
-  } else if (!chatList.value || chatList.value.length === 0) {
-    // 如果列表还没加载完，稍后再试
-    setTimeout(tryAutoSelectFirstChat, 500);
-    autoSelectAttempts++;
-  }
-};
 
 // 处理招聘操作
 const handleRecruitAction = (item, isFill = true) => {
@@ -597,22 +564,32 @@ const closeTips = () => {
   tipsStatus.value = false
 }
 
-// 在监听器中添加更可靠的处理
+/**
+ * chatList 加载完后：按持久化的 chosenJobId 自动恢复选中
+ *
+ *   - chosenJobId 为空 → 不选 → 右侧显示 ChatEmptyState 引导用户手动选
+ *   - chosenJobId 有值 且能在 chatList 找到匹配 chat → 自动 selectChat（同步设 latestChatId）
+ *   - chosenJobId 有值 但找不到（chat 已被删除）→ 清空 chosenJobId → ChatEmptyState
+ *
+ * 不再"无脑选第一个"。
+ */
 watch(chatList, (newChatList) => {
-  if (newChatList.length > 0) {
-    // 如果当前没有选中的聊天，且有聊天列表数据，则考虑自动选择
-    if (!currentChatId.value && visibleThirdSwitchPlus.value && isFromThirdMenu.value) {
-      console.log('聊天列表变化，自动选择第一个聊天', newChatList[0]);
-      selectChat(newChatList[0]);
-    }
+  if (!newChatList || newChatList.length === 0) return
+  if (currentChatId.value) return
+  if (!visibleThirdSwitchPlus.value) return
+
+  const chosenId = store.getters.getChosenJobId
+  if (!chosenId) return // 没记录 → 让 currentChatId 保持空，触发 ChatEmptyState
+
+  const found = newChatList.find((c) => c && (c.positionId === chosenId || c.id === chosenId))
+  if (found) {
+    console.log('[LeftMenu] 按 chosenJobId 自动恢复上次选中职位:', found)
+    selectChat(found)
+  } else {
+    console.log('[LeftMenu] chosenJobId 对应职位已不存在，清空 → 显示空状态')
+    store.commit('SET_CHOSEN_JOB_ID', '')
   }
-  
-  // 如果监听器触发但没有选中，启动备选机制
-  if (newChatList.length > 0 && !currentChatId.value && 
-      visibleThirdSwitchPlus.value && isFromThirdMenu.value) {
-    tryAutoSelectFirstChat();
-  }
-}, { immediate: false })
+}, { immediate: true })
 
 
 // 监听 vuex 中的刷新状态

@@ -12,7 +12,8 @@
     "dev": "quasar dev",
     "build": "quasar build",
     "dev:el": "cd ./electron && yarn dev",
-    "dev:el:local": "DEV_TARGET_URL=http://localhost:8080/ npm run dev:el"
+    "dev:el:local": "DEV_TARGET_URL=http://localhost:8080/ npm run dev:el",
+    "dev:el:devtools": "OPEN_HOME_DEVTOOLS=1 DEV_TARGET_URL=http://localhost:8080/ npm run dev:el"
   },
   "dependencies": {
     "@quasar/extras": "^1.16.4",

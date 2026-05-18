@@ -1353,8 +1353,13 @@ const refreshChannelLogin = async (key, opts = {}) => {
 
     return false;
   } finally {
-    // 关闭加载提示
-    loadingNotify.dismiss();
+    // 关闭加载提示（仅在非 silent 模式下创建过；silent 模式下根本没有 loadingNotify 这个变量）
+    // 兼容历史代码：用 typeof 守护，避免 ReferenceError
+    try {
+      if (typeof loadingNotify !== 'undefined' && loadingNotify) loadingNotify.dismiss();
+    } catch (_e) {
+      /* noop */
+    }
   }
 };
 

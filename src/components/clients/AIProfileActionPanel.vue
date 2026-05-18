@@ -78,9 +78,11 @@
       推荐牛人配置区域：
         外层 .recommend-section 提供 dotted 顶部分隔线（跟上面"模块勾选行"分开）
         内层 .config-card 才是真正的青色背景卡片
+      用 <Transition> 让展开/收起平滑（透明度 + 高度 + 顶部 padding/border）
     -->
-    <div v-if="selectedModules.recommend" class="recommend-section">
-      <div class="config-card">
+    <Transition name="rec-slide">
+      <div v-if="selectedModules.recommend" class="recommend-section">
+        <div class="config-card">
       <!-- 行 1：匹配 Boss 直聘职位 -->
       <div class="config-row">
         <div class="config-left">
@@ -178,7 +180,8 @@
         </div>
       </div>
       </div>
-    </div>
+      </div>
+    </Transition>
 
     <!-- 底部 CTA：基于深度画像准备搜索策略 + 查看结果（测试） + 启动聚合搜索 -->
     <div class="bottom-action">
@@ -466,6 +469,40 @@ $accent-border: #ccfbf1;
 .recommend-section {
   padding-top: 16px;
   border-top: 1px dotted #e5e7eb;
+  overflow: hidden; /* 收起时 max-height 配合 overflow 才能裁剪内部 config-card */
+}
+
+/*
+  <Transition name="rec-slide"> 的进入/离开动画
+    收起：opacity → 0，max-height → 0，padding-top → 0，border 消失
+    展开：反之
+  max-height 给 600px 足够容纳 config-card（行 1 + 行 2 + schedule-info）
+*/
+.rec-slide-enter-active,
+.rec-slide-leave-active {
+  transition:
+    opacity 0.22s ease,
+    max-height 0.28s cubic-bezier(0.2, 0.8, 0.4, 1),
+    padding-top 0.22s ease,
+    border-top-color 0.18s ease,
+    transform 0.22s ease;
+  will-change: opacity, max-height, padding-top, transform;
+}
+.rec-slide-enter-from,
+.rec-slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  border-top-color: transparent;
+  transform: translateY(-4px);
+}
+.rec-slide-enter-to,
+.rec-slide-leave-from {
+  opacity: 1;
+  max-height: 600px;
+  padding-top: 16px;
+  border-top-color: #e5e7eb;
+  transform: translateY(0);
 }
 
 /* ===== 推荐牛人 配置卡片（青色背景，外层 recommend-section 已经提供分隔线） ===== */
@@ -529,7 +566,7 @@ $accent-border: #ccfbf1;
   transition: border-color 0.15s, box-shadow 0.15s;
 
   &:hover:not(:disabled) {
-    border-color: lighten($accent, 10%);
+    border-color: #2dd4bf; /* teal-400，与 $accent 浅 10% 等价；避免用已弃用的 lighten() */
   }
   &:focus {
     border-color: $accent;

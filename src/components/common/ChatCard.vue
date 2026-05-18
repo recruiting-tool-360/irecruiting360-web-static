@@ -74,8 +74,16 @@
       :class="{ 'expanded-content': expanded }"
       style="cursor: auto"
     >
+      <!--
+        客户端嵌入式模式：未选职位 → ChatEmptyState 引导
+        其它（浏览器模式 / 浮窗 / 已有职位但无消息）保持原 hint 空占位
+      -->
+      <ChatEmptyState
+        v-if="shouldShowEmptyState"
+        :selected-job="null"
+      />
       <div
-        v-if="messages.length === 0 && internalMessages.length === 0"
+        v-else-if="messages.length === 0 && internalMessages.length === 0"
         class="text-center text-grey q-pa-md empty-message-hint"
       ></div>
       <div v-else-if="loading" class="loading-container">
@@ -148,6 +156,17 @@
                   />
                 </div>
               </template>
+              <!--
+                聚合搜索执行进度卡片（msg.type === 'execution_log'）
+                1:1 对照 ihraisaas/src/components/AIAssistant/Chat/ExecutionLog.tsx
+                msg 形态：{ id, type:'execution_log', content: '...流程', steps: [{title,status}], data: {isStopped} }
+              -->
+              <ExecutionLog
+                v-else-if="msg.type === 'execution_log'"
+                :content="msg.content"
+                :steps="msg.steps"
+                :data="msg.data"
+              />
               <div v-else-if="msg.type === 'bot'" v-html="parseMarkdown(msg.content || '')"></div>
               <div v-else class="bot-message-formatted">{{ msg.content || "" }}</div>
 
@@ -193,6 +212,10 @@
       </div>
     </q-card-section>
 
+    <!--
+      centered-input 让输入框居中显示（浏览器"新聊天"初始化用）；
+      嵌入式（visibleThirdSwitchPlus）模式下 ChatEmptyState 已经占中间，输入框必须**固定底部**避免重叠。
+    -->
     <q-card-section
       style="cursor: auto"
       :key="isFirstMessage ? 'bottom-input' : 'center-input'"
@@ -200,13 +223,18 @@
         'chat-input q-pa-sm q-my-md',
         {
           'centered-input':
+            !visibleThirdSwitchPlus &&
             isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage
         }
       ]"
     >
-      <!--  初始化展示内容    -->
+      <!--
+        老的初始化展示内容（"AI 智能招聘助手 / 快速筛选合适的候选人"）
+        客户端 / iHR 融合（PlanA）模式下由 ChatEmptyState（chat-content 内）统一负责空状态，这块不再显示
+      -->
       <div
         v-if="
+          !visibleThirdSwitchPlus &&
           isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage
         "
         class="q-pa-md q-mb-md rounded-borders"
@@ -237,6 +265,7 @@
           borderless
           type="textarea"
           autogrow
+          :disable="shouldShowEmptyState"
           :input-style="{
             maxHeight: inputMaxHeight,
             minHeight: '40px',
@@ -244,7 +273,11 @@
             overflow: 'auto',
             resize: 'none'
           }"
-          placeholder="给[i快招]AI发送消息，示例：发送一段招聘JD"
+          :placeholder="
+            shouldShowEmptyState
+              ? '请从左侧列表选择职位开始'
+              : '给[i快招]AI发送消息，示例：发送一段招聘JD'
+          "
           class="full-width message-input"
           @keydown.enter.exact.prevent="() => sendChatMessage()"
           @keydown.shift.enter.prevent="newLine"
@@ -260,12 +293,15 @@
             round
             dense
             :loading="chatFluxStatus"
+            :disable="shouldShowEmptyState"
             color="primary"
             icon="send"
             @click="() => sendChatMessage()"
             class="send-button"
           >
-            <q-tooltip>{{ chatFluxStatus ? "停止输出" : "发送" }}</q-tooltip>
+            <q-tooltip>{{
+              shouldShowEmptyState ? '请先从左侧列表选择职位' : chatFluxStatus ? '停止输出' : '发送'
+            }}</q-tooltip>
           </q-btn>
         </div>
       </div>
@@ -297,6 +333,8 @@ import { v4 as uuidv4 } from "uuid";
 import LoginRequiredPanel from "src/components/clients/LoginRequiredPanel.vue";
 import AIProfileActionPanel from "src/components/clients/AIProfileActionPanel.vue";
 import AIProfileCard from "src/components/clients/AIProfileCard.vue";
+import ExecutionLog from "src/components/clients/ExecutionLog.vue";
+import ChatEmptyState from "src/components/clients/ChatEmptyState.vue";
 import { parseAISearchJD, getAISearchPrefix } from "src/util/parseAISearchJD";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 
@@ -379,6 +417,39 @@ const isComposing = ref(false);
 const currentChatId = ref("");
 const userInfo = computed(() => store.getters.getUserInfo);
 const latestChatId = computed(() => store.getters.getLatestChatId);
+
+/**
+ * 嵌入式模式下：用户主动选中的职位实体（UI 空状态的唯一判定依据）
+ *
+ * 数据源：store.chatList.chosenJobId（独立 key，由 LeftMenu selectChat 设置，
+ *        persisted 到 localStorage）。跟业务用的 latestChatId **完全解耦**。
+ *
+ * 这样设计的好处：
+ *   - 清空 localStorage 的 `vuex.chatList.chosenJobId` 即可复现"请先选择职位"空状态
+ *   - 业务 SSO / 聊天加载等流程对 latestChatId 的隐式 set 不会污染 UI 状态
+ */
+const chosenJobId = computed(() => store.getters.getChosenJobId || '');
+const currentEmbeddedChat = computed(() => {
+  const id = chosenJobId.value;
+  if (!id) return null;
+  const list = store.getters.getChatList || [];
+  // 优先按 positionId 匹配；找不到再按 id 匹配（兜底兼容）
+  return list.find((c) => c && (c.positionId === id || c.id === id)) || null;
+});
+
+/**
+ * 是否显示 ChatEmptyState（"请从左侧列表选择职位开始"）
+ *   - 在客户端 / iHR 融合（PlanA）模式下生效
+ *   - 用户当前未选中任何职位时显示
+ *
+ * 实现要点：
+ *   - 用 visibleThirdSwitchPlus 而非 props.embedded，避免 HMR / 父组件 prop 传递异常时空状态丢失
+ *   - **只看 chosenJobId 是否为空**，不去 chatList 里 find；
+ *     否则 chatList 异步加载完成前 find 返回 null，会出现"先显示后消失"的闪烁
+ */
+const shouldShowEmptyState = computed(
+  () => visibleThirdSwitchPlus.value && !chosenJobId.value
+);
 
 /**
  * 当前选中职位标题 + 代码（用在 workspace toolbar 左侧）
@@ -757,17 +828,42 @@ const handleEdit = (msg) => {
 };
 
 // 聚合搜索
-const handleSearch = (msg) => {
+const handleSearch = async (msg) => {
   if (props.embedded) {
-    // 嵌入式模式：向父级 WorkspaceContainer 发出切到 results 视图的信号
-    emit("aggregate", { content: msg?.content, chatId: props.chatId || currentChatId.value });
-    // 同时让 results 端可以基于当前 chat 重新搜索（保持原有行为）
-    if (
-      jobSearchFilterRef.value &&
-      typeof jobSearchFilterRef.value.refreshAndSearchFN === "function"
-    ) {
-      jobSearchFilterRef.value.refreshAndSearchFN(currentChatId.value);
-    }
+    // 嵌入式模式：mock 动画 + 真实搜索 并发执行
+    //
+    //   1. 立刻 emit aggregate-search → IndexPage 后台触发 refreshAndSearchFN
+    //      （此时还在 chat 视图，用户看到的是 mock 进度卡片）
+    //   2. 同步播放 mock execution_log 进度动画（搜索 / 推荐两路并发，~6s）
+    //   3. 动画跑完 emit view-results → IndexPage 切到 results 视图
+    //      —— 此时真实搜索大概率已经返回，避免在 results 视图里再等 loading
+    //
+    // 注意：refreshAndSearchFN 必须由 IndexPage 调，因为嵌入式模式下
+    //      JobSearchFilter 渲染在 IndexPage 的 results 视图里，不在 ChatCard 内
+    const state = actionPanelStateByMsgId.value[msg?.id] || null;
+    const selectedModules = state?.selectedModules || { search: true, recommend: true };
+    const matchedBossJobId = state?.matchedBossJobId || null;
+    const resumeCount = state?.resumeCount ?? null;
+    const chatIdForSearch = props.chatId || currentChatId.value;
+
+    // 1) 立刻让父级在后台触发真实搜索（不切视图）
+    //    selectedModules.recommend + matchedBossJobId → IndexPage 会调 openBossRecommendForJob 打开 BOSS 推荐页
+    emit("aggregate-search", {
+      chatId: chatIdForSearch,
+      selectedModules,
+      matchedBossJobId,
+      resumeCount,
+      content: msg?.content
+    });
+
+    // 2) 与真实搜索并发：插入 mock 进度卡片并等待动画跑完
+    await mockStartAggregateProgress(selectedModules);
+
+    // 3) 动画完成后切到 results 视图查看真实搜索结果
+    emit("view-results", {
+      chatId: chatIdForSearch,
+      content: msg?.content
+    });
     return;
   }
   // 浮窗模式：判断对话框是否是缩小状态，如果不是就把它缩小
@@ -778,6 +874,101 @@ const handleSearch = (msg) => {
   //刷新搜索条件并搜索
   jobSearchFilterRef.value && jobSearchFilterRef.value.refreshAndSearchFN(currentChatId.value);
 };
+
+/* ===== mock：聚合搜索进度卡片（1:1 ihraisaas bgMessageUtils.ts 步骤文案） =====
+ * 后续接 SSE / 真实状态时替换此函数即可
+ */
+
+/** 模拟一个 execution_log：按 1.2s 节奏推进 steps 从 pending → processing → complete
+ *  返回 Promise，所有 step 都完成（或被 isStopped 中断）后 resolve */
+function pushAndAnimateExecutionLog(content, stepTitles) {
+  return new Promise((resolve) => {
+    const id = "exec-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    const steps = stepTitles.map((title, i) => ({
+      title,
+      status: i === 0 ? "processing" : "pending"
+    }));
+    const msg = {
+      id,
+      type: "execution_log",
+      content,
+      steps,
+      time: new Date().toTimeString().slice(0, 8),
+      data: { isStopped: false }
+    };
+    internalMessages.value.push(msg);
+
+    nextTick(() => {
+      if (typeof scrollToBottom === "function") {
+        try { scrollToBottom(); } catch (_e) { /* ignore */ }
+      }
+    });
+
+    let cursor = 0;
+    const STEP_INTERVAL_MS = 1200;
+    const tick = () => {
+      const target = internalMessages.value.find((m) => m.id === id);
+      if (!target || target.data?.isStopped) {
+        resolve();
+        return;
+      }
+      if (cursor >= stepTitles.length) {
+        resolve();
+        return;
+      }
+      target.steps[cursor].status = "complete";
+      cursor += 1;
+      if (cursor < stepTitles.length) {
+        target.steps[cursor].status = "processing";
+        setTimeout(tick, STEP_INTERVAL_MS);
+      } else {
+        resolve();
+      }
+    };
+    setTimeout(tick, STEP_INTERVAL_MS);
+  });
+}
+
+/**
+ * 启动 mock 聚合进度：按勾选模块并行插入搜索 / 推荐两条 execution_log。
+ * 推荐错峰 1.5s 启动（视觉上像真实并发），等全部完成再 resolve。
+ */
+async function mockStartAggregateProgress(selectedModules) {
+  const found = Math.floor(Math.random() * 15) + 8; // 8-22 之间
+  const tasks = [];
+
+  if (selectedModules?.search) {
+    tasks.push(
+      pushAndAnimateExecutionLog("搜索牛人数据获取流程", [
+        "正在分析画像关键词...",
+        "正在并发检索 智联招聘 平台的实时人才数据...",
+        "正在并发检索 BOSS直聘 平台的实时人才数据...",
+        "正在并发检索 前程无忧 平台的实时人才数据...",
+        `已抓取全渠道 ${found} 符合条件人才数据`,
+        "搜索牛人流程执行完毕"
+      ])
+    );
+  }
+
+  if (selectedModules?.recommend) {
+    tasks.push(
+      (async () => {
+        await new Promise((r) => setTimeout(r, 1500)); // 错峰 1.5s
+        const rc = Math.max(3, found - 5);
+        await pushAndAnimateExecutionLog("推荐牛人数据获取流程", [
+          "正在校对 BOSS直聘 关联职位特征...",
+          "正在分析画像关键词...",
+          "正在获取平台实时推荐候选人列表...",
+          "正在完成 AI 语义匹配初筛...",
+          `已抓取全渠道 ${rc} 符合条件人才数据`,
+          "推荐牛人流程执行完毕"
+        ]);
+      })()
+    );
+  }
+
+  await Promise.all(tasks);
+}
 
 // 换行处理
 const newLine = () => {
@@ -1709,7 +1900,9 @@ defineExpose({
 .chat-content {
   flex: 1;
   overflow-y: auto;
-  background-color: white;
+  /* 1:1 对照 ihraisaas/src/components/AIAssistant/ChatPanel.tsx 第 205 行：
+     bg-[#fcfcfc]（极浅灰），让里面的白色消息卡片视觉上"浮"出来 */
+  background-color: #fcfcfc;
   padding: 16px;
   transition: all 0.4s ease;
   /* LoginRequiredPanel absolute inset-0 模糊背板要相对本容器定位 */
@@ -1752,24 +1945,52 @@ defineExpose({
   max-width: 80%;
 }
 
+/*
+  消息卡片宽度（1:1 对照 ihraisaas/src/components/AIAssistant/Chat/MessageItem.tsx line 103-104）：
+    - bot 消息：w-[600px] max-w-full → width: 600px（默认撑到 600px），容器更窄时 max-w-full 收缩
+    - user 消息：max-w-[500px]
+  覆盖默认 .chat-message-content 的 80%
+*/
+.chat-message-bot .chat-message-content {
+  width: 600px;
+  max-width: 100%;
+}
+.chat-message-user .chat-message-content {
+  width: auto;
+  max-width: 500px;
+}
+
+/*
+  消息气泡 1:1 对照 ihraisaas/src/components/AIAssistant/Chat/MessageItem.tsx
+    line 99-105：
+      bubble class = "p-[20px] rounded-[16px] transition-all duration-300 relative"
+      bot 额外：bg-white border border-neutral-200 shadow-[1px_1px_4px_4px_rgba(83,84,85,0.02)]
+              rounded-tl-none w-[600px] max-w-full
+      user 额外：bg-primary-500 border border-primary-500 text-white
+               rounded-tr-none shadow-sm max-w-[500px]
+*/
 .chat-message-bubble {
-  padding: 8px 12px 0;
-  border-radius: 12px;
-  background-color: white;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+  border-radius: 16px;
   word-break: break-word;
+  transition: all 0.3s;
+  position: relative;
+}
+
+.chat-message-bot .chat-message-bubble {
+  background-color: #fff;
+  border: 1px solid #e5e7eb; /* border-neutral-200 */
+  box-shadow: 1px 1px 4px 4px rgba(83, 84, 85, 0.02);
+  border-top-left-radius: 0; /* rounded-tl-none */
+  width: 100%; /* w-[600px] max-w-full：由 chat-message-content 的 max-width 接管 600px 上限 */
 }
 
 .chat-message-user .chat-message-bubble {
   background-color: var(--q-primary);
-  color: white;
-  border-top-right-radius: 2px;
-}
-
-.chat-message-bot .chat-message-bubble {
-  background-color: white;
-  border-top-left-radius: 4px;
-  box-shadow: none;
+  border: 1px solid var(--q-primary);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); /* shadow-sm */
+  border-top-right-radius: 0; /* rounded-tr-none */
 }
 
 .chat-message-time {

@@ -7,6 +7,7 @@ import ChannelConfig from "src/store/modules/ChannelConfig";
 import UserConfig from "src/store/modules/UserConfig";
 import SimilarResumeConfig from "src/store/modules/SimilarResumeConfig";
 import BossData from "src/store/modules/BossData";
+import BossRecommendData from "src/store/modules/BossRecommendData";
 import PinnedJobs from "src/store/modules/PinnedJobs";
 import createPersistedState from "vuex-persistedstate";
 import chatList from './modules/chatList'
@@ -18,7 +19,7 @@ const store = createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig,BossData,PinnedJobs
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig,BossData,BossRecommendData,PinnedJobs
   },
   plugins: [
     createPersistedState({
@@ -29,6 +30,12 @@ const store = createStore({
         "PluginConfig.pluginSwitch",
         "ChatConfig.localUserChatId",
         "ChatConfig.searchConditionId",
+        /*
+          客户端模式下记住"用户主动选中的职位"，刷新 / 重启后自动恢复。
+          仅持久化 chosenJobId（UI 状态），不持久化 latestChatId（业务态由业务流程自己管）。
+          复现"请先从左侧列表选择一个职位"空状态：localStorage 清掉 vuex.chatList.chosenJobId 即可。
+        */
+        "chatList.chosenJobId",
         "UserConfig.userInfo",
         "UserConfig.userColor",
         "UserConfig.userChannelConfig",
@@ -38,6 +45,9 @@ const store = createStore({
         "BossData.jobList",
         "BossData.totalSize",
         "BossData.lastFetchedAt",
+        // BOSS 推荐牛人列表（按 encryptJobId 分桶）：跨会话保留，进推荐 tab 立刻有数据
+        "BossRecommendData.byJobId",
+        "BossRecommendData.currentJobId",
         // 左侧职位列表的置顶状态（参考 ihraisaas JobList.isPinned）
         "PinnedJobs.pinnedJobIds",
       ],

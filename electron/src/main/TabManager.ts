@@ -19,6 +19,9 @@
 
 import { BrowserWindow, WebContentsView, session, shell } from 'electron'
 
+import { ensureAttached as ensureSiteNetworkAttached } from './siteNetworkCapture'
+import { setActiveChannel as setOverlayActiveChannel } from './automationOverlay'
+
 // =============== 类型 ===============
 
 export interface TabState {
@@ -53,6 +56,25 @@ interface InternalTab {
  * 招聘站点 partition（与 ViewManager 保持一致；recruitBridge.ts 直接 import 这个常量更稳，
  * 这里复制一份只是为了解耦循环依赖）
  */
+/**
+ * 招聘站 tab 创建后自动开启 CDP 网络抓包（webContents.debugger.attach），
+ * 把这里 substring 匹配到的 URL 响应缓存到 siteNetworkCapture 里。
+ * 渲染端通过 `window.api.siteNetwork.waitForResponse(...)` 取数据，
+ * **替代** Playwright `page.waitForResponse` 路径（旧路径依赖 --remote-debugging-port
+ * 会被 BOSS 风控识别，详见 docs/boss地址资料.md 顶部反爬警告）。
+ *
+ * 加新接口：往对应站 key 数组里追加 URL substring 即可；保持小而精，不要乱加大流量接口。
+ */
+export const SITE_CAPTURE_MATCHERS: Record<string, string[]> = {
+  boss: [
+    '/wapi/zpjob/rec/geek/list', // 推荐牛人列表（首屏 + 分页）
+    '/wapi/zpjob/job/data/list' // 我的职位列表（hiddenViewRunner 之外的备份路径）
+  ],
+  zhilian: [],
+  job51: [],
+  liepin: []
+}
+
 export const SITE_PARTITION: Record<string, string> = {
   boss: 'persist:ihr360-boss',
   zhilian: 'persist:ihr360-zhilian',
@@ -200,6 +222,18 @@ class TabManager {
     })
     view.webContents.setUserAgent(desktopChromeUserAgent)
 
+    // 启用 CDP 网络抓包（替代 Playwright waitForResponse 路径）。
+    // 必须在 loadURL 之前 attach，否则错过早期请求。
+    const captureMatchers = SITE_CAPTURE_MATCHERS[key]
+    if (captureMatchers && captureMatchers.length > 0) {
+      const r = ensureSiteNetworkAttached(view.webContents, key, captureMatchers)
+      if (!r.ok) {
+        console.warn(
+          `[TabManager] siteNetworkCapture attach failed for ${key}: ${r.reason ?? 'unknown'} — \`window.api.siteNetwork.waitForResponse\` will return NOT_ATTACHED`
+        )
+      }
+    }
+
     const id = `tab-${this.nextSeq++}`
     const tab: InternalTab = {
       id,
@@ -242,6 +276,10 @@ class TabManager {
     if (!this.tabs.has(id)) return
     this.activeId = id
     this.updateBounds()
+    // 通知蒙层重新评估：active 是招聘站 tab 时显示，是 home / 其它时隐藏
+    // 详见 automationOverlay.ts setActiveChannel 注释
+    const tab = this.tabs.get(id)
+    setOverlayActiveChannel(tab?.channel ?? null)
     this.broadcastState()
   }
 
@@ -425,26 +463,41 @@ class TabManager {
   private toState(id: string): TabState | null {
     const tab = this.tabs.get(id)
     if (!tab) return null
-    const wc = tab.view.webContents as unknown as {
+    // 防御：view 可能在 close() / window 退出时已经销毁，但旧监听器还会异步触发一次。
+    // 不防御的话会抛 "Cannot read properties of undefined (reading 'navigationHistory')"
+    const view = tab.view as { webContents?: unknown } | null | undefined
+    const wcRaw = view?.webContents
+    if (!wcRaw) return null
+    const wc = wcRaw as unknown as {
+      isDestroyed?: () => boolean
       isLoading: () => boolean
       navigationHistory?: { canGoBack: () => boolean; canGoForward: () => boolean }
       canGoBack?: () => boolean
       canGoForward?: () => boolean
       getURL: () => string
     }
+    if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) return null
     const canBack = wc.navigationHistory
       ? wc.navigationHistory.canGoBack()
       : (wc.canGoBack?.() ?? false)
     const canFwd = wc.navigationHistory
       ? wc.navigationHistory.canGoForward()
       : (wc.canGoForward?.() ?? false)
+    let url = ''
+    let loading = false
+    try {
+      url = wc.getURL()
+      loading = wc.isLoading()
+    } catch {
+      /* 销毁过程中再次兜底 */
+    }
     return {
       id: tab.id,
       pinned: tab.pinned,
       channel: tab.channel,
       title: tab.title,
-      url: wc.getURL(),
-      loading: wc.isLoading(),
+      url,
+      loading,
       canGoBack: canBack,
       canGoForward: canFwd,
       active: this.activeId === id
@@ -475,6 +528,11 @@ class TabManager {
     wc.on('did-navigate', onChange)
     wc.on('did-navigate-in-page', onChange)
     wc.on('did-finish-load', onChange)
+    // 不监听 'destroyed' 自动清理：
+    //   - 加了之后发现 BOSS 推荐 tab 创建过程中会误触发该事件（机制未明，
+    //     疑似 Electron 30 的某条内部销毁路径，或与 WebContentsView 重建 wc 有关），
+    //     导致活着的 tab 被错误地从 tabs map 清掉 → TabBar 直接空了
+    //   - 防崩溃只靠 toState 里的 isDestroyed 兜底就够了
     // crash / unresponsive 暂不处理
   }
 

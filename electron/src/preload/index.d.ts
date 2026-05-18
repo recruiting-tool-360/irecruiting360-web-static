@@ -110,6 +110,20 @@ export interface IhrManageAuthStatus {
   hasCookies: boolean
   cookieCount: number
   manageUrl: string
+  /** noauth 接口鉴权所需的 accessToken 状态（docs/07-ihr-client-usage.md） */
+  hasAccessToken: boolean
+  accessTokenExpired: boolean
+  /** token 剩余有效时间（ms）；0 表示无 token 或已过期 */
+  accessTokenRemainMs: number
+}
+
+export interface IhrAccessTokenStatus {
+  hasToken: boolean
+  /** ms 时间戳；0 表示无 token */
+  expireAt: number
+  /** 剩余有效时间（ms）；0 表示无 token 或已过期 */
+  remainMs: number
+  expired: boolean
 }
 
 export interface IhrBridge {
@@ -125,8 +139,10 @@ export interface IhrBridge {
     mime?: string
     centralUpload?: boolean
   }): Promise<IhrApiResult>
-  /** 检查 manage partition 是否已登录 */
+  /** 检查 manage partition 是否已登录 + accessToken 状态 */
   checkManageAuth(): Promise<IhrManageAuthStatus>
+  /** 单独查询 accessToken 状态（不查 cookie） */
+  getAccessTokenStatus(): Promise<IhrAccessTokenStatus>
   /**
    * 引导用户登录 i 人事 manage 系统。
    * @param opts.useSystemBrowser true → shell.openExternal 走系统浏览器
@@ -280,9 +296,152 @@ export interface TabFetchResult {
   logs?: string[]
 }
 
+/* ===== Playwright runScript（docs/automation-protocol.md §4.5/§4.6） ===== */
+
+export interface RunScriptRequest {
+  tabId: string
+  scriptCode: string
+  ctx?: unknown
+  timeoutMs?: number
+  /**
+   * 期望 tab 已加载到的 host（如 'zhipin.com'）。runner 会 poll 等待 webContents URL
+   * 命中后再连 CDP，解决 openOrActivate 后 loadURL 异步未完成的竞态。
+   */
+  expectedHost?: string
+}
+
+export interface RunScriptResult {
+  ok: boolean
+  data?: unknown
+  error?: {
+    code:
+      | 'BAD_REQUEST'
+      | 'TAB_NOT_FOUND'
+      | 'PAGE_NOT_FOUND'
+      | 'CDP_CONNECT_FAILED'
+      | 'TIMEOUT'
+      | 'CANCELLED'
+      | 'SCRIPT_ERROR'
+    message: string
+    name?: string
+    stack?: string
+    scriptCode?: string
+  }
+  elapsedMs: number
+  logs: string[]
+}
+
+export interface ActiveTabInfo {
+  tabId: string | null
+  url: string
+  channel: string | null
+}
+
 export interface AutomationBridge {
   captureFromHiddenView(req: HiddenCaptureRequest): Promise<HiddenCaptureResult>
   captureViaNewTab(req: TabFetchRequest): Promise<TabFetchResult>
+
+  /** 在已有 tab 内执行 Playwright 脚本（runScript 通用入口） */
+  runScript(req: RunScriptRequest): Promise<RunScriptResult>
+
+  /** 当前激活 tab 信息（先拿 tabId 再 runScript） */
+  getActiveTab(): Promise<ActiveTabInfo>
+
+  /** 打开或激活某个招聘站 tab，返回 tabId */
+  openOrActivate(opts: {
+    channel: string
+    url: string
+    hidden?: boolean
+  }): Promise<{ tabId: string }>
+
+  /** 取消所有在跑的脚本 */
+  cancelAll(): Promise<{ cancelled: number }>
+
+  /**
+   * 蒙层：聚合搜索 / 自动化期间锁住所有招聘站 tab，提示"客户端执行中，请勿操作"。
+   * 详见 main 进程 automationOverlay.ts。
+   */
+  showOverlay(payload?: {
+    title?: string
+    message?: string
+    channelName?: string
+  }): Promise<{ ok: boolean }>
+  hideOverlay(): Promise<{ ok: boolean }>
+  isOverlayVisible(): Promise<boolean>
+
+  /**
+   * CDP Input dispatchMouseEvent —— 在指定 tab 上模拟用户点击。
+   * 同进程 CDP（webContents.debugger），无 --remote-debugging-port、无端口暴露，
+   * `isTrusted=true` 跟用户真实点击无差别。
+   *
+   * 详见 main 进程 cdpInputDispatcher.ts。
+   */
+  clickOnTab(opts: {
+    tabId: string
+    selector: string
+    pressHoldMs?: number
+    requireVisible?: boolean
+  }): Promise<{
+    ok: boolean
+    data?: {
+      x: number
+      y: number
+      width: number
+      height: number
+      foundIn: string
+      elapsedMs: number
+    }
+    error?: { code: string; message: string }
+    logs: string[]
+  }>
+}
+
+/**
+ * siteNetwork：长驻 CDP 抓包查询（替代 Playwright page.waitForResponse 路径）。
+ * 招聘站 tab 一打开 main 进程就 attach 了 debugger，命中 SITE_CAPTURE_MATCHERS
+ * 的接口响应进环形缓冲。
+ */
+export interface SiteNetworkCapturedResponse {
+  receivedAt: number
+  url: string
+  method: string
+  status: number
+  /** 已尝试 JSON.parse 的 body；非 JSON 时 null */
+  bodyJson: unknown | null
+  /** 解码后的文本 body；非 utf8 时 null */
+  bodyText: string | null
+  bodyBytes: number
+}
+
+export type SiteNetworkWaitResult =
+  | { ok: true; data: SiteNetworkCapturedResponse }
+  | { ok: false; code: string; message: string }
+
+export interface SiteNetworkCacheEntry {
+  url: string
+  receivedAt: number
+  status: number
+  bodyBytes: number
+}
+
+export interface SiteNetworkBridge {
+  /** 等下一条匹配的响应；先扫缓存命中即返回，没命中挂等到 timeoutMs */
+  waitForResponse(opts: {
+    siteKey: string
+    urlPattern: string
+    timeoutMs?: number
+    /** 仅接受 receivedAt > sinceTs 的响应（一般传 tab 打开前 Date.now()） */
+    sinceTs?: number
+  }): Promise<SiteNetworkWaitResult>
+
+  /** 立刻取桶里最新一条匹配（不等） */
+  getLatest(opts: { siteKey: string; urlPattern: string }): Promise<SiteNetworkWaitResult>
+
+  /** 清空某个 siteKey 的缓存 */
+  clearCache(siteKey: string): Promise<{ ok: boolean }>
+
+  /** 调试：列出当前缓存 */
+  listCache(siteKey: string): Promise<SiteNetworkCacheEntry[]>
 }
 
 export interface IKuaiZhaoNative {
@@ -302,6 +461,7 @@ declare global {
       ihrBridge: IhrBridge
       browserBridge: BrowserBridge
       automation: AutomationBridge
+      siteNetwork: SiteNetworkBridge
     }
     __IKUAIZHAO_NATIVE__?: IKuaiZhaoNative
   }

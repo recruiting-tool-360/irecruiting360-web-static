@@ -52,6 +52,7 @@ function isElectronClient() {
 
 // Vuex store 用顶层 import 拿；shim 不被任何 store 模块依赖，无循环依赖风险
 import store from 'src/store';
+import { processResumeList } from 'src/util/ihrPayloadAdapter';
 
 /**
  * 触发"i 人事账号授权"弹框（MainLayout 渲染 IhrAuthModal 订阅这个 Vuex state）。
@@ -217,16 +218,24 @@ export function createElectronMessengerShim() {
           return { data: { code: -1, message: 'ihrBridge unavailable' } };
         }
         const action = data?.action;
+        if (action !== 'assign-position' && action !== 'talent-pool') {
+          console.warn('[electronShim] unknown resumeList action:', action);
+          return { data: { code: -1, message: `unknown action: ${action}` } };
+        }
+        console.log(
+          `[electronShim] resumeList → adapter.processResumeList(action=${action}, resumes=${(data?.resumeFile || []).length})`
+        );
         try {
-          let result = null;
-          if (action === 'assign-position') {
-            result = await ihrBridge.assignPositions(data ?? {});
-          } else if (action === 'talent-pool') {
-            result = await ihrBridge.addPools(data ?? {});
-          } else {
-            console.warn('[electronShim] unknown resumeList action:', action);
-            return { data: { code: -1, message: `unknown action: ${action}` } };
-          }
+          // 通过 adapter 跑完整流程：
+          //   1. 拉 channels map + talentPools（best-effort，失败不阻断）
+          //   2. uploadFile × N 拿 fileId（best-effort，失败 fileId 留空）
+          //   3. 组装符合 docs/07 §6.2 / §7 的 CandidateResumeAiManagerListCommand
+          //   4. phase-1 noauth/addPools(去重) → phase-2 noauth/addPools(自动确认导入)
+          // 详见 src/util/ihrPayloadAdapter.js
+          const result = await processResumeList(data ?? {}, ihrBridge);
+          console.log(
+            `[electronShim] resumeList result: success=${result?.success} code=${result?.code ?? '-'} errorCode=${result?.errorCode ?? '-'} httpStatus=${result?.httpStatus ?? '-'} message=${result?.message ?? '-'}`
+          );
 
           // 未登录 i 人事工作台 / 会话失效 → 弹"i 人事账号授权"对话框
           // 用户点弹框里"登录账号"按钮 → 走系统浏览器打开 manage 登录页

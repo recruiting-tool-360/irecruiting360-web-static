@@ -445,58 +445,68 @@ function detectIhrManageOrigin() {
 }
 
 /**
- * 直接跨域调 manage 后端的 dumpClientSession 接口，拿到完整 cookie 字符串
- * （SESSION + 浏览器侧 document.cookie 能拿到的其它非 HttpOnly cookie）。
+ * 通过 postMessage 让 i 人事 manage 父页代调 client/launch 拿 accessToken。
  *
- * 前置条件（待 i 人事后端配合）：
- *   1. manage 后端实现 GET /gateway/recruit/api/me/dumpClientSession
- *      行为：已认证用户才能调；返回 { sessionValue, cookieStr } 或 { sessionValue }
- *   2. CORS 配置：Access-Control-Allow-Origin: https://login.ihire365.com（具体 origin）
- *                Access-Control-Allow-Credentials: true
- *   3. manage cookie 的 SameSite 不能是 Strict（Lax / None 都行）
- *      Lax 跨站 GET 会带 cookie，正好够用
+ * 为什么不在 iframe 里直接 fetch（旧方案）？
+ *   - launcher iframe 跑在 i 快招 SPA 域（如 http://localhost:8080 / https://login.ihire365.com）
+ *   - manage 后端在另一个域（如 http://localhost:5001 / https://qa2-vip.ihr360.com）
+ *   - 浏览器跨域 + credentials:'include' 要求后端配 Access-Control-Allow-Origin: <iframe-origin>
+ *     + Allow-Credentials: true，未配会被 CORS 拦截
+ *   - 让父页代调：父页和 manage 后端同源，cookies 自动带，零 CORS 风险
  *
- * 协议：
- *   - 用 fetch + credentials: 'include' 让浏览器自动带 manage 的 cookie（含 HttpOnly SESSION）
- *   - 后端用 cookie 鉴权识别用户，返回该用户的 SESSION 值
- *   - 拼接 SESSION + document.cookie（如果当前域能读到 manage 的非 HttpOnly cookie）
+ * 协议：iframe → parent 发 'request-launch-token'，parent handler 调
+ *   `POST /gateway/recruit/api/candidate/AiManager/client/launch` 后把结果 return 回来
+ *   （IframeMessenger 自动 wrap 成 isResponse:true 的回包）
  *
- * 失败兜底：返回 null，客户端走"前往浏览器版" IhrAuthModal 流程
+ * 父页需要在 ihr360-recruit-static 的 RecruitAssistant.watchMessage 里加：
+ *   messenger.on('request-launch-token', async () => {
+ *     const r = await fetch('/gateway/recruit/api/candidate/AiManager/client/launch', {
+ *       method: 'POST', credentials: 'include',
+ *       headers: { 'Content-Type': 'application/json' }, body: '{}'
+ *     });
+ *     const j = await r.json();
+ *     const body = j?.data ?? j;
+ *     return {
+ *       accessToken: body?.accessToken,
+ *       accessTokenExpireAt: body?.accessTokenExpireAt,
+ *       tokenParamName: body?.tokenParamName || 'accessToken'
+ *     };
+ *   });
  *
- * @param {string|undefined} mUrl  manage 系统 base URL
+ * 详见 docs/07-ihr-client-usage.md §3 + docs/client-launcher-flow.md。
+ *
+ * @returns {Promise<null | { accessToken: string, accessTokenExpireAt?: string, tokenParamName?: string }>}
  */
-async function tryFetchManageSession(mUrl) {
-  if (!mUrl) return null;
+async function tryFetchAccessToken() {
+  if (!iframeMsg || typeof iframeMsg.post !== 'function') {
+    console.warn('[ClientLauncher] iframeMsg.post unavailable, skip launch token');
+    return null;
+  }
   try {
-    const url = mUrl.replace(/\/$/, '') + '/gateway/recruit/api/me/dumpClientSession';
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 2500);
-    const res = await fetch(url, {
-      method: 'GET',
-      mode: 'cors',
-      credentials: 'include',
-      signal: ctrl.signal
-    });
-    clearTimeout(timer);
-    if (!res.ok) {
+    const res = await iframeMsg.post('request-launch-token', {});
+    // IframeMessenger 把 handler 的 return 值包成 { data: <result> }
+    const body = res?.data;
+    if (body?.error) {
+      console.warn('[ClientLauncher] parent reported launch error:', body.error);
+      return null;
+    }
+    if (!body || !body.accessToken) {
       console.warn(
-        `[ClientLauncher] dumpClientSession returned ${res.status}（接口未就绪或未登录）`
+        '[ClientLauncher] request-launch-token returned empty token (父页 handler 未注册 / 未登录 / 接口失败)'
       );
       return null;
     }
-    const data = await res.json();
-    const sessionValue = data?.sessionValue;
-    if (!sessionValue) {
-      console.warn('[ClientLauncher] dumpClientSession ok but sessionValue empty');
-      return null;
-    }
-    // 拼 SESSION 到 cookieStr 头部；非 HttpOnly cookie 在跨域 launcher 域里读不到 manage 域，
-    // 但后端如果也能 dump 完整 cookieStr 就更好（暂按只拿 SESSION 处理）
-    const cookieStr = `SESSION=${sessionValue}`;
-    console.log('[ClientLauncher] got SESSION from manage dump endpoint');
-    return cookieStr;
+    console.log(
+      `[ClientLauncher] got accessToken via postMessage (expireAt=${body.accessTokenExpireAt})`
+    );
+    return {
+      accessToken: body.accessToken,
+      accessTokenExpireAt: body.accessTokenExpireAt,
+      tokenParamName: body.tokenParamName || 'accessToken'
+    };
   } catch (e) {
-    console.warn('[ClientLauncher] tryFetchManageSession failed:', e?.message || e);
+    // 常见原因：父页没注册 handler / 15s 超时 / 父页 fetch 失败
+    console.warn('[ClientLauncher] request-launch-token failed:', e?.message || e);
     return null;
   }
 }
@@ -525,11 +535,16 @@ async function launchWithPayload(payload) {
   isLaunching.value = true;
   errorMsg.value = '';
 
-  // 直接调 manage 后端的 dumpClientSession 接口拿 SESSION（cookie 自带跨域随请求）
-  // 拿不到也不影响主流程（接口未就绪 / CORS 未配 / 用户未登录都会失败），
-  // 后续 ihrBridge 调用拿不到 cookie → 401 → 走"前往浏览器版"兜底
+  // 让 manage 父页代调 client/launch 换 accessToken（zero CORS）。
+  // 决策：放弃 dumpClientSession + 客户端复用 SESSION cookie 的旧方案，
+  //      改用后端签发的 JWT accessToken 通过 deep link 传到客户端，由客户端调
+  //      /candidate/AiManager/client/noauth/** 系列包装接口（详见 docs/07-ihr-client-usage.md）。
+  //
+  // 拿不到也不影响主流程（父页 handler 未注册 / 用户未登录 / 接口失败都会返回 null），
+  // 后续 ihrBridge 调用会得到 errorCode='NOT_LOGGED_IN' → 弹 IhrAuthModal 引导用户
+  // 回到招聘工作台触发新一轮 client/launch。
   const manageOrigin = detectIhrManageOrigin();
-  const manageCookies = await tryFetchManageSession(manageOrigin);
+  const tokenInfo = await tryFetchAccessToken();
 
   const dlPayload = payload
     ? {
@@ -540,15 +555,27 @@ async function launchWithPayload(payload) {
         positionIds: Array.isArray(payload.positionList)
           ? payload.positionList.map((p) => p?.positionId).filter(Boolean)
           : payload.positionIds,
-        // 透传 i 人事父页 origin，让客户端 ihrBridge 知道走哪个 manage 域
         ihrManageUrl: manageOrigin,
-        // 透传 manage cookie 字符串（含 SESSION，dumpClientSession 接口返回的）
-        ...(manageCookies ? { manageCookies } : {})
+        // accessToken / accessTokenExpireAt 由客户端主进程 ihrBridge 接收，
+        // 所有 /candidate/AiManager/client/noauth/** 调用都会自动拼 ?accessToken=
+        ...(tokenInfo
+          ? {
+              accessToken: tokenInfo.accessToken,
+              accessTokenExpireAt: tokenInfo.accessTokenExpireAt,
+              tokenParamName: tokenInfo.tokenParamName
+            }
+          : {})
       }
     : {
         intent: 'open',
         ihrManageUrl: manageOrigin,
-        ...(manageCookies ? { manageCookies } : {})
+        ...(tokenInfo
+          ? {
+              accessToken: tokenInfo.accessToken,
+              accessTokenExpireAt: tokenInfo.accessTokenExpireAt,
+              tokenParamName: tokenInfo.tokenParamName
+            }
+          : {})
       };
 
   try {
