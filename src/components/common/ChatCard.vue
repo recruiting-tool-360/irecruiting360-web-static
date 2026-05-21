@@ -176,6 +176,7 @@
                 v-else-if="msg.type === 'task_status'"
                 :task-id="msg.taskId || ''"
                 :force-stopped="!!msg.isStopped"
+                :kind="msg.kind || 'all'"
               />
               <!--
                 任务完成卡片（msg.type === 'task_completion_card'）：
@@ -908,9 +909,10 @@ const handleSearch = async (msg) => {
       return;
     }
 
-    // 1) 立刻 push 一张任务状态占位卡片（taskId='' 时 TaskStatusCard 显示"正在初始化任务..."）
-    //    chatIdForSearch 一同记录，方便 watch 触发时定位本卡片绑定到哪个 chat 的最新 task
-    const placeholderMsgId = pushTaskStatusPlaceholder(chatIdForSearch);
+    // 1) 立刻 push 占位 task_status 卡片：按 selectedModules 拆成 search / recommend 两张
+    //    独立卡片（视觉上是两个聊天气泡），不再合到一张里。watch 触发时同一 taskId
+    //    会回填给两张占位
+    const placeholderMsgId = pushTaskStatusPlaceholdersByModules(chatIdForSearch, selectedModules);
 
     // 2) 通知父级真正去创建任务 + 跑搜索
     emit("aggregate-search", {
@@ -919,7 +921,6 @@ const handleSearch = async (msg) => {
       matchedBossJobId,
       resumeCount,
       content: msg?.content,
-      // 把占位消息 id 也带上，方便父级 / store 在创建失败时通过事件回流标记 isStopped
       placeholderMsgId
     });
     // 不再 await mock 动画；watchPendingTaskBinding 会在任务进入终态时 emit view-results
@@ -969,29 +970,60 @@ const viewResultsFiredTaskIds = ref(new Set());
  */
 const sessionStartedTaskIds = ref(new Set());
 
-/** 立即 push 一条占位 task_status 消息，返回消息 id */
-function pushTaskStatusPlaceholder(chatId) {
-  const id = "task-status-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+/**
+ * 立即 push 一条占位 task_status 消息，返回消息 id。
+ *
+ * @param {string} chatId
+ * @param {'search'|'recommend'|'all'} [kind='all']  这张卡片只渲染哪个流程段。
+ *        ChatCard 会按 selectedModules 调用本函数 1～2 次（search + recommend 各一张），
+ *        让两段流程视觉上是**两个独立的聊天气泡**，而不是挤在同一张卡片里。
+ *        kind='all' 用于兼容（向后兼容旧调用 / 不确定时全显示）。
+ */
+function pushTaskStatusPlaceholder(chatId, kind = "all") {
+  const id = "task-status-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6) + "-" + kind;
   const createdAt = Date.now();
   internalMessages.value.push({
     id,
     type: "task_status",
     taskId: "",
     chatId: chatId || "",
+    kind,
     createdAt,
     time: new Date().toTimeString().slice(0, 8),
     user: ""
   });
   // 同时记录创建时间——watch 回填时只绑"晚于这个时间创建"的任务，
   // 避免把 resumeFromCurrent 标 FAILED 的旧任务误绑给新点击产生的占位
+  //
+  // 结构从单 entry 改为数组：一个 chat 可能同时挂 search + recommend 两张占位，
+  // 都要被同一个 taskId 回填
+  const cur = pendingTaskBindingsByChat.value[chatId];
+  const arr = Array.isArray(cur) ? [...cur] : cur ? [cur] : [];
+  arr.push({ id, createdAt, kind });
   pendingTaskBindingsByChat.value = {
     ...pendingTaskBindingsByChat.value,
-    [chatId]: { id, createdAt }
+    [chatId]: arr
   };
   nextTick(() => {
     try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
   });
   return id;
+}
+
+/**
+ * 根据 selectedModules push 一条或两条 task_status 占位（让两个流程是独立的气泡）。
+ * 返回最后一张占位的 msgId（向后兼容旧 callers 取一个 placeholderMsgId 的用法）。
+ */
+function pushTaskStatusPlaceholdersByModules(chatId, selectedModules) {
+  const sel = selectedModules || { search: true, recommend: false };
+  let lastId = "";
+  if (sel.search) lastId = pushTaskStatusPlaceholder(chatId, "search");
+  if (sel.recommend) lastId = pushTaskStatusPlaceholder(chatId, "recommend");
+  if (!sel.search && !sel.recommend) {
+    // 都没勾还是兜底 push 一张 'all'，避免占位丢失
+    lastId = pushTaskStatusPlaceholder(chatId, "all");
+  }
+  return lastId;
 }
 
 /**
@@ -1021,27 +1053,41 @@ watch(
     //   正确做法：占位只绑"新于自己"的任务。FAILED 旧任务 createdAt < placeholder
     //   createdAt → 跳过；等真正的新任务被 create 出来时（createdAt >= placeholder）
     //   再绑。
-    const pendingEntry = pendingTaskBindingsByChat.value[chatId];
-    if (pendingEntry) {
-      const pendingMsgId = typeof pendingEntry === "string" ? pendingEntry : pendingEntry.id;
-      const placeholderCreatedAt = (pendingEntry && pendingEntry.createdAt) || 0;
+    const pendingRaw = pendingTaskBindingsByChat.value[chatId];
+    // 兼容三种历史结构：string（旧）/ object（旧）/ array（新，支持 search+recommend 两张占位）
+    const pendingEntries = Array.isArray(pendingRaw)
+      ? pendingRaw
+      : pendingRaw
+        ? [typeof pendingRaw === "string" ? { id: pendingRaw, createdAt: 0 } : pendingRaw]
+        : [];
+    if (pendingEntries.length > 0) {
       const newTaskCreatedAt = Number(newTask.createdAt) || 0;
-      // 允许 200ms 时间漂移（client 时钟 vs server 时钟）
-      const isFreshEnough = newTaskCreatedAt >= placeholderCreatedAt - 200;
-      const target = internalMessages.value.find((m) => m.id === pendingMsgId);
-      if (target && !target.taskId && isFreshEnough) {
-        target.taskId = newTask.taskId;
+      let anyBound = false;
+      let anySkipped = false;
+      for (const entry of pendingEntries) {
+        const pendingMsgId = entry.id;
+        const placeholderCreatedAt = entry.createdAt || 0;
+        // 允许 200ms 时间漂移（client 时钟 vs server 时钟）
+        const isFreshEnough = newTaskCreatedAt >= placeholderCreatedAt - 200;
+        const target = internalMessages.value.find((m) => m.id === pendingMsgId);
+        if (target && !target.taskId && isFreshEnough) {
+          target.taskId = newTask.taskId;
+          anyBound = true;
+        } else if (target && !target.taskId && !isFreshEnough) {
+          anySkipped = true;
+          console.log(
+            `[ChatCard] 占位卡片跳过绑定旧任务 taskId=${newTask.taskId}（createdAt=${newTaskCreatedAt} < placeholder=${placeholderCreatedAt}）kind=${entry.kind || 'all'}`
+          );
+        }
+      }
+      if (anyBound) {
         const next = { ...pendingTaskBindingsByChat.value };
         delete next[chatId];
         pendingTaskBindingsByChat.value = next;
         // 配对成功 → 标记为"本会话主动启动"，COMPLETED 时才会触发自动切到 results 视图
-        // 见 sessionStartedTaskIds 注释（解决"返回对话后下次进来被强切回 results"的问题）
         sessionStartedTaskIds.value.add(newTask.taskId);
-      } else if (target && !target.taskId && !isFreshEnough) {
-        // 不绑定，但留个 log 便于排查
-        console.log(
-          `[ChatCard] 占位卡片跳过绑定旧任务 taskId=${newTask.taskId}（createdAt=${newTaskCreatedAt} < placeholder=${placeholderCreatedAt}）`
-        );
+      } else if (anySkipped) {
+        // 全部跳过：不动 binding，等真正新任务出来
       }
     }
     // (b) 终态切视图：每个 taskId 只 fire 一次。COMPLETED 才切；FAILED/STOPPED 留在当前视图
@@ -1159,14 +1205,26 @@ function ensureTaskStatusCardForCurrentChat() {
   );
   if (alreadyExists) return;
 
-  internalMessages.value.push({
-    id: "task-status-restored-" + latestTask.taskId,
-    type: "task_status",
-    taskId: latestTask.taskId,
-    chatId,
-    time: new Date().toTimeString().slice(0, 8),
-    user: ""
-  });
+  // 按 task 实际的 channels 推 search / recommend 两张独立气泡（跟新建任务一致）
+  const channels = Array.isArray(latestTask.channels) ? latestTask.channels : [];
+  const hasSearch = channels.some((c) => c.businessChannel === "SEARCH");
+  const hasRecommend = channels.some((c) => c.businessChannel === "RECOMMEND");
+  const kinds = [];
+  if (hasSearch) kinds.push("search");
+  if (hasRecommend) kinds.push("recommend");
+  if (kinds.length === 0) kinds.push("all");
+
+  for (const kind of kinds) {
+    internalMessages.value.push({
+      id: "task-status-restored-" + latestTask.taskId + "-" + kind,
+      type: "task_status",
+      taskId: latestTask.taskId,
+      chatId,
+      kind,
+      time: new Date().toTimeString().slice(0, 8),
+      user: ""
+    });
+  }
   nextTick(() => {
     try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
   });
@@ -1296,9 +1354,11 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
     return;
   }
 
-  // push 占位卡片（taskId='' → TaskStatusCard 显示"正在初始化任务..."），
-  // 由 watchPendingTaskBinding 在新任务出现时回填 taskId
-  const placeholderMsgId = pushTaskStatusPlaceholder(chatIdForSearch);
+  // push 占位卡片：按 selectedModules 推 search / recommend 两张独立气泡
+  const placeholderMsgId = pushTaskStatusPlaceholdersByModules(
+    chatIdForSearch,
+    params?.selectedModules
+  );
   emit("aggregate-search", { ...basePayload, placeholderMsgId });
 }
 

@@ -185,7 +185,10 @@ function mapBossGeekToResume(geek) {
     intention,
     channel: 'boss直聘',
     description,
-    score: null, // BOSS 推荐没 AI 分，让 ResumeCard 显示 "AI 分析中"
+    // score 来自 patchBossRecommendGeek 回填（scoreAutoUpdater 回调写入）。
+    // 没回填前 null → ResumeCard 显示 "AI 分析中"；回填后显示具体分数 / "评分失败"
+    score: typeof g.score === 'number' ? g.score : (g.score ?? null),
+    scoreStatus: g.scoreStatus || null,
     workExp,
     eduExp,
     isRead: false,

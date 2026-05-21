@@ -68,10 +68,10 @@
               <span>返回对话</span>
             </button>
             <!--
-              tab 切换器：只有"推荐牛人"tab 可见时（即本次任务同时有 SEARCH + RECOMMEND）
-              才显示整组切换器。只有一个 tab 的话不显示，避免冗余 UI。
+              tab 切换器：只有同时有 SEARCH + RECOMMEND 时才显示。
+              只有一个的时候不显示，避免冗余 UI（用户明确要求）。
             -->
-            <template v-if="recommendTabVisible">
+            <template v-if="showResultTabs">
               <div class="result-tab-divider" />
               <div class="result-tabs">
                 <button
@@ -80,11 +80,6 @@
                   :class="{ active: activeResultTab === 'search' }"
                   @click="activeResultTab = 'search'"
                 >搜索牛人</button>
-                <!--
-                  推荐牛人 tab 显示条件（参考 recommendTabVisible computed）：
-                    - BOSS 在 settings 启用
-                    - 本次任务包含 RECOMMEND channel
-                -->
                 <button
                   type="button"
                   class="result-tab"
@@ -96,18 +91,12 @@
           </div>
 
           <!--
-            搜索牛人：现有 JobSearchFilter + AISearch
-            推荐牛人：BOSS 推荐列表（来自 Vuex store.BossRecommendData，按 jobId 分桶），仅 BOSS 启用时渲染
+            搜索牛人 pane：仅在任务包含 SEARCH 时渲染
+            推荐牛人 pane：仅在任务包含 RECOMMEND 且 BOSS 启用时渲染
+            （只有一个时 tab 不显示，但对应 pane 仍会显示，因为 activeResultTab 已自动校正）
           -->
           <div class="results-body">
-            <div v-show="activeResultTab === 'search'" class="result-tab-pane">
-              <!--
-                "查看结果"和"聚合搜索完后自动到结果页"统一走 AISearch + JobSearchFilter +
-                ResumeList 渲染——只有数据填充时机不同：
-                  - 聚合搜索：各 channel 业务侧 fetch → channelDataSavePlus → ChannelConfig
-                  - 查看结果：handleViewResults 直接拿 /search/task/results/query 灌 ChannelConfig
-                两条路径 UI 完全一致，不再有独立的 TaskResultsView（已废弃）。
-              -->
+            <div v-if="searchPaneVisible" v-show="activeResultTab === 'search'" class="result-tab-pane">
               <JobSearchFilter
                 ref="jobSearchFilterRef"
                 v-model:searchState="searchState"
@@ -116,7 +105,7 @@
               />
               <AISearch ref="aiSearchRef" v-model:search-state="searchState"></AISearch>
             </div>
-            <div v-if="recommendTabVisible" v-show="activeResultTab === 'recommend'" class="result-tab-pane">
+            <div v-if="recommendPaneVisible" v-show="activeResultTab === 'recommend'" class="result-tab-pane">
               <RecommendList
                 :job-id="currentRecommendJobId"
                 :bucket="currentRecommendBucket"
@@ -235,14 +224,17 @@ const bossEnabled = computed(() => {
 });
 
 /**
- * 推荐牛人 tab 是否显示——综合判定：
- *   1. BOSS 在 settings 里启用（推荐依赖 BOSS）
- *   2. **当前 chat 的最新任务里**确实有 RECOMMEND channel
- *      （= 用户这次启动聚合搜索时勾选了"推荐牛人"且 BOSS jobId 匹配）
- *
- * 旧版只看 bossEnabled → 用户没勾推荐时仍能看到 tab（误导）。
- * 现在 task.channels 里没有 RECOMMEND → tab 直接不渲染。
+ * 当前 chat 最新任务包含什么 channel（用于决定结果页 tab 切换器和默认 tab）。
  */
+const hasSearchForCurrentChat = computed(() => {
+  const cid = store.getters.getLatestChatId;
+  if (!cid) return false;
+  const getter = store.getters['SearchTasks/getLatestTaskByChat'];
+  const t = typeof getter === 'function' ? getter(cid) : null;
+  if (!t || !Array.isArray(t.channels)) return false;
+  return t.channels.some((c) => c && c.businessChannel === 'SEARCH');
+});
+
 const hasRecommendForCurrentChat = computed(() => {
   const cid = store.getters.getLatestChatId;
   if (!cid) return false;
@@ -252,14 +244,39 @@ const hasRecommendForCurrentChat = computed(() => {
   return t.channels.some((c) => c && c.businessChannel === 'RECOMMEND');
 });
 
-const recommendTabVisible = computed(() => bossEnabled.value && hasRecommendForCurrentChat.value);
+/**
+ * tab 切换器是否显示——用户要求：**只有同时有 SEARCH + RECOMMEND 时才显示**；
+ * 只勾了搜索 / 只勾了推荐都不显示（只有一个时直接渲染对应内容，没必要冗余 tab）。
+ *
+ * 之前 recommendTabVisible 只看 hasRecommend → 只勾推荐时也会显示 tab，跟需求不符。
+ */
+const showResultTabs = computed(() =>
+  bossEnabled.value && hasSearchForCurrentChat.value && hasRecommendForCurrentChat.value
+);
 
-// 推荐 tab 不可见时如果当前激活的是 recommend，自动回到 search（避免空白页）
-watch(recommendTabVisible, (visible) => {
-  if (!visible && activeResultTab.value === 'recommend') {
-    activeResultTab.value = 'search';
-  }
-});
+/**
+ * 推荐 tab 内容是否渲染——只要任务包含 RECOMMEND 就渲染推荐内容，
+ * 不依赖 tab 切换器是否显示（"只有推荐"的场景，tab 不显示但推荐内容仍要展示）。
+ */
+const recommendPaneVisible = computed(() => bossEnabled.value && hasRecommendForCurrentChat.value);
+const searchPaneVisible = computed(() => hasSearchForCurrentChat.value);
+
+// 任务 channel 变化时，把 activeResultTab 自动校正到唯一可见的那个 pane
+watch(
+  [searchPaneVisible, recommendPaneVisible, showResultTabs],
+  ([sVisible, rVisible, tabsVisible]) => {
+    if (!tabsVisible) {
+      // 只有一个 pane 可见时，强制切到那个 pane
+      if (sVisible && !rVisible && activeResultTab.value !== 'search') {
+        activeResultTab.value = 'search';
+      } else if (!sVisible && rVisible && activeResultTab.value !== 'recommend') {
+        activeResultTab.value = 'recommend';
+      }
+    }
+  },
+  { immediate: true }
+);
+
 
 /**
  * 切换 chat 时，如果切回的 chat 处于"结果页"视图 AND ALL.data 为空（被 selectChat 清掉了）
@@ -337,9 +354,226 @@ function onOpenGeek(geek) {
   });
 }
 
+/**
+ * 把 BOSS **推荐 API** 返回的 geek，适配成 BOSS **搜索 API** 一样的 rawResume 形态，
+ * 这样后端的 BOSS 反序列化器（按搜索 geekCard 字段写的）就能解析推荐数据，不会再报
+ * SYSTEM_005 "no valid resultItems converted"。
+ *
+ * 字段对应（推荐 → 搜索）：
+ *   geekCard.geekName            → geekCard.name
+ *   geekCard.geekGender          → geekCard.gender
+ *   geekCard.geekWorkYear        → geekCard.workYear
+ *   geekCard.geekDegree          → geekCard.highestDegreeName
+ *   geekCard.salary              → geekCard.salary
+ *   geekCard.lowSalary           → geekCard.lowSalary
+ *   geekCard.highSalary          → geekCard.hightSalary    （搜索拼写就是 hightSalary）
+ *   geekCard.geekDesc.content    → geekCard.geekDesc.name
+ *   geekCard.expectPositionName  → geekCard.expect.name + lidTag
+ *   geekCard.expectPositionCode  → geekCard.expect.code
+ *   geekCard.expectLocationName  → geekCard.city
+ *   geekCard.geekEdu.school      → geekCard.eduSchool
+ *   geekCard.geekEdu.major       → geekCard.eduMajor
+ *   geekCard.geekWorks[0]        → 拼成 geekCard.current.name + works[]
+ *   geekCard.matches             → geekCard.matches + labelMatchList
+ *   顶层 isFriend                → friendRelationStatus
+ *   顶层 geekCallStatus / cooperate / talkTimeDesc → 同名
+ *
+ * 没有的字段（推荐不返回，搜索后端也不一定强依赖）填 null / 0 / '' 兜底。
+ */
+function mapBossRecommendGeekToSearchRaw(geek) {
+  const g = geek || {};
+  const c = g.geekCard || {};
+  const firstWork = Array.isArray(c.geekWorks) && c.geekWorks.length > 0 ? c.geekWorks[0] : null;
+  const currentName = firstWork
+    ? `${firstWork.company || ''}·${firstWork.positionName || firstWork.positionCategory || ''}`
+    : (c.middleContent?.content || '');
+  const worksForSearch = (c.geekWorks || []).map((w) => ({
+    name: `${w.positionName || w.positionCategory || ''}|${w.company || ''}`,
+    dateRange: null,
+    code: null,
+    hlname: null,
+    highlightList: null,
+    intentList: null
+  }));
+  const topWorks = (c.geekWorks || []).map((w) => ({
+    isCurrent: !!w.current,
+    company: { value: w.company || '', highlights: null, color: 0, setValue: true, setHighlights: false, setColor: false, highlightsSize: 0, highlightsIterator: null },
+    position: { value: w.positionName || w.positionCategory || '', highlights: null, color: 0, setValue: true, setHighlights: false, setColor: false, highlightsSize: 0, highlightsIterator: null },
+    companyId: 0,
+    startDate8: 0,
+    endDate8: 0,
+    brand: null,
+    title: null,
+    positionCode: 0,
+    setBrand: false,
+    setPosition: true,
+    setCompany: true,
+    setTitle: false,
+    setCompanyId: false,
+    setStartDate8: false,
+    setEndDate8: false,
+    setIsCurrent: true,
+    setPositionCode: false
+  }));
+  const matches = Array.isArray(c.matches) ? c.matches : [];
+  return {
+    geekCard: {
+      headImg: 0,
+      userId: 0,
+      geekSource: 0,
+      suid: null,
+      name: c.geekName || '',
+      gender: typeof c.geekGender === 'number' ? c.geekGender : 1,
+      city: c.expectLocationName || '',
+      workYear: c.geekWorkYear || '',
+      salary: c.salary || '',
+      lowSalary: Number(c.lowSalary) || 0,
+      hightSalary: Number(c.highSalary) || 0,  // 注意：搜索接口字段拼写就是 hightSalary
+      expectType: c.expectType || 0,
+      positionType: 0,
+      headUrl: c.geekAvatar || '',
+      geekDesc: {
+        name: c.geekDesc?.content || '',
+        dateRange: null, code: null, hlname: null, highlightList: null, intentList: null
+      },
+      expect: {
+        name: c.expectPositionName || '',
+        dateRange: null,
+        code: c.expectPositionCode ? String(c.expectPositionCode) : null,
+        hlname: null, highlightList: null, intentList: null
+      },
+      current: {
+        name: currentName,
+        dateRange: null, code: null, hlname: null, highlightList: null, intentList: null
+      },
+      showRelatedHead: false,
+      expectId: Number(c.expectId) || 0,
+      encryptExpectId: null,
+      lid: c.lid || '',
+      isSpecial: 0,
+      allWorkEmphasis: null,
+      degreeName: null,
+      rewardHat: null,
+      rewardIcon: null,
+      highestDegreeName: c.geekDegree || '',
+      unitName: null,
+      unitPosition: null,
+      activeDesc: g.activeTimeDesc || '',
+      workEduDesc: {
+        name: firstWork ? `${firstWork.company || ''} ${firstWork.positionName || firstWork.positionCategory || ''}` : '',
+        dateRange: null, code: null, hlname: null, highlightList: null, intentList: null
+      },
+      tag: 0,
+      blur: g.blur || 0,
+      contacting: 0,
+      hotGeek: 0,
+      hotGeekIcon: null,
+      lidTag: c.expectPositionName || '',
+      jobId: 0,
+      encryptJobId: c.encryptJobId || '',
+      freeGeek: 0,
+      encryptGeekId: c.encryptGeekId || g.encryptGeekId || '',
+      itemId: 0,
+      contact: false,
+      tagTimeLong: 0,
+      eduSchool: c.geekEdu?.school || (c.geekEdus?.[0]?.school) || '',
+      eduMajor: c.geekEdu?.major || (c.geekEdus?.[0]?.major) || '',
+      eduDateRange: null,
+      works: worksForSearch,
+      matches,
+      labelMatchList: matches.map((w) => ({ type: 0, markWord: w, labelStyle: 0, iconUrl: null })),
+      securityId: c.securityId || '',
+      labels: null, note: null, allLabels: null,
+      geekWorks: null, geekEdus: null,
+      ageDesc: c.ageDesc || '',
+      cardFields: [],
+      geekEcomInfo: null,
+      eliteGeek: c.eliteGeek || 0,
+      avatarBottomIcon: null,
+      geekWork: {
+        name: currentName,
+        dateRange: null, code: null, hlname: null, highlightList: null, intentList: null
+      },
+      geekEdu: c.geekEdu ? {
+        name: `${c.geekEdu.school || ''}·${c.geekEdu.major || ''}`,
+        dateRange: null, code: null, hlname: null, highlightList: null, intentList: null
+      } : null,
+      workList: [],
+      matchWork: null,
+      feedbackCodeConfigList: [],
+      feedbackTitle: g.feedbackTitle || '',
+      nameStyle: 0,
+      searchChatCardCostCount: g.searchChatCardCostCount || 0,
+      eventTime: 0,
+      eventTimeLong: 0,
+      salaryType: 0,
+      viewed: !!c.viewed,
+      highlightExpectName: null,
+      cooperate: g.cooperate || 0,
+      immediateChatFlag: 0, immediateChatText: null,
+      productPictureList: null,
+      applyStatusDesc: c.applyStatusDesc || '',
+      continueChatText: null,
+      rcdReason: null, aiRcdReason: null, rcdReasonList: null,
+      geekMsgStatus: 0, remark: null, remarkTimeStr: null,
+      contactJobInfo: null, geekDescTag: null, tags: null,
+      otherSceneChat: 0, commonFlag: null, recallType: 0,
+      canUseDirectCall: !!g.canUseDirectCall, directCallGeekType: -1,
+      hotGeekIconImg: null, recOnline: c.recOnline || null,
+      favor: false, favorGeekIconImg: null, newGeekIconImg: null,
+      tagList: null, cardLabelInfos: [],
+      geekProfileList: [c.geekWorkYear, c.geekDegree, c.salary, c.ageDesc].filter(Boolean),
+      expectLabel: '期望',
+      geekProfileSimpleGray: 0,
+      feedbackSwitch: 1,
+      encryptUserId: '',
+      newGeek: 0,
+      vipCostChatCount: 0,
+      expectCity: c.expectLocationCode || 0,
+      recommendedReason: null,
+      rcdBizType: c.rcdBizType || null,
+      recallStgTag: c.recallStgTag || null
+    },
+    endDate: null,
+    startDate: null,
+    school: null,
+    highlightExpectName: c.expectPositionName || '',
+    highlightCurrentName: currentName,
+    highlightGeekDescName: c.geekDesc?.content || '',
+    jobId: 0,
+    inactive: false,
+    applyStatus: c.applyStatus || 0,
+    applyStatusDesc: c.applyStatusDesc || '',
+    friendRelationStatus: g.isFriend || 0,
+    highlightWorkNames: (c.geekWorks || []).map((w) => `${w.positionName || w.positionCategory || ''}-${w.company || ''}`),
+    geekCallStatus: g.geekCallStatus || 0,
+    talkTimeDesc: g.talkTimeDesc || null,
+    cooperate: g.cooperate || 0,
+    ageDesc: c.ageDesc || '',
+    works: topWorks,
+    uniqSign: c.geekId ? `rec_${c.geekId}` : `rec_${c.encryptGeekId || g.encryptGeekId || Math.random().toString(36).slice(2)}`,
+    geekMsgStatus: 0,
+    showExpectPosition: null,
+    read: false
+  };
+}
+
 async function doFetchRecommend(args) {
   const jobId = args?.encryptJobId;
   if (!jobId) return;
+
+  // 拿当前 task 的 taskId，用于驱动 recommendClientPhase（让 TaskStatusCard 推荐卡的
+  // 步骤推进跟前端实际进度对齐，不被后端 SSE 的 channel.taskChannelStatus 误推到 RUNNING）。
+  const _cidForPhase = args?.chatId || store.getters.getLatestChatId;
+  const _taskForPhase = _cidForPhase
+    ? store.getters['SearchTasks/getLatestTaskByChat'](_cidForPhase)
+    : null;
+  const _taskIdForPhase = _taskForPhase?.taskId || '';
+  const setPhase = (phase) => {
+    if (!_taskIdForPhase) return;
+    store.commit('SearchTasks/setRecommendClientPhase', { taskId: _taskIdForPhase, phase });
+  };
+  setPhase('WAITING');
 
   // 串行化：如果同时勾了搜索 + 推荐，先 await 搜索完成再开始推荐，避免 BOSS 同账号
   // 同时跑"搜索 BOSS API"+"推荐 BOSS tab"双流量被风控识别为爬虫。
@@ -352,9 +586,86 @@ async function doFetchRecommend(args) {
       // 搜索失败不阻塞推荐（用户至少能拿到推荐数据）
       console.warn('[IndexPage] 搜索 promise rejected，推荐流程继续:', e?.message || e);
     }
-    console.log('[IndexPage] 搜索已完成 / 已超时，开始启动推荐流程');
+    console.log('[IndexPage] 搜索 fetch 已完成，等搜索的 AI 分析也完成再启动推荐...');
+
+    // 用户明确要求：推荐要等搜索的 AI 评分跑完才能启动
+    // 否则两路 AI 同时跑会让"完成卡片"时序错乱，且 BOSS 同账号双流量被风控盯
+    //
+    // ⚠️ 三个坑：
+    //   1) 不能只查 store.getters.getAiAnalyzingActive：AsyncTaskQueueManager 用
+    //      dynamic import 推 store，状态推送是 microtask 异步的，刚 await 完 searchPromise
+    //      时 active 还是 false → 立刻 break。
+    //   2) 评分轮询（scoreAutoUpdater）的 timer 是被 saveResumeDetailPlus 触发，启动延迟
+    //      可能到 1-2s，需要"先等 AI 启动"的初始窗口。
+    //   3) 评分跑完中间会有 "scorePending=0 但 queueManager 还在解析详情" 的瞬间，
+    //      要三路 OR 判断（queueBusy || scoreBusy || storeActive）。
+    //
+    // 跟 SearchTasks/runTask 末尾的 "等 AI 完成" 用同样的判断方式。
+    try {
+      const [qm, su] = await Promise.all([
+        import('src/pluginSrc/util/AsyncTaskQueueManager'),
+        import('src/utils/scoreAutoUpdater')
+      ]);
+      const queueManager = qm.asyncTaskQueueManager;
+      const scoreUpdater = su.default || su;
+
+      const MAX_WAIT_AI_MS = 10 * 60 * 1000;
+      const AI_POLL_MS = 800;
+      const startWaitAi = Date.now();
+      let aiSeenActive = false; // 必须见过一次 active 再等回落，避免"还没启动就过了"
+      const WAIT_FOR_AI_START_MS = 15000; // 15s 都没启动 = 搜索 0 条简历，直接放推荐过去
+
+      while (Date.now() - startWaitAi < MAX_WAIT_AI_MS) {
+        const queueBusy = (queueManager?.queueStatus?.totalTasks || 0) > 0;
+        const scoreBusy =
+          !!scoreUpdater?.timer && (scoreUpdater?.pendingResumeIds?.size || 0) > 0;
+        const storeActive = store.getters.getAiAnalyzingActive === true;
+        const stillAnalyzing = queueBusy || scoreBusy || storeActive;
+
+        if (stillAnalyzing) aiSeenActive = true;
+        const elapsed = Date.now() - startWaitAi;
+
+        if (!stillAnalyzing) {
+          if (aiSeenActive) break;                          // AI 跑过且已歇 → 推荐启动
+          if (elapsed >= WAIT_FOR_AI_START_MS) break;       // 等够"启动窗口"还没动 → 跳出
+        }
+        await new Promise((r) => setTimeout(r, AI_POLL_MS));
+      }
+      console.log(
+        `[IndexPage] AI 等待结束 耗时=${Date.now() - startWaitAi}ms aiSeenActive=${aiSeenActive}` +
+        ` queueTotal=${queueManager?.queueStatus?.totalTasks || 0}` +
+        ` scorePending=${scoreUpdater?.pendingResumeIds?.size || 0}`
+      );
+    } catch (e) {
+      console.warn('[IndexPage] 加载 queueManager/scoreUpdater 失败，跳过等 AI:', e?.message || e);
+    }
   }
 
+  // ===== execute RECOMMEND 渠道（被 runTask 推迟到这里，严格串行在搜索 AI 之后）=====
+  // SearchTasks.runTask 不再为 RECOMMEND 调 /execute，由本处统一发起，
+  // 保证 BOSS SEARCH 与 RECOMMEND 不会同时 execute（用户要求）。
+  if (_taskForPhase && Array.isArray(_taskForPhase.channels)) {
+    const recCh = _taskForPhase.channels.find(
+      (c) => c.businessChannel === 'RECOMMEND' && c.channelSubType === 'BOSS'
+    );
+    if (recCh?.taskChannelId) {
+      try {
+        const { postExecuteChannel } = await import('src/api/searchTaskApi');
+        await postExecuteChannel(recCh.taskChannelId);
+        console.log(
+          `[IndexPage] postExecuteChannel ok RECOMMEND/BOSS taskChannelId=${recCh.taskChannelId}`
+        );
+      } catch (e) {
+        console.warn(
+          `[IndexPage] postExecuteChannel RECOMMEND/BOSS failed taskChannelId=${recCh.taskChannelId}:`,
+          e?.message || e
+        );
+        // execute 失败不阻塞推荐流程（业务侧 /results 仍然会落库，后端能补救）
+      }
+    }
+  }
+
+  setPhase('OPENING');
   store.commit('setCurrentRecommendJobId', jobId);
   store.commit('setBossRecommendFetching', { jobId, fetching: true });
   console.log('[IndexPage] runBossRecommend', args);
@@ -376,9 +687,11 @@ async function doFetchRecommend(args) {
       console.log('[IndexPage] BOSS 推荐 tab 已打开:', payload?.url);
     } else if (stage === 'dwell') {
       console.log(`[IndexPage] 拟人 dwell ${payload?.ms}ms 模拟用户加载后停留观察`);
+      setPhase('FETCHING');
     } else if (stage === 'verified') {
       console.log('[IndexPage] BOSS 推荐 verify 通过:', payload);
     } else if (stage === 'firstPage' && payload?.geekList?.length > 0) {
+      setPhase('FETCHED');
       // 先把首屏数据落进 store，让推荐 tab 立刻显示
       store.commit('setBossRecommendList', {
         jobId,
@@ -415,6 +728,7 @@ async function doFetchRecommend(args) {
 
   if (!res || !res.ok) {
     console.warn('[IndexPage] runBossRecommend failed:', res?.errorCode, res?.message);
+    setPhase('FAILED');
     store.commit('setBossRecommendError', {
       jobId,
       error: { code: res?.errorCode, message: res?.message }
@@ -432,6 +746,181 @@ async function doFetchRecommend(args) {
   console.log(
     `[IndexPage] BOSS 推荐流程完成 jobId=${jobId} total=${(res.geekList || []).length} humanize=${JSON.stringify(res.humanize || res.humanizeError)}`
   );
+
+  // ===== 推荐 geekList → 落库 → 配对调 /detail 触发 AI 评分 =====
+  //
+  // 跟 SEARCH 通道两阶段（列表 → 详情）不同，BOSS 推荐 API 一次性返回的 geek 数据本身
+  // 就含有完整详情，所以这里：
+  //   1) POST /results 把整批 geek 当 rawResume 落库 → 后端返回 taskResumes 映射
+  //      （含 taskResumeId / resumeBlindId）
+  //   2) 为每条 geek 配对调 POST /resume/task/{taskResumeId}/detail，content 直接
+  //      塞完整 geek JSON，**触发后端 AI 评分**
+  //   3) commit taskResumeIdMap → scoreAutoUpdater 会自然 pick up 这些 taskResumeId
+  //      去轮询 queryTaskScoreList，UI 卡片上的"AI 分析中"会逐条变成评分
+  const cid = args?.chatId || store.getters.getLatestChatId;
+  const geekList = res.geekList || [];
+  if (cid && geekList.length > 0) {
+    try {
+      const { postBatchResultsToTaskChannel } = await import('src/pluginSrc/util/taskResumeBridge');
+      const { postTaskResumeDetail } = await import('src/api/searchTaskApi');
+
+      // step 1: /results 落库
+      //
+      // ⚠️ 把推荐 geek 适配成跟搜索接口一致的 rawResume 形态，否则后端 BOSS 反序列化器
+      // （按搜索 geekCard 字段名写：name/gender/workYear/current.name/eduSchool/works[]/...）
+      // 解析推荐数据时全部失败，返回 SYSTEM_005 "no valid resultItems converted"。
+      // 详见 mapBossRecommendGeekToSearchRaw 顶部注释。
+      const adaptedResumeList = geekList.map((g) => mapBossRecommendGeekToSearchRaw(g));
+      const jobList = await postBatchResultsToTaskChannel({
+        chatId: cid,
+        channelDesc: 'boss直聘',
+        businessChannel: 'RECOMMEND',
+        resumeList: adaptedResumeList,
+        finished: true
+      });
+      const savedCount = Array.isArray(jobList) ? jobList.length : 0;
+      console.log(
+        `[IndexPage] 推荐 /results ok: geekList=${geekList.length} → taskResumes=${savedCount}`
+      );
+
+      if (savedCount === 0) {
+        console.warn('[IndexPage] 推荐 /results 没拿到 taskResumes，后端不会触发 AI 评分');
+        setPhase('FAILED');
+        return;
+      }
+      setPhase('SAVED');
+      setPhase('SCORING');
+
+      // step 2: 为每条 jobList 配对调 /detail，触发 AI 评分
+      // jobList 是按入参 geekList 顺序平摊的（taskResumeBridge.postBatchResultsToTaskChannel
+      // 用 array.map(taskResumes) 保序），所以 jobList[i] ↔ geekList[i]
+      //
+      // 同时把 resumeBlindId / taskResumeId 回填给 BossRecommendData.geekList[i]，
+      // 让后面 scoreUpdater 回调能按 resumeBlindId 反查到 geek（patchBossRecommendGeek
+      // 的查询逻辑），从而 patch 回 score。
+      let detailOk = 0;
+      let detailFail = 0;
+      for (let i = 0; i < jobList.length; i++) {
+        const row = jobList[i];
+        const geek = geekList[i] || {};
+        const adapted = adaptedResumeList[i] || {};
+        const taskResumeId = row?.taskResumeId;
+        const resumeBlindId = row?.resumeBlindId || row?.id;
+        if (!taskResumeId || !resumeBlindId) {
+          detailFail++;
+          continue;
+        }
+        // 回填 ID 映射到 store 里的 geek，让后续 patchBossRecommendGeek by resumeBlindId 能找到
+        const encryptGeekId =
+          geek?.encryptGeekId || geek?.geekId || geek?.geekCard?.encryptGeekId || '';
+        if (encryptGeekId) {
+          store.commit('patchBossRecommendGeek', {
+            jobId,
+            encryptGeekId,
+            patch: { resumeBlindId: String(resumeBlindId), taskResumeId: String(taskResumeId) }
+          });
+        }
+        // content 也用适配后的搜索格式（同一套反序列化器，否则 detail 解析也会失败）
+        const payload = {
+          serializeChannel: 'boss直聘',
+          channelSubType: 'BOSS',
+          content: JSON.stringify(adapted),
+          resume: {
+            id: String(resumeBlindId),
+            outId: encryptGeekId ? String(encryptGeekId) : ''
+          }
+        };
+        try {
+          await postTaskResumeDetail(taskResumeId, payload);
+          detailOk++;
+        } catch (e) {
+          detailFail++;
+          console.warn(
+            `[IndexPage] 推荐 /detail 失败 taskResumeId=${taskResumeId} blindId=${resumeBlindId}:`,
+            e?.message || e
+          );
+        }
+      }
+      console.log(
+        `[IndexPage] 推荐 /detail 批量完成 ok=${detailOk} fail=${detailFail} total=${jobList.length}`
+      );
+
+      // step 3: 启动 scoreAutoUpdater 为这批推荐简历查分
+      //
+      // scoreUpdater.start(resumeList, channelKey, searchId, updateCallback, chatId)
+      //   - resumeList：含 id 字段的对象数组，没 score 字段就会被 collect 进 pendingResumeIds
+      //   - channelKey：'boss' 等
+      //   - searchId：channel.searchConditionId（必填）
+      //   - updateCallback：(resumeBlindId, score, scoreStatus) 回调，把分数写回推荐数据
+      //
+      // 拿 RECOMMEND/BOSS channel 的 searchConditionId
+      try {
+        const su = await import('src/utils/scoreAutoUpdater');
+        const scoreUpdater = su.default || su;
+        const t = store.getters['SearchTasks/getLatestTaskByChat'](cid);
+        const recCh = t?.channels?.find(
+          (c) => c.businessChannel === 'RECOMMEND' && c.channelSubType === 'BOSS'
+        );
+        const searchConditionId = recCh?.searchConditionId || '';
+        // 用 jobList 作 resumeList，score 缺失 → 全部入 pending
+        const recommendResumeList = jobList.map((r) => ({
+          id: r?.resumeBlindId || r?.id,
+          score: r?.score
+        })).filter((r) => r.id);
+
+        if (recommendResumeList.length > 0 && searchConditionId) {
+          // updateCallback：scoreAutoUpdater 拿到 queryTaskScoreList 响应后调本回调，
+          // 入参是**整个 data 数组**（不是单条 (id, score)）。每条形如：
+          //   { resumeBlindId, score, scoreStatus, ... }
+          // 这里遍历数组，按 resumeBlindId 调 patchBossRecommendGeek 把 score / scoreStatus
+          // 写回 BossRecommendData.geekList[i]。RecommendList.vue 的 mapBossGeekToResume
+          // 读 g.score 渲染到 ResumeCard（AI 分析中 → 具体分数 / 评分失败）。
+          const updateCallback = (data) => {
+            const arr = Array.isArray(data) ? data : [];
+            for (const item of arr) {
+              const resumeId = item?.resumeBlindId;
+              const score = item?.score;
+              const scoreStatus = item?.scoreStatus;
+              if (!resumeId) continue;
+              store.commit('patchBossRecommendGeek', {
+                jobId,
+                resumeBlindId: String(resumeId),
+                patch: {
+                  score: typeof score === 'number' ? score : null,
+                  scoreStatus: scoreStatus || null
+                }
+              });
+            }
+            console.log(
+              `[IndexPage] 推荐分数已写回 count=${arr.length}` +
+              ` 样例=${arr[0] ? `id=${arr[0].resumeBlindId} score=${arr[0].score}` : '(empty)'}`
+            );
+          };
+          scoreUpdater.start(
+            recommendResumeList,
+            'boss',
+            String(searchConditionId),
+            updateCallback,
+            cid
+          );
+          console.log(
+            `[IndexPage] 推荐 scoreAutoUpdater 已启动 ids=${recommendResumeList.length} searchId=${searchConditionId}`
+          );
+        } else {
+          console.warn(
+            `[IndexPage] 推荐 scoreUpdater 未启动: resumes=${recommendResumeList.length} searchId=${searchConditionId}`
+          );
+        }
+      } catch (e) {
+        console.warn('[IndexPage] scoreAutoUpdater 启动失败:', e?.message || e);
+      }
+    } catch (e) {
+      console.warn('[IndexPage] 推荐 /results+/detail 调用异常:', e?.message || e);
+      setPhase('FAILED');
+    }
+  } else {
+    setPhase('DONE');
+  }
 }
 
 /** 同步已就绪 badge（绿色），跟 ihraisaas selectedJob.isAutoSearchCompleted 一致；先 mock false */

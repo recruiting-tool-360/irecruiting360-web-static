@@ -141,7 +141,31 @@ const initialState = () => ({
    *
    * 不持久化（runtime only）。
    */
-  pendingDetailPayloads: {}
+  pendingDetailPayloads: {},
+
+  /**
+   * 推荐渠道的**客户端真实阶段**：跟后端 SSE 推的 channel.taskChannelStatus 解耦。
+   *
+   * 为什么需要：后端通常在任务开始时就把所有 channel（包括 RECOMMEND）一并标为 RUNNING，
+   * 但 RECOMMEND 客户端实际还没启动（要等搜索 AI 跑完才会开打开 BOSS 推荐 tab）。
+   * 直接读 taskChannelStatus 会让 TaskStatusCard 的"推荐 AI 匹配"行提前 processing 起来，
+   * 用户截图反馈"推荐还没开始状态就更新了"。
+   *
+   * 结构：Map<taskId, { phase, ts }>
+   *   - phase：'IDLE' | 'WAITING' | 'OPENING' | 'FETCHING' | 'FETCHED' | 'SAVED' | 'SCORING' | 'DONE' | 'FAILED'
+   *     - IDLE     还没启动
+   *     - WAITING  在 await 搜索 AI 跑完（推荐排队中，对应 UI: pending）
+   *     - OPENING  打开 BOSS 推荐 tab + dwell
+   *     - FETCHING 抓首屏 + humanize（对应 UI 第 0-2 行 processing）
+   *     - FETCHED  geekList 已拿到
+   *     - SAVED    /results 落库已成功
+   *     - SCORING  AI 评分进行中（对应 UI 第 3 行 processing）
+   *     - DONE     全部完成
+   *     - FAILED   异常
+   *
+   * 不持久化（runtime only）。
+   */
+  recommendClientPhase: {}
 });
 
 const state = initialState();
@@ -354,6 +378,25 @@ const mutations = {
   },
 
   /**
+   * 设置推荐渠道的客户端真实阶段。
+   * @param {{ taskId, phase }} entry  phase ∈ IDLE/WAITING/OPENING/FETCHING/FETCHED/SAVED/SCORING/DONE/FAILED
+   */
+  setRecommendClientPhase(state, entry) {
+    if (!entry || !entry.taskId || !entry.phase) return;
+    state.recommendClientPhase = {
+      ...state.recommendClientPhase,
+      [entry.taskId]: { phase: entry.phase, ts: Date.now() }
+    };
+  },
+  clearRecommendClientPhase(state, taskId) {
+    if (!taskId) return;
+    if (!state.recommendClientPhase[taskId]) return;
+    const next = { ...state.recommendClientPhase };
+    delete next[taskId];
+    state.recommendClientPhase = next;
+  },
+
+  /**
    * 业务侧 saveResumeDetailPlus 后，缓存一条 detail payload 等 runTask 末尾补发。
    * @param {{ chatId, channelSubType, payload }} entry  payload 形态见 postTaskResumeDetail 入参
    */
@@ -542,14 +585,23 @@ const getters = {
    *
    * @returns {(chatId: string, channelDesc: string) => channel | null}
    */
-  getActiveTaskChannelByDesc: (state, gtrs) => (chatId, channelDesc) => {
+  /**
+   * 推荐渠道的客户端真实阶段 getter（taskId → phase 字符串，没设过返回 'IDLE'）。
+   * 用于 TaskStatusCard 推荐卡 6 步进度推导，跟后端 SSE channel.taskChannelStatus 解耦。
+   */
+  getRecommendClientPhase: (state) => (taskId) => {
+    if (!taskId) return 'IDLE';
+    return state.recommendClientPhase?.[taskId]?.phase || 'IDLE';
+  },
+
+  getActiveTaskChannelByDesc: (state, gtrs) => (chatId, channelDesc, businessChannel = 'SEARCH') => {
     const subType = DESC_TO_SUBTYPE[channelDesc];
     if (!subType || !chatId) return null;
     const t = gtrs.getLatestTaskByChat(chatId);
     if (!t || !Array.isArray(t.channels)) return null;
     return (
       t.channels.find(
-        (c) => c.businessChannel === 'SEARCH' && c.channelSubType === subType
+        (c) => c.businessChannel === businessChannel && c.channelSubType === subType
       ) || null
     );
   }
@@ -818,10 +870,15 @@ const actions = {
       }
     }
 
-    // 显式触发每个 channel 的后端执行（POST /search/taskChannel/{tcId}/execute）。
+    // 显式触发 channel 的后端执行（POST /search/taskChannel/{tcId}/execute）。
     //   - fire-and-forget：失败仅 console.warn，不阻塞后续聚合搜索
     //   - 已经终态的 channel 跳过（比如 SKIPPED）
-    //   - 注意：execute 是"通知后端开始"的信号，业务搜索实际由前端 aggregateSearchExecutor 跑
+    //
+    // ⚠️ 串行策略（用户要求）：BOSS 的 SEARCH 和 RECOMMEND **不能同时 execute**。
+    //   SEARCH 先 execute → 业务跑搜索 + AI 分析全部完成 → 才 execute RECOMMEND。
+    //   因此这里**只 execute SEARCH 渠道**；BOSS-RECOMMEND 的 execute 推迟到
+    //   IndexPage.doFetchRecommend 里"等完搜索 AI 之后、真正打开 tab 之前"再调，
+    //   见 doFetchRecommend 里 setPhase('OPENING') 那段。
     for (const ch of task.channels) {
       if (!ch.taskChannelId) continue;
       if (
@@ -829,6 +886,14 @@ const actions = {
         ch.taskChannelStatus === TASK_STATUS.FAILED ||
         ch.taskChannelStatus === "SKIPPED"
       ) {
+        continue;
+      }
+      // 推迟 RECOMMEND 渠道的 execute（要等搜索 AI 完成）
+      if (ch.businessChannel === "RECOMMEND") {
+        console.log(
+          `[SearchTasks] runTask: 跳过 RECOMMEND execute (推迟到 doFetchRecommend 启动时调)` +
+          ` channel=${ch.channelSubType}-${ch.businessChannel} taskChannelId=${ch.taskChannelId}`
+        );
         continue;
       }
       taskApi
@@ -861,6 +926,10 @@ const actions = {
     let runFailed = false;
     let runError = null;
 
+    // 提到 try 外面：catch 和 AI 等待块都要用 hasRecommend 来推 recommendClientPhase
+    const hasSearch = task.channels.some((c) => c.businessChannel === "SEARCH");
+    const hasRecommend = task.channels.some((c) => c.businessChannel === "RECOMMEND");
+
     try {
       // 2) 直接调 aggregateSearchExecutor 跑真聚合搜索
       const executor = rootGetters && rootGetters.getAggregateSearchExecutor;
@@ -868,14 +937,42 @@ const actions = {
         throw new Error("aggregateSearchExecutor 未就绪（IndexPage 还没 mount？）");
       }
       console.log(`[SearchTasks] runTask: 主动执行聚合搜索 taskId=${taskId} chatId=${task.chatId}`);
+
+      // ===== 解析 RECOMMEND BOSS channel 的 searchTaskConfig =====
+      // 创建任务时 dispatchTaskStore 把 jobId / 简历数封进 RECOMMEND channel 的
+      // searchTaskConfig（JSON 文本）。这里反序列化抽出来传给 executor，否则推荐流程
+      // 不会启动（runRealAggregateSearch 的 if (recommendChecked && jobId) 永远 false）。
+      let matchedBossJobId = null;
+      let recommendResumeCount = null;
+      const recBossCh = task.channels.find(
+        (c) => c.businessChannel === "RECOMMEND" && c.channelSubType === "BOSS"
+      );
+      if (recBossCh?.searchTaskConfig) {
+        try {
+          const cfg = typeof recBossCh.searchTaskConfig === 'string'
+            ? JSON.parse(recBossCh.searchTaskConfig)
+            : recBossCh.searchTaskConfig;
+          matchedBossJobId = cfg?.relatedPositionValue || null;
+          if (Number.isFinite(Number(cfg?.maxSearchCount))) {
+            recommendResumeCount = Number(cfg.maxSearchCount);
+          }
+        } catch (e) {
+          console.warn(
+            `[SearchTasks] runTask: RECOMMEND searchTaskConfig 解析失败`,
+            recBossCh.searchTaskConfig, e?.message || e
+          );
+        }
+      }
+      console.log(
+        `[SearchTasks] runTask: 调 executor search=${hasSearch} recommend=${hasRecommend}`
+        + ` jobId=${matchedBossJobId || '(none)'} resumeCount=${recommendResumeCount}`
+      );
+
       const execRes = await executor({
         chatId: task.chatId,
-        selectedModules: {
-          search: task.channels.some((c) => c.businessChannel === "SEARCH"),
-          recommend: task.channels.some((c) => c.businessChannel === "RECOMMEND")
-        },
-        matchedBossJobId: null,
-        resumeCount: null
+        selectedModules: { search: hasSearch, recommend: hasRecommend },
+        matchedBossJobId,
+        resumeCount: recommendResumeCount
       });
       if (execRes && execRes.status === "FAILED") {
         runFailed = true;
@@ -902,6 +999,9 @@ const actions = {
       console.error("[SearchTasks] runTask 执行聚合搜索异常:", e?.message || e);
       runFailed = true;
       runError = { code: "RUN_ERROR", message: e?.message || String(e) };
+      if (hasRecommend) {
+        commit("setRecommendClientPhase", { taskId, phase: "FAILED" });
+      }
     }
 
     // ===== 3) 等 AI 分析全部完成再 finalize（关键时序） =====
@@ -964,6 +1064,10 @@ const actions = {
         ` scorePending=${scoreUpdater?.pendingResumeIds?.size || 0}` +
         ` aiStoreActive=${rootGetters && rootGetters.getAiAnalyzingActive === true}`
       );
+      // 推荐渠道：AI 评分 + 详情都跑完 → 标 DONE，TaskStatusCard 推荐卡进入"完毕"
+      if (hasRecommend) {
+        commit("setRecommendClientPhase", { taskId, phase: "DONE" });
+      }
     }
 
     // 4) 不论成功失败，都要给每个 channel 调接口（成功 → SUCCESS + results；失败 → FAILED）

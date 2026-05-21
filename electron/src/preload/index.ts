@@ -218,6 +218,11 @@ const tabs = {
   goForward: (id: string): Promise<void> => ipcRenderer.invoke('tabs:goForward', id),
   reload: (id: string): Promise<void> => ipcRenderer.invoke('tabs:reload', id),
   /**
+   * 强制让某个 tab loadURL 到指定 URL（绕过 openOrActivate 的 sameUrl 复用）。
+   * 用于 BOSS 推荐第二次跑同 jobid 时强制 BOSS SPA 完整重启 + 重新发推荐 API。
+   */
+  loadUrl: (id: string, url: string): Promise<void> => ipcRenderer.invoke('tabs:loadUrl', id, url),
+  /**
    * 订阅标签状态变化（任何创建 / 激活 / 关闭 / loading / 标题变化都会广播）
    * @returns 取消订阅函数
    */

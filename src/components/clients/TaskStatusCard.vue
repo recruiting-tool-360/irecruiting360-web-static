@@ -29,16 +29,16 @@
     :data="{ isStopped: false }"
   />
 
-  <!-- 搜索牛人流程卡 + 推荐牛人流程卡（按 channels 业务类型按需展示） -->
+  <!-- 搜索牛人流程卡 + 推荐牛人流程卡（按 kind 决定渲染哪一段） -->
   <div v-else class="task-status-card-wrap">
     <ExecutionLog
-      v-if="hasSearch"
+      v-if="showSearch"
       :content="searchCardContent"
       :steps="searchCardSteps"
       :data="cardData"
     />
     <ExecutionLog
-      v-if="hasRecommend"
+      v-if="showRecommend"
       :content="recommendCardContent"
       :steps="recommendCardSteps"
       :data="cardData"
@@ -54,7 +54,16 @@ import ExecutionLog from 'src/components/clients/ExecutionLog.vue';
 const props = defineProps({
   taskId: { type: [String, Number], default: '' },
   /** 任务创建失败时由 ChatCard 的 pendingCreate 监听器设置，直接显示失败态 */
-  forceStopped: { type: Boolean, default: false }
+  forceStopped: { type: Boolean, default: false },
+  /**
+   * 卡片渲染范围：
+   *   - 'search'    只渲染"搜索牛人数据获取流程"段
+   *   - 'recommend' 只渲染"推荐牛人数据获取流程"段
+   *   - 'all'       同时渲染两段（向后兼容）
+   * 默认 'all'。ChatCard 会按 selectedModules 给每段单独 push 一张占位卡片，
+   * 让两个流程在视觉上是两个独立的聊天气泡（用户要求）。
+   */
+  kind: { type: String, default: 'all' }
 });
 
 const store = useStore();
@@ -128,6 +137,9 @@ const recommendChannels = computed(() =>
 );
 const hasSearch = computed(() => searchChannels.value.length > 0);
 const hasRecommend = computed(() => recommendChannels.value.length > 0);
+
+const showSearch = computed(() => hasSearch.value && (props.kind === 'search' || props.kind === 'all'));
+const showRecommend = computed(() => hasRecommend.value && (props.kind === 'recommend' || props.kind === 'all'));
 
 /* ============== 总人数（"已抓取 N 数据"步骤用） ============== */
 
@@ -366,6 +378,33 @@ const recommendCardContent = computed(() => {
  *   注：未来如果后端 SSE STEP_COMMAND 推送了细粒度的 stepIndex / actionLog，可以在这里改成
  *       根据 t.currentStepIndex 精确推进每一个 step。当前只有 channel 级状态信号。
  */
+/**
+ * 推荐卡 6 步骤的客户端真实进度推导（核心：用 SearchTasks/getRecommendClientPhase
+ * 而不是 channel.taskChannelStatus，跟后端 SSE 解耦）。
+ *
+ * 原因：后端通常一开始就把所有 channel（包括 RECOMMEND）标成 RUNNING，但 RECOMMEND
+ * 客户端实际还没启动（等搜索 AI 完成）。如果用 channelStatus 推进，会出现"推荐还没
+ * 开始，AI 行就 processing"的假象。
+ *
+ * phase → step 映射（每步从 pending → processing → complete）：
+ *   step 0 (校对 BOSS 关联职位)     : OPENING+ 起 complete
+ *   step 1 (分析画像关键词)         : OPENING+ 起 complete
+ *   step 2 (获取推荐候选人列表)     : FETCHED+ 起 complete
+ *   step 3 (AI 语义匹配初筛)        : SCORING 时 processing，DONE 时 complete
+ *   step 4 (汇总推荐结果)           : DONE 时 complete
+ *   step 5 (执行完毕)               : DONE 时 complete
+ *
+ * channel.taskChannelStatus 仅作为兜底：
+ *   - COMPLETED → 所有步骤强制 complete（防止 client phase 没正确更新时卡住）
+ *   - FAILED/STOPPED → 前 3 步 complete，后面 skipped
+ */
+const recommendClientPhase = computed(() => {
+  const t = task.value;
+  if (!t?.taskId) return 'IDLE';
+  const getter = store.getters['SearchTasks/getRecommendClientPhase'];
+  return typeof getter === 'function' ? getter(t.taskId) : 'IDLE';
+});
+
 const recommendCardSteps = computed(() => {
   const t = task.value;
   if (!t) return [];
@@ -373,31 +412,58 @@ const recommendCardSteps = computed(() => {
   const bossRec = findChannel(recommendChannels.value, 'BOSS');
   if (!bossRec) return [];
 
+  const phase = recommendClientPhase.value;
   const st = bossRec.taskChannelStatus;
-  const isRunning = st === 'RUNNING';
-  const isCompleted = st === 'COMPLETED';
-  const isFailed = st === 'FAILED' || st === 'STOPPED';
+  const isChannelDone = st === 'COMPLETED';
+  const isChannelFailed = st === 'FAILED' || st === 'STOPPED' || phase === 'FAILED';
 
-  /** 每个 step 在不同阶段的状态 */
+  // phase 等级：IDLE=0 / WAITING=1 / OPENING=2 / FETCHING=3 / FETCHED=4 / SAVED=5 / SCORING=6 / DONE=7
+  const phaseRank = {
+    IDLE: 0, WAITING: 1, OPENING: 2, FETCHING: 3,
+    FETCHED: 4, SAVED: 5, SCORING: 6, DONE: 7
+  }[phase] || 0;
+
   function s(idx) {
-    if (isCompleted) return 'complete';
-    if (isFailed) {
-      // 前 3 步（校对岗位 / 分析关键词 / 获取列表）保留 complete，后续 skipped
-      return idx <= 2 ? 'complete' : 'skipped';
-    }
-    if (isRunning) {
-      // RUNNING：前 3 step complete，AI 匹配 processing，后两步 pending
-      if (idx <= 2) return 'complete';
-      if (idx === 3) return 'processing';
+    if (isChannelDone || phase === 'DONE') return 'complete';
+    if (isChannelFailed) return idx <= 2 ? 'complete' : 'skipped';
+
+    if (idx === 0) {
+      // 校对岗位：进入 OPENING 就显示 processing，FETCHING+ complete
+      if (phaseRank >= 3) return 'complete';
+      if (phaseRank >= 2) return 'processing';
       return 'pending';
     }
-    // WAITING / RESTING / 空
+    if (idx === 1) {
+      // 分析关键词：FETCHING 时 processing，FETCHED+ complete
+      if (phaseRank >= 4) return 'complete';
+      if (phaseRank >= 3) return 'processing';
+      return 'pending';
+    }
+    if (idx === 2) {
+      // 获取候选人列表：FETCHING 时 processing，FETCHED+ complete
+      if (phaseRank >= 4) return 'complete';
+      if (phaseRank >= 3) return 'processing';
+      return 'pending';
+    }
+    if (idx === 3) {
+      // AI 语义匹配：SCORING 时 processing，DONE 时 complete
+      if (phaseRank >= 7) return 'complete';
+      if (phaseRank >= 6) return 'processing';
+      return 'pending';
+    }
+    if (idx === 4) {
+      // 汇总：DONE 时 complete，SCORING 时 processing
+      if (phaseRank >= 7) return 'complete';
+      if (phaseRank >= 6) return 'processing';
+      return 'pending';
+    }
+    // step 5：完毕，只有 DONE 才 complete
     return 'pending';
   }
 
-  const summaryTitle = isCompleted
+  const summaryTitle = (isChannelDone || phase === 'DONE')
     ? `已抓取全渠道 ${totalResultsCount.value} 符合条件人才数据`
-    : isFailed
+    : isChannelFailed
       ? '推荐结果获取失败'
       : '正在汇总推荐结果...';
 

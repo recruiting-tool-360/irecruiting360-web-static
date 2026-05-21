@@ -546,6 +546,11 @@ function registerIpc(): void {
     tabManager.reload(id)
   })
 
+  ipcMain.handle('tabs:loadUrl', (_e, id: string, url: string) => {
+    if (typeof id !== 'string' || typeof url !== 'string' || !url) return
+    tabManager.loadUrl(id, url)
+  })
+
   // ========== Automation：隐藏 view 抓接口 ==========
   //
   // 用户不可见地起一个 BrowserWindow（show:false），加载指定页面，
