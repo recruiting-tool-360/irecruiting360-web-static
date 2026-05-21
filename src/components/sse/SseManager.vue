@@ -183,9 +183,24 @@ function handleSseMessage(data) {
       // 根据场景处理不同的个人消息
       switch (message.scenario) {
         case 'chat':
-          // 处理聊天消息
+          // 处理聊天消息（小写：保留向后兼容）
           console.log('聊天消息:', message.data);
           break;
+        case 'CHAT': {
+          // 服务端主动推聊天消息（如任务完成卡片 TASK_COMPLETION_CARD），content 是 HTML 富文本
+          // 形态：{ chatId, message: { id, role, content, timestamp, messageType } }
+          const payload = message.data || {};
+          const chatId = payload.chatId;
+          const msgObj = payload.message;
+          if (!chatId || !msgObj) {
+            console.warn('[SseManager] CHAT 消息缺 chatId 或 message:', payload);
+            break;
+          }
+          console.log(`[SseManager] CHAT push chatId=${chatId} type=${msgObj.messageType} id=${msgObj.id}`);
+          // 通过 store 派发，ChatCard watch serverPushedMessage 触发渲染
+          store.commit('SET_SERVER_PUSHED_MESSAGE', { chatId, message: msgObj });
+          break;
+        }
         case 'notification':
           // 处理个人通知
           notify.info(message.data.content || String(message.data), {

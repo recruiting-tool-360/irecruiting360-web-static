@@ -55,7 +55,12 @@ const validateError=(responseData)=>{
         if(responseData.success==='success'){
             return responseData;
         }else{
-            console.log("服务异常,请联系管理员")
+            // 业务侧失败：把后端真实响应打到 console，方便排查（拦截器之前只 log 通用文案，
+            // 业务方拿到的是 undefined，看不到 code/message/data 之类的具体错误原因）
+            console.warn(
+              '[request.js] 后端业务失败 success!==success | 完整响应=',
+              responseData
+            );
             errorAlert("服务异常","请联系管理员");
         }
     }else{

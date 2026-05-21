@@ -319,6 +319,21 @@ const props = defineProps({
   readOnly: {
     type: Boolean,
     default: false
+  },
+  /**
+   * 可选：每条简历自带的 searchConditionId（来自任务级查询 /search/task/results/query 返回的
+   * `searchConditionId` 字段）。传了的话优先用，作为 AIResumeEvaluation 的 `searchId` 参数。
+   *
+   * 不传则 fallback 到全局 store.getters.getSearchConditionId（保留老 AISearch 流程行为）。
+   *
+   * 为什么要可覆盖：
+   *   全局 getSearchConditionId 是单值，由 AISearch.executeSearch 在 save 条件时写入，
+   *   跨任务 / 跨 chat 查看历史结果时容易脏。任务结果接口返回的 `searchConditionId` 是
+   *   该任务执行时**真正使用的**条件 ID，按条传更准；AI 评估 / 相似简历等接口才能命中。
+   */
+  searchConditionIdOverride: {
+    type: [String, Number],
+    default: null
   }
 });
 
@@ -334,8 +349,11 @@ const emit = defineEmits([
 ]);
 // 渠道名称
 const tabStr = computed(() => props.tabStr);
-// 搜索id
-const searchConditionId = computed(() => store.getters.getSearchConditionId);
+// 搜索id：优先用 prop 传入的 override（任务结果路径需要这个，全局 getter 跨任务会脏），
+// 没传就 fallback 到 store 全局 getter（保留老 AISearch 路径行为）
+const searchConditionId = computed(
+  () => props.searchConditionIdOverride || store.getters.getSearchConditionId
+);
 //aiSearchRef
 const aiSearchRef = computed(() => store.getters.getAiSearchRefValue);
 // 所有渠道状态

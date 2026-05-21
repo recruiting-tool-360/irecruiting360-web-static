@@ -50,12 +50,18 @@
           class="job-item"
           :class="{
             active: currentChatId === item.id,
-            pinned: isItemPinned(item.id)
+            pinned: isItemPinned(item.id),
+            // 任务状态影响卡片整体背景色（1:1 对照 ihraisaas JobList.tsx 第 59-62 行）
+            'status-processing': jobAggregateStatus(item.id).status === 'processing',
+            'status-queued': jobAggregateStatus(item.id).status === 'queued',
+            'status-resting': jobAggregateStatus(item.id).status === 'resting',
+            'status-stopped': jobAggregateStatus(item.id).status === 'stopped'
           }"
           @click="selectChat(item)"
         >
+          <!-- 左侧：pin / 标题 / 编号（原结构保留） -->
           <div class="job-item-content">
-            <!-- 第一行：pin + 标题（1:1 对照 ihraisaas JobList.tsx 67-88） -->
+            <!-- 第一行：pin + 标题 -->
             <div class="job-item-row">
               <button
                 type="button"
@@ -80,36 +86,100 @@
               </button>
               <h4 class="job-title">{{ parseJobName(item.name).title || item.name }}</h4>
             </div>
-            <!--
-              第二行（仅在有 code 时）：编号 + 右侧 briefcase
-              1:1 对照 ihraisaas JobList.tsx 113-147
-            -->
+            <!-- 第二行（仅在有 code 时）：编号 -->
             <div v-if="parseJobName(item.name).code" class="job-item-row job-item-row-bottom">
               <p class="job-code">({{ parseJobName(item.name).code }})</p>
-              <button
-                type="button"
-                class="recruit-btn"
-                :title="planInfo?.sendJdAuth
-                  ? '自动发送当前职位的JD信息至AI招聘助理'
-                  : '您当前无职位管理模块权限'"
-                @click="handleRecruitAction(item); $event.stopPropagation()"
-              >
-                <!-- Briefcase (lucide) - w-3 h-3 = 12px -->
-                <svg
-                  viewBox="0 0 24 24"
-                  width="12"
-                  height="12"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-                  <rect width="20" height="14" x="2" y="6" rx="2" />
-                </svg>
-              </button>
             </div>
+          </div>
+
+          <!--
+            右侧：任务状态列（1:1 对照 ihraisaas JobList.tsx 第 92-141 行）
+            竖向：icon 在上 + 文字在下；min-w 60px 保证文字不被挤
+            - idle / completed-but-current-selected → 显示原 briefcase 按钮（发送 JD）
+            - processing → 蓝 spinner + "进行中..." pulse
+            - queued / resting → 橙 clock + "排队中 N"
+            - stopped (非 manual) → 红 alert + "异常停止" pulse
+            - completed (未选中) → 绿 check + "已完成"
+          -->
+          <div class="job-item-status">
+            <template v-if="
+              jobAggregateStatus(item.id).status === 'completed' &&
+              currentChatId !== item.id
+            ">
+              <!-- 已完成（非当前选中） -->
+              <div class="status-completed-circle">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"
+                     stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.801 10A10 10 0 1 1 17 3.335" />
+                  <path d="m9 11 3 3L22 4" />
+                </svg>
+              </div>
+              <span class="status-label-text completed">已完成</span>
+            </template>
+
+            <template v-else>
+              <div class="status-icons">
+                <svg
+                  v-if="jobAggregateStatus(item.id).status === 'processing'"
+                  class="status-icon-spinner"
+                  viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+                <svg
+                  v-else-if="jobAggregateStatus(item.id).status === 'queued' ||
+                             jobAggregateStatus(item.id).status === 'resting'"
+                  class="status-icon-clock"
+                  viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <svg
+                  v-else-if="jobAggregateStatus(item.id).status === 'stopped'"
+                  class="status-icon-alert"
+                  viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" x2="12" y1="8" y2="12" />
+                  <line x1="12" x2="12.01" y1="16" y2="16" />
+                </svg>
+                <!-- idle / completed-当前选中：briefcase 按钮（保留原"发送 JD"业务） -->
+                <button
+                  v-else
+                  type="button"
+                  class="recruit-btn"
+                  :title="planInfo?.sendJdAuth
+                    ? '自动发送当前职位的JD信息至AI招聘助理'
+                    : '您当前无职位管理模块权限'"
+                  @click="handleRecruitAction(item); $event.stopPropagation()"
+                >
+                  <svg
+                    viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  >
+                    <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                    <rect width="20" height="14" x="2" y="6" rx="2" />
+                  </svg>
+                </button>
+              </div>
+              <div class="status-label">
+                <span v-if="jobAggregateStatus(item.id).status === 'processing'"
+                      class="status-label-text processing">进行中...</span>
+                <span v-else-if="jobAggregateStatus(item.id).status === 'queued' ||
+                                 jobAggregateStatus(item.id).status === 'resting'"
+                      class="status-label-text queued">
+                  排队中{{ jobAggregateStatus(item.id).queuePosition > 0
+                    ? ' ' + jobAggregateStatus(item.id).queuePosition
+                    : '' }}
+                </span>
+                <span v-else-if="jobAggregateStatus(item.id).status === 'stopped'"
+                      class="status-label-text stopped">异常停止</span>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -216,6 +286,7 @@ import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { useStore } from 'vuex'
 import { getChatList, deleteChat, renameChat, getChatHistory } from 'src/api/chat/ChatApi'
+import { generateJobPostingFromResume } from 'src/util/jobPostingGenerator'
 import { isFromMenu, isVisibleThirdA, usePlanVisibility} from 'src/hooks/usePlanVisibility';
 import notify from 'src/util/notify'
 
@@ -258,6 +329,23 @@ const chatList = computed(() => store.getters.getChatList) // 使用Vuex中的�
 
 /* ===== 置顶 & 排序（1:1 对照 ihraisaas JobList.tsx 第 24-29 行 sortedJobs） ===== */
 const pinnedJobIds = computed(() => store.getters.getPinnedJobIds || [])
+
+/**
+ * 给某个 chat（职位）行算任务聚合 UI 状态。结构：
+ *   { status: 'idle' | 'processing' | 'queued' | 'resting' | 'stopped' | 'completed',
+ *     queuePosition: number  // 排队中时 1-based 位置；否则 0
+ *     task: <task obj> | null }
+ *
+ * 数据来源：SearchTasks store getter（已包装了"队列位置 + taskStatus → UI 状态"）
+ * 详见 src/store/modules/SearchTasks.js 顶部注释。
+ */
+function jobAggregateStatus(chatId) {
+  const getter = store.getters['SearchTasks/getJobAggregateStatus'];
+  if (typeof getter !== 'function') {
+    return { status: 'idle', queuePosition: 0, task: null };
+  }
+  return getter(chatId);
+}
 
 /** 列表渲染时用：置顶项排在前面 */
 const sortedChatList = computed(() => {
@@ -311,7 +399,10 @@ const loadChatList = async () => {
     if (response.success === 'success' && response.data && Array.isArray(response.data)) {
       console.log('原始聊天数据:', response.data);
       
-      // 转换数据格式
+      // 转换数据格式。
+      // 注意 jd 字段后端不返，按 positionId 在 store.positionJdCache 里查（来源：
+      //   - 浏览器模式：父页 ihr360-recruit-static iframeMsg.post('init', { positionList }) → SSOLogin 写 cache
+      //   - 客户端模式：LeftMenu hydrateJobDescriptionsFromIhr 后调 ihrBridge 拉详情后 patch cache）
       const formattedChatList = response.data
         .filter(item => {
           if(isVisible.value){
@@ -319,13 +410,19 @@ const loadChatList = async () => {
           }
           return true;
         })
-        .map(item => ({
-          id: item.chatId,
-          name: item.name || `未知对话`,
-          createTime: item.updateAt?.slice(0, 16).replace('T', ' ') || '未知时间',
-          positionId: item.positionId, // 保留positionId
-          jd:item.jd
-        }));
+        .map(item => {
+          const cachedJd = item?.positionId
+            ? (store.getters.getJdByPositionId?.(item.positionId) || '')
+            : '';
+          return {
+            id: item.chatId,
+            name: item.name || `未知对话`,
+            createTime: item.updateAt?.slice(0, 16).replace('T', ' ') || '未知时间',
+            positionId: item.positionId, // 保留positionId
+            // 优先 cache（前端积累的 jd），后端 item.jd 兜底
+            jd: cachedJd || item.jd || ''
+          };
+        });
       
       console.log('格式化后的聊天列表:', formattedChatList);
       console.log('三方企业状态:', {
@@ -336,6 +433,12 @@ const loadChatList = async () => {
       // 将格式化后的聊天列表保存到Vuex中
       store.dispatch('updateChatList', formattedChatList);
       console.log('聊天列表已保存到Vuex');
+
+      // 客户端模式下：chatList 接口没返 jd 字段（注释 SSOLogin.vue L226），
+      // 在后台异步批量调 ihrBridge.batchGetPositionDetailByIds 拉职位详情，
+      // 用 generateJobPostingFromResume 算 JD 文本回填到 chatList。
+      // 这步不阻塞 loadChatList 主流程，失败也不影响其它功能（jd 仍为空，自动发送 JD 这条路径会 skip）。
+      void hydrateJobDescriptionsFromIhr(formattedChatList);
         
       // 在数据更新到Vuex后，使用nextTick确保DOM已更新
       // 然后再处理三方企业的选择逻辑
@@ -439,24 +542,247 @@ const selectChat = (item) => {
       console.warn('chatCardRef 不可用，跳过 fillMessageToInput');
     }
 
-    // 清空聚合渠道数据
-    store.commit('changeChannelConfData', {key: 'ALL', value: []});
+    // 清空聚合渠道数据 —— 但如果**任意一个**职位有正在跑的任务，不清空。
+    //
+    // 背景：runTask 末尾会从 ALL.data 收集本任务的搜索结果落库。如果用户在任务
+    // 跑的过程中切到其它职位 → selectChat 清掉 ALL.data → runTask 拿到 0 条 →
+    // 后端报错 'search_result_set_id doesn't have a default value' → 任务异常停止。
+    //
+    // 用 SearchTasks.runningTaskId 判定：只要 store 里有 runningTaskId，
+    // 说明有任务正在跑，不要动 ALL.data（让任务跑完再切）。
+    const runningTaskId = store.state?.SearchTasks?.runningTaskId;
+    if (!runningTaskId) {
+      store.commit('changeChannelConfData', {key: 'ALL', value: []});
+    } else {
+      console.log('[LeftMenu] selectChat 跳过清 ALL.data —— 有任务 ' + runningTaskId + ' 正在跑');
+    }
 
     setVuexData(item);
-    // // 设置聊天ID
-    // store.commit('SET_LATEST_CHAT_ID', item.id);
-    // console.log('已设置最新聊天ID:', item.id);
-    //
-    // // 设置职位ID
-    // if (item.positionId) {
-    //   store.commit('SET_LATEST_POSITION_ID', item.positionId);
-    //   console.log('已设置最新职位ID:', item.positionId);
-    // } else {
-    //   store.commit('SET_LATEST_POSITION_ID', '');
-    //   console.log('职位ID为空，已清除');
-    // }
+
+    // 选中职位后：如果会话是空的（没历史消息），自动发送 JD 需求（等价于用户点
+    // briefcase 按钮 → handleRecruitAction）。这是 ihraisaas 风格的"新会话引导发送"逻辑。
+    // 不阻塞 selectChat 主流程，异步触发 + try/catch 静默失败。
+    void maybeAutoSendJdForEmptyChat(item);
   } catch (error) {
     console.error('选择聊天时发生错误:', error);
+  }
+}
+
+/**
+ * 客户端模式下批量从 i 人事拉职位详情，把 JD 文本回填到 chatList 各项的 `jd` 字段。
+ *
+ * 背景：i 快招后端 chatList 接口 **不返 jd 字段**（JD 数据归 i 人事招聘工作台管）。
+ *      浏览器模式下 JD 通过 iframeMsg.post('init', { positionList: [...] }) 由父页推过来，
+ *      客户端模式下没父页，需要主动调 `ihrBridge.batchGetPositionDetailByIds` 拉。
+ *
+ * 流程：
+ *   1. 过滤出有 positionId 且 jd 为空的项
+ *   2. 调 ihrBridge.batchGetPositionDetailByIds(positionIds)
+ *   3. 对每个返回项用 generateJobPostingFromResume(headcountBasic, enums) 算 JD 文本
+ *   4. dispatch updateChatList 用补齐 jd 的新数组覆盖
+ *
+ * 静默条件（不阻塞 / 不打扰用户）：
+ *   - 非 Electron 客户端（ihrBridge 不存在） → skip
+ *   - 没有 positionId 需要补 → skip
+ *   - ihrBridge.batchGetPositionDetailByIds 失败 / 返回非数组 → 跳过本次回填
+ */
+async function hydrateJobDescriptionsFromIhr(chatListItems) {
+  const ihrBridge = window?.api?.ihrBridge;
+  if (!ihrBridge || typeof ihrBridge.batchGetPositionDetailByIds !== 'function') {
+    // 浏览器模式 / preload 旧版本：JD 走父页 iframeMsg 路径，本函数不参与
+    return;
+  }
+  if (!Array.isArray(chatListItems) || chatListItems.length === 0) return;
+  const needsJd = chatListItems.filter(
+    (item) => item?.positionId && (!item.jd || typeof item.jd !== 'string' || item.jd.trim() === '')
+  );
+  if (needsJd.length === 0) {
+    console.log('[LeftMenu] hydrateJobDescriptions: 全部职位都已有 jd，跳过');
+    return;
+  }
+  const positionIds = needsJd.map((item) => item.positionId);
+  console.log(`[LeftMenu] hydrateJobDescriptions: 批量拉 ${positionIds.length} 个职位 JD`);
+  try {
+    const res = await ihrBridge.batchGetPositionDetailByIds(positionIds);
+    if (!res?.success) {
+      console.warn('[LeftMenu] batchGetPositionDetailByIds 失败:', res?.errorCode, res?.message);
+      return;
+    }
+    const list = Array.isArray(res.data) ? res.data : [];
+    if (list.length === 0) {
+      console.log('[LeftMenu] batchGetPositionDetailByIds 返回空');
+      return;
+    }
+    // i 人事返回结构：每条 item 含 headcountBasic + salaryTypes/workYears/positionTypes/diplomaTypes
+    // 按 headcountId 索引（== chatList.positionId）算 JD 文本
+    const jdByPositionId = {};
+    for (const item of list) {
+      const headcountBasic = item?.headcountBasic;
+      if (!headcountBasic?.headcountId) continue;
+      const enums = {
+        salaryTypes: item?.salaryTypes || [],
+        workYears: item?.workYears || [],
+        positionTypes: item?.positionTypes || [],
+        diplomaTypes: item?.diplomaTypes || []
+      };
+      try {
+        const aiText = generateJobPostingFromResume(headcountBasic, enums);
+        if (aiText) {
+          const pid = String(headcountBasic.headcountId);
+          jdByPositionId[pid] = aiText;
+          // 顺手 patch 到 store cache，下次进同一职位（或别处取 jd）直接命中
+          store.commit('PATCH_POSITION_JD_CACHE', { positionId: pid, jd: aiText });
+        }
+      } catch (e) {
+        console.warn('[LeftMenu] generateJobPostingFromResume 失败:', e?.message || e);
+      }
+    }
+    if (Object.keys(jdByPositionId).length === 0) {
+      console.warn('[LeftMenu] 没有任何 JD 被生成（headcountBasic 字段都不完整？）');
+      return;
+    }
+    // 用新数组覆盖 chatList（仅补 jd，不动其它字段）
+    const currentList = store.getters.getChatList || [];
+    const merged = currentList.map((item) => {
+      const newJd = item?.positionId ? jdByPositionId[String(item.positionId)] : undefined;
+      if (newJd && (!item.jd || item.jd.trim() === '')) {
+        return { ...item, jd: newJd };
+      }
+      return item;
+    });
+    store.dispatch('updateChatList', merged);
+    console.log(
+      `[LeftMenu] hydrateJobDescriptions: 已回填 ${Object.keys(jdByPositionId).length} 个职位 JD 到 chatList`
+    );
+  } catch (e) {
+    console.warn('[LeftMenu] hydrateJobDescriptions 异常:', e?.message || e);
+  }
+}
+
+/**
+ * 如果某个职位会话**用户从未发过消息**，自动发一条 JD 需求。
+ *
+ * 触发时机：用户在 LeftMenu 选中职位时 selectChat 调本函数。
+ * 自动发送条件（同时满足）：
+ *   1. **没有任何 role==='user' 的消息**（用户从未参与过）
+ *   2. **总消息数 < 2**（双重保险：避免有少量 bot 欢迎语后误判，
+ *      只在"几乎全新的会话"里自动发）
+ *
+ * 静默条件（任一命中都不自动发，避免打扰）：
+ *   - item.jd 为空（没东西可发）
+ *   - 历史消息接口 fail（保守不发）
+ *   - 上述任何"自动发送条件"不满足
+ *   - 当前选中的 chat 已经被换到别的职位（用户在 API 回调期间切了 tab，
+ *     避免给"新选中的职位"误发"刚才那个职位的 JD"）
+ *
+ * 等价于用户手动点 briefcase 按钮 → handleRecruitAction(item, true) → 自动发送。
+ */
+async function maybeAutoSendJdForEmptyChat(item) {
+  console.log('[LeftMenu] auto-send-jd start, item=', item);
+  if (!item || !item.id) return;
+
+  const userId = store.getters.getUserInfo?.id;
+  if (!userId) {
+    console.log('[LeftMenu] auto-send-jd skipped: userId 不可用');
+    return;
+  }
+
+  // item.jd 为空（chatList 接口没返 jd）→ 主动拉一次 i 人事职位详情拼 JD
+  // 这条路径覆盖：用户点的职位刚好不在 hydrateJobDescriptionsFromIhr 已完成的批次里
+  // （或 hydrate 没跑完 / 失败）
+  let effectiveJd = item.jd;
+  if (!effectiveJd || typeof effectiveJd !== 'string' || effectiveJd.trim() === '') {
+    if (!item.positionId) {
+      console.log(`[LeftMenu] auto-send-jd skipped: item.jd 空且无 positionId, chatId=${item.id}`);
+      return;
+    }
+    console.log(`[LeftMenu] item.jd 空，主动拉 positionId=${item.positionId} 的 JD`);
+    effectiveJd = await fetchSingleJobJd(item.positionId);
+    if (!effectiveJd) {
+      console.log('[LeftMenu] auto-send-jd skipped: 主动拉 JD 失败 / 返回空');
+      return;
+    }
+    // 顺手把 jd 写回 chatList，下次进同一职位不用再拉
+    try {
+      const currentList = store.getters.getChatList || [];
+      const merged = currentList.map((c) =>
+        c?.positionId === item.positionId && (!c.jd || c.jd.trim() === '')
+          ? { ...c, jd: effectiveJd }
+          : c
+      );
+      store.dispatch('updateChatList', merged);
+    } catch (e) {
+      console.warn('[LeftMenu] 写回 chatList 失败:', e?.message || e);
+    }
+  }
+  try {
+    const { data } = await getChatHistory(item.id, userId);
+    const history = data?.chatHistory || [];
+    const totalCount = history.length;
+    const userMsgCount = history.filter((m) => m?.role === 'user').length;
+    console.log(
+      `[LeftMenu] auto-send-jd history: total=${totalCount} userMsg=${userMsgCount}`
+    );
+    // 同时满足"没用户消息"+"总数<2"才认为"新会话"，自动发 JD
+    if (userMsgCount > 0 || totalCount >= 2) {
+      console.log(
+        `[LeftMenu] auto-send-jd skipped: total=${totalCount} userMsg=${userMsgCount}（不满足"无 user 消息 + 总数<2"）`
+      );
+      return;
+    }
+    // 用户在 API 回调期间可能切走 → 不要给新选中的职位发旧 JD
+    if (currentChatId.value && currentChatId.value !== item.id) {
+      console.log(
+        `[LeftMenu] auto-send-jd skipped: 当前选中已切到 ${currentChatId.value}, 不再给 ${item.id} 发`
+      );
+      return;
+    }
+    // 检查 chatCardRef 是否就绪（handleRecruitAction 内部要调 chatCardRef.value.insertMessageToInput）
+    if (!chatCardRef.value || typeof chatCardRef.value.insertMessageToInput !== 'function') {
+      console.warn(
+        '[LeftMenu] auto-send-jd skipped: chatCardRef 还未就绪',
+        chatCardRef.value
+      );
+      return;
+    }
+    // 用本地的 effectiveJd 覆盖 item.jd（可能是刚拉回来的，item 还没 reactive 同步）
+    const itemForSend = { ...item, jd: effectiveJd };
+    console.log(
+      `[LeftMenu] auto-send-jd 触发: chatId=${item.id} jdLength=${effectiveJd.length} → handleRecruitAction(item, true)`
+    );
+    handleRecruitAction(itemForSend, true);
+  } catch (e) {
+    console.warn('[LeftMenu] auto-send-jd 异常（静默）:', e?.message || e);
+  }
+}
+
+/**
+ * 主动拉单个职位的 JD 文本（覆盖 hydrateJobDescriptionsFromIhr 没跑完 / 没覆盖到的情况）。
+ * 失败返回 ''；调用方按需判断。
+ */
+async function fetchSingleJobJd(positionId) {
+  const ihrBridge = window?.api?.ihrBridge;
+  if (!ihrBridge || typeof ihrBridge.batchGetPositionDetailByIds !== 'function') {
+    return '';
+  }
+  try {
+    const res = await ihrBridge.batchGetPositionDetailByIds([positionId]);
+    if (!res?.success || !Array.isArray(res.data) || res.data.length === 0) {
+      return '';
+    }
+    const item = res.data[0];
+    const headcountBasic = item?.headcountBasic;
+    if (!headcountBasic) return '';
+    const enums = {
+      salaryTypes: item?.salaryTypes || [],
+      workYears: item?.workYears || [],
+      positionTypes: item?.positionTypes || [],
+      diplomaTypes: item?.diplomaTypes || []
+    };
+    return generateJobPostingFromResume(headcountBasic, enums) || '';
+  } catch (e) {
+    console.warn('[LeftMenu] fetchSingleJobJd 异常:', e?.message || e);
+    return '';
   }
 }
 
@@ -664,6 +990,9 @@ watch(() => store.getters.getNeedRefreshList, async (needRefresh) => {
     padding: 12px // p-3（与 ihraisaas 一致）
     cursor: pointer
     transition: all 0.2s
+    // 左右两列布局：content 占主体，status 在右
+    display: flex
+    align-items: center
 
     &:hover:not(.active)
       border-color: #99f6e4 // hover:border-primary-200
@@ -677,6 +1006,24 @@ watch(() => store.getters.getNeedRefreshList, async (needRefresh) => {
     &.pinned:not(.active)
       border-color: #ccfbf1 // border-primary-200
       background: rgba(240, 253, 250, 0.125) // bg-primary-50/20
+
+    // 任务状态背景色（对照 ihraisaas JobList.tsx 第 59-62 行）
+    &.status-processing:not(.active)
+      border-color: #14b8a6 // border-primary-500
+      background: rgba(240, 253, 250, 0.3) // bg-primary-50/30
+
+    &.status-queued:not(.active)
+      border-color: #fde68a // border-amber-200
+      background: rgba(254, 252, 232, 0.3) // bg-amber-50/30
+
+    &.status-resting:not(.active)
+      border-color: #f59e0b // border-amber-500
+      background: rgba(254, 252, 232, 0.2) // bg-amber-50/20
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06) // shadow-inner
+
+    &.status-stopped:not(.active)
+      border-color: #fecaca // border-red-200
+      background: rgba(254, 242, 242, 0.3) // bg-red-50/30
 
   .job-item-content
     flex: 1
@@ -758,6 +1105,88 @@ watch(() => store.getters.getNeedRefreshList, async (needRefresh) => {
 
   .job-item.active .recruit-btn
     color: #2dd4bf // selected 时变 primary-400（跟 ihraisaas line 134 一致）
+
+  // ===== 任务状态列（右侧）1:1 对照 ihraisaas JobList.tsx 第 92-141 行 =====
+  .job-item-status
+    flex-shrink: 0
+    min-width: 60px // min-w-[60px]
+    padding-left: 8px // pl-2
+    display: flex
+    flex-direction: column
+    align-items: flex-end
+    justify-content: center
+
+  .status-icons
+    display: flex
+    align-items: center
+    gap: 4px
+    margin-bottom: 4px // mb-1
+
+  .status-label
+    display: flex
+    flex-direction: column
+    align-items: flex-end
+
+  // 文字基础样式（1:1 对照 ihraisaas text-[8px] font-black uppercase tracking-tighter）
+  .status-label-text
+    font-size: 9px
+    font-weight: 900
+    text-transform: uppercase
+    letter-spacing: -0.025em
+    line-height: 1.2
+
+    &.processing
+      color: #0d9488 // text-primary-600
+      animation: pulse 1.6s ease-in-out infinite
+
+    &.queued
+      color: #d97706 // text-amber-600
+
+    &.stopped
+      color: #dc2626 // text-red-600
+      animation: pulse 1.6s ease-in-out infinite
+
+    &.completed
+      color: #059669 // text-emerald-600
+      font-size: 10px // [10px]
+      font-weight: 700
+      letter-spacing: -0.01em
+      margin-top: 2px
+
+  // icon 颜色
+  .status-icon-spinner
+    color: #14b8a6 // text-primary-500
+    animation: spin 0.9s linear infinite
+
+  .status-icon-clock
+    color: #f59e0b // text-amber-500
+
+  .status-icon-alert
+    color: #ef4444 // text-red-500
+    animation: pulse 1.6s ease-in-out infinite
+
+  // "已完成" 圆形 check（对照 ihraisaas line 94-99）
+  .status-completed-circle
+    width: 22px
+    height: 22px
+    border-radius: 50%
+    border: 1.5px solid #10b981 // border-emerald-500
+    background: #fff
+    display: flex
+    align-items: center
+    justify-content: center
+    color: #10b981 // text-emerald-500
+    margin-bottom: 4px
+
+  @keyframes spin
+    to
+      transform: rotate(360deg)
+
+  @keyframes pulse
+    0%, 100%
+      opacity: 1
+    50%
+      opacity: 0.5
 
   .job-empty
     padding: 16px

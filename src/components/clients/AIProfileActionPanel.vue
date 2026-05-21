@@ -16,8 +16,21 @@
 -->
 <template>
   <div class="ai-panel">
-    <!-- 模块勾选 + 锁定提示 -->
-    <div class="modules-row">
+    <!--
+      模块勾选 + 锁定提示
+
+      显示逻辑（设置里 BOSS 未启用时简化 UI）：
+        - bossEnabled=true（默认 / 设置里启用了 BOSS）：显示「搜索牛人」+「推荐牛人」两个勾选框
+        - bossEnabled=false（设置里禁用了 BOSS）：
+            · 「推荐牛人」依赖 BOSS 渠道，无意义
+            · 只剩「搜索牛人」一个选项，让用户勾选也无意义
+            · 「配置已自动锁定」单独留着也没意义
+            → 整行隐藏，直接进配置卡片 / 启动按钮区
+            （selectedModules 由 watch(bossEnabled) 自动改为 { search:true, recommend:false }）
+
+      数据来源：store.getters.getUserChannelConfig → [{ key:'BOSS', enableConfig: bool }, ...]
+    -->
+    <div v-if="bossEnabled" class="modules-row">
       <div class="modules-left">
         <!--
           模块勾选项（1:1 对照 ihraisaas ChatPanel.tsx 929-953）：
@@ -250,12 +263,58 @@ const emit = defineEmits(['change', 'aggregate', 'view-results']);
 
 const store = useStore();
 
+/**
+ * 设置里"BOSS 渠道"是否启用 —— 决定整个推荐牛人 UI 是否可用。
+ *
+ * 数据来源：store.getters.getUserChannelConfig 返回数组 [{ key:'BOSS', enableConfig:bool }, ...]
+ * （注：项目里 getChannelDisable() 函数名反语义，实际 enableConfig=true 表示启用）
+ *
+ * 联动效果（详见 template 的 v-if）：
+ *   - bossEnabled=true：显示"搜索牛人 / 推荐牛人"两个勾选框（默认都勾）
+ *   - bossEnabled=false：两个勾选框都隐藏；selectedModules 强制为 { search:true, recommend:false }
+ */
+const userChannelConfig = computed(() => store.getters.getUserChannelConfig || []);
+const bossEnabled = computed(() => {
+  const cfg = userChannelConfig.value.find((c) => c?.key === 'BOSS');
+  // 兼容：cfg 缺失时默认启用（避免 store 还没 hydrate 完时整块 UI 闪烁消失）
+  if (!cfg) return true;
+  return cfg.enableConfig !== false;
+});
+
 const selectedModules = ref({
   search: true,
   recommend: true
 });
 
+/**
+ * BOSS 切到禁用时：自动收敛 selectedModules 到 { search:true, recommend:false }
+ * BOSS 切到启用时：恢复默认 { search:true, recommend:true }（用户随后可手动改）
+ *
+ * 用 watch immediate:true 保证初次挂载时立刻同步，避免出现"BOSS 禁用 + recommend=true"
+ * 的非法组合传给 aggregate 事件。
+ */
+watch(
+  bossEnabled,
+  (enabled) => {
+    if (!enabled) {
+      // BOSS 关了：只能搜索；推荐自动收起
+      if (selectedModules.value.recommend || !selectedModules.value.search) {
+        selectedModules.value = { search: true, recommend: false };
+      }
+    } else {
+      // BOSS 开了：恢复默认（之前用户可能手动改成纯推荐，这里不强行覆盖搜索状态）
+      if (!selectedModules.value.search && !selectedModules.value.recommend) {
+        selectedModules.value = { search: true, recommend: true };
+      }
+    }
+  },
+  { immediate: true }
+);
+
 function toggleModule(key) {
+  // BOSS 禁用时 UI 上根本看不到勾选框（v-if 隐藏），点击不可达；
+  // 但万一上层用 ref 强调 toggleModule 时也得防御一下，禁止打开 recommend
+  if (key === 'recommend' && !bossEnabled.value) return;
   selectedModules.value = {
     ...selectedModules.value,
     [key]: !selectedModules.value[key]
@@ -364,7 +423,16 @@ function getState() {
   };
 }
 
-watch(getState, (val) => emit('change', val), { deep: true });
+/**
+ * **immediate: true** —— mount 时也 emit 一次。
+ *
+ * 必要性：ChatCard 用 actionPanelStateByMsgId[msg.id] 记录每条 AI_SEARCH 消息的勾选状态。
+ *        AIProfileActionPanel 挂载时如果 BOSS 禁用，watch(bossEnabled) 会立刻把
+ *        selectedModules 改成 { search:true, recommend:false }；但若不 immediate,
+ *        ChatCard 那边 state 一直是 undefined，handleSearch 走 fallback
+ *        { search:true, recommend:true } —— 会触发推荐牛人进度卡片误显示。
+ */
+watch(getState, (val) => emit('change', val), { deep: true, immediate: true });
 
 /** 启动按钮禁用条件：两个模块都没勾 / 勾了推荐牛人但没填简历数 */
 const aggregateDisabled = computed(() => {

@@ -7,6 +7,25 @@ const defaultConfig = {
   maxRetries: 3       // 最大重试次数
 };
 
+// lazy 取 AsyncTaskQueueManager 单例，让 AsyncTaskQueue → manager 解耦循环依赖
+// 队列每次"弹出任务 / 处理完毕"后都会调 manager.updateQueueStatus，让 store 的
+// aiTaskQueueActive 跟队列真实状态同步（之前只在 addTask 时刷新 → 队列空了还停在 true，
+// 导致 runTask 末尾的 await aiAnalyzingActive=false 永远不会返回；反过来如果同时 reset
+// _lastPushedActive=null 又会过早 push false）。
+let _managerCache = null;
+function notifyManagerStateChanged() {
+  if (_managerCache) {
+    try { _managerCache.updateQueueStatus(); } catch (_e) { /* ignore */ }
+    return;
+  }
+  import('./AsyncTaskQueueManager').then((m) => {
+    _managerCache = m.asyncTaskQueueManager || (m.default && new m.default());
+    if (_managerCache && typeof _managerCache.updateQueueStatus === 'function') {
+      try { _managerCache.updateQueueStatus(); } catch (_e) { /* ignore */ }
+    }
+  }).catch(() => { /* ignore */ });
+}
+
 // 创建任务队列系统
 class AsyncTaskQueue {
   constructor(config = {}) {
@@ -84,6 +103,9 @@ class AsyncTaskQueue {
     // 如果队列已暂停或为空，则退出
     if (!this.processing[channelKey] || !this.queues[channelKey] || this.queues[channelKey].length === 0) {
       this.processing[channelKey] = false;
+      // 通知 manager 刷新 store 状态：队列空了 → aiTaskQueueActive 转 false，
+      // runTask 末尾 await 才能往下走
+      notifyManagerStateChanged();
       return;
     }
 
@@ -92,6 +114,8 @@ class AsyncTaskQueue {
 
     // 更新队列大小
     this.queueSizes.value[channelKey] = this.queues[channelKey].length;
+    // 通知 manager 刷新 store 状态（弹出后队列变小，最终一条弹出时会触发 active=false）
+    notifyManagerStateChanged();
 
     try {
       // 生成新的随机时间间隔，确保每个任务执行前都有不同的等待时间

@@ -35,6 +35,8 @@ import 'quasar/dist/quasar.sass'
 
 import 'src/css/app.scss'
 
+import 'src/css/tailwind.css'
+
 
 import createQuasarApp from './app.js'
 import quasarUserOptions from './quasar-user-options.js'

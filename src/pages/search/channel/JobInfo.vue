@@ -70,12 +70,12 @@ const allThirdPartyChannelConfig = computed(() => {
 });
 // 渠道历史查询参数
 const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);
-// 当前搜索条件
-const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value.channelSearchConditions.find((item) => item.channel === channelKey));
-// 渠道搜索分页信息
-const searchChannelConfig = computed(() => allSearchChannelConditionRequestData.value.config.find((item) => item.channelKey === channelKey));
-//渠道所有数据总数
-const channelDataTotal = computed(() => allSearchChannelConditionRequestData.value.config.reduce((total, item) => total + (item.channelDataTotal || 0), 0));
+// 当前搜索条件（null-safe：查看任务结果时 searchChannelConditionRequestData 为 null）
+const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value?.channelSearchConditions?.find((item) => item.channel === channelKey));
+// 渠道搜索分页信息（null-safe）
+const searchChannelConfig = computed(() => allSearchChannelConditionRequestData.value?.config?.find((item) => item.channelKey === channelKey));
+//渠道所有数据总数（null-safe：查看任务结果时走 ALL.data 的 length 兜底）
+const channelDataTotal = computed(() => allSearchChannelConditionRequestData.value?.config?.reduce((total, item) => total + (item.channelDataTotal || 0), 0) ?? jobList.value.length);
 // 是否已读
 const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 // 搜索id
@@ -107,8 +107,9 @@ const getChannelDisable = (key) => {
 
 // 数据 - 聚合渠道从vuex中获取数据
 const jobList = computed(() => {
-  console.log('渲染ALL渠道数据:', channelConfig.value.data);
-  return channelConfig.value.data || [];
+  const data = channelConfig.value.data;
+  console.log('[JobInfo] jobList 计算，ALL.data 条数=', data?.length ?? 'null');
+  return data || [];
 });
 
 // 停止分数自动更新
@@ -129,19 +130,64 @@ const initializationStatus = () => {
 const startScoreUpdate = (resumeList) => {
   if (!resumeList || resumeList.length === 0) return;
 
+  // 如果列表里的简历**全部已有 score（>=0）**，说明是查看历史任务结果（resumeBlind 返回了 score），
+  // 不需要再轮询查分，避免 taskResumeIdMap 为空时走老接口却查不到任何数据的无效轮询。
+  const allHaveScore = resumeList.every(
+    (r) => r.score !== null && r.score !== undefined && r.score >= 0
+  );
+  if (allHaveScore) {
+    console.log('[JobInfo] 全部简历已有 score，跳过 scoreUpdater 启动');
+    return;
+  }
+
   // 启动自动更新器
+  //
+  // 传 chatId 让 store 记录"这一路 AI 评分是为哪个 chat 跑"——LeftMenu
+  // isAiAnalyzingForChat 据此精准判定 per-chat "进行中"状态。
+  // 不传时 SearchTasks 会降级 fallback，可能出现跨 chat 串扰（"两个职位同时进行中"）。
   scoreUpdater.start(
     resumeList,
     channelKey,
     searchConditionId.value,
-    updateScoreData
+    updateScoreData,
+    chatId.value
   );
+
+  // WAITING 回调：
+  //   scoreStatus='WAITING' = detail 从来没提交过，AI 无法开始打分
+  //   判断策略（和 taskId 挂钩）：
+  //     - 当前 chat 仍有进行中的任务（RUNNING/WAITING/RESTING）→ detail 会在任务执行中被补提交，继续等
+  //     - 当前 chat 没有进行中任务（任务已 COMPLETED/FAILED/STOPPED）→ 分析流程已中断
+  //       → 停止轮询，把这些简历标为 score=-2（UI: "AI分析失败"）
+  scoreUpdater.onWaitingCallback = (waitingItems) => {
+    const latestTask = (() => {
+      const getter = store.getters['SearchTasks/getLatestTaskByChat'];
+      return typeof getter === 'function' ? getter(chatId.value) : null;
+    })();
+    const ACTIVE_STATUSES = ['RUNNING', 'WAITING', 'RESTING'];
+    const isTaskActive = latestTask && ACTIVE_STATUSES.includes(latestTask.taskStatus);
+
+    if (!isTaskActive) {
+      console.warn(
+        `[JobInfo.onWaiting] 当前 chat 无进行中任务（${latestTask?.taskStatus ?? '无任务'}），` +
+        `${waitingItems.length} 条 WAITING 简历分析已中断 → 标记 score=-2，停止轮询`
+      );
+      // 把 WAITING 简历的 score 标为 -2（UI 层显示"AI分析失败"），停止无意义轮询
+      waitingItems.forEach(({ resumeBlindId }) => {
+        updateResumeScoreFN({ id: resumeBlindId, score: -2 });
+      });
+      stopScoreUpdate();
+    } else {
+      // 有进行中任务 → detail 会被任务执行器补提交 → 继续轮询等结果
+      console.log('[JobInfo.onWaiting] 任务仍进行中，继续轮询等待 detail 提交');
+    }
+  };
 };
 
 // 检查数据是否已加载
 watch(() => jobList.value, (newList) => {
   hasData.value = newList && newList.length > 0;
-  console.log('jobList更新，长度:', newList?.length, '有数据:', hasData.value);
+  console.log('[JobInfo] hasData watch 触发，长度=', newList?.length, 'hasData=', hasData.value);
 
   // 当数据被清空时，停止分数自动更新
   if (!newList || newList.length === 0) {

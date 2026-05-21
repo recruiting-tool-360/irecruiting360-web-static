@@ -8,7 +8,9 @@ import {
     pluginResultProcessor,
     pluginZhiLianResultProcessor
 } from "src/pluginSrc/verifyes/PluginProcessor";
-import {saveResumeDetail, saveResumeDetailPlus} from "src/api/jobList/JobListApi";
+import {saveResumeDetail} from "src/api/jobList/JobListApi";
+// 任务化迁移：业务侧 saveResumeDetailPlus 已弃用，统一调任务侧 /resume/task/{taskResumeId}/detail
+import { postDetailToTaskResume } from "src/pluginSrc/util/taskResumeBridge";
 import {getCookieValue} from "src/util/StringUtil";
 import qs from "qs";
 import {i360Request} from "src/pluginSrc/util/BasePluginManager";
@@ -293,10 +295,11 @@ export const exeQueueJobInfo = async (data) => {
     let jobInfo = await zhiLianFindJobDetail(data.resume);
     if(jobInfo){
       data.content = jobInfo;
+      // 已全量切换到任务侧 /detail，不再调老接口 saveResumeDetailPlus
       try {
-        await saveResumeDetailPlus(data);
-      }catch (e){
-        console.log(e)
+        await postDetailToTaskResume({ data, channelSubType: 'ZHILIAN', serializeChannel: '智联招聘' });
+      } catch (e) {
+        console.warn('[ZhiLianJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
       }
     }else{
       const allChannelData = store.getters.getChannelConfByAll;
