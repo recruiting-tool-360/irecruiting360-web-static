@@ -91,6 +91,7 @@ export interface TabsBridge {
   goBack(id: string): Promise<void>
   goForward(id: string): Promise<void>
   reload(id: string): Promise<void>
+  loadUrl(id: string, url: string): Promise<void>
   onState(callback: (state: TabState[]) => void): () => void
 }
 

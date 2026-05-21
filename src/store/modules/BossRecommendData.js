@@ -77,6 +77,40 @@ export default {
         state.byJobId = {}
         state.currentJobId = null
       }
+    },
+
+    /**
+     * 给某个 geek patch 字段（按 encryptGeekId 或 resumeBlindId 反查）。
+     *
+     * 典型用途：
+     *   - /results 落库后回填每条 geek 的 resumeBlindId / taskResumeId（按 encryptGeekId 找）
+     *   - scoreAutoUpdater 回调时回填 score / scoreStatus（按 resumeBlindId 找）
+     *
+     * @param {{ jobId, encryptGeekId?, resumeBlindId?, patch }} payload
+     */
+    patchBossRecommendGeek(state, payload) {
+      const { jobId, encryptGeekId, resumeBlindId, patch } = payload || {}
+      if (!jobId || !patch) return
+      const bucket = state.byJobId[jobId]
+      if (!bucket || !Array.isArray(bucket.geekList)) return
+      let idx = -1
+      if (encryptGeekId) {
+        idx = bucket.geekList.findIndex(
+          (g) => g && (g.encryptGeekId === encryptGeekId || g.geekId === encryptGeekId)
+        )
+      }
+      if (idx < 0 && resumeBlindId) {
+        idx = bucket.geekList.findIndex(
+          (g) => g && String(g.resumeBlindId) === String(resumeBlindId)
+        )
+      }
+      if (idx < 0) return
+      const nextList = bucket.geekList.slice()
+      nextList[idx] = { ...nextList[idx], ...patch }
+      state.byJobId = {
+        ...state.byJobId,
+        [jobId]: { ...bucket, geekList: nextList }
+      }
     }
   },
 

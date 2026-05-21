@@ -375,6 +375,22 @@ class TabManager {
     tab.view.webContents.reload()
   }
 
+  /**
+   * 强制让某个 tab 重新加载到指定 URL（绕过 openOrActivateSiteTab 的 sameUrl 复用）。
+   *
+   * 场景：BOSS 推荐第二次跑同 jobid 的任务时，URL 完全一样 → openOrActivateSiteTab 只
+   * activate 不 loadURL；调 reload() 也不一定让 BOSS SPA 重新发 `/wapi/zpjob/rec/geek/list`
+   * （疑似 sessionStorage / 路由内部缓存）。这里直接 webContents.loadURL() 强制完整 navigation，
+   * BOSS 必然要重新启动 SPA → 一定会重发推荐 API。
+   *
+   * 调用方一般传跟当前一样的 jobid URL 即可，也可以带 `&_t=Date.now()` 兜底防 HTTP 缓存。
+   */
+  loadUrl(id: string, url: string): void {
+    const tab = this.tabs.get(id)
+    if (!tab || !url) return
+    void tab.view.webContents.loadURL(url)
+  }
+
   // ----- 查询 -----
 
   getHomeTabId(): string | null {

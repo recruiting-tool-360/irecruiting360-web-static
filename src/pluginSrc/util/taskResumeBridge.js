@@ -25,8 +25,8 @@ async function loadDeps() {
   if (_depsCache) return _depsCache;
   try {
     const [storeMod, apiMod] = await Promise.all([
-      import('src/store'),
-      import('src/api/searchTaskApi')
+      import("src/store"),
+      import("src/api/searchTaskApi")
     ]);
     _depsCache = {
       store: storeMod.default || storeMod,
@@ -34,7 +34,7 @@ async function loadDeps() {
     };
     return _depsCache;
   } catch (e) {
-    console.warn('[taskResumeBridge] lazy import 失败:', e?.message || e);
+    console.warn("[taskResumeBridge] lazy import 失败:", e?.message || e);
     return { store: null, taskApi: null };
   }
 }
@@ -54,6 +54,7 @@ async function loadDeps() {
  * @param {object} args
  * @param {string} args.chatId            职位会话 ID
  * @param {string} args.channelDesc       渠道中文 desc（"boss直聘" / "智联招聘" 等）
+ * @param {string} [args.businessChannel='SEARCH']  'SEARCH' | 'RECOMMEND'，默认 SEARCH
  * @param {Array}  args.resumeList        本批简历对象数组
  * @param {string} args.searchConditionId 搜索条件 ID
  * @param {boolean} [args.filterByRead]   是否过滤已读
@@ -62,12 +63,13 @@ async function loadDeps() {
 export async function postBatchResultsToTaskChannel(args) {
   const { store, taskApi } = await loadDeps();
   if (!store || !taskApi) {
-    console.warn('[taskResumeBridge] postSearchResults: deps 未就绪');
+    console.warn("[taskResumeBridge] postSearchResults: deps 未就绪");
     return [];
   }
 
   const chatId = args?.chatId;
   const channelDesc = args?.channelDesc;
+  const businessChannel = args?.businessChannel || "SEARCH";
   if (!chatId || !channelDesc) {
     console.warn(
       `[taskResumeBridge] postSearchResults SKIP: chatId/channelDesc 缺失 (chatId=${chatId}, channelDesc=${channelDesc})`
@@ -75,7 +77,7 @@ export async function postBatchResultsToTaskChannel(args) {
     return [];
   }
 
-  // 通过 getter 找活跃 taskChannel（getter 内做 desc → channelSubType 反查）
+  // 通过 getter 找活跃 taskChannel（getter 内做 desc → channelSubType 反查 + 按 businessChannel 过滤）
   //
   // 时序场景：handleAggregateSearch 里 dispatchTaskStore（创建任务）和 runRealAggregateSearch
   // （触发各渠道搜索）并行跑。第一批 saveSearchPlus 可能比 SearchTasks/create 更快到达
@@ -84,9 +86,13 @@ export async function postBatchResultsToTaskChannel(args) {
   // 解决方案：dispatchTaskStore 启动时在 store 里 set 了 pendingCreate[chatId]=true，
   // 这里看到该标记就**短轮询**等任务出现（一般几百 ms 回包，超时 10s）。
   // 没标记则说明任务化未启动，立刻短路 return 不浪费时间。
-  let channel = store.getters['SearchTasks/getActiveTaskChannelByDesc'](chatId, channelDesc);
-  const isPendingCreate = store.getters['SearchTasks/isPendingCreate'];
-  const hasPending = typeof isPendingCreate === 'function' && isPendingCreate(chatId);
+  let channel = store.getters["SearchTasks/getActiveTaskChannelByDesc"](
+    chatId,
+    channelDesc,
+    businessChannel
+  );
+  const isPendingCreate = store.getters["SearchTasks/isPendingCreate"];
+  const hasPending = typeof isPendingCreate === "function" && isPendingCreate(chatId);
   if ((!channel || !channel.taskChannelId) && hasPending) {
     const WAIT_TASK_MS = 10 * 1000;
     const POLL_INTERVAL = 200;
@@ -96,16 +102,26 @@ export async function postBatchResultsToTaskChannel(args) {
     );
     while (Date.now() - startWait < WAIT_TASK_MS) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-      channel = store.getters['SearchTasks/getActiveTaskChannelByDesc'](chatId, channelDesc);
+      channel = store.getters["SearchTasks/getActiveTaskChannelByDesc"](
+        chatId,
+        channelDesc,
+        businessChannel
+      );
       if (channel && channel.taskChannelId) {
         console.log(
-          `[taskResumeBridge] postSearchResults: 任务就绪 ✓ 等了 ${Date.now() - startWait}ms (${channelDesc} → ${channel.channelSubType}#${channel.taskChannelId})`
+          `[taskResumeBridge] postSearchResults: 任务就绪 ✓ 等了 ${
+            Date.now() - startWait
+          }ms (${channelDesc} → ${channel.channelSubType}#${channel.taskChannelId})`
         );
         break;
       }
       // pendingCreate 中途清掉了（说明 create 已结束）→ 立刻 break，不再死等
-      if (typeof isPendingCreate === 'function' && !isPendingCreate(chatId)) {
-        channel = store.getters['SearchTasks/getActiveTaskChannelByDesc'](chatId, channelDesc);
+      if (typeof isPendingCreate === "function" && !isPendingCreate(chatId)) {
+        channel = store.getters["SearchTasks/getActiveTaskChannelByDesc"](
+          chatId,
+          channelDesc,
+          businessChannel
+        );
         break;
       }
     }
@@ -113,21 +129,21 @@ export async function postBatchResultsToTaskChannel(args) {
   if (!channel || !channel.taskChannelId) {
     // 任务化未启动 / 该渠道未启用 / create 失败 → 静默跳过
     // 仅打 debug 级 log，避免业务侧噪音
-    const t = store.getters['SearchTasks/getLatestTaskByChat'](chatId);
+    const t = store.getters["SearchTasks/getLatestTaskByChat"](chatId);
     const channelsBrief = t?.channels
       ? t.channels.map((c) => `${c.channelSubType}/${c.businessChannel}#${c.taskChannelId}`)
       : null;
     console.log(
       `[taskResumeBridge] postSearchResults SKIP: 无活跃 taskChannel` +
-      ` | chatId=${chatId} channelDesc=${channelDesc}` +
-      ` | hasPending=${hasPending}` +
-      ` | latestTask=${t ? `taskId=${t.taskId} status=${t.taskStatus}` : '(null)'}` +
-      ` | channels=${channelsBrief ? `[${channelsBrief.join(', ')}]` : '(null)'}`
+        ` | chatId=${chatId} channelDesc=${channelDesc}` +
+        ` | hasPending=${hasPending}` +
+        ` | latestTask=${t ? `taskId=${t.taskId} status=${t.taskStatus}` : "(null)"}` +
+        ` | channels=${channelsBrief ? `[${channelsBrief.join(", ")}]` : "(null)"}`
     );
     return [];
   }
 
-  const task = store.getters['SearchTasks/getLatestTaskByChat'](chatId);
+  const task = store.getters["SearchTasks/getLatestTaskByChat"](chatId);
   // ⚠️ searchConditionId 必须取 channel 自身绑定的值，不能用 store 里"当前最新的"
   // searchConditionId（args.searchConditionId）。
   //
@@ -141,7 +157,7 @@ export async function postBatchResultsToTaskChannel(args) {
   // 的极端 fallback。
   const payload = {
     chatId,
-    taskId: task?.taskId || '',
+    taskId: task?.taskId || "",
     searchConditionId: channel.searchConditionId || args.searchConditionId,
     businessChannel: channel.businessChannel,
     channelSubType: channel.channelSubType,
@@ -164,7 +180,7 @@ export async function postBatchResultsToTaskChannel(args) {
   ) {
     console.warn(
       `[taskResumeBridge] searchConditionId 不一致：argsCondId=${args.searchConditionId} channelCondId=${channel.searchConditionId}` +
-      ` | 取 channel 绑定值 ${channel.searchConditionId}（任务侧契约）`
+        ` | 取 channel 绑定值 ${channel.searchConditionId}（任务侧契约）`
     );
   }
 
@@ -172,18 +188,20 @@ export async function postBatchResultsToTaskChannel(args) {
   // 对照 docs/05-api-contract.md §5.3.5：chatId / taskId / searchConditionId /
   // businessChannel / channelSubType / serializeChannel 都是必填
   const missingFields = [
-    ['chatId', payload.chatId],
-    ['taskId', payload.taskId],
-    ['searchConditionId', payload.searchConditionId],
-    ['businessChannel', payload.businessChannel],
-    ['channelSubType', payload.channelSubType],
-    ['serializeChannel', payload.serializeChannel]
+    ["chatId", payload.chatId],
+    ["taskId", payload.taskId],
+    ["searchConditionId", payload.searchConditionId],
+    ["businessChannel", payload.businessChannel],
+    ["channelSubType", payload.channelSubType],
+    ["serializeChannel", payload.serializeChannel]
   ]
     .filter(([_k, v]) => !v)
     .map(([k]) => k);
   if (missingFields.length > 0) {
     console.warn(
-      `[taskResumeBridge] /results SKIP: 必填字段缺失 [${missingFields.join(', ')}]，避免发残缺 payload`,
+      `[taskResumeBridge] /results SKIP: 必填字段缺失 [${missingFields.join(
+        ", "
+      )}]，避免发残缺 payload`,
       { chatId, channelDesc, channel, taskFromStore: task }
     );
     return [];
@@ -202,7 +220,7 @@ export async function postBatchResultsToTaskChannel(args) {
         serializeChannel: payload.serializeChannel,
         filterByRead: payload.filterByRead,
         finished: payload.finished,
-        'resultItems.length': payload.resultItems.length
+        "resultItems.length": payload.resultItems.length
       }
     );
     const resp = await taskApi.postSearchResults(channel.taskChannelId, payload);
@@ -213,8 +231,8 @@ export async function postBatchResultsToTaskChannel(args) {
     if (resp == null) {
       console.warn(
         `[taskResumeBridge] >>> /results 返回 undefined（后端业务失败 / success!=='success'）${channelDesc}` +
-        ` | 请检查 Network 里这条 /search/taskChannel/${channel.taskChannelId}/results 的实际响应 body` +
-        ` | 上送的 payload=`,
+          ` | 请检查 Network 里这条 /search/taskChannel/${channel.taskChannelId}/results 的实际响应 body` +
+          ` | 上送的 payload=`,
         { ...payload, resultItems: `[${payload.resultItems?.length || 0} items]` }
       );
       return [];
@@ -226,9 +244,10 @@ export async function postBatchResultsToTaskChannel(args) {
     const taskResumes = Array.isArray(respData?.taskResumes) ? respData.taskResumes : null;
     if (taskResumes && taskResumes.length > 0) {
       // commit taskResumeId 映射
-      store.commit('SearchTasks/patchTaskResumeIds', taskResumes);
-      const fullMapGetter = store.getters['SearchTasks/getTaskResumeIdMap'];
-      const mapSize = typeof fullMapGetter === 'function' ? Object.keys(fullMapGetter()).length : -1;
+      store.commit("SearchTasks/patchTaskResumeIds", taskResumes);
+      const fullMapGetter = store.getters["SearchTasks/getTaskResumeIdMap"];
+      const mapSize =
+        typeof fullMapGetter === "function" ? Object.keys(fullMapGetter()).length : -1;
 
       // ===== 组装 jobList（供 channelDataSavePlus 返回给 BossJobInfo.vue 等业务方）=====
       //
@@ -241,15 +260,15 @@ export async function postBatchResultsToTaskChannel(args) {
       const jobList = taskResumes.map((tr) => {
         const r = tr?.resume || {};
         return {
-          ...r,                                          // ResumeBlindVO 投影所有字段
-          id: r.id || tr.resumeBlindId,                  // 兜底 id = resumeBlindId
+          ...r, // ResumeBlindVO 投影所有字段
+          id: r.id || tr.resumeBlindId, // 兜底 id = resumeBlindId
           resumeBlindId: tr.resumeBlindId,
           taskResumeId: tr.taskResumeId,
-          channel: channelDesc,                          // 渠道中文 desc（业务方按这个 group）
+          channel: channelDesc, // 渠道中文 desc（业务方按这个 group）
           channelSubType: tr.channelSubType,
           duplicateFlag: tr.duplicateFlag,
           visibleInResultSet: tr.visibleInResultSet,
-          searchId: payload.searchConditionId            // 兼容老字段
+          searchId: payload.searchConditionId // 兼容老字段
         };
       });
       console.log(
@@ -257,12 +276,16 @@ export async function postBatchResultsToTaskChannel(args) {
       );
       return jobList;
     } else {
-      let respPreview = '(stringify failed)';
-      try { respPreview = JSON.stringify(resp).slice(0, 500); } catch (_e) { /* keep default */ }
+      let respPreview = "(stringify failed)";
+      try {
+        respPreview = JSON.stringify(resp).slice(0, 500);
+      } catch (_e) {
+        /* keep default */
+      }
       console.warn(
         `[taskResumeBridge] /results ok 但 taskResumes 为空/缺失 (${channelDesc}) | respData 字段=`,
-        respData ? Object.keys(respData) : '(null)',
-        '| 完整响应预览:',
+        respData ? Object.keys(respData) : "(null)",
+        "| 完整响应预览:",
         respPreview
       );
       return [];
@@ -300,29 +323,26 @@ export async function postDetailToTaskResume(args) {
   if (!data) return;
 
   const resumeBlindId =
-    data?.resume?.id ||
-    data?.resume?.resumeBlindId ||
-    data?.resume?.blindId ||
-    null;
+    data?.resume?.id || data?.resume?.resumeBlindId || data?.resume?.blindId || null;
   if (!resumeBlindId) {
     console.warn(
-      '[taskResumeBridge] postDetail: data.resume.{id|resumeBlindId|blindId} 都缺失。data.resume 字段=',
-      data?.resume ? Object.keys(data.resume) : '(null)'
+      "[taskResumeBridge] postDetail: data.resume.{id|resumeBlindId|blindId} 都缺失。data.resume 字段=",
+      data?.resume ? Object.keys(data.resume) : "(null)"
     );
     return;
   }
 
-  const taskResumeId = store.getters['SearchTasks/getTaskResumeId'](resumeBlindId);
+  const taskResumeId = store.getters["SearchTasks/getTaskResumeId"](resumeBlindId);
   if (!taskResumeId) {
     // 任务化未启动 / /results 还没回包 / blindId 不一致
-    const fullMapGetter = store.getters['SearchTasks/getTaskResumeIdMap'];
-    const fullMap = typeof fullMapGetter === 'function' ? fullMapGetter() : {};
+    const fullMapGetter = store.getters["SearchTasks/getTaskResumeIdMap"];
+    const fullMap = typeof fullMapGetter === "function" ? fullMapGetter() : {};
     const mapKeys = Object.keys(fullMap || {});
     console.warn(
       `[taskResumeBridge] postDetail SKIP: 没找到 taskResumeId` +
-      ` | blindId=${resumeBlindId} (type=${typeof resumeBlindId})` +
-      ` | map size=${mapKeys.length}` +
-      ` | map 前 5 key=[${mapKeys.slice(0, 5).join(', ')}]`
+        ` | blindId=${resumeBlindId} (type=${typeof resumeBlindId})` +
+        ` | map size=${mapKeys.length}` +
+        ` | map 前 5 key=[${mapKeys.slice(0, 5).join(", ")}]`
     );
     return;
   }

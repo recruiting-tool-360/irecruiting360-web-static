@@ -461,21 +461,48 @@ export async function runBossRecommend(args) {
     stopAfter
   } = args || {};
 
-  // ★ 关键：在打开 tab **之前** 抓 ts，作为 siteNetwork 缓存扫描的下界。
-  //   后面 fetchBossRecommendList 接受 receivedAt > sinceTs 的响应，
-  //   这样 BOSS 在 loadURL → 自动发 /rec/geek/list 那条 HIT 一定能被命中（receivedAt > sinceTs），
-  //   而上一轮会话残留在缓冲里的旧响应（receivedAt < sinceTs）会被过滤掉。
-  //
-  //   ⚠️ 之前 sinceTs 设在 fetchBossRecommendList 入口（dwell 完之后），导致 BOSS 那条
-  //      早期 HIT 反而 < sinceTs 永远命不中、永远 TIMEOUT。
-  const sinceTs = Date.now();
-
   // 1) 打开推荐 tab（幂等：已开则激活）
   const opened = await openBossRecommend(encryptJobId);
   if (!opened.ok) return opened;
   if (typeof onProgress === "function") {
     onProgress("opened", { tabId: opened.tabId, url: opened.url });
   }
+
+  // 1.5) ★ 清缓存 + 强制 loadURL 完整 navigation（带 _t 时间戳防 HTTP 缓存）。
+  //
+  // 为什么不用 reload()：经实测 webContents.reload() 对 BOSS 推荐 SPA **没让它重新发**
+  //   `/wapi/zpjob/rec/geek/list`（疑似 sessionStorage / 路由层缓存），dwell 12s 后
+  //   `listCache(boss) size=0`。
+  //   webContents.loadURL() 强制完整 navigation，URL 带个 `_t=Date.now()` 兜底防 HTTP cache，
+  //   BOSS 必然完整重启 SPA → 一定会重发推荐 API → CDP capture 命中。
+  //
+  // sinceTs 抓在 loadUrl 之后：waitForResponse 只接受 navigation 后真正新到达的响应，
+  //   避免命中上一轮缓冲里的旧数据。
+  try {
+    if (typeof window?.api?.siteNetwork?.clearCache === "function") {
+      await window.api.siteNetwork.clearCache("boss");
+    }
+  } catch (e) {
+    console.warn(`[bossRecommend] clearCache 失败（忽略）：`, e?.message || e);
+  }
+  try {
+    // 带时间戳 URL 强制 BOSS 视作新页面（HTTP cache miss + SPA 路由重启）。
+    // 一些参数是 BOSS 不认识的字段（_t），它会忽略，业务上 jobid 不变。
+    const navUrl = `${opened.url}${opened.url.includes("?") ? "&" : "?"}_t=${Date.now()}`;
+    if (typeof window?.api?.tabs?.loadUrl === "function") {
+      await window.api.tabs.loadUrl(opened.tabId, navUrl);
+      console.log(`[bossRecommend] tabs.loadUrl 已触发 tab=${opened.tabId} url=${navUrl}`);
+    } else if (typeof window?.api?.tabs?.reload === "function") {
+      // 兜底：preload 没更新（旧客户端）→ 至少 reload 一次，比啥都不做强
+      await window.api.tabs.reload(opened.tabId);
+      console.log(
+        `[bossRecommend] tabs.loadUrl 不可用，降级 reload tab=${opened.tabId}（请重启 Electron 客户端拿到新 preload）`
+      );
+    }
+  } catch (e) {
+    console.warn(`[bossRecommend] loadUrl/reload 失败（忽略，继续）：`, e?.message || e);
+  }
+  const sinceTs = Date.now();
 
   // 2) 拟人 dwell：打开后随机停留 5-15s 再继续，让"加载完看一眼"的节奏成立
   const dwellRange =
@@ -520,6 +547,28 @@ export async function runBossRecommend(args) {
   // 3) 抓首屏（不再额外等导航：上面 dwell 已经包含足够的"页面加载稳定"时间）
   // 把 runBossRecommend 入口拿到的 sinceTs 传给 fetchBossRecommendList，
   // 确保它能扫到 dwell 期间已经发生的"BOSS 自动发 /rec/geek/list"那条 HIT
+  //
+  // ★ 调试 helper：fetch 之前 dump 缓存内容，TIMEOUT 时能直接看到 BOSS 实际发了哪些请求。
+  //   如果缓存里完全没有 /rec/geek/list，说明 reload 没让 BOSS 重发；
+  //   如果有但 receivedAt < sinceTs（reload 之前的旧数据，clearCache 漏了），说明清缓存时机错了。
+  try {
+    if (typeof window?.api?.siteNetwork?.listCache === "function") {
+      const cache = await window.api.siteNetwork.listCache("boss");
+      const arr = Array.isArray(cache) ? cache : cache?.entries || [];
+      console.log(
+        `[bossRecommend] fetch 前 siteNetwork.listCache(boss) size=${arr.length}`,
+        arr.map((c) => ({
+          url: c.url,
+          status: c.status,
+          receivedAt: c.receivedAt,
+          deltaSinceTs: typeof sinceTs === "number" ? c.receivedAt - sinceTs : null
+        }))
+      );
+    }
+  } catch (e) {
+    console.warn(`[bossRecommend] listCache 失败（忽略）：`, e?.message || e);
+  }
+
   const first = await fetchBossRecommendList({ encryptJobId, navWaitMs: 0, sinceTs });
   if (!first.ok) return first;
   if (typeof onProgress === "function") {
