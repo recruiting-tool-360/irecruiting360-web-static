@@ -140,6 +140,15 @@ const doSSOLogin = async (iframeMessage) => {
     }
 
     const { ssoConfig, positionList } = iframeMessage;
+    // 父页（ihr360-recruit-static）会在 positionList 每项里带上 jd 文本，
+    // 这里立刻缓存到 store，让 LeftMenu loadChatList 后能按 positionId 回填 jd
+    // （后端 chatList 接口不返 jd 字段，需要前端 cache 这条路径补）
+    if (Array.isArray(positionList) && positionList.length > 0) {
+      store.commit('SET_POSITION_JD_CACHE', positionList);
+      console.log(
+        `[SSOLogin] 已缓存 ${positionList.length} 个职位 JD（用于 LeftMenu auto-send-jd）`
+      );
+    }
     const tokenResponse = await generateSsoToken(ssoConfig?.userConfig ?? {});
 
     if (tokenResponse.data && tokenResponse.data.token) {

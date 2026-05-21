@@ -24,6 +24,56 @@ export default {
         aiSearchRef:null,
       jobSearchFilterRef:null,
       chatCardRef:null,
+      /**
+       * 聚合搜索执行器（一个 async 函数）—— 由 IndexPage 在 onMounted 时 commit。
+       *
+       * 签名：(opts: { chatId, selectedModules?, matchedBossJobId?, resumeCount? }) => Promise<void>
+       *
+       * 用途：让 SearchTasks store 的 actionRunner 收到后端 STEP_COMMAND 时，
+       *      能"代用户"启动一次真实的聚合搜索流程（refreshSearchCondition + executeSearch + 可选推荐）。
+       *      跑完返回 resolved promise，actionRunner 用这个信号 postCommandResult({status:'SUCCESS'})。
+       */
+      aggregateSearchExecutor: null,
+      /**
+       * 防重入 flag：聚合搜索任务正在跑时为 true（不论用户手动触发还是 SSE 触发）。
+       * Phase A：actionRunner 看到 true 时跳过本次任务（SUCCESS but skipped），避免双触发。
+       */
+      aggregateSearchInFlight: false,
+      /**
+       * AI 评分 + AI 任务队列状态（合起来代表"整个 AI 分析阶段还在跑"）
+       *
+       * 两路独立信号：
+       *   - aiScoringActive / aiScoringPending：scoreAutoUpdater 推送的"评分轮询"状态
+       *   - aiTaskQueueActive / aiTaskQueuePending：AsyncTaskQueueManager 推送的"详情解析等
+       *     后台 AI 任务队列"状态（即"AI 任务状态监视器"看到的那个）
+       *
+       * 合并 getter getAiAnalyzingActive = aiScoringActive || aiTaskQueueActive
+       * 给 TaskStatusCard / canCreateForChat / getJobAggregateStatus 用：
+       *   - 任意一路在跑 → 视为"AI 分析进行中"
+       *   - 两路都歇了 → 视为"AI 分析完成"
+       *
+       * 之前只看 scoreAutoUpdater 漏了 saveResumeDetailPlus 等任务队列阶段。
+       */
+      aiScoringActive: false,
+      aiScoringPending: 0,
+      aiTaskQueueActive: false,
+      aiTaskQueuePending: 0,
+      /**
+       * 当前正在跑 AI 评分/任务队列的"绑定 chatId"——解决全局 active 信号跨 chat 串扰：
+       *
+       * 旧版（仅有 active 布尔）：用户在 chat A 跑完搜索 → AI 评分中 → 切到 chat B →
+       *   AI 还在为 A 跑，但 LeftMenu 看到全局 active=true，会把 chat B（如果其 latest task
+       *   也是 COMPLETED）也判定为"进行中"，出现"两个职位同时进行中"假象。
+       *
+       * 新版：scoreAutoUpdater.start() / AsyncTaskQueueManager 在把 active 推 true 时**快照**
+       *   当时的 latestChatId（= 这一路 AI 真正服务的 chat）。getAiAnalyzingChatId 返回
+       *   两路里任意一路 active 的 chatId。isAiAnalyzingForChat(chatId) 据此判断"AI 是不是
+       *   正在为本 chat 跑"，不再依赖动态变化的 latestChatId。
+       *
+       * null 表示该路 AI 当前没在跑。
+       */
+      aiScoringChatId: null,
+      aiTaskQueueChatId: null,
       searchCount:0,
       showQueueMonitor: false,
       showFilterPanel: false,
@@ -78,6 +128,31 @@ export default {
         },
         changeChatCardRef(state,payload) {
           state.chatCardRef = payload;
+        },
+        /** 由 IndexPage 注入聚合搜索执行器（payload 是 async 函数） */
+        setAggregateSearchExecutor(state, payload) {
+          state.aggregateSearchExecutor = typeof payload === 'function' ? payload : null;
+        },
+        /** actionRunner / handleAggregateSearch 跑搜索前后调，标记正在跑 */
+        setAggregateSearchInFlight(state, val) {
+          state.aggregateSearchInFlight = !!val;
+        },
+        /**
+         * scoreAutoUpdater 推送评分状态（pending=0 且 active=false 表示评分完成）
+         *
+         * chatId（可选）：active=true 时由调用方传入"AI 正在为哪个 chat 跑"的快照，
+         * 解决跨 chat 串扰；active=false 时显式置 null（清除"曾经在为某 chat 跑"的痕迹）。
+         */
+        setAiScoringState(state, { active, pending, chatId }) {
+          state.aiScoringActive = !!active;
+          state.aiScoringPending = Number(pending) || 0;
+          state.aiScoringChatId = active ? (chatId || null) : null;
+        },
+        /** AsyncTaskQueueManager 推送任务队列状态（AI 详情解析等后台任务） */
+        setAiTaskQueueState(state, { active, pending, chatId }) {
+          state.aiTaskQueueActive = !!active;
+          state.aiTaskQueuePending = Number(pending) || 0;
+          state.aiTaskQueueChatId = active ? (chatId || null) : null;
         },
         setSearchChannelConditionConfigData(state, {key, config}) {
             if (!state.searchConditionChannelRequestData) {
@@ -296,6 +371,41 @@ export default {
         },
         getAiSearchRefValue(state) {
             return state.aiSearchRef;
+        },
+        getAggregateSearchExecutor(state) {
+            return state.aggregateSearchExecutor;
+        },
+        getAggregateSearchInFlight(state) {
+            return !!state.aggregateSearchInFlight;
+        },
+        getAiScoringActive(state) {
+            return !!state.aiScoringActive;
+        },
+        getAiScoringPending(state) {
+            return Number(state.aiScoringPending) || 0;
+        },
+        getAiTaskQueueActive(state) {
+            return !!state.aiTaskQueueActive;
+        },
+        getAiTaskQueuePending(state) {
+            return Number(state.aiTaskQueuePending) || 0;
+        },
+        /**
+         * 返回当前两路 AI 信号里**任意一路**绑定的 chatId（评分优先于任务队列），都 null
+         * 时返回 null。专门给 SearchTasks.isAiAnalyzingForChat 用，做"AI 是不是为本 chat 跑"
+         * 的精准判定，解决跨 chat 串扰。
+         */
+        getAiAnalyzingChatId(state) {
+            if (state.aiScoringActive && state.aiScoringChatId) return state.aiScoringChatId;
+            if (state.aiTaskQueueActive && state.aiTaskQueueChatId) return state.aiTaskQueueChatId;
+            return null;
+        },
+        /** 合并信号：评分 OR 任务队列任一在跑 → AI 分析进行中 */
+        getAiAnalyzingActive(state) {
+            return !!state.aiScoringActive || !!state.aiTaskQueueActive;
+        },
+        getAiAnalyzingPending(state) {
+            return (Number(state.aiScoringPending) || 0) + (Number(state.aiTaskQueuePending) || 0);
         },
         getJobSearchFilterRefValue(state) {
           return state.jobSearchFilterRef;

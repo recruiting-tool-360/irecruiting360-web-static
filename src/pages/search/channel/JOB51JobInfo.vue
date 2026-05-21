@@ -84,10 +84,13 @@ const allDataConfig = computed(() => store.getters.getChannelConfByAll);
 const aiSortSwitch = computed(() => channelConfig.value.aiSort);
 //渠道历史查询参数
 const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);
-//当前搜索条件
-const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value.channelSearchConditions.find((item) => item.channel === channelKey));
-//渠道搜索分页信息
-const searchChannelConfig = computed(() => allSearchChannelConditionRequestData.value.config.find((item) => item.channelKey === channelKey));
+//当前搜索条件（null-safe）
+const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value?.channelSearchConditions?.find((item) => item.channel === channelKey));
+//渠道搜索分页信息（null-safe，查看任务结果时兜底，避免模板访问 undefined.channelDataTotal 崩溃）
+const searchChannelConfig = computed(() =>
+  allSearchChannelConditionRequestData.value?.config?.find((item) => item.channelKey === channelKey)
+  || { channelDataTotal: jobList.value.length, channelPage: 1, channelCountSize: jobList.value.length, totalPage: 1 }
+);
 //是否已读
 const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 //搜索id
@@ -359,6 +362,8 @@ watch(
   (newValue) => {
     if (!newValue || newValue.length === 0) {
       initializationStatus();
+    } else {
+      hasData.value = true;
     }
   }
 );

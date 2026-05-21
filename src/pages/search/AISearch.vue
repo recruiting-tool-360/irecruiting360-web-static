@@ -1,10 +1,13 @@
 <template>
   <div class="q-py-xs q-px-xs sss">
-    <!-- 自定义加载遮罩 -->
-    <div v-if="isLoading" class="custom-loading-overlay">
+    <!-- 全屏 loading 遮罩已移除：
+         任务进度由聊天里的 TaskStatusCard 显示，全屏遮罩会让用户没法切其他职位看其他数据，
+         任务跑搜索期间应该允许自由切换职位（每个任务跟自己的 taskId 跑，不受 UI 切换影响）。
+         isLoading 仍被 executeSearch 内部使用作为状态标志，只是不再渲染遮罩。 -->
+    <!-- <div v-if="isLoading" class="custom-loading-overlay">
       <q-spinner color="primary" size="3em" />
       <div class="text-subtitle1 q-mt-sm text-white">正在搜索数据，请稍候...</div>
-    </div>
+    </div> -->
 
     <q-card flat bordered class="search-filter-card q-px-xs" style="min-height: 90vh">
       <q-card-section class="q-pa-xs channel-sticky">
@@ -986,18 +989,14 @@ const openSettings = () => {
   showSettingsDialog.value = true;
 };
 
-// 监听选中渠道的变化，更新AI排序状态
+// 监听选中渠道的变化
 watch(selectedChannel, (newChannel) => {
-  console.log('选中的渠道改变为:', newChannel);
-  console.log('对应的组件是:', channelComponents[newChannel]);
-
   // 验证组件映射
   verifyComponentMapping();
-
-  const channelInfo = allChannelStatus.value[newChannel];
-  if (channelInfo) {
-    aiSort.value = channelInfo.aiSort || false;
-  }
+  // ⚠️ 不要在这里写 aiSort.value = ...
+  // aiSort 是 computed(() => allChannelStatus.value[selectedChannel.value].aiSort)，
+  // 切 tab 后它会自动重算，手动赋值会触发 "Write operation failed: computed value is readonly"
+  void newChannel; // suppress lint unused warning
 });
 
 // 处理渠道选择
@@ -1037,6 +1036,7 @@ const handleChannelSelection = (key) => {
 
 // 执行搜索方法 - 由父组件调用
 const executeSearch = async (searchState) => {
+  console.log('[AISearch] executeSearch 被调用！调用栈：', new Error().stack?.split('\n').slice(1,4).join(' | '));
   //检查插件安装（客户端模式下跳过）
   if (!pluginInstalled.value && !isElectronClient()) {
     pluginInstallDialogRef.value.openDialog();
@@ -1218,9 +1218,64 @@ const getSearchConditionRequest = (data,channels) => {
 }
 
 
+/**
+ * 把 selectedChannel 重置到渠道聚合 tab（'ALL'）。
+ * 仅改响应式值，不 dispatch resize（resize 会触发 updateChannelVisibility 重建 tab，导致 indicator 漂移）。
+ */
+const resetToAggregateTab = async () => {
+  console.log('[AISearch] resetToAggregateTab 被调用，当前 selectedChannel=', selectedChannel.value);
+  selectedChannel.value = 'ALL';
+  await nextTick();
+  console.log('[AISearch] resetToAggregateTab 完成，selectedChannel=', selectedChannel.value);
+};
+
+/**
+ * 轻量版 saveCondition：只把搜索条件保存到后端、commit searchConditionId，
+ * **不清 ALL.data、不抓数据**。
+ *
+ * 用途：A 任务跑期间用户在 B 上创建新任务，B 这边只需要 condId 让 SearchTasks/create
+ * 把任务入库给后端排队，等 A 跑完后队列轮到 B，那时 runTask 的 executor 才真正去抓数据。
+ * 这条路径避免清掉 A 还在收集的 ALL.data。
+ *
+ * @returns {Promise<{ok: boolean, conditionId?: string, message?: string}>}
+ */
+const prepareConditionOnly = async () => {
+  try {
+    let channels = allThirdPartyChannelConfig.value.filter(
+      (channel) => channel.login && getChannelDisable(channel.key)
+    ).map((item) => item.name) || [];
+    if (!(channels && channels.length > 0)) {
+      return { ok: false, message: '没有可查询渠道' };
+    }
+    const searchConditionRequest = getSearchConditionRequest(searchState.value, channels);
+    const { data } = await saveCondition(searchConditionRequest);
+    data.config = [];
+    if (data.channelSearchConditions) {
+      data.channelSearchConditions.forEach((item) => {
+        data.config.push({
+          channelDataTotal: 0,
+          channelPage: 0,
+          channelCountSize: 0,
+          totalPage: 0,
+          channelKey: item.channel
+        });
+      });
+    }
+    store.commit('changeSearchChannelConditionRequestData', data);
+    store.commit('changeSearchConditionId', data.id);
+    console.log('[AISearch] prepareConditionOnly 完成，conditionId=', data.id);
+    return { ok: true, conditionId: data.id };
+  } catch (e) {
+    console.error('[AISearch] prepareConditionOnly 失败:', e?.message || e);
+    return { ok: false, message: e?.message || String(e) };
+  }
+};
+
 // 暴露给父组件的方法
 defineExpose({
-  executeSearch
+  executeSearch,
+  resetToAggregateTab,
+  prepareConditionOnly
 });
 const env = process.env.NODE_ENV;
 // 在适当位置添加以下代码

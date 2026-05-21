@@ -103,6 +103,9 @@ export default {
             state.channelConf[key].aiSort=value;
         },
         changeChannelConfData(state,{key,value}) {
+            if (key === 'ALL' && (!value || value.length === 0) && state.channelConf[key].data.length > 0) {
+                console.warn('⚠️⚠️ ALL.data 被清空！调用栈：', new Error().stack.split('\n').slice(1,6).join('\n'));
+            }
             state.channelConf[key].data=value;
         },
         addChannelConfData(state,{key,value}) {

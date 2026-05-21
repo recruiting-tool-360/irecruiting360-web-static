@@ -5,11 +5,13 @@ import {
     pluginKeys
 } from "src/pluginSrc/config/PluginRequestManager";
 import {pluginBossResultProcessor, pluginResultProcessor} from "src/pluginSrc/verifyes/PluginProcessor";
-import {saveResumeDetail, saveResumeDetailPlus} from "src/api/jobList/JobListApi";
+import {saveResumeDetail} from "src/api/jobList/JobListApi";
 import {i360Request} from "src/pluginSrc/util/BasePluginManager";
 import qs from "qs";
 import notify from "src/util/notify";
 import store from 'src/store';
+// 任务化迁移：业务侧 saveResumeDetailPlus 已弃用，统一调任务侧 /resume/task/{taskResumeId}/detail
+import { postDetailToTaskResume } from "src/pluginSrc/util/taskResumeBridge";
 
 const channelKey = "BOSS";
 
@@ -236,16 +238,18 @@ export const exeJobInfo = async (data) => {
 
 }
 
-//异步任务查询
+//异步任务查询（**已全量切换到任务侧 /detail，不再调老接口 saveResumeDetailPlus**）
 export const exeQueueJobInfo = async (data) => {
   try {
     let jobInfo = await bossFindJobDetail(data.resume);
     if(jobInfo){
       data.content = jobInfo;
+      // channelDataSavePlus 已经 await 调过 /results(finished=true) 建好了 taskResumeIdMap，
+      // 这里按 resumeBlindId 反查 taskResumeId 一定能拿到。
       try {
-        await saveResumeDetailPlus(data);
-      }catch (e){
-        console.log(e)
+        await postDetailToTaskResume({ data, channelSubType: 'BOSS', serializeChannel: 'boss直聘' });
+      } catch (e) {
+        console.warn('[BossJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
       }
     }else{
       const allChannelData = store.getters.getChannelConfByAll;

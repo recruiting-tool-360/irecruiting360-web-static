@@ -9,6 +9,7 @@ import SimilarResumeConfig from "src/store/modules/SimilarResumeConfig";
 import BossData from "src/store/modules/BossData";
 import BossRecommendData from "src/store/modules/BossRecommendData";
 import PinnedJobs from "src/store/modules/PinnedJobs";
+import SearchTasks from "src/store/modules/SearchTasks";
 import createPersistedState from "vuex-persistedstate";
 import chatList from './modules/chatList'
 
@@ -19,7 +20,7 @@ const store = createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig,BossData,BossRecommendData,PinnedJobs
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig,BossData,BossRecommendData,PinnedJobs,SearchTasks
   },
   plugins: [
     createPersistedState({
@@ -36,6 +37,9 @@ const store = createStore({
           复现"请先从左侧列表选择一个职位"空状态：localStorage 清掉 vuex.chatList.chosenJobId 即可。
         */
         "chatList.chosenJobId",
+        // 职位 JD 缓存（按 positionId 索引）：父页 SSO 推过来 / 客户端拉详情 现算 后回写。
+        // 跨会话保留，避免刷新后丢失导致"选中职位自动发送 JD"失效。下次 SSO 进来会全量覆盖更新。
+        "chatList.positionJdCache",
         "UserConfig.userInfo",
         "UserConfig.userColor",
         "UserConfig.userChannelConfig",
@@ -50,6 +54,11 @@ const store = createStore({
         "BossRecommendData.currentJobId",
         // 左侧职位列表的置顶状态（参考 ihraisaas JobList.isPinned）
         "PinnedJobs.pinnedJobIds",
+        // 任务化搜索（按 chatId / taskId 分桶）：跨会话保留，刷新 / 重启后职位 badge 状态 +
+        // 已采集的搜索结果都能立即恢复。runtime 字段（queue / runningTaskId / activeSseContext）
+        // **不持久化**，启动时会通过 SearchTasks/resumeFromCurrent 重新拉服务端真实状态。
+        "SearchTasks.tasksById",
+        "SearchTasks.chatTaskIdx",
       ],
     })
   ],

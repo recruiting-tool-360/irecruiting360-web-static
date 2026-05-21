@@ -85,10 +85,13 @@ const allDataConfig = computed(() => store.getters.getChannelConfByAll);
 const aiSortSwitch = computed(() => channelConfig.value.aiSort);
 //渠道历史查询参数
 const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);
-//当前搜索条件
-const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value.channelSearchConditions.find((item) => item.channel === channelKey));
-//渠道搜索分页信息
-const searchChannelConfig = computed(() => allSearchChannelConditionRequestData.value.config.find((item) => item.channelKey === channelKey));
+//当前搜索条件（null-safe）
+const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value?.channelSearchConditions?.find((item) => item.channel === channelKey));
+//渠道搜索分页信息（null-safe，查看任务结果时 config 为 null，用 jobList.length 兜底避免模板访问 undefined.channelDataTotal 崩溃）
+const searchChannelConfig = computed(() =>
+  allSearchChannelConditionRequestData.value?.config?.find((item) => item.channelKey === channelKey)
+  || { channelDataTotal: jobList.value.length, channelPage: 1, channelCountSize: jobList.value.length, totalPage: 1 }
+);
 //是否已读
 const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 //搜索id
@@ -106,7 +109,14 @@ const currentSort = ref('score');
 
 //数据
 const jobList = computed(() =>{
-  return allDataConfig.value.data.filter(item=>item.channel===channelConfig.value.desc)
+  const allData = allDataConfig.value.data;
+  const desc = channelConfig.value.desc;
+  const filtered = allData.filter(item=>item.channel===desc);
+  console.log('[BossJobInfo] jobList computed, ALL.data=', allData.length, 'desc=', desc, 'filtered=', filtered.length);
+  if (allData.length > 0 && filtered.length === 0) {
+    console.warn('[BossJobInfo] filter 返回空！前3条channel=', allData.slice(0,3).map(x=>x.channel));
+  }
+  return filtered;
   // return channelConfig.value.data || [];
 });
 //查询数据变化
@@ -362,11 +372,15 @@ const handleScheduleInterview = (resume) => {
 };
 
 // 监听jobList数据变化
+// ⚠️ 必须同时处理"变非空"的情况（比如查看任务结果时外部直接往 ALL.data 灌数据，
+// executeSearch 不会运行，hasData 不会被 executeSearch 内部置 true）
 watch(
   jobList,
   (newValue) => {
     if (!newValue || newValue.length === 0) {
       initializationStatus();
+    } else {
+      hasData.value = true;
     }
   }
 );

@@ -36,7 +36,10 @@ module.exports = configure(function (/* ctx */) {
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#css
     css: [
-      'app.scss'
+      'app.scss',
+      // Tailwind 3.x 入口（preflight 已关闭，不会覆盖 Quasar 基础样式）
+      // 主要为渲染后端 SSE 推送的富文本卡片（HTML 里含大量 Tailwind 类名）服务
+      'tailwind.css'
     ],
 
     // https://github.com/quasarframework/quasar/tree/dev/extras
@@ -123,9 +126,33 @@ module.exports = configure(function (/* ctx */) {
       port: 8080,
       open: true,
       proxy: {
-        // 代理所有API请求到后端
+        /**
+         * 反向代理 /web-manage-api/* → ihire-solution 测试服。
+         *
+         * 为什么：.env.development 的 VUE_APP_API_BASE_URL 改成相对路径 `/web-manage-api`,
+         *        让 axios / EventSource 都打到 dev server（localhost:8080），由 proxy
+         *        转发到真实测试服域名（test.ihire365.com），绕开浏览器 CORS。
+         *        切环境（test / qa / sit / prod）改 .env 的 VUE_APP_DEV_API_TARGET 即可。
+         *
+         * 关键配置：
+         *   - changeOrigin: true   重写 Host header，避免后端按 Origin 校验
+         *   - secure: false        测试服 HTTPS 证书可能是自签，跳过校验
+         *   - ws: true             SSE 长连接也走这条 proxy（虽然 SSE 不是 WebSocket，但
+         *                          http-proxy-middleware 的 ws 选项会启用 upgrade 处理 +
+         *                          keep-alive，对 EventSource 流式响应也友好）
+         *   - proxyTimeout / timeout: 0   长连接不超时（SSE 可能挂很久）
+         */
+        '/web-manage-api': {
+          target: process.env.VUE_APP_DEV_API_TARGET || 'https://test.ihire365.com',
+          changeOrigin: true,
+          secure: false,
+          ws: true,
+          proxyTimeout: 0,
+          timeout: 0,
+        },
+        // 历史 /api 代理（旧代码可能还有路径用 /api，保留向后兼容）
         '/api': {
-          target: process.env.VUE_APP_API_BASE_URL || 'http://localhost:8080',
+          target: process.env.VUE_APP_DEV_API_TARGET || process.env.VUE_APP_API_BASE_URL || 'http://localhost:8080',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
         }

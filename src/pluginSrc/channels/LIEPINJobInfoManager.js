@@ -8,7 +8,9 @@ import {
   pluginLIEPINResultProcessor,
   pluginResultProcessor
 } from "src/pluginSrc/verifyes/PluginProcessor";
-import {saveResumeDetail, saveResumeDetailPlus} from "src/api/jobList/JobListApi";
+import {saveResumeDetail} from "src/api/jobList/JobListApi";
+// 任务化迁移：业务侧 saveResumeDetailPlus 已弃用，统一调任务侧 /resume/task/{taskResumeId}/detail
+import { postDetailToTaskResume } from "src/pluginSrc/util/taskResumeBridge";
 import qs from "qs";
 import {i360Request} from "src/pluginSrc/util/BasePluginManager";
 import notify from "src/util/notify";
@@ -317,10 +319,11 @@ export const exeQueueJobInfo = async (data) => {
     let jobInfo = await lIEPINJobDetailFN(data.resume);
     if(jobInfo){
       data.content = jobInfo;
+      // 已全量切换到任务侧 /detail，不再调老接口 saveResumeDetailPlus
       try {
-        await saveResumeDetailPlus(data);
-      }catch (e){
-        console.log(e)
+        await postDetailToTaskResume({ data, channelSubType: 'LIEPIN', serializeChannel: '猎聘' });
+      } catch (e) {
+        console.warn('[LIEPINJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
       }
     }else{
       const allChannelData = store.getters.getChannelConfByAll;

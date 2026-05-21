@@ -167,6 +167,41 @@
                 :steps="msg.steps"
                 :data="msg.data"
               />
+              <!--
+                聚合搜索任务真实状态卡片（msg.type === 'task_status'）
+                绑定 SearchTasks store 的某个 taskId，内部 computed 跟随 task.channels 状态 reactive 更新。
+                注意：未绑定 taskId（pending 初始化）时显示"正在初始化任务..."loading 文案。
+              -->
+              <TaskStatusCard
+                v-else-if="msg.type === 'task_status'"
+                :task-id="msg.taskId || ''"
+                :force-stopped="!!msg.isStopped"
+              />
+              <!--
+                任务完成卡片（msg.type === 'task_completion_card'）：
+                  - 用 Vue 组件 TaskCompletionCard 渲染，props 全部来自 msg.cardData
+                  - 跟 server_html（后端推的整段 HTML）的区别：本路径前端拿结构化数据自己渲染，
+                    可控性更强（按钮交互、样式微调都方便）
+                  - 后端模板源就是 TaskCompletionCard.vue 的 <template>，含 `{{ }}` 占位
+              -->
+              <TaskCompletionCard
+                v-else-if="msg.type === 'task_completion_card'"
+                :html="msg.html || ''"
+                @view-result="onTaskCardViewResult(msg, $event)"
+                @clear-and-restart="onTaskCardClearAndRestart(msg, $event)"
+                @keep-and-increment="onTaskCardKeepAndIncrement(msg, $event)"
+                @unknown-action="onTaskCardUnknownAction(msg, $event)"
+              />
+              <!--
+                服务端 SSE 推过来的富文本卡片消息（scenario='CHAT'，messageType=TASK_COMPLETION_CARD 等），
+                content 已经是后端拼好的完整 HTML，直接 v-html 渲染。
+                跟普通 bot 消息（v-html=parseMarkdown）区分开：后端 HTML 不要再过 markdown-it 一遍，避免被破坏。
+              -->
+              <div
+                v-else-if="msg.type === 'server_html'"
+                class="server-html-card"
+                v-html="msg.content || ''"
+              ></div>
               <div v-else-if="msg.type === 'bot'" v-html="parseMarkdown(msg.content || '')"></div>
               <div v-else class="bot-message-formatted">{{ msg.content || "" }}</div>
 
@@ -334,6 +369,12 @@ import LoginRequiredPanel from "src/components/clients/LoginRequiredPanel.vue";
 import AIProfileActionPanel from "src/components/clients/AIProfileActionPanel.vue";
 import AIProfileCard from "src/components/clients/AIProfileCard.vue";
 import ExecutionLog from "src/components/clients/ExecutionLog.vue";
+import TaskStatusCard from "src/components/clients/TaskStatusCard.vue";
+import TaskCompletionCard from "src/components/clients/TaskCompletionCard.vue";
+import {
+  isTaskCompletionCardHtml,
+  isTaskChannelProgressCardJson
+} from "src/util/taskCompletionTemplate";
 import ChatEmptyState from "src/components/clients/ChatEmptyState.vue";
 import { parseAISearchJD, getAISearchPrefix } from "src/util/parseAISearchJD";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
@@ -830,40 +871,58 @@ const handleEdit = (msg) => {
 // 聚合搜索
 const handleSearch = async (msg) => {
   if (props.embedded) {
-    // 嵌入式模式：mock 动画 + 真实搜索 并发执行
+    // 嵌入式模式：基于 SearchTasks store 的真实任务状态卡片
     //
-    //   1. 立刻 emit aggregate-search → IndexPage 后台触发 refreshAndSearchFN
-    //      （此时还在 chat 视图，用户看到的是 mock 进度卡片）
-    //   2. 同步播放 mock execution_log 进度动画（搜索 / 推荐两路并发，~6s）
-    //   3. 动画跑完 emit view-results → IndexPage 切到 results 视图
-    //      —— 此时真实搜索大概率已经返回，避免在 results 视图里再等 loading
+    //   1. 立刻 emit aggregate-search → IndexPage 后台 dispatch SearchTasks/create
+    //      → store 拿到 taskId 后 push 真实搜索（runRealAggregateSearch）
+    //   2. ChatCard 立即 push 一条 type='task_status' 占位消息（taskId 暂为空）
+    //      由下方 watchPendingTaskBinding 在 store 出现新 task 时回填 taskId
+    //   3. 任务进入终态（COMPLETED / FAILED / STOPPED）→ emit view-results
     //
-    // 注意：refreshAndSearchFN 必须由 IndexPage 调，因为嵌入式模式下
-    //      JobSearchFilter 渲染在 IndexPage 的 results 视图里，不在 ChatCard 内
+    // 跟旧 mock 实现的关键区别：
+    //   - 旧：本地定时器 1.2s 推进虚假步骤，跟真实搜索无关
+    //   - 新：steps[].status 完全由 task.channels[].taskChannelStatus 决定，reactive
     const state = actionPanelStateByMsgId.value[msg?.id] || null;
-    const selectedModules = state?.selectedModules || { search: true, recommend: true };
+    // fallback 默认 recommend:false（更保守）—— BOSS 禁用 / state 还没就绪时，
+    // 避免误触发推荐牛人。AIProfileActionPanel 已经在 mount 时 immediate emit('change')
+    // 推送真实状态（含 BOSS 禁用 → recommend:false 的转换），这条 fallback 只是双保险防御。
+    const selectedModules = state?.selectedModules || { search: true, recommend: false };
     const matchedBossJobId = state?.matchedBossJobId || null;
     const resumeCount = state?.resumeCount ?? null;
     const chatIdForSearch = props.chatId || currentChatId.value;
 
-    // 1) 立刻让父级在后台触发真实搜索（不切视图）
-    //    selectedModules.recommend + matchedBossJobId → IndexPage 会调 openBossRecommendForJob 打开 BOSS 推荐页
+    // 提前拦截重复点击：同一职位已有 RUNNING/WAITING/RESTING 任务时直接返回，
+    // 不 push 占位卡片，避免出现"正在初始化任务..."永远转圈的状态。
+    // IndexPage 也会再判一次并通过 notify 告知用户，这里只静默兜底。
+    const canCreate = store.getters["SearchTasks/canCreateForChat"];
+    if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
+      console.warn("[ChatCard] handleSearch 拒绝：该 chat 已有进行中任务");
+      // 仍然 emit 给 IndexPage（让 IndexPage 的 notify.warning 弹出来）
+      emit("aggregate-search", {
+        chatId: chatIdForSearch,
+        selectedModules,
+        matchedBossJobId,
+        resumeCount,
+        content: msg?.content
+      });
+      return;
+    }
+
+    // 1) 立刻 push 一张任务状态占位卡片（taskId='' 时 TaskStatusCard 显示"正在初始化任务..."）
+    //    chatIdForSearch 一同记录，方便 watch 触发时定位本卡片绑定到哪个 chat 的最新 task
+    const placeholderMsgId = pushTaskStatusPlaceholder(chatIdForSearch);
+
+    // 2) 通知父级真正去创建任务 + 跑搜索
     emit("aggregate-search", {
       chatId: chatIdForSearch,
       selectedModules,
       matchedBossJobId,
       resumeCount,
-      content: msg?.content
+      content: msg?.content,
+      // 把占位消息 id 也带上，方便父级 / store 在创建失败时通过事件回流标记 isStopped
+      placeholderMsgId
     });
-
-    // 2) 与真实搜索并发：插入 mock 进度卡片并等待动画跑完
-    await mockStartAggregateProgress(selectedModules);
-
-    // 3) 动画完成后切到 results 视图查看真实搜索结果
-    emit("view-results", {
-      chatId: chatIdForSearch,
-      content: msg?.content
-    });
+    // 不再 await mock 动画；watchPendingTaskBinding 会在任务进入终态时 emit view-results
     return;
   }
   // 浮窗模式：判断对话框是否是缩小状态，如果不是就把它缩小
@@ -875,99 +934,384 @@ const handleSearch = async (msg) => {
   jobSearchFilterRef.value && jobSearchFilterRef.value.refreshAndSearchFN(currentChatId.value);
 };
 
-/* ===== mock：聚合搜索进度卡片（1:1 ihraisaas bgMessageUtils.ts 步骤文案） =====
- * 后续接 SSE / 真实状态时替换此函数即可
+/* ===== 任务状态卡片：占位 push + watch 回填 + 终态切视图 =====
+ * 老 mock pushAndAnimateExecutionLog / mockStartAggregateProgress 已废弃，仅留代码作为对照。
  */
 
-/** 模拟一个 execution_log：按 1.2s 节奏推进 steps 从 pending → processing → complete
- *  返回 Promise，所有 step 都完成（或被 isStopped 中断）后 resolve */
-function pushAndAnimateExecutionLog(content, stepTitles) {
-  return new Promise((resolve) => {
-    const id = "exec-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-    const steps = stepTitles.map((title, i) => ({
-      title,
-      status: i === 0 ? "processing" : "pending"
-    }));
-    const msg = {
-      id,
-      type: "execution_log",
-      content,
-      steps,
-      time: new Date().toTimeString().slice(0, 8),
-      data: { isStopped: false }
-    };
-    internalMessages.value.push(msg);
+// 待绑定 taskId 的占位消息（chatId → 占位消息 id）
+// 一个 chat 同时只允许有 1 个 pending 占位（handleSearch 出口已被 SearchTasks/refused 拦截重复点击）
+const pendingTaskBindingsByChat = ref({});
+// 已经触发过 view-results 的 taskId 集合，避免一个任务进入终态被多次切视图
+const viewResultsFiredTaskIds = ref(new Set());
 
-    nextTick(() => {
-      if (typeof scrollToBottom === "function") {
-        try { scrollToBottom(); } catch (_e) { /* ignore */ }
-      }
-    });
+/**
+ * "本会话用户主动启动的"任务 ID 集合——只有进入这个集合的任务在 COMPLETED 时才会
+ * 自动切到 results 视图。
+ *
+ * 为什么需要这个集合：
+ *   watchPendingTaskBinding 监听的是 "latest task" 任务对象，task 来源有 3 路：
+ *     (a) 用户本次点"启动聚合搜索 / 清空重新 / 保留增量" → create → push placeholder → 写 store
+ *     (b) SearchTasks/resumeFromCurrent 启动时从后端拉 current 任务恢复到 store
+ *     (c) vuex-persistedstate 在 mount 时从 localStorage 恢复 tasksById（含已 COMPLETED 的老任务）
+ *
+ *   旧版只用 viewResultsFiredTaskIds 去重（per-mount in-memory Set），
+ *   导致 (b)(c) 路径下"老 COMPLETED 任务"在每次 ChatCard mount 时都被 watch 当作
+ *   "新到达的 COMPLETED 状态"，触发 emit view-results → 用户上次明明点过 "返回对话"，
+ *   重启 / 刷新 / 切换职位回来后视图又被强制切回 results。
+ *
+ *   修复：把"本会话 user 主动启动"的 task ID 集中跟踪。watch 触发时多加一道闸门——
+ *   只有出现在 sessionStartedTaskIds 里的 COMPLETED 任务才 emit view-results。
+ *   (b)(c) 路径的老任务永远进不来，自然不会覆盖用户的视图选择。
+ *
+ *   写入时机：occurred in 占位回填那一步，即 watch 已确认这个 task 是配着当前
+ *   pending placeholder 创建的（createdAt >= placeholderCreatedAt），意味着 user
+ *   刚刚点过按钮启动它——只有这一次配对成功才算"本会话主动启动"。
+ */
+const sessionStartedTaskIds = ref(new Set());
 
-    let cursor = 0;
-    const STEP_INTERVAL_MS = 1200;
-    const tick = () => {
-      const target = internalMessages.value.find((m) => m.id === id);
-      if (!target || target.data?.isStopped) {
-        resolve();
-        return;
-      }
-      if (cursor >= stepTitles.length) {
-        resolve();
-        return;
-      }
-      target.steps[cursor].status = "complete";
-      cursor += 1;
-      if (cursor < stepTitles.length) {
-        target.steps[cursor].status = "processing";
-        setTimeout(tick, STEP_INTERVAL_MS);
-      } else {
-        resolve();
-      }
-    };
-    setTimeout(tick, STEP_INTERVAL_MS);
+/** 立即 push 一条占位 task_status 消息，返回消息 id */
+function pushTaskStatusPlaceholder(chatId) {
+  const id = "task-status-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+  const createdAt = Date.now();
+  internalMessages.value.push({
+    id,
+    type: "task_status",
+    taskId: "",
+    chatId: chatId || "",
+    createdAt,
+    time: new Date().toTimeString().slice(0, 8),
+    user: ""
   });
+  // 同时记录创建时间——watch 回填时只绑"晚于这个时间创建"的任务，
+  // 避免把 resumeFromCurrent 标 FAILED 的旧任务误绑给新点击产生的占位
+  pendingTaskBindingsByChat.value = {
+    ...pendingTaskBindingsByChat.value,
+    [chatId]: { id, createdAt }
+  };
+  nextTick(() => {
+    try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
+  });
+  return id;
 }
 
 /**
- * 启动 mock 聚合进度：按勾选模块并行插入搜索 / 推荐两条 execution_log。
- * 推荐错峰 1.5s 启动（视觉上像真实并发），等全部完成再 resolve。
+ * watch SearchTasks store：当前 chat 下出现新 task → 回填占位消息的 taskId
+ * 任务进入终态（COMPLETED / FAILED / STOPPED）→ emit view-results（一次性）
+ *
+ * 注意 watch source 是函数式 getter（getLatestTaskByChat 是 curried getter）
+ *   `store.getters['SearchTasks/getLatestTaskByChat'](chatId)`
  */
-async function mockStartAggregateProgress(selectedModules) {
-  const found = Math.floor(Math.random() * 15) + 8; // 8-22 之间
-  const tasks = [];
+watch(
+  () => {
+    const chatId = currentChatId.value || props.chatId;
+    if (!chatId) return null;
+    const getter = store.getters["SearchTasks/getLatestTaskByChat"];
+    return typeof getter === "function" ? getter(chatId) : null;
+  },
+  (newTask) => {
+    if (!newTask || !newTask.taskId) return;
+    const chatId = currentChatId.value || props.chatId;
+    // (a) 占位回填：仅当任务的 createdAt 不早于 placeholder 创建时间时才绑定
+    //
+    //   修复场景：resumeFromCurrent 把当前 chat 旧 BOSS 任务标 FAILED 写入 store，
+    //   用户随后点"启动聚合搜索"，此 watch source 第一次拿到的"latest task"就是那个
+    //   FAILED 旧任务（因为新任务还没建出来）。旧版逻辑会把占位卡片直接绑到 FAILED
+    //   旧任务上，TaskStatusCard 渲染成"已完成"（FAILED 也算 done），用户看到状态错乱。
+    //
+    //   正确做法：占位只绑"新于自己"的任务。FAILED 旧任务 createdAt < placeholder
+    //   createdAt → 跳过；等真正的新任务被 create 出来时（createdAt >= placeholder）
+    //   再绑。
+    const pendingEntry = pendingTaskBindingsByChat.value[chatId];
+    if (pendingEntry) {
+      const pendingMsgId = typeof pendingEntry === "string" ? pendingEntry : pendingEntry.id;
+      const placeholderCreatedAt = (pendingEntry && pendingEntry.createdAt) || 0;
+      const newTaskCreatedAt = Number(newTask.createdAt) || 0;
+      // 允许 200ms 时间漂移（client 时钟 vs server 时钟）
+      const isFreshEnough = newTaskCreatedAt >= placeholderCreatedAt - 200;
+      const target = internalMessages.value.find((m) => m.id === pendingMsgId);
+      if (target && !target.taskId && isFreshEnough) {
+        target.taskId = newTask.taskId;
+        const next = { ...pendingTaskBindingsByChat.value };
+        delete next[chatId];
+        pendingTaskBindingsByChat.value = next;
+        // 配对成功 → 标记为"本会话主动启动"，COMPLETED 时才会触发自动切到 results 视图
+        // 见 sessionStartedTaskIds 注释（解决"返回对话后下次进来被强切回 results"的问题）
+        sessionStartedTaskIds.value.add(newTask.taskId);
+      } else if (target && !target.taskId && !isFreshEnough) {
+        // 不绑定，但留个 log 便于排查
+        console.log(
+          `[ChatCard] 占位卡片跳过绑定旧任务 taskId=${newTask.taskId}（createdAt=${newTaskCreatedAt} < placeholder=${placeholderCreatedAt}）`
+        );
+      }
+    }
+    // (b) 终态切视图：每个 taskId 只 fire 一次。COMPLETED 才切；FAILED/STOPPED 留在当前视图
+    // 不强切，避免用户在搜索失败时被强制跳走
+    //
+    // ⚠️ 关键守卫：**必须**是 sessionStartedTaskIds 里的任务才切。
+    //   resumeFromCurrent / vuex-persistedstate 恢复的老 COMPLETED 任务进不来这个集合，
+    //   防止 ChatCard remount 时把用户上次"返回对话"的视图选择重新覆盖掉。
+    if (
+      newTask.taskStatus === "COMPLETED" &&
+      sessionStartedTaskIds.value.has(newTask.taskId) &&
+      !viewResultsFiredTaskIds.value.has(newTask.taskId)
+    ) {
+      viewResultsFiredTaskIds.value.add(newTask.taskId);
+      // 延时 3 秒再切结果页：让用户能先看到完成卡片（该职位聚合搜索已全部完成！），
+      // 再自动跳转到搜索结果列表，避免卡片一出现就立刻被覆盖
+      setTimeout(() => {
+        emit("view-results", {
+          chatId,
+          taskId: newTask.taskId,
+          taskStatus: newTask.taskStatus
+        });
+      }, 3000);
+    }
+  },
+  { deep: true }
+);
 
-  if (selectedModules?.search) {
-    tasks.push(
-      pushAndAnimateExecutionLog("搜索牛人数据获取流程", [
-        "正在分析画像关键词...",
-        "正在并发检索 智联招聘 平台的实时人才数据...",
-        "正在并发检索 BOSS直聘 平台的实时人才数据...",
-        "正在并发检索 前程无忧 平台的实时人才数据...",
-        `已抓取全渠道 ${found} 符合条件人才数据`,
-        "搜索牛人流程执行完毕"
-      ])
+/**
+ * 监听 pendingCreate 状态：当 create 流程结束（成功或失败）且占位消息仍未被绑定 taskId
+ * → 说明任务创建失败 → 把占位消息标为 isStopped=true，让 TaskStatusCard 显示失败状态
+ * 而不是一直显示"正在初始化任务..."。
+ */
+watch(
+  () => {
+    const chatId = currentChatId.value || props.chatId;
+    if (!chatId) return false;
+    const isPending = store.getters["SearchTasks/isPendingCreate"];
+    return typeof isPending === "function" ? isPending(chatId) : false;
+  },
+  (isPending, wasPending) => {
+    if (wasPending && !isPending) {
+      // pendingCreate 从 true → false（create 流程结束）
+      const chatId = currentChatId.value || props.chatId;
+      if (!chatId) return;
+      const pending = pendingTaskBindingsByChat.value[chatId];
+      if (!pending) return; // 已经被正常绑定了，不需要处理
+      const msgId = typeof pending === "string" ? pending : pending.id;
+      const target = internalMessages.value.find((m) => m.id === msgId && !m.taskId);
+      if (target) {
+        // 占位还没绑上 taskId → 任务创建失败 → 标记为停止
+        console.log("[ChatCard] pendingCreate 结束但占位未绑定 → 标记失败", msgId);
+        target.isStopped = true;
+        // 清掉 pending 记录
+        const next = { ...pendingTaskBindingsByChat.value };
+        delete next[chatId];
+        pendingTaskBindingsByChat.value = next;
+      }
+    }
+  }
+);
+
+/* ===== 旧 mock 聚合进度卡片已废弃（pushAndAnimateExecutionLog / mockStartAggregateProgress）=====
+ * 已被 TaskStatusCard + SearchTasks store reactive 状态替代。
+ * type='execution_log' 渲染分支保留向后兼容（历史消息回放），但不再有代码主动 push。
+ */
+
+/**
+ * 切换 chat 加载历史后调一次：如果当前 chat 的最新任务**真正还活着**，
+ * 在 internalMessages 末尾补一张 task_status 卡片（taskId 已绑定，能立即反映真实状态）。
+ *
+ * 回放策略（避免显示僵尸任务）：
+ *   - 任务终态（COMPLETED / FAILED / STOPPED）→ 不回放（任务已结束，没必要再显示卡片）
+ *   - 任务 taskStatus = RUNNING / WAITING / RESTING，但 createdAt 太久（> 15 分钟）→ 不回放
+ *     （store 持久化保留了"卡死的旧任务"——比如 dispatchTaskStore 修复前创建、SSE 没正常结束
+ *      就被刷新打断的，状态永远 RUNNING。这些被时效判定过滤掉，不污染当前 chat 的体验。）
+ *
+ *   注：vuex-persistedstate 持久化了 SearchTasks.tasksById 但**不**持久化 runtime 字段
+ *       （runningTaskId / queue），所以无法用 runtime 判断"任务真的在跑"，只能用时效兜底。
+ *
+ * 跳过条件：
+ *   - 没有当前 chat
+ *   - store 没该 chat 的任务
+ *   - internalMessages 里已经有同 taskId 的 task_status 卡片（避免重复）
+ *   - 不满足上述"还活着"的判定
+ */
+function ensureTaskStatusCardForCurrentChat() {
+  const chatId = currentChatId.value || props.chatId;
+  if (!chatId) return;
+  const getter = store.getters["SearchTasks/getLatestTaskByChat"];
+  if (typeof getter !== "function") return;
+  const latestTask = getter(chatId);
+  if (!latestTask || !latestTask.taskId) return;
+
+  // 已经结束的任务不回放
+  const isAlive =
+    latestTask.taskStatus === "RUNNING" ||
+    latestTask.taskStatus === "WAITING" ||
+    latestTask.taskStatus === "RESTING";
+  if (!isAlive) return;
+
+  // 超过 15 分钟的"在跑"任务多半是僵尸（SSE 没正常结束就被刷新打断）
+  const FIFTEEN_MIN_MS = 15 * 60 * 1000;
+  const createdAt = Number(latestTask.createdAt) || 0;
+  const isRecent = createdAt > 0 && Date.now() - createdAt < FIFTEEN_MIN_MS;
+  if (!isRecent) {
+    console.log(
+      `[ChatCard] 跳过任务回放（疑似僵尸）: taskId=${latestTask.taskId} status=${latestTask.taskStatus} createdAt=${new Date(createdAt).toLocaleString()}`
     );
+    return;
   }
 
-  if (selectedModules?.recommend) {
-    tasks.push(
-      (async () => {
-        await new Promise((r) => setTimeout(r, 1500)); // 错峰 1.5s
-        const rc = Math.max(3, found - 5);
-        await pushAndAnimateExecutionLog("推荐牛人数据获取流程", [
-          "正在校对 BOSS直聘 关联职位特征...",
-          "正在分析画像关键词...",
-          "正在获取平台实时推荐候选人列表...",
-          "正在完成 AI 语义匹配初筛...",
-          `已抓取全渠道 ${rc} 符合条件人才数据`,
-          "推荐牛人流程执行完毕"
-        ]);
-      })()
-    );
+  const alreadyExists = internalMessages.value.some(
+    (m) => m.type === "task_status" && String(m.taskId) === String(latestTask.taskId)
+  );
+  if (alreadyExists) return;
+
+  internalMessages.value.push({
+    id: "task-status-restored-" + latestTask.taskId,
+    type: "task_status",
+    taskId: latestTask.taskId,
+    chatId,
+    time: new Date().toTimeString().slice(0, 8),
+    user: ""
+  });
+  nextTick(() => {
+    try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
+  });
+}
+
+/* （已移除）测试用 mock TaskCompletionCard 默认插入逻辑 —— 不再自动注入测试卡片。
+ * 生产中走的是后端 chatHistory / SSE 推过来的 HTML 字符串，由 isTaskCompletionCardHtml
+ * 检测后用 TaskCompletionCard 渲染。开发期如需手动测试，可临时 push 一条 type='task_completion_card'
+ * 的 internalMessage（参考 git 历史中的 pushMockTaskCompletionCard 写法）。
+ */
+
+/* 任务完成卡片按钮事件分发：
+ *
+ * 协议：TaskCompletionCard 通过 click 代理捕获 `data-action`，emit 出对应事件。
+ * 每个 handler 接收 (msg, payload)：
+ *   - msg：触发卡片的消息对象（含 chatId / cardData）
+ *   - payload：{ actionCode, cardData }（actionCode 跟事件名一致，方便统一日志）
+ *
+ * 当前临时占位为日志 + 简单转发；后续接实际业务（切 results 视图 / 清空重搜 / 增量搜索）。
+ */
+function onTaskCardViewResult(msg, payload) {
+  console.log("[ChatCard] task_completion_card action=view-result", { msg, payload });
+  // payload.cardData 来自 TaskCompletionCard 从模板根 div 提取的 data-* 集合，
+  // 含 taskId / taskChannelId / searchConditionId / chatId / resultSetId 等
+  // → 透传给 IndexPage 让它调 /search/resultSet/query 拉任务级结果集
+  const cardData = payload?.cardData || {};
+  emit("view-results", {
+    chatId: cardData.chatId || currentChatId.value || props.chatId,
+    taskId: cardData.taskId,
+    taskChannelId: cardData.taskChannelId,
+    taskChannelIds: cardData.taskChannelIds,
+    searchConditionId: cardData.searchConditionId,
+    searchConditionIds: cardData.searchConditionIds,
+    resultSetId: cardData.resultSetId,
+    source: "task_completion_card"
+  });
+}
+/**
+ * 从 SearchTasks store 里把"原任务"的渠道复原成 aggregate-search payload 期望的
+ * { selectedModules, matchedBossJobId, resumeCount }。
+ *
+ * 为什么不读当前 AIProfileCard 的 panel 状态：
+ *   - 完成卡片可能是历史消息里的（用户隔了几天再点），AIProfileCard 的 actionPanelState
+ *     未必跟当时一致；用户语义是"基于这次完成的任务再来一遍"。
+ *   - panel 状态在跨刷新 / 跨会话时不持久，没法稳定 fallback。
+ *   - 任务 store 里 task.channels 是创建时落库的，完整且权威。
+ *
+ * 找不到原任务时返回 null，让上层 fallback 到 IndexPage 的 settings-based 兜底
+ * （走 dispatchTaskStore 默认从 settings 拉启用渠道）。
+ */
+function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
+  if (!originalTaskId) return null;
+  const getter = store.getters["SearchTasks/getTaskById"];
+  if (typeof getter !== "function") return null;
+  const originalTask = getter(originalTaskId);
+  if (
+    !originalTask ||
+    !Array.isArray(originalTask.channels) ||
+    originalTask.channels.length === 0
+  ) {
+    return null;
+  }
+  const channels = originalTask.channels;
+  const hasSearch = channels.some((c) => c.businessChannel === "SEARCH");
+  const hasRecommend = channels.some((c) => c.businessChannel === "RECOMMEND");
+
+  // 推荐渠道（限 BOSS）的配置——抽 relatedPositionValue / maxSearchCount
+  let matchedBossJobId = null;
+  let resumeCount = null;
+  const recommendCh = channels.find(
+    (c) => c.businessChannel === "RECOMMEND" && c.channelSubType === "BOSS"
+  );
+  if (recommendCh?.searchTaskConfig) {
+    try {
+      const cfg = JSON.parse(recommendCh.searchTaskConfig);
+      matchedBossJobId = cfg?.relatedPositionValue || null;
+      if (Number.isFinite(Number(cfg?.maxSearchCount))) {
+        resumeCount = Number(cfg.maxSearchCount);
+      }
+    } catch (_e) {
+      // searchTaskConfig 不是合法 JSON：忽略，让 IndexPage 用 settings 兜底
+    }
+  }
+  return {
+    selectedModules: { search: hasSearch, recommend: hasRecommend },
+    matchedBossJobId,
+    resumeCount
+  };
+}
+
+/**
+ * RESTART / CONTINUE 两个按钮共用的"再来一次"逻辑。
+ *
+ * 跟 handleSearch（INITIAL 入口）走完全相同的链路：
+ *   1) canCreateForChat 拦截重复点击（被拒也 emit 让 IndexPage 弹 notify）
+ *   2) 立刻 push 一张占位 task_status 卡片（watchPendingTaskBinding 会自动绑定到新 taskId）
+ *   3) emit('aggregate-search') 携带 taskType + originalTaskId，IndexPage 复用同一套
+ *      dispatchTaskStore → SearchTasks/create → enqueue → runTask 链路
+ */
+function _retriggerTaskFromCard(taskType, msg, payload) {
+  const cardData = payload?.cardData || {};
+  const chatIdForSearch = cardData.chatId || props.chatId || currentChatId.value;
+  if (!chatIdForSearch) {
+    console.warn(`[ChatCard] task_completion_card ${taskType}: 没拿到 chatId，跳过`);
+    return;
   }
 
-  await Promise.all(tasks);
+  // 从原任务复原 selectedModules / matchedBossJobId / resumeCount
+  // 找不到时 params 为 null，aggregate-search 不带这些字段，
+  // IndexPage 的 dispatchTaskStore 会基于 settings 默认推（search=true, recommend=false）
+  const params = _extractRetrySearchParamsFromOriginalTask(cardData.taskId);
+  const basePayload = {
+    chatId: chatIdForSearch,
+    taskType, // 'RESTART' | 'CONTINUE'
+    originalTaskId: cardData.taskId,
+    content: msg?.content,
+    ...(params || {})
+  };
+
+  // 拒绝重复点击：跟 handleSearch 出口同样的处理——仍然 emit 让 IndexPage 弹 notify
+  const canCreate = store.getters["SearchTasks/canCreateForChat"];
+  if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
+    console.warn(
+      `[ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`
+    );
+    emit("aggregate-search", basePayload);
+    return;
+  }
+
+  // push 占位卡片（taskId='' → TaskStatusCard 显示"正在初始化任务..."），
+  // 由 watchPendingTaskBinding 在新任务出现时回填 taskId
+  const placeholderMsgId = pushTaskStatusPlaceholder(chatIdForSearch);
+  emit("aggregate-search", { ...basePayload, placeholderMsgId });
+}
+
+function onTaskCardClearAndRestart(msg, payload) {
+  console.log("[ChatCard] task_completion_card action=clear-and-restart", { msg, payload });
+  _retriggerTaskFromCard("RESTART", msg, payload);
+}
+function onTaskCardKeepAndIncrement(msg, payload) {
+  console.log("[ChatCard] task_completion_card action=keep-and-increment", { msg, payload });
+  _retriggerTaskFromCard("CONTINUE", msg, payload);
+}
+function onTaskCardUnknownAction(msg, payload) {
+  console.warn("[ChatCard] task_completion_card 未知 action", { msg, payload });
 }
 
 // 换行处理
@@ -1291,25 +1635,50 @@ const loadHistory = async () => {
       //store.commit('clearChatMessage');
 
       // 添加历史消息到内部列表
+      //
+      // 历史消息分类：
+      //   - role=user → 普通用户消息（type='user'）
+      //   - role=assistant + content 是任务完成卡片 HTML → type='task_completion_card'
+      //     用 TaskCompletionCard 渲染（识别按钮 action）
+      //   - role=assistant + content 是 TASK_CHANNEL_PROGRESS_CARD JSON → **跳过不渲染**
+      //     （任务进度由 TaskStatusCard 通过 store reactive 实时绘制，不依赖历史回放）
+      //   - role=assistant + 其它 → 普通 bot 消息（type='bot'）
+      //
+      // 任务完成卡片识别：content 字符串里包含 `data-message-type="TASK_COMPLETION_CARD"`
+      // （后端通过 SSE / messageType 标记，存到 chatHistory 时 content 已是渲染好的完整 HTML）
       data.chatHistory.forEach((msg) => {
-        const messageType = msg.role === "user" ? "user" : "bot";
+        // 旧版后端的"任务进度卡片 JSON"消息直接过滤掉
+        if (isTaskChannelProgressCardJson(msg.content)) {
+          console.log(`[ChatCard] 跳过 TASK_CHANNEL_PROGRESS_CARD JSON 历史消息 id=${msg.id}`);
+          return;
+        }
+
+        const isUser = msg.role === "user";
+        const isCompletionCard = !isUser && isTaskCompletionCardHtml(msg.content);
+
         const messageObj = {
           id: msg.id || uuidv4(),
           role: msg.role,
           content: msg.content,
           created: new Date(msg.timestamp).getTime() / 1000,
-          type: messageType,
+          type: isUser ? "user" : isCompletionCard ? "task_completion_card" : "bot",
           time: new Date(msg.timestamp).toLocaleTimeString(),
           chatId: chatIdToUse,
-          searchConditionId: msg.searchConditionId
+          searchConditionId: msg.searchConditionId,
+          // 任务卡片消息把 content 复制一份到 html 字段（TaskCompletionCard 的 prop 名）
+          ...(isCompletionCard ? { html: msg.content } : {})
         };
 
-        // console.log("添加历史消息:", messageObj);
         addMessage(messageObj);
       });
     } else {
       console.log("没有历史消息");
     }
+
+    // 加载完真实历史后，如果当前 chat 还有进行中 / 排队中 / 刚结束的任务，
+    // 自动在末尾补一张 task_status 卡片（taskId 已绑定）
+    // —— 解决用户切走再切回时看不到搜索状态的问题
+    ensureTaskStatusCardForCurrentChat();
 
     // 触发历史加载完成事件
     emit("load-history-complete", data);
@@ -1621,6 +1990,87 @@ watch(
     }
   },
   { deep: true }
+);
+
+// 兜底滚动：只要消息**数量**有变化（新消息插入 / 历史加载 / 占位卡片 push / task_status 回放）
+// 都自动滚到底。不监听 deep 是为了避免流式 content 累加时频繁刷新（流式那条路径已经
+// 在 fetchStream onData 自己 nextTick(scrollChatToBottom) 处理过了）。
+watch(
+  () => displayMessages.value.length,
+  (newLen, oldLen) => {
+    if (newLen > (oldLen || 0)) {
+      nextTick(() => {
+        try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
+      });
+    }
+  }
+);
+
+/**
+ * 监听 SSE 推过来的服务端聊天消息（store.serverPushedMessage）。
+ *
+ * 时序：
+ *   SseManager 收到 scenario='CHAT' 消息 → commit SET_SERVER_PUSHED_MESSAGE
+ *   → 此 watch 触发 → 若 chatId 匹配当前 chat → 把 message push 到 internalMessages
+ *
+ * 消息形态由后端定，content 是完整 HTML（如 TASK_COMPLETION_CARD 任务完成卡片）。
+ * 用新类型 'server_html'，让 template v-html 直接渲染（不走 markdown-it）。
+ *
+ * 已 push 的 message.id 做去重，避免同一个消息被重复 push（store ts 变化但 message.id 不变时）。
+ */
+const pushedServerMsgIds = ref(new Set());
+watch(
+  () => store.state.chatList?.serverPushedMessage,
+  (evt) => {
+    if (!evt || !evt.chatId || !evt.message) return;
+    const activeChatId = currentChatId.value || props.chatId;
+    if (!activeChatId) return;
+    if (String(evt.chatId) !== String(activeChatId)) {
+      // 不是当前 chat：不渲染（用户切回该 chat 时由 loadHistory 从后端拿历史消息）
+      return;
+    }
+    const msgId = evt.message.id;
+    if (msgId && pushedServerMsgIds.value.has(msgId)) {
+      console.log(`[ChatCard] server msg ${msgId} 已经 push 过，跳过去重`);
+      return;
+    }
+    if (msgId) pushedServerMsgIds.value.add(msgId);
+
+    // 识别任务完成卡片：content 是 TASK_COMPLETION_CARD HTML → 走 TaskCompletionCard
+    //                  其它富文本 → 走 server_html 路径（普通 v-html 渲染，无按钮事件代理）
+    const content = evt.message.content || '';
+
+    // 旧版后端的"任务进度卡片 JSON"消息直接过滤掉，不渲染
+    // （任务进度由 TaskStatusCard 通过 store reactive 实时绘制）
+    if (isTaskChannelProgressCardJson(content)) {
+      console.log(`[ChatCard] 跳过 TASK_CHANNEL_PROGRESS_CARD JSON SSE 消息 id=${msgId}`);
+      return;
+    }
+
+    const isCompletionCard =
+      isTaskCompletionCardHtml(content) || evt.message.messageType === 'TASK_COMPLETION_CARD';
+
+    const wireMessage = {
+      id: msgId || uuidv4(),
+      type: isCompletionCard ? 'task_completion_card' : 'server_html',
+      role: evt.message.role || 'assistant',
+      content,
+      messageType: evt.message.messageType || '',
+      time: typeof evt.message.timestamp === 'string'
+        ? evt.message.timestamp
+        : new Date().toLocaleTimeString(),
+      chatId: evt.chatId,
+      user: 'bot',
+      // 任务卡片消息把 content 复制到 html 字段（TaskCompletionCard 的 prop 名）
+      ...(isCompletionCard ? { html: content } : {})
+    };
+    internalMessages.value.push(wireMessage);
+    nextTick(() => {
+      try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
+    });
+    console.log(`[ChatCard] 已渲染 server-pushed 消息 type=${wireMessage.messageType} chatId=${evt.chatId}`);
+  },
+  { deep: false }
 );
 
 // 组件挂载时初始化

@@ -1,0 +1,36 @@
+/*
+ * Tailwind 3.x 入口（utilities + components only，关闭 preflight 避免覆盖 Quasar 基础样式）
+ *
+ * tailwind.config.js 已 corePlugins.preflight=false，所以这里不需要 @tailwind base。
+ * 只引入 components 和 utilities 让 JIT 按需生成类。
+ *
+ * 引入位置：quasar.config.js > css 数组（在 app.scss 之后），让 Tailwind 类覆盖优先级正常工作。
+ *
+ * Scope：只让后端 SSE 推送的卡片（.server-html-card）应用 Tailwind 的 border 默认 style，
+ * 避免影响 Quasar 整体（preflight 关闭就是为了不污染 Quasar 样式）。
+ */
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * 由于 preflight 关闭，Tailwind 的 `border` / `divide` 工具类只设置了 border-width 和颜色，
+ * 缺 `border-style: solid` 默认值 → 实际不显示边框。
+ *
+ * 给两个 scope 加 border 默认值：
+ *   1. .server-html-card：v-html 路径（后端推完整 HTML，前端 v-html 渲染）
+ *   2. [data-message-type]：Vue 组件路径（TaskCompletionCard 等，根 div 自带 data-message-type）
+ *      → 任意后端任务卡片组件根 div 加上 data-message-type 都会自动生效
+ *
+ * 选择器在外层 wrapper 上，不会污染 Quasar 其它组件。
+ */
+.server-html-card,
+.server-html-card *,
+.server-html-card *::before,
+.server-html-card *::after,
+[data-message-type],
+[data-message-type] *,
+[data-message-type] *::before,
+[data-message-type] *::after {
+  border-style: solid;
+  border-width: 0;
+}

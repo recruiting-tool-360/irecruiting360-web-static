@@ -4,7 +4,9 @@ import {
     getPluginEmptyRequestTemplate, pluginAllRequestType, pluginAllUrls,
     pluginKeys
 } from "src/pluginSrc/config/PluginRequestManager";
-import {saveResumeDetail, saveResumeDetailPlus} from "src/api/jobList/JobListApi";
+import {saveResumeDetail} from "src/api/jobList/JobListApi";
+// 任务化迁移：业务侧 saveResumeDetailPlus 已弃用，统一调任务侧 /resume/task/{taskResumeId}/detail
+import { postDetailToTaskResume } from "src/pluginSrc/util/taskResumeBridge";
 import {pluginJob51ResultProcessor, pluginResultProcessor} from "src/pluginSrc/verifyes/PluginProcessor";
 import CryptoJS from "crypto-js";
 import {i360Request} from "src/pluginSrc/util/BasePluginManager";
@@ -341,10 +343,11 @@ export const exeQueueJobInfo = async (data) => {
     let jobInfo = await job51FindJobDetailFN(data.resume);
     if(jobInfo){
       data.content = jobInfo;
+      // 已全量切换到任务侧 /detail，不再调老接口 saveResumeDetailPlus
       try {
-        await saveResumeDetailPlus(data);
-      }catch (e){
-        console.log(e)
+        await postDetailToTaskResume({ data, channelSubType: 'JOB51', serializeChannel: '前程无忧' });
+      } catch (e) {
+        console.warn('[Job51InfoManager] postDetailToTaskResume failed:', e?.message || e);
       }
     }else{
       const allChannelData = store.getters.getChannelConfByAll;
