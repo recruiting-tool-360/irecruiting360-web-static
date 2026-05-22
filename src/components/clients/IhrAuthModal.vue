@@ -2,11 +2,16 @@
   <Teleport to="body">
     <Transition name="ihr-auth-modal">
       <div v-if="visible" class="ihr-auth-overlay">
-        <div class="ihr-auth-backdrop" @click="handleClose" />
+        <!--
+          backdrop 不再触发 handleClose：
+          token 过期场景必须强制用户走"前往浏览器登录"流程，不能让用户点 backdrop / 按 ESC
+          就关掉弹框继续乱点（继续乱点也会被后端拒，UX 更差）。
+        -->
+        <div class="ihr-auth-backdrop" />
 
         <div class="ihr-auth-card">
-          <!-- 关闭按钮 -->
-          <div class="ihr-auth-toolbar">
+          <!-- 关闭按钮已隐藏：token 失效必须用户主动重新授权，禁止 dismiss -->
+          <!-- <div class="ihr-auth-toolbar">
             <button class="ihr-auth-close" aria-label="关闭" @click="handleClose">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                    stroke-linecap="round" stroke-linejoin="round">
@@ -14,7 +19,7 @@
                 <path d="m6 6 12 12" />
               </svg>
             </button>
-          </div>
+          </div> -->
 
           <div class="ihr-auth-content">
             <!-- 顶部图标（Sparkles + 圆角方块 + pulse 光晕） -->
