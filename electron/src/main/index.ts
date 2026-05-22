@@ -90,9 +90,14 @@ import { parseDeepLink, isPayloadFresh, type ParsedDeepLink } from './util/deepL
 import { startProbeServer, setHomeWebContentsForProbe } from './probeServer'
 
 /**
- * 远端 SPA 部署地址（生产 / 默认开发回退用）
+ * 远端 SPA 部署地址。
+ *   - release 包（productName="i快招"）        → https://login.ihire365.com  生产
+ *   - QA2 包  （productName="i快招 QA2"）      → https://test.ihire365.com   测试
+ *
+ * 通过 electron-builder 的 productName / appId 区分（无需 build 时注入额外 env）。
  */
-const PROD_TARGET_URL = 'https://login.ihire365.com'
+const PROD_TARGET_URL_RELEASE = 'https://login.ihire365.com'
+const PROD_TARGET_URL_QA2 = 'https://test.ihire365.com'
 
 const DEEP_LINK_PROTOCOL = 'ikuaizhao'
 
@@ -113,14 +118,30 @@ const WINDOW_TITLE = 'i快招 - 智能招聘助手'
 
 /**
  * 主页 tab 加载哪个地址：
- * 1. 设置了 DEV_TARGET_URL 环境变量 → 加载它（dev:el:local 用，指向本地 quasar dev）
- * 2. 否则 → 加载 PROD_TARGET_URL 远端 SPA
+ *   1. dev 模式 + DEV_TARGET_URL env 优先（dev:el:local 用，指向本地 quasar dev）
+ *   2. 按 app.getName()（= electron-builder.yml 的 productName）区分发版渠道：
+ *        - "i快招"     → release  → https://login.ihire365.com
+ *        - "i快招 QA2" → qa2      → https://test.ihire365.com
+ *   3. 兜底 → release 域名
+ *
+ * 这样 QA2 客户端启动后自动加载 test 环境的 SPA，跟它的 ClientLauncher / 自动更新地址
+ * （ikuaizhao-qa2/ 桶）保持环境一致。
  */
 function resolveTargetUrl(): string {
   if (is.dev && process.env.DEV_TARGET_URL) {
     return process.env.DEV_TARGET_URL
   }
-  return PROD_TARGET_URL
+  // 按 productName 区分发版渠道
+  let appName = ''
+  try {
+    appName = app.getName() || ''
+  } catch {
+    /* app 在某些早期 hook 里可能不可用，silent fallback */
+  }
+  if (/qa2/i.test(appName)) {
+    return PROD_TARGET_URL_QA2
+  }
+  return PROD_TARGET_URL_RELEASE
 }
 
 /**
