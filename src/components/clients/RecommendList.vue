@@ -175,7 +175,12 @@ function mapBossGeekToResume(geek) {
   const intention = intentionParts.join(' · ');
 
   return {
-    id: g.encryptGeekId || c.encGeekId || c.geekId || `geek_${Math.random().toString(36).slice(2)}`,
+    // id 优先用 resumeBlindId（patchBossRecommendGeek 在 /results 之后回填进来）：
+    //   - AIResumeEvaluation 弹框查分用 resumeBlindIds=[resume.id] 调 getScoreListDetailedPlus，
+    //     如果给 encryptGeekId 后端找不到 → 弹"未找到该简历的评估数据"
+    //   - "分配职位 / 加入人才库" 等业务也都按 resumeBlindId 走（虽然推荐当前 readOnly 禁用了）
+    //   - 没有 resumeBlindId 时降级到 encryptGeekId（/results 落库前的瞬时态）
+    id: g.resumeBlindId || g.encryptGeekId || c.encGeekId || c.geekId || `geek_${Math.random().toString(36).slice(2)}`,
     name: c.geekName || g.geekName || '匿名候选人',
     gender,
     ageDesc: c.ageDesc || '',

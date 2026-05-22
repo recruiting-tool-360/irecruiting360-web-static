@@ -43,8 +43,16 @@ async function handleAuthError(data) {
 
 //更新ai分数
 const updateChannelScore = (msg) => {
-  const resumeData = {id:msg.resumeId,score:msg.score}
-  allChannel.value['ALL'].cardInfoRef.updateResumeScoreFN(resumeData);
+  const resumeData = { id: msg.resumeId, score: msg.score }
+  // ⚠️ 推荐通道当前在 RecommendList 渲染，JobInfo (ALL.cardInfoRef) 没挂载，
+  // 直接调会报 "Cannot read properties of null (reading 'updateResumeScoreFN')"。
+  // 防御性 optional chain：JobInfo 没挂载就 silent skip，由 scoreAutoUpdater 的
+  // polling 路径兜底写回分数（推荐通道也走 polling，patchBossRecommendGeek 写回 BossRecommendData）。
+  const allChannelRef = allChannel.value?.['ALL']?.cardInfoRef
+  if (!allChannelRef || typeof allChannelRef.updateResumeScoreFN !== 'function') {
+    return
+  }
+  allChannelRef.updateResumeScoreFN(resumeData)
 }
 
 // 退出登录函数 - 从Header.vue复制过来的逻辑

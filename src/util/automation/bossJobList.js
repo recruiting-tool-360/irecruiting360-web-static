@@ -20,6 +20,11 @@ const LIST_NEW_PAGE = 'https://www.zhipin.com/web/frame/job/list-new'
 const LIST_API_BASE = 'https://www.zhipin.com/wapi/zpjob/job/data/list'
 const BOSS_CHANNEL = 'boss'
 
+// 注意：曾经尝试给 LIST_NEW_PAGE 拼 `?_t=Date.now()` 强制 BOSS SPA 完整重启，
+// 但 BOSS 服务端的"多 session 互斥"保护会把这种"全新 URL 进入"识别为新登录会话，
+// 跟主 BOSS tab 已存在的 session 冲突 → 弹 native alert "您的账号已经登录过了，请勿重复登录"。
+// 已回退：保持稳定固定 URL，依赖 BOSS partition 共享 cookie 实现登录。
+
 /**
  * @typedef {Object} FetchBossJobListParams
  * @property {number} [position=0]

@@ -1107,13 +1107,34 @@ const actions = {
       // 按 channelSubType 的 desc 在 ALL 数据里过滤出该渠道的简历**条数**（仅用于
        // task.totalResultsCount 统计；resultItems 业务侧已分批上报，runTask 末尾不再重发）
       const channelDesc = channelConfMap[ch.channelSubType]?.desc;
-      const channelCount = channelDesc
-        ? allChannelData.filter((item) => item && item.channel === channelDesc).length
-        : 0;
-      totalCollected += channelCount;
-      console.log(
-        `[SearchTasks] runTask: channel ${ch.channelSubType}(desc=${channelDesc}) 渠道抓到 ${channelCount} 条（ALL 总计 ${allChannelData.length}）`
-      );
+      let channelCount = 0;
+      if (ch.businessChannel === "RECOMMEND" && ch.channelSubType === "BOSS") {
+        // RECOMMEND/BOSS 的 geek 数据存在 BossRecommendData，不在 ChannelConfig.ALL.data 里。
+        // 按 channel.searchTaskConfig 里的 relatedPositionValue（=jobId）反查 BossRecommendData。
+        let jobIdForCount = null;
+        try {
+          const cfg = typeof ch.searchTaskConfig === "string"
+            ? JSON.parse(ch.searchTaskConfig)
+            : ch.searchTaskConfig;
+          jobIdForCount = cfg?.relatedPositionValue || null;
+        } catch (_e) { /* ignore */ }
+        const recBucket = jobIdForCount
+          ? rootState?.BossRecommendData?.byJobId?.[jobIdForCount]
+          : null;
+        channelCount = Array.isArray(recBucket?.geekList) ? recBucket.geekList.length : 0;
+        totalCollected += channelCount;
+        console.log(
+          `[SearchTasks] runTask: channel ${ch.channelSubType}-RECOMMEND 推荐拿到 ${channelCount} 条 (jobId=${jobIdForCount || '(none)'})`
+        );
+      } else {
+        channelCount = channelDesc
+          ? allChannelData.filter((item) => item && item.channel === channelDesc).length
+          : 0;
+        totalCollected += channelCount;
+        console.log(
+          `[SearchTasks] runTask: channel ${ch.channelSubType}-SEARCH(desc=${channelDesc}) 抓到 ${channelCount} 条（ALL 总计 ${allChannelData.length}）`
+        );
+      }
 
       // ===== runTask 末尾收尾：调 /finish 接口（替代废弃的 /commandResult） =====
       //

@@ -1,6 +1,6 @@
 职位列表
-网页地址：https://www.zhipin.com/web/frame/job/list-new
-接口：https://www.zhipin.com/wapi/zpjob/job/data/list?position=0&type=0&searchStr=&comId=&tagIdStr=&page=1&_=1778678784286
+网页地址：[https://www.zhipin.com/web/frame/job/list-new](https://www.zhipin.com/web/frame/job/list-new)
+接口：[https://www.zhipin.com/wapi/zpjob/job/data/list?position=0&type=0&searchStr=&comId=&tagIdStr=&page=1&_=1778678784286](https://www.zhipin.com/wapi/zpjob/job/data/list?position=0&type=0&searchStr=&comId=&tagIdStr=&page=1&_=1778678784286)
 
 返回结果
 
@@ -285,35 +285,11 @@
 
 推荐牛人
 
-### 正确的入口 URL（client 跳转用）
-
-**业务侧打开的应该是宿主 chat 页**：
-
-```
-https://www.zhipin.com/web/chat/recommend?jobid=<encryptJobId>
-```
-
-宿主 chat 页内部嵌一个 `<iframe>` 加载真正的列表页：
-
-```
-https://www.zhipin.com/web/frame/recommend/?jobid=<encryptJobId>&status=0&filterParams=&source=0
-```
-
-**⚠️ 不要直接打开 iframe 那个 URL**。正常用户从 BOSS web 进推荐页都是先到 `chat/recommend`，
-直接进 `frame/recommend` 是脚本 / 风控可观察的明显异常路径。
-
-接口地址（在 iframe 内自然发起）：
-
-```
-https://www.zhipin.com/wapi/zpjob/rec/geek/list?age=16,-1&activation=0&school=0&...&jobId=<encryptJobId>&page=N&...
-```
-
-`page.on('response')` 在宿主页 + iframe 都能捕获（CDP 是按 frame 树的，但 page 级订阅会包含所有子 frame）。
+[https://www.zhipin.com/web/chat/recommend](https://www.zhipin.com/web/chat/recommend) 内部切入了iframe地址，  
+iframe 网页地址: [https://www.zhipin.com/web/frame/recommend/?jobid=61e0cd1cbd6016d90nZ80tq5FVVV&status=0&filterParams=&source=0](https://www.zhipin.com/web/frame/recommend/?jobid=61e0cd1cbd6016d90nZ80tq5FVVV&status=0&filterParams=&source=0)
+接口地址： [https://www.zhipin.com/wapi/zpjob/rec/geek/list?age=16,-1&activation=0&school=0&recentNotView=0&gender=0&exchangeResumeWithColleague=0&switchJobFrequency=0&major=0&keyword1=-1&experience=0&degree=0&intention=0&salary=0&jobId=61e0cd1cbd6016d90nZ80tq5FVVV&page=2&coverScreenMemory=0&cardType=0](https://www.zhipin.com/wapi/zpjob/rec/geek/list?age=16,-1&activation=0&school=0&recentNotView=0&gender=0&exchangeResumeWithColleague=0&switchJobFrequency=0&major=0&keyword1=-1&experience=0&degree=0&intention=0&salary=0&jobId=61e0cd1cbd6016d90nZ80tq5FVVV&page=2&coverScreenMemory=0&cardType=0)
 
 ### 推荐页主结构（DOM 抓自 BOSS 直聘 web 推荐牛人页 2026-05）
-
-**注意**：下面是 **iframe 内**（`/web/frame/recommend`）的 DOM 结构，跟宿主 chat 页 (`/web/chat/recommend`)
-分别属于两个文档。Playwright 操作时用 `page.frameLocator('iframe[src*="/web/frame/recommend"]')` 进入。
 
 ```
 div.container-wrap                                  ← 最外层
@@ -337,182 +313,52 @@ div.container-wrap                                  ← 最外层
                   li.card-item × N
 ```
 
-### 关键选择器速查（**不要用 `data-v-*` Vue scoped hash，会随构建变**）
+### 关键选择器速查（**不要用 `data-v-`* Vue scoped hash，会随构建变**）
 
-| 用途                   | 选择器                                                                                                                                                            |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 滚动容器               | `.recommend-list-wrap`（或退而求其次：`#recommend-list`）                                                                                                         |
-| 单张卡片               | `li.card-item` 或 `.card-item .candidate-card-wrap`                                                                                                               |
-| 卡片点击热区           | `li.card-item .card-inner`                                                                                                                                        |
-| 牛人 ID                | `li.card-item .card-inner[data-geekid]` 或 `[data-geek]`                                                                                                          |
-| 卡片列表容器           | `ul.card-list`                                                                                                                                                    |
-| 顶部引导卡             | `.list-top-card-wrap`（遍历卡片时跳过）                                                                                                                           |
-| 筛选浮层 trigger       | `.filter-wrap`（在 `.candidate-head` 内）                                                                                                                         |
-| 筛选浮层               | `.filter-panel`                                                                                                                                                   |
-| 详情弹框（点卡片打开） | 待补 —— 实测发现 BOSS 没有"详情弹框"，点卡片是 **路由跳转**到候选人详情页 / 聊天页。"拟人操作"应当用 **hover + 移动 + scroll** 而不是 click（详见拟人操作 skill） |
+
+| 用途           | 选择器                                                                                                           |
+| ------------ | ------------------------------------------------------------------------------------------------------------- |
+| 滚动容器         | `.recommend-list-wrap`（或退而求其次：`#recommend-list`）                                                              |
+| 单张卡片         | `li.card-item` 或 `.card-item .candidate-card-wrap`                                                            |
+| 卡片点击热区       | `li.card-item .card-inner`                                                                                    |
+| 牛人 ID        | `li.card-item .card-inner[data-geekid]` 或 `[data-geek]`                                                       |
+| 卡片列表容器       | `ul.card-list`                                                                                                |
+| 顶部引导卡        | `.list-top-card-wrap`（遍历卡片时跳过）                                                                                |
+| 筛选浮层 trigger | `.filter-wrap`（在 `.candidate-head` 内）                                                                         |
+| 筛选浮层         | `.filter-panel`                                                                                               |
+| 详情弹框（点卡片打开）  | 待补 —— 实测发现 BOSS 没有"详情弹框"，点卡片是 **路由跳转**到候选人详情页 / 聊天页。"拟人操作"应当用 **hover + 移动 + scroll** 而不是 click（详见拟人操作 skill） |
+
 
 ### 滚动加载下一页机制
 
 - BOSS 推荐页是**滚动到底部自动加载下一页**（IntersectionObserver / scroll listener），
-  不是分页器点击。
+不是分页器点击。
 - 自动加载会触发同一个接口：
-  `GET /wapi/zpjob/rec/geek/list?...&page=N&...`
+`GET /wapi/zpjob/rec/geek/list?...&page=N&...`
 - 拟人脚本里**不要直接 fetch 这个 URL**（会被 BOSS 风控识别），
-  而是 `await scrollContainer.evaluate(el => el.scrollTo({top: el.scrollHeight, behavior: 'smooth'}))`
-  → 然后 `page.waitForResponse(r => r.url().includes('/wapi/zpjob/rec/geek/list'))` 监听自然请求。
+而是 `await scrollContainer.evaluate(el => el.scrollTo({top: el.scrollHeight, behavior: 'smooth'}))`
+→ 然后 `page.waitForResponse(r => r.url().includes('/wapi/zpjob/rec/geek/list'))` 监听自然请求。
 - 新一页的 `zpData.geekList` 会被 BOSS 追加到 `ul.card-list` 末尾（新的 `li.card-item`）。
 - 反向触发不到的兜底：当 BOSS 内部判断"已经到底"时，`zpData.hasMore: false`，
-  滚动也不会再触发请求。脚本应通过 `hasMore=false` 或"超时没等到新响应"双兜底退出。
+滚动也不会再触发请求。脚本应通过 `hasMore=false` 或"超时没等到新响应"双兜底退出。
 
-### ⚠️⚠️⚠️ BOSS 风控事故（2026-05-18）—— 必读
+### 候选人详情：是路由跳转，不是弹框
 
-**症状**：在 BOSS 推荐 tab 上启用 Playwright `connectOverCDP` 跑脚本后，账号立刻收到
-"安全提示"弹窗 + web 端被禁用 24h。
+点击 `li.card-item .card-inner` 后 BOSS 的行为：
 
-> 您好，系统检测到您的账号存在使用第三方招聘管理系统、插件、外挂、软件等辅助工具。
-> 为保障平台用户信息安全，根据《BOSS直聘招聘行为管理规范》，我们将暂时限制您通过 web
-> 端登录账号，限制到期解除后请确保关闭辅助工具后再登录使用。
+- **绝大多数情况**：当前 tab 路由跳转到 `/web/chat/recommend?id=<encryptGeekId>` 等聊天页，
+推荐列表会被替换掉，**会破坏拟人滚动流程**。
+- **少数 UI 变种**：弹出右侧抽屉 `.candidate-detail-drawer` / `.geek-detail-drawer`。
 
-**根因**：只要 Electron 启动时加了 `--remote-debugging-port` 这个 Chromium switch
-（不管端口是不是固定 9222/9223 还是随机 0），Chromium 内部就会留下"被远程调试"的指纹：
+→ **拟人操作不点卡片**。改用以下"看起来像在浏览"的动作组合：
 
-- `navigator.webdriver` 标记
-- `Runtime.evaluate` / `Page.attached` 事件痕迹
-- `chrome.csi` / `chrome.runtime` 行为差异
+1. `scrollIntoViewIfNeeded` 到下一张卡片
+2. `hover` 触发卡片样式变化（BOSS 有 hover 高亮）
+3. `mouse.move` 随机偏移几像素（模拟微移）
+4. `sleep(jitter(...))` 模拟阅读时间
+5. 继续下一张
 
-BOSS 推荐页 JS 主动检测这些指纹（**不只是端口扫描**），任何一个命中就触发风控。
-我们之前以为"端口随机就够了"是错的。
-
-**绕过方法**：
-
-1. ❌ **禁用 Playwright connectOverCDP 路径** —— `--remote-debugging-port` switch
-   永久关闭。`automation:runScript` IPC 返回 `AUTOMATION_DISABLED`，除非显式设
-   `ENABLE_REMOTE_DEBUG=1`（仅供内部 / 非招聘站调试用）。
-
-2. ✅ **改用 `webContents.executeJavaScript`** —— 跟 `tabFetcher.ts` /
-   `bossJobListAutoFetch.js` 已验证可用的方式一样。这种方式：
-   - 不启用 Chromium remote-debugging
-   - 走 Electron 主进程的 V8 `runInContext`，脚本在 isolated world 跑
-   - BOSS 检测不到（跟用户在 Console F12 手动跑脚本同级别）
-   - 代价：脚本里没有 Playwright Page API，只能用 vanilla DOM + fetch
-
-3. ✅ **改用 `webContents.debugger.attach('1.3')`（同进程 CDP，零端口）** —— 2026-05-18 新建
-   `electron/src/main/siteNetworkCapture.ts`。原理：
-   - 直接调 Electron 自带的 `webContents.debugger` API（**不走 WebSocket，BOSS JS 探测不到**）
-   - 在主进程内监听 `Network.responseReceived` + `Network.loadingFinished`，对命中的
-     URL 用 `Network.getResponseBody` 取 body
-   - 缓冲到 siteKey 桶（默认 cap=50），渲染端用
-     `window.api.siteNetwork.waitForResponse(...)` 查
-   - 已用于"BOSS 推荐牛人首屏列表 `/wapi/zpjob/rec/geek/list`"（替代旧 `bossRecommendList.js`
-     的 Playwright `page.waitForResponse` 路径）
-   - 参考实现：旧项目 ihr360-ai-irecruiting/electron/main/index.ts L1970-2037
-
-4. ✅ **tab 创建本身没问题** —— `openOrActivateSiteTab(channel:'boss', url)` 是
-   纯 BrowserWindow / WebContentsView 创建，不会留任何 debug 指纹。所以"打开 BOSS
-   推荐 tab 给用户看"完全可以走，**只是不能用 Playwright 控制它**。
-
-**触发条件验证**：
-
-| 配置 | BOSS 反爬触发 | 备注 |
-| - | - | - |
-| 没 `--remote-debugging-port` | ❌ | 跟普通 Chrome 一样，安全 |
-| `--remote-debugging-port=9223` 固定 | ✅ 立即 | 第一道：端口探测 |
-| `--remote-debugging-port=0` 随机 | ✅ 仍触发 | 第二道：indirect 指纹检测 |
-| 上面任一 + 不连 Playwright | ✅ 仍触发 | switch 本身就有指纹 |
-| 上面任一 + Playwright attach | ✅ ~50ms 内 | attach 留下更多痕迹 |
-| 无 switch + `webContents.debugger.attach('1.3')` 仅监听 Network | ❌ | 同进程 CDP，**无 WebSocket / 无 navigator.webdriver / 无 chrome.csi 差异**（2026-05-18 实测安全） |
-
-→ 结论 1：**Chromium switch 一旦加了，BOSS 就识别**。
-→ 结论 2：**Electron 自带的 `webContents.debugger` 是安全的**——它走的是主进程↔renderer 的
-   内部 IPC（mojo），不暴露 WebSocket 端口，不修改 navigator 行为。已在 siteNetworkCapture
-   上验证过。
-
-### ⚠️⚠️⚠️ 二次事故（2026-05-18 17:33）—— 实测验证
-
-**症状**：
-1. 用 `npm run dev:el:debug`（含 `ENABLE_REMOTE_DEBUG=1`）启动客户端
-2. **没有调用任何 Playwright runScript**，仅"启动聚合搜索 → 推荐牛人"流程
-3. siteNetworkCapture 正常抓 `/wapi/zpjob/rec/geek/list`（214 KB → 242 KB）
-4. 但 BOSS 立即弹"系统检测到您的账号存在使用第三方招聘管理系统"安全提示，账号被禁
-
-**关键观察**：
-- 整个会话的主进程 stdout **没有任何 `[bossRecommend.test]` / `[runner]` Playwright 日志**
-- BOSS 只看到一次纯粹的"打开推荐 tab 让它自己 fetch 数据"行为
-- siteNetworkCapture 的 `debugger.attach('1.3')` 在另一台账号的 5 月 17 日测试是安全的
-
-**结论**：
-**BOSS 反爬已经升级到能识别 `--remote-debugging-port` 启动指纹**，
-即使**完全不调用 Playwright，仅开 switch 就触发**。
-
-旧项目 `ihr360-ai-irecruiting`（用 `--remote-debugging-port=19333` + Playwright）历史上能跑，
-是因为 BOSS 那时反爬还没升级。**当前 BOSS 反爬版本下 Playwright 路径彻底死了**。
-
-**永远不要做的事**：
-- ❌ 不要再加 `app.commandLine.appendSwitch('remote-debugging-port', ...)` 任何形式
-- ❌ 不要在生产代码里 `import 'playwright' / 'playwright-core'`（即使不用 launch / connect）
-- ❌ 不要保留任何"调试入口"暴露 Playwright API（已在 2026-05-18 17:35 删除
-  `src/util/automation/bossRecommendDebug.js` + `src/playwright/bossOpenFilterOnce.js`）
-- ❌ 不要使用 `npm run dev:el:debug` 这类 script —— 已重命名为 `dev:el:devtools`
-  （仅开 DevTools 面板，不带 ENABLE_REMOTE_DEBUG）
-
-**唯一可用的"操作 BOSS 页面"路径**：
-1. **读数据**：`webContents.debugger.attach('1.3') + Network.enable`（siteNetworkCapture 已实现）
-2. **写操作（点击 / 输入）**：通过 `webContents.debugger.sendCommand('Input.dispatchMouseEvent', ...)`
-   发 trusted input 事件。同进程 CDP，无端口暴露，`isTrusted=true` 跟用户真实点击无差别。
-   **未实现**——等用别的 BOSS 账号验证后再做。
-3. **最差兜底**：`webContents.executeJavaScript`（在 isolated world 跑 vanilla JS）。
-   但产生的事件 `isTrusted=false`，可能被 BOSS 检测。仅用于读 DOM，不建议触发交互。
-
-### 候选人详情：iframe → 宿主 postMessage → 宿主弹框（重要修正）
-
-之前以为"点击卡片是路由跳转"是**错的**。真实行为：
-
-1. 用户在 iframe（`/web/frame/recommend`）里点 `li.card-item .card-inner`
-2. iframe 内部通过 `window.parent.postMessage(...)` **通知宿主**（`/web/chat/recommend`）
-3. **宿主页**渲染候选人详情弹框（弹框 DOM 在宿主页 `body` 下，不在 iframe 内）
-4. iframe 自己**不跳转**，列表保持在原地
-
-→ **拟人脚本应该真点卡片**：模拟用户"看一眼候选人详情"的动作。
-`click=true` 是默认行为，不是实验性。
-
-#### 弹框选择器（待实测精确）
-
-弹框 DOM 在**宿主页**（`page.locator(...)` 直接定位，不要进 frameLocator）。常见模式：
-
-```css
-/* 候选人详情弹框/抽屉的可能容器，按优先级 fallback */
-.candidate-detail-dialog,
-.geek-detail-dialog,
-.candidate-detail-drawer,
-[class*="candidate-detail-popup"],
-[class*="geek-detail-popup"],
-body > div[class*="popup"][class*="show"],
-body > div[class*="dialog"][class*="visible"];
-```
-
-#### 关闭弹框
-
-- **首选**：点关闭按钮：`.close`, `.close-btn`, `.icon-close`, `[aria-label*="关闭"]`, `[aria-label*="close"]`
-- **兜底**：键盘 Escape (`page.keyboard.press('Escape')`)
-- **再兜底**：点遮罩 mask 区域 (`.mask`, `.modal-mask`, `.overlay`)
-
-#### 拟人 dwell 时间
-
-打开后**随机停留 2-6 秒**模拟阅读，再关。短于 1.5s 像机器人秒关，长于 8s 用户会困惑。
-
-### 拟人脚本动作组合（更新版）
-
-1. `frame.locator('li.card-item .card-inner[data-geekid]')` 拿卡片（iframe 内）
-2. `scrollIntoViewIfNeeded` 到下一张未访问的卡片
-3. `hover` + `mouse.move` 微移 1-3 次
-4. **点击卡片**（`click=true`）
-5. 宿主页 `waitForSelector` 候选人详情弹框（带 5s 超时）
-6. `sleep(jitter(2000, 6000))` 模拟阅读
-7. 关弹框（关闭按钮 → ESC → 遮罩 三级兜底）
-8. `sleep(jitter(300, 700))` 卡片间停顿
-9. 处理下一张
-
-如果**确实不想点**（dev / 灰度），可以传 `ctx.click = false` 退回到旧的 hover-only 模式。
+如果以后业务确实要"看完候选人简历"的真实数据，应该走 **后端 API 查详情** 或 **新开 hidden BrowserWindow 打开候选人详情页**，不要在主推荐 tab 里点。
 
 筛选按钮的 class
 
@@ -603,7 +449,7 @@ class top 下面免费筛选区域的 class filters-wrap
 </div>
 ```
 
-class btns -> <div data-v-e46d6616="" class="btn">确定</div>
+class btns -> 确定
 
 返回结果
 
@@ -1350,3 +1196,4 @@ class btns -> <div data-v-e46d6616="" class="btn">确定</div>
   }
 }
 ```
+
