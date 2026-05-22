@@ -1035,7 +1035,15 @@ const handleChannelSelection = (key) => {
 };
 
 // 执行搜索方法 - 由父组件调用
-const executeSearch = async (searchState) => {
+//
+// @param {Object} searchState
+// @param {Object} [opts]
+// @param {Object} [opts.searchRequestData]
+//   外部（IndexPage.handleAggregateSearch 里的 prepareConditionOnly）已经 saveCondition
+//   拿到的 data。传了就**跳过内部第二次 saveCondition**（避免 Network 出现两次 saveCondition：
+//   一次来自 prepareConditionOnly、一次来自 executeSearch）。
+//   data 形态：saveCondition 响应的 data，含 id / channelSearchConditions 等。
+const executeSearch = async (searchState, opts = {}) => {
   console.log('[AISearch] executeSearch 被调用！调用栈：', new Error().stack?.split('\n').slice(1,4).join(' | '));
   //检查插件安装（客户端模式下跳过）
   if (!pluginInstalled.value && !isElectronClient()) {
@@ -1073,54 +1081,66 @@ const executeSearch = async (searchState) => {
       notify.info("没有可查询渠道");
       return;
     }
-    // 获取搜索条件请求对象
-    let searchConditionRequest = getSearchConditionRequest(searchState,channels);
-    // console.log('搜索参数:', searchConditionRequest);
-    // 保存搜索条件到后端
+    // 获取 / 复用 searchRequestData：
+    //   - opts.searchRequestData 传了 → 复用（prepareConditionOnly 已经 saveCondition 过了）
+    //   - 没传 → 走原来内部 saveCondition 路径（向后兼容）
     let searchRequestData;
-    try {
-      const {data} = await saveCondition(searchConditionRequest);
-      data.config = [];
-      searchRequestData = data;
+    if (opts && opts.searchRequestData && opts.searchRequestData.id) {
+      console.log(
+        `[AISearch] executeSearch 复用外部 searchRequestData (跳过内部 saveCondition) id=${opts.searchRequestData.id}`
+      );
+      searchRequestData = opts.searchRequestData;
+      // 复用路径仍要清空聚合数据 + queue（保证本次搜索从干净的状态开始）
+      try {
+        store.commit('changeChannelConfData', {key: 'ALL', value: []});
+        asyncTaskQueueManager.clearAllQueues();
+      } catch (_e) { /* ignore */ }
+    } else {
+      const searchConditionRequest = getSearchConditionRequest(searchState, channels);
+      try {
+        const {data} = await saveCondition(searchConditionRequest);
+        data.config = [];
+        searchRequestData = data;
 
-      // 构建分页信息
-      if(data.channelSearchConditions) {
-        data.channelSearchConditions.forEach((item) => {
-          data.config.push({
-            channelDataTotal: 0,
-            channelPage: 0,
-            channelCountSize: 0,
-            totalPage: 0,
-            channelKey: item.channel
+        // 构建分页信息
+        if (data.channelSearchConditions) {
+          data.channelSearchConditions.forEach((item) => {
+            data.config.push({
+              channelDataTotal: 0,
+              channelPage: 0,
+              channelCountSize: 0,
+              totalPage: 0,
+              channelKey: item.channel
+            });
           });
-        });
-        store.commit('setPageConfigData', {key: 'ALL', config: {
-            channelDataTotal: 0,
-            channelPage: 0,
-            channelCountSize: 0,
-            totalPage: 0,
-            channelKey: 'ALL'
-          }});
-      }
+          store.commit('setPageConfigData', {key: 'ALL', config: {
+              channelDataTotal: 0,
+              channelPage: 0,
+              channelCountSize: 0,
+              totalPage: 0,
+              channelKey: 'ALL'
+            }});
+        }
 
-      // 保存搜索条件到 store
-      store.commit('changeSearchChannelConditionRequestData', data);
-      store.commit('changeSearchConditionId', searchRequestData.id);
-      //清空聚合渠道数据
-      store.commit('changeChannelConfData', {key: 'ALL', value: []});
-      //清空正在执行的任务
-      asyncTaskQueueManager.clearAllQueues();
-    } catch (e) {
-      console.error('保存搜索条件失败:', e);
-      $q.notify({
-        message: '后端服务异常，请联系管理员',
-        color: 'negative',
-        icon: 'error'
-      });
-      isLoading.value = false;
-      // 清除定时器
-      clearTimeout(timeoutId);
-      return;
+        // 保存搜索条件到 store
+        store.commit('changeSearchChannelConditionRequestData', data);
+        store.commit('changeSearchConditionId', searchRequestData.id);
+        //清空聚合渠道数据
+        store.commit('changeChannelConfData', {key: 'ALL', value: []});
+        //清空正在执行的任务
+        asyncTaskQueueManager.clearAllQueues();
+      } catch (e) {
+        console.error('保存搜索条件失败:', e);
+        $q.notify({
+          message: '后端服务异常，请联系管理员',
+          color: 'negative',
+          icon: 'error'
+        });
+        isLoading.value = false;
+        // 清除定时器
+        clearTimeout(timeoutId);
+        return;
+      }
     }
 
     // 根据当前选中的渠道执行不同的搜索策略
@@ -1260,11 +1280,25 @@ const prepareConditionOnly = async () => {
           channelKey: item.channel
         });
       });
+      // 跟 executeSearch 保持一致：把 ALL 那条 pageConfig 也设上，
+      // 让后续 executeSearch 复用同一份 data 时不缺这一段
+      store.commit('setPageConfigData', {
+        key: 'ALL',
+        config: {
+          channelDataTotal: 0,
+          channelPage: 0,
+          channelCountSize: 0,
+          totalPage: 0,
+          channelKey: 'ALL'
+        }
+      });
     }
     store.commit('changeSearchChannelConditionRequestData', data);
     store.commit('changeSearchConditionId', data.id);
     console.log('[AISearch] prepareConditionOnly 完成，conditionId=', data.id);
-    return { ok: true, conditionId: data.id };
+    // 返回完整 data：caller (IndexPage.handleAggregateSearch) 可以把它传给 executeSearch
+    // 让 executeSearch 跳过内部第二次 saveCondition（避免 Network 上重复出现）
+    return { ok: true, conditionId: data.id, data };
   } catch (e) {
     console.error('[AISearch] prepareConditionOnly 失败:', e?.message || e);
     return { ok: false, message: e?.message || String(e) };

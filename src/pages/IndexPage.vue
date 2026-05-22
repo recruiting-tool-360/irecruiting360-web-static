@@ -791,13 +791,111 @@ async function doFetchRecommend(args) {
       setPhase('SAVED');
       setPhase('SCORING');
 
-      // step 2: 为每条 jobList 配对调 /detail，触发 AI 评分
-      // jobList 是按入参 geekList 顺序平摊的（taskResumeBridge.postBatchResultsToTaskChannel
-      // 用 array.map(taskResumes) 保序），所以 jobList[i] ↔ geekList[i]
+      // step 2: 先回填 ID 映射 + 启动 scoreAutoUpdater（跟搜索通道一致：detail 跟查分并发）
       //
-      // 同时把 resumeBlindId / taskResumeId 回填给 BossRecommendData.geekList[i]，
-      // 让后面 scoreUpdater 回调能按 resumeBlindId 反查到 geek（patchBossRecommendGeek
-      // 的查询逻辑），从而 patch 回 score。
+      // 搜索通道流程：业务侧每条 resume 拿到详情 → fire-and-forget /detail → scoreUpdater
+      // 2-3s 轮询查分 → 边发 detail 边能拿到分数。
+      // 我之前推荐通道写成 for-await（串行发完所有 detail 才启动 scoreUpdater），
+      // 导致 queryTaskScoreList 只能在 detail 全发完之后才开始。
+      // 现在改成跟搜索一样：scoreUpdater 先启动 → 并发 (Promise.allSettled) 发所有 detail。
+
+      // 2a) 先把 resumeBlindId / taskResumeId 回填给 BossRecommendData.geekList[i]
+      //     scoreUpdater 回调时按 resumeBlindId 反查 geek 写回 score
+      for (let i = 0; i < jobList.length; i++) {
+        const row = jobList[i];
+        const geek = geekList[i] || {};
+        const taskResumeId = row?.taskResumeId;
+        const resumeBlindId = row?.resumeBlindId || row?.id;
+        if (!taskResumeId || !resumeBlindId) continue;
+        const encryptGeekId =
+          geek?.encryptGeekId || geek?.geekId || geek?.geekCard?.encryptGeekId || '';
+        if (encryptGeekId) {
+          store.commit('patchBossRecommendGeek', {
+            jobId,
+            encryptGeekId,
+            patch: { resumeBlindId: String(resumeBlindId), taskResumeId: String(taskResumeId) }
+          });
+        }
+      }
+
+      // 2b) 启动**推荐独立**的 recommendScoreUpdater（跟搜索的 scoreAutoUpdater 单例零干扰）
+      //
+      // 之前用 scoreAutoUpdater 单例，搜索通道 JobInfo.vue 也在用它做 polling，
+      // 推荐通道再调 start() 会 reset 它的 pending + 覆盖 updateCallback → 搜索的 AI 评分
+      // 查询直接返回空。改用独立模块后两条 polling 不再互相干扰。
+      try {
+        const rsu = await import('src/utils/recommendScoreUpdater');
+        const recommendScoreUpdater = rsu.default || rsu;
+        const recommendBlindIds = jobList
+          .map((r) => r?.resumeBlindId || r?.id)
+          .filter(Boolean)
+          .map(String);
+
+        if (recommendBlindIds.length > 0) {
+          const onUpdate = (data) => {
+            const arr = Array.isArray(data) ? data : [];
+            let patched = 0;
+            for (const item of arr) {
+              const resumeId = item?.resumeBlindId;
+              if (!resumeId) continue;
+              const score = item?.score;
+              const scoreStatus = item?.scoreStatus;
+
+              // 只对终态简历 patch，避免 WAITING/SCORING 用 null 覆盖已写入的分数
+              const isTerminal =
+                scoreStatus === 'SUCCESS' ||
+                scoreStatus === 'FAILED' ||
+                scoreStatus === 'NOT_SUPPORTED' ||
+                scoreStatus === 'TIMEOUT' ||
+                (typeof score === 'number' && score >= 0);
+              if (!isTerminal) continue;
+
+              const finalScore =
+                typeof score === 'number'
+                  ? score
+                  : scoreStatus === 'FAILED' || scoreStatus === 'NOT_SUPPORTED' || scoreStatus === 'TIMEOUT'
+                    ? -2
+                    : null;
+              store.commit('patchBossRecommendGeek', {
+                jobId,
+                resumeBlindId: String(resumeId),
+                patch: { score: finalScore, scoreStatus: scoreStatus || null }
+              });
+              patched++;
+            }
+            console.log(
+              `[IndexPage] 推荐分数 patch 写回 in=${arr.length} patched=${patched}`
+            );
+          };
+
+          recommendScoreUpdater.start({
+            resumeBlindIds: recommendBlindIds,
+            onUpdate,
+            onAllDone: () => console.log(`[IndexPage] 推荐评分全部完成 jobId=${jobId}`),
+            intervalMs: 3000,   // 推荐通道独立轮询，不影响搜索；3s 一轮比较积极
+            tag: `jobId=${jobId}`
+          });
+          console.log(
+            `[IndexPage] recommendScoreUpdater 已启动（detail 并发发送中） ids=${recommendBlindIds.length}`
+          );
+        } else {
+          console.warn('[IndexPage] recommendScoreUpdater 未启动: blindIds 为空');
+        }
+      } catch (e) {
+        console.warn('[IndexPage] recommendScoreUpdater 启动失败:', e?.message || e);
+      }
+
+      // 2c) **串行**发 /detail（跟搜索通道 AsyncTaskQueue 串行 dispatch 行为一致）
+      //
+      // 之前用 Promise.allSettled 并发发 15 条 detail，Network 面板里 detail 全部挤
+      // 在一起，跟搜索"queryTaskScoreList × N 跟 detail × N 交替"的节奏完全不一样。
+      // 搜索通道是 AsyncTaskQueueManager 串行 dispatch task，每个 task 内 await
+      // bossFindJobDetail + postDetailToTaskResume，前一条完才进下一条 → detail 天然
+      // 按时间分散 → scoreUpdater 的 setInterval 轮询正好穿插其中。
+      //
+      // 这里 fire-and-forget 一条接一条 await（不阻塞 doFetchRecommend 返回），跟搜索
+      // 节奏对齐。scoreUpdater 此时已 start，setInterval(3000) 会在 detail 串行发送
+      // 期间交替触发 queryTaskScoreList，Network 上呈现 detail / query 穿插。
       let detailOk = 0;
       let detailFail = 0;
       for (let i = 0; i < jobList.length; i++) {
@@ -810,17 +908,8 @@ async function doFetchRecommend(args) {
           detailFail++;
           continue;
         }
-        // 回填 ID 映射到 store 里的 geek，让后续 patchBossRecommendGeek by resumeBlindId 能找到
         const encryptGeekId =
           geek?.encryptGeekId || geek?.geekId || geek?.geekCard?.encryptGeekId || '';
-        if (encryptGeekId) {
-          store.commit('patchBossRecommendGeek', {
-            jobId,
-            encryptGeekId,
-            patch: { resumeBlindId: String(resumeBlindId), taskResumeId: String(taskResumeId) }
-          });
-        }
-        // content 也用适配后的搜索格式（同一套反序列化器，否则 detail 解析也会失败）
         const payload = {
           serializeChannel: 'boss直聘',
           channelSubType: 'BOSS',
@@ -842,78 +931,8 @@ async function doFetchRecommend(args) {
         }
       }
       console.log(
-        `[IndexPage] 推荐 /detail 批量完成 ok=${detailOk} fail=${detailFail} total=${jobList.length}`
+        `[IndexPage] 推荐 /detail 串行发送完成 ok=${detailOk} fail=${detailFail} total=${jobList.length}`
       );
-
-      // step 3: 启动 scoreAutoUpdater 为这批推荐简历查分
-      //
-      // scoreUpdater.start(resumeList, channelKey, searchId, updateCallback, chatId)
-      //   - resumeList：含 id 字段的对象数组，没 score 字段就会被 collect 进 pendingResumeIds
-      //   - channelKey：'boss' 等
-      //   - searchId：channel.searchConditionId（必填）
-      //   - updateCallback：(resumeBlindId, score, scoreStatus) 回调，把分数写回推荐数据
-      //
-      // 拿 RECOMMEND/BOSS channel 的 searchConditionId
-      try {
-        const su = await import('src/utils/scoreAutoUpdater');
-        const scoreUpdater = su.default || su;
-        const t = store.getters['SearchTasks/getLatestTaskByChat'](cid);
-        const recCh = t?.channels?.find(
-          (c) => c.businessChannel === 'RECOMMEND' && c.channelSubType === 'BOSS'
-        );
-        const searchConditionId = recCh?.searchConditionId || '';
-        // 用 jobList 作 resumeList，score 缺失 → 全部入 pending
-        const recommendResumeList = jobList.map((r) => ({
-          id: r?.resumeBlindId || r?.id,
-          score: r?.score
-        })).filter((r) => r.id);
-
-        if (recommendResumeList.length > 0 && searchConditionId) {
-          // updateCallback：scoreAutoUpdater 拿到 queryTaskScoreList 响应后调本回调，
-          // 入参是**整个 data 数组**（不是单条 (id, score)）。每条形如：
-          //   { resumeBlindId, score, scoreStatus, ... }
-          // 这里遍历数组，按 resumeBlindId 调 patchBossRecommendGeek 把 score / scoreStatus
-          // 写回 BossRecommendData.geekList[i]。RecommendList.vue 的 mapBossGeekToResume
-          // 读 g.score 渲染到 ResumeCard（AI 分析中 → 具体分数 / 评分失败）。
-          const updateCallback = (data) => {
-            const arr = Array.isArray(data) ? data : [];
-            for (const item of arr) {
-              const resumeId = item?.resumeBlindId;
-              const score = item?.score;
-              const scoreStatus = item?.scoreStatus;
-              if (!resumeId) continue;
-              store.commit('patchBossRecommendGeek', {
-                jobId,
-                resumeBlindId: String(resumeId),
-                patch: {
-                  score: typeof score === 'number' ? score : null,
-                  scoreStatus: scoreStatus || null
-                }
-              });
-            }
-            console.log(
-              `[IndexPage] 推荐分数已写回 count=${arr.length}` +
-              ` 样例=${arr[0] ? `id=${arr[0].resumeBlindId} score=${arr[0].score}` : '(empty)'}`
-            );
-          };
-          scoreUpdater.start(
-            recommendResumeList,
-            'boss',
-            String(searchConditionId),
-            updateCallback,
-            cid
-          );
-          console.log(
-            `[IndexPage] 推荐 scoreAutoUpdater 已启动 ids=${recommendResumeList.length} searchId=${searchConditionId}`
-          );
-        } else {
-          console.warn(
-            `[IndexPage] 推荐 scoreUpdater 未启动: resumes=${recommendResumeList.length} searchId=${searchConditionId}`
-          );
-        }
-      } catch (e) {
-        console.warn('[IndexPage] scoreAutoUpdater 启动失败:', e?.message || e);
-      }
     } catch (e) {
       console.warn('[IndexPage] 推荐 /results+/detail 调用异常:', e?.message || e);
       setPhase('FAILED');
@@ -1038,7 +1057,11 @@ async function runRealAggregateSearch(opts) {
         searchPromise = (async () => {
           await jobSearchFilterRef.value.refreshSearchCondition(effectiveChatId);
           if (aiSearchRef.value && typeof aiSearchRef.value.executeSearch === 'function') {
-            await aiSearchRef.value.executeSearch(searchState.value);
+            // 把 opts.searchRequestData（来自 handleAggregateSearch 的 prepareConditionOnly）
+            // 透传给 executeSearch，让它跳过内部第二次 saveCondition
+            await aiSearchRef.value.executeSearch(searchState.value, {
+              searchRequestData: opts?.searchRequestData || null
+            });
           }
         })();
       }
@@ -1096,7 +1119,7 @@ function waitForSearchConditionId(timeoutMs = 30000) {
   });
 }
 
-async function dispatchTaskStore({ chatIdToSearch, searchChecked, recommendChecked, jobId, taskType = 'INITIAL', sourceTaskId = null, payload }) {
+async function dispatchTaskStore({ chatIdToSearch, searchChecked, recommendChecked, jobId, taskType = 'INITIAL', sourceTaskId = null, payload, condId: explicitCondId = null }) {
   // 立刻 set pendingCreate 标记，让业务侧 channelDataSavePlus → postBatchResultsToTaskChannel
   // 知道"任务正在 create 中"，需要短轮询等任务出现，而不是立刻当"任务化未启动"丢调用。
   // 注意：必须在 await 之前 set，不然下面任意 await 都会让搜索请求先到。
@@ -1105,16 +1128,24 @@ async function dispatchTaskStore({ chatIdToSearch, searchChecked, recommendCheck
   }
   try {
     const channels = [];
-    // 关键：searchConditionId 只有在 runRealAggregateSearch 里 executeSearch 跑过一次后才会
-    // 被 commit 到 store（首次启动时它是 null）。如果直接拿 null 发给后端，会得到
-    // SYSTEM_005: "searchConditionId must be provided"。这里 watch 一下，等就绪再继续。
-    const condId = await waitForSearchConditionId(30000);
+    // searchConditionId 来源（优先级从高到低）：
+    //   1. caller 显式传入的 explicitCondId（handleAggregateSearch 已经 await prepareConditionOnly
+    //      拿到本轮**最新** condId，这是最权威的）。
+    //   2. fallback 到 waitForSearchConditionId（向后兼容；老 caller / 没传 condId 时）。
+    //      ⚠️ 这条 fallback 有坑：store.getters.getSearchConditionId 可能是上一轮残留的旧 id，
+    //      会立刻 resolve 拿到旧 id，导致 create 用的 condId 跟本次 saveCondition 不对应。
+    //      所以**新 caller 必须传 condId**。
+    let condId = explicitCondId ? String(explicitCondId) : '';
+    if (!condId) {
+      condId = await waitForSearchConditionId(30000);
+    }
     if (!condId) {
       console.warn(
         '[IndexPage] dispatchTaskStore: searchConditionId 30s 内未就绪（runRealAggregateSearch 可能失败），跳过任务创建'
       );
       return { ok: false, errorCode: 'NO_SEARCH_CONDITION', message: 'searchConditionId 未就绪' };
     }
+    console.log(`[IndexPage] dispatchTaskStore: 使用 condId=${condId} (explicit=${!!explicitCondId})`);
 
     // 从 settings 读取启用的渠道，**判定逻辑跟 AISearch.vue 的 getChannelDisable / ResumeCard.vue
     // 的 getChannelDisable 完全一致**，确保搜索结果列表 tab 和任务卡片显示的渠道严格对齐：
@@ -1214,7 +1245,7 @@ async function dispatchTaskStore({ chatIdToSearch, searchChecked, recommendCheck
   }
 }
 
-function handleAggregateSearch(payload) {
+async function handleAggregateSearch(payload) {
   const chatIdToSearch = payload?.chatId || chatId.value;
   if (!chatIdToSearch) {
     console.warn('[IndexPage] aggregate-search: 没拿到 chatId，跳过真实搜索');
@@ -1280,7 +1311,50 @@ function handleAggregateSearch(payload) {
   //   - RESTART / INITIAL：不需要关联原任务，传了反而可能触发后端不期望的行为
   const sourceTaskId = (taskType === 'CONTINUE' && payload?.originalTaskId) ? payload.originalTaskId : null;
 
-  dispatchTaskStore({ chatIdToSearch, searchChecked, recommendChecked, jobId, taskType, sourceTaskId, payload })
+  // ★ 时序修正（关键）：
+  //   - 老逻辑：dispatchTaskStore + runRealAggregateSearch 并行启动，dispatchTaskStore
+  //     内部 waitForSearchConditionId 轮询 store.getters.getSearchConditionId。
+  //     如果 store 里残留上一轮 condId，立刻 resolve 拿到旧 id → create 用了**旧 condId**
+  //     → 后端 channel 绑的是旧 id，跟本次 saveCondition 真正产生的新 id 错位，
+  //     后续 /results 调用拿不到正确 channel → 数据落不了库。
+  //
+  //   - 新逻辑：先 await prepareConditionOnly() 拿到本轮**最新** condId，再把它显式
+  //     传给 dispatchTaskStore（dispatchTaskStore 不再依赖 store getter 推断 condId）。
+  //     这保证 create 用的 condId 一定是本次 saveCondition 返回的新 id。
+  //
+  // prepareConditionOnly 也会 commit 到 store.searchConditionId，所以后续 runRealAggregateSearch
+  // 内部如果再调一次 saveCondition（executeSearch 内部业务的一部分），会再产生一个新 id
+  // 覆盖到 store，但 dispatchTaskStore 已经 create 完了用的是第 1 次的 id（channel 绑定
+  // 不变）。这是已有的"两次 saveCondition"模式，跟搜索通道行为一致。
+  let condIdForCreate = '';
+  let searchRequestDataForExec = null;
+  if (aiSearchRef.value && typeof aiSearchRef.value.prepareConditionOnly === 'function') {
+    try {
+      const prep = await aiSearchRef.value.prepareConditionOnly();
+      if (prep && prep.ok && prep.conditionId) {
+        condIdForCreate = String(prep.conditionId);
+        searchRequestDataForExec = prep.data || null;
+        console.log(`[IndexPage] handleAggregateSearch: prepareConditionOnly ok condId=${condIdForCreate}`);
+      } else {
+        console.warn('[IndexPage] handleAggregateSearch: prepareConditionOnly 失败/无 condId', prep);
+      }
+    } catch (e) {
+      console.warn('[IndexPage] handleAggregateSearch: prepareConditionOnly 异常', e?.message || e);
+    }
+  } else {
+    console.warn('[IndexPage] handleAggregateSearch: aiSearchRef.prepareConditionOnly 不可用');
+  }
+
+  dispatchTaskStore({
+    chatIdToSearch,
+    searchChecked,
+    recommendChecked,
+    jobId,
+    taskType,
+    sourceTaskId,
+    payload,
+    condId: condIdForCreate
+  })
     .then((res) => {
       if (res && res.ok === false) {
         const silentCodes = ['NO_ENABLED_CHANNEL', 'ALREADY_RUNNING'];
@@ -1291,26 +1365,23 @@ function handleAggregateSearch(payload) {
     })
     .catch((e) => console.warn('[IndexPage] dispatchTaskStore unexpected:', e?.message || e));
 
-  // 提前拿 condId：dispatchTaskStore 内部等 condId 出现才会调 create。
-  // 时机分两种：
-  //   A) 没有其它任务在跑 → 直接 runRealAggregateSearch（含 executeSearch 真的去抓数据）。
-  //   B) 有其它任务在跑 → 走轻量路径 prepareConditionOnly（只调 saveCondition 拿 condId，
-  //      不清 ALL.data 不抓数据），新任务入队后等之前任务跑完，runTask 通过 executor
-  //      再真正抓数据。这样不破坏正在跑任务的数据收集。
+  // condId 已经在上面 await prepareConditionOnly 拿到了，
+  // 这里只决定**是否再跑一次 runRealAggregateSearch**（去抓数据）：
+  //   A) 没有其它任务在跑 → runRealAggregateSearch（含 executeSearch 真去抓数据）。
+  //   B) 有其它任务在跑 → 已经 prepareConditionOnly 过了（condId 拿到了），新任务入队等待，
+  //      runTask 通过 executor 后续再真正抓数据。这里不再触发额外操作。
   const otherTaskRunning = store.state?.SearchTasks?.runningTaskId;
   if (otherTaskRunning) {
-    console.log(`[IndexPage] 已有任务 ${otherTaskRunning} 在跑，走轻量路径只保存 condition，新任务入队等待`);
-    if (aiSearchRef.value && typeof aiSearchRef.value.prepareConditionOnly === 'function') {
-      aiSearchRef.value.prepareConditionOnly().catch((e) => {
-        console.error('[IndexPage] prepareConditionOnly threw:', e);
-      });
-    }
+    console.log(`[IndexPage] 已有任务 ${otherTaskRunning} 在跑，本任务仅入队，等之前任务跑完`);
   } else {
     runRealAggregateSearch({
       chatId: chatIdToSearch,
       selectedModules: { search: searchChecked, recommend: recommendChecked },
       matchedBossJobId: jobId,
-      resumeCount: payload?.resumeCount
+      resumeCount: payload?.resumeCount,
+      // 把 prepareConditionOnly 已经 saveCondition 拿到的 data 透传下去，
+      // executeSearch 内部跳过重复 saveCondition（Network 上只剩 1 次 saveCondition）
+      searchRequestData: searchRequestDataForExec
     }).catch((e) => {
       console.error('[IndexPage] runRealAggregateSearch threw:', e);
     });

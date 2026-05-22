@@ -92,7 +92,12 @@ export default {
       const { jobId, encryptGeekId, resumeBlindId, patch } = payload || {}
       if (!jobId || !patch) return
       const bucket = state.byJobId[jobId]
-      if (!bucket || !Array.isArray(bucket.geekList)) return
+      if (!bucket || !Array.isArray(bucket.geekList)) {
+        console.warn(
+          `[BossRecommendData] patchBossRecommendGeek SKIP: bucket 不存在 jobId=${jobId}`
+        )
+        return
+      }
       let idx = -1
       if (encryptGeekId) {
         idx = bucket.geekList.findIndex(
@@ -104,7 +109,15 @@ export default {
           (g) => g && String(g.resumeBlindId) === String(resumeBlindId)
         )
       }
-      if (idx < 0) return
+      if (idx < 0) {
+        console.warn(
+          `[BossRecommendData] patchBossRecommendGeek SKIP: 找不到 geek` +
+          ` jobId=${jobId} encryptGeekId=${encryptGeekId || '(none)'} resumeBlindId=${resumeBlindId || '(none)'}` +
+          ` | geekList.length=${bucket.geekList.length}` +
+          ` | 第一条 geek 字段: encryptGeekId=${bucket.geekList[0]?.encryptGeekId} resumeBlindId=${bucket.geekList[0]?.resumeBlindId}`
+        )
+        return
+      }
       const nextList = bucket.geekList.slice()
       nextList[idx] = { ...nextList[idx], ...patch }
       state.byJobId = {
