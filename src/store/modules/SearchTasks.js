@@ -486,12 +486,45 @@ const getters = {
     if (state.runningTaskId === t.taskId) {
       return { status: UI_STATUS.PROCESSING, queuePosition: 0, task: t };
     }
-    // 2) 在队列里
+    // 2) 在本地 runtime 队列里（本会话主动创建并 enqueue 的任务）
     const queueIdx = state.queue.indexOf(t.taskId);
     if (queueIdx >= 0) {
       return {
         status: UI_STATUS.QUEUED,
         queuePosition: queueIdx + 1, // 1-based 给用户看
+        task: t
+      };
+    }
+    // 2.5) **后端 /search/task/queue 里活着**的任务（不在本地 runtime queue/runningTaskId）。
+    //
+    // 场景：客户端重启后 fetchTaskQueue 把后端排队任务 hydrate 进 tasksById，但本地 runtime
+    // queue 是干净的；如果只看 state.queue 这些任务会落到兜底 IDLE → LeftMenu badge 不显示。
+    // 这里直接看 task.taskStatus + 后端给的 queuePosition / blockedReason 推断 UI 状态。
+    const queueItem = (Array.isArray(state.taskQueue?.items) ? state.taskQueue.items : []).find(
+      (it) => it && String(it.taskId) === String(t.taskId)
+    );
+    const isAliveOnBackend =
+      queueItem ||
+      t.taskStatus === TASK_STATUS.WAITING ||
+      t.taskStatus === TASK_STATUS.RESTING ||
+      t.taskStatus === TASK_STATUS.RUNNING;
+    if (isAliveOnBackend && t.taskStatus !== TASK_STATUS.COMPLETED && t.taskStatus !== TASK_STATUS.FAILED && t.taskStatus !== TASK_STATUS.STOPPED) {
+      // RUNNING 但不是本地 runningTaskId → 显示为 processing（其它 chat 看也合理）
+      if (t.taskStatus === TASK_STATUS.RUNNING) {
+        return { status: UI_STATUS.PROCESSING, queuePosition: 0, task: t };
+      }
+      // RESTING → UI 上视为 resting（橙色 clock）
+      if (t.taskStatus === TASK_STATUS.RESTING) {
+        return {
+          status: UI_STATUS.RESTING,
+          queuePosition: Number(queueItem?.queuePosition) || Number(t.queuePosition) || 0,
+          task: t
+        };
+      }
+      // WAITING（或者 queueItem 存在但 taskStatus 缺失）→ 排队中
+      return {
+        status: UI_STATUS.QUEUED,
+        queuePosition: Number(queueItem?.queuePosition) || Number(t.queuePosition) || 0,
         task: t
       };
     }
@@ -512,11 +545,7 @@ const getters = {
       // 手动停止：UI 上不显示红色"异常停止"badge，恢复 idle
       return { status: UI_STATUS.IDLE, queuePosition: 0, task: t };
     }
-    // 4) RESTING：UI 视为 queued
-    if (t.taskStatus === TASK_STATUS.RESTING) {
-      return { status: UI_STATUS.RESTING, queuePosition: 0, task: t };
-    }
-    // 5) 兜底
+    // 4) 兜底
     return { status: UI_STATUS.IDLE, queuePosition: 0, task: t };
   },
 
@@ -619,13 +648,91 @@ const actions = {
    *
    * 失败静默 console.warn，不阻塞主流程。
    */
-  async fetchTaskQueue({ commit }) {
+  async fetchTaskQueue({ commit, state }) {
     try {
       const resp = await taskApi.getTaskQueue();
       const data = resp?.data || null;
       commit('setTaskQueue', data);
+
+      // ⚠️ 关键：把 queue items 也 commit 到 tasksById，让 LeftMenu / ChatCard 等
+      // 用 getLatestTaskByChat 的组件能立即显示排队中的任务。
+      //
+      // 场景：客户端重启后 tasksById 是 vuex-persistedstate 恢复的（含旧状态），
+      // 但后端排队的最新任务（可能是这次或上次在别处创建的）只在 /search/task/queue 响应里。
+      // 不 hydrate 进 tasksById → LeftMenu badge 不显示、ChatCard 也找不到 task → 排队的任务
+      // 用户感知不到。
+      //
+      // 跟 enqueue 隔离：这里只更新 tasksById（数据源同步），**不动 runtime queue**——
+      // runtime queue 由 create / runNext 维护，是"本客户端这次会话内的执行队列"，跟后端
+      // 全局排队是两个层面。
+      const items = Array.isArray(data?.items) ? data.items : [];
+      let hydrated = 0;
+      for (const item of items) {
+        if (!item?.taskId || !item?.chatId) continue;
+        const existing = state.tasksById?.[item.taskId];
+
+        // ⚠️ taskStatus 不能简单用 queue 的覆盖本地：
+        //   场景：本地任务正在 runTask 里跑（taskStatus=RUNNING + 各 channel 已 patch 成 RUNNING），
+        //   后端 queue 里 taskStatus 可能短暂还是 WAITING（按 estimatedStartTime 调度）。
+        //   如果直接覆盖会把 RUNNING 退回 WAITING → TaskStatusCard 看 channel WAITING → 步骤
+        //   不推进 → UI 上"BOSS 检索"那行又变灰。
+        //   保护策略：本地比后端"更前进"时保留本地。
+        const STATUS_RANK = { WAITING: 0, RESTING: 1, RUNNING: 2, COMPLETED: 3, FAILED: 3, STOPPED: 3 };
+        const localRank = STATUS_RANK[existing?.taskStatus] ?? -1;
+        const remoteRank = STATUS_RANK[item.taskStatus] ?? -1;
+        const taskStatus = localRank > remoteRank ? existing.taskStatus : (item.taskStatus || existing?.taskStatus);
+
+        // channels 也用同样策略 merge：按 taskChannelId 对应，保留本地"更前进"的 status
+        let mergedChannels;
+        if (Array.isArray(item.channels) && item.channels.length > 0) {
+          const existingChannelsById = {};
+          if (Array.isArray(existing?.channels)) {
+            for (const eCh of existing.channels) {
+              if (eCh?.taskChannelId) existingChannelsById[eCh.taskChannelId] = eCh;
+            }
+          }
+          mergedChannels = item.channels.map((qCh) => {
+            const eCh = existingChannelsById[qCh?.taskChannelId];
+            if (!eCh) return qCh;
+            const lr = STATUS_RANK[eCh.taskChannelStatus] ?? -1;
+            const rr = STATUS_RANK[qCh.taskChannelStatus] ?? -1;
+            return {
+              ...qCh,
+              ...eCh,
+              // 状态取"更前进"的
+              taskChannelStatus: lr > rr ? eCh.taskChannelStatus : (qCh.taskChannelStatus || eCh.taskChannelStatus)
+            };
+          });
+        } else {
+          mergedChannels = existing?.channels || [];
+        }
+
+        // 保留本地已经累积的字段（results / totalResultsCount / createdAt 等业务字段），
+        // 用后端 queue items 里的字段覆盖"调度类"字段 (queuePosition / blockedReason / 预计时间)
+        const merged = {
+          ...(existing || {}),
+          taskId: String(item.taskId),
+          chatId: String(item.chatId),
+          taskType: item.taskType || existing?.taskType,
+          taskStatus,
+          resultRoundNo: item.resultRoundNo ?? existing?.resultRoundNo,
+          canExecuteNow: typeof item.canExecuteNow === 'boolean' ? item.canExecuteNow : existing?.canExecuteNow,
+          blockedReason: item.blockedReason || existing?.blockedReason,
+          nextExecutableTime: item.nextExecutableTime || existing?.nextExecutableTime,
+          queuePosition: item.queuePosition ?? existing?.queuePosition,
+          estimatedDurationMinutes: item.estimatedDurationMinutes ?? existing?.estimatedDurationMinutes,
+          estimatedStartTime: item.estimatedStartTime || existing?.estimatedStartTime,
+          estimatedEndTime: item.estimatedEndTime || existing?.estimatedEndTime,
+          channels: mergedChannels,
+          // 没 createdAt 就拿 estimatedStartTime 兜底，让 ChatCard pendingTaskBinding 判断 freshness 有依据
+          createdAt: existing?.createdAt || (item.estimatedStartTime ? new Date(item.estimatedStartTime).getTime() : Date.now())
+        };
+        commit('setTask', merged);
+        hydrated++;
+      }
       console.log(
-        `[SearchTasks] fetchTaskQueue ok: totalCount=${data?.totalCount} queueFull=${data?.queueFull} items=${data?.items?.length || 0}`
+        `[SearchTasks] fetchTaskQueue ok: totalCount=${data?.totalCount} queueFull=${data?.queueFull}` +
+        ` items=${items.length} hydratedToTasksById=${hydrated}`
       );
       return data;
     } catch (e) {
@@ -1028,30 +1135,38 @@ const actions = {
       // lazy 拿单例，避免顶层循环依赖
       let queueManager = null;
       let scoreUpdater = null;
+      let recommendScoreUpdater = null;
       try {
-        const [qm, su] = await Promise.all([
+        const [qm, su, rsu] = await Promise.all([
           import("src/pluginSrc/util/AsyncTaskQueueManager"),
-          import("src/utils/scoreAutoUpdater")
+          import("src/utils/scoreAutoUpdater"),
+          import("src/utils/recommendScoreUpdater")
         ]);
         queueManager = qm.asyncTaskQueueManager;
         scoreUpdater = su.default || su;
+        recommendScoreUpdater = rsu.default || rsu;
       } catch (e) {
         console.warn(
-          "[SearchTasks] runTask: 加载 queueManager/scoreUpdater 失败，降级走 store getter:",
+          "[SearchTasks] runTask: 加载 queueManager/scoreUpdater/recommendScoreUpdater 失败:",
           e?.message || e
         );
       }
 
       console.log(
-        `[SearchTasks] runTask: 等 AI 分析（详情队列 + 评分查询）跑完再 finalize...`
+        `[SearchTasks] runTask: 等 AI 分析（搜索 + 推荐通道）全部跑完再 finalize...`
       );
       while (Date.now() - startAiWait < MAX_WAIT_AI_MS) {
-        // 直接查单例内部状态，规避 store 异步推送的时序问题
+        // 直接查各单例内部状态，规避 store 异步推送的时序问题
         const queueBusy = (queueManager?.queueStatus?.totalTasks || 0) > 0;
+        // 搜索通道 scoreAutoUpdater 的轮询
         const scoreBusy =
           !!scoreUpdater?.timer && (scoreUpdater?.pendingResumeIds?.size || 0) > 0;
+        // ★ 推荐通道独立的 recommendScoreUpdater 轮询（之前漏了，导致 runTask 不等推荐 AI 完成就 finish）
+        const recommendBusy =
+          !!recommendScoreUpdater?.timer &&
+          (recommendScoreUpdater?.pendingBlindIds?.size || 0) > 0;
         const aiStoreActive = rootGetters && rootGetters.getAiAnalyzingActive === true; // 兜底
-        const stillAnalyzing = queueBusy || scoreBusy || aiStoreActive;
+        const stillAnalyzing = queueBusy || scoreBusy || recommendBusy || aiStoreActive;
         const elapsed = Date.now() - startAiWait;
 
         if (!stillAnalyzing && elapsed >= MIN_WAIT_AI_MS) break;
@@ -1061,7 +1176,8 @@ const actions = {
       console.log(
         `[SearchTasks] runTask: AI 分析等待结束 耗时=${aiWaitMs}ms` +
         ` queueTotal=${queueManager?.queueStatus?.totalTasks || 0}` +
-        ` scorePending=${scoreUpdater?.pendingResumeIds?.size || 0}` +
+        ` searchPending=${scoreUpdater?.pendingResumeIds?.size || 0}` +
+        ` recommendPending=${recommendScoreUpdater?.pendingBlindIds?.size || 0}` +
         ` aiStoreActive=${rootGetters && rootGetters.getAiAnalyzingActive === true}`
       );
       // 推荐渠道：AI 评分 + 详情都跑完 → 标 DONE，TaskStatusCard 推荐卡进入"完毕"
@@ -1153,6 +1269,59 @@ const actions = {
             errorCode: runError?.code || 'UNKNOWN',
             errorMessage: runError?.message || '聚合搜索失败'
           };
+
+      // ★ 推荐通道独立保险：finish 推荐前**再等一次推荐 AI 评分完成**。
+      //
+      // 背景：runTask 顶层 AI wait loop 已经检查了 recommendScoreUpdater，但实际跑下来
+      // 可能时序漂移（IndexPage runRealAggregateSearch fire-and-forget 跟 runTask
+      // executor SKIPPED polling 是两条并行流程，AI wait loop 可能在 doFetchRecommend
+      // 启动 recommendScoreUpdater **之前**就退出了，此时 recommendScoreUpdater.timer=null
+      // → 看起来 "AI 已经完成"，但实际推荐流程压根没启动 → 这里给推荐 channel 调 finish
+      // 是错的，应该等推荐真正跑完）。
+      //
+      // 这里加 per-channel 保险：finish RECOMMEND 之前再 polling 一次 recommendScoreUpdater，
+      // **既要等 timer 启动**（推荐流程开始），**也要等 pending 清零**（评分跑完）。
+      // 最长 10 分钟兜底，避免推荐通道异常时永远卡死。
+      if (ch.businessChannel === 'RECOMMEND' && ch.channelSubType === 'BOSS' && !runFailed) {
+        try {
+          const rsuMod = await import('src/utils/recommendScoreUpdater');
+          const rsu = rsuMod.default || rsuMod;
+          if (rsu) {
+            const REC_WAIT_MAX_MS = 10 * 60 * 1000;
+            const REC_POLL_MS = 1000;
+            const REC_START_GRACE_MS = 60 * 1000; // 给 doFetchRecommend 启动 recommendScoreUpdater 留 60s 启动窗口
+            const recStart = Date.now();
+            let seenActive = false;
+            console.log(
+              `[SearchTasks] runTask: finish RECOMMEND/BOSS 前再等 recommendScoreUpdater (channelId=${ch.taskChannelId})`
+            );
+            while (Date.now() - recStart < REC_WAIT_MAX_MS) {
+              const timerOn = !!rsu.timer;
+              const pending = rsu.pendingBlindIds?.size || 0;
+              if (timerOn || pending > 0) seenActive = true;
+              const elapsed = Date.now() - recStart;
+              // 已经见过 active → timer 没了且 pending=0 → 真正完成
+              if (seenActive && !timerOn && pending === 0) break;
+              // 始终没见过 active 而且过了启动窗口 → 推荐根本没启动（异常 / 跳过），不再等
+              if (!seenActive && elapsed >= REC_START_GRACE_MS) {
+                console.warn(
+                  `[SearchTasks] runTask: 推荐 scoreUpdater 60s 内未启动，可能 doFetchRecommend 异常，不再等待直接 finish`
+                );
+                break;
+              }
+              await new Promise((r) => setTimeout(r, REC_POLL_MS));
+            }
+            const recWaitMs = Date.now() - recStart;
+            console.log(
+              `[SearchTasks] runTask: 推荐 AI 等待结束 耗时=${recWaitMs}ms seenActive=${seenActive}` +
+              ` timer=${!!rsu.timer} pending=${rsu.pendingBlindIds?.size || 0}`
+            );
+          }
+        } catch (e) {
+          console.warn('[SearchTasks] runTask: 加载 recommendScoreUpdater 失败，跳过等待:', e?.message || e);
+        }
+      }
+
       try {
         await taskApi.postFinishChannel(ch.taskChannelId, finishPayload);
         console.log(
@@ -1770,10 +1939,23 @@ const actions = {
     // settings 还没 hydrate → enabledSet 为空 → 跳过规则 2（避免误杀）
     const checkConfigMismatch = enabledSet.size > 0;
 
+    // ★ 豁免集合：后端 queue items 里的任务一定还活着（比如 OUT_OF_WORK_PERIOD
+    // 等待工作时间窗口的任务可能等几小时），不能用 15min 阈值标僵尸。
+    // state.taskQueue 由 fetchTaskQueue 维护，IndexPage 已经保证 cleanupZombies 跑前
+    // 先调 cleanupOrphanRunningAndResume（含 fetchTaskQueue）→ state.taskQueue 已就绪。
+    const exemptTaskIds = new Set();
+    const queueItems = Array.isArray(state.taskQueue?.items) ? state.taskQueue.items : [];
+    for (const it of queueItems) {
+      if (it?.taskId) exemptTaskIds.add(String(it.taskId));
+    }
+
     const zombies = [];
     for (const taskId of Object.keys(state.tasksById)) {
       const t = state.tasksById[taskId];
       if (!t || !ALIVE_STATUSES.includes(t.taskStatus)) continue;
+
+      // 后端 queue 还有这条 → 不当僵尸
+      if (exemptTaskIds.has(String(taskId))) continue;
 
       const createdAt = Number(t.createdAt) || 0;
       const isOld = createdAt > 0 && now - createdAt > ZOMBIE_THRESHOLD_MS;
@@ -1792,6 +1974,10 @@ const actions = {
         zombies.push({ taskId, reason: isOld ? "timeout" : "config-mismatch" });
       }
     }
+    console.log(
+      `[SearchTasks] cleanupZombies: 扫描 tasksById=${Object.keys(state.tasksById).length}` +
+      ` 豁免(queue里活着)=${exemptTaskIds.size} 判定僵尸=${zombies.length}`
+    );
     if (zombies.length === 0) return;
     console.warn(
       `[SearchTasks] cleanupZombies: 标记 ${zombies.length} 个僵尸任务为 STOPPED:`,

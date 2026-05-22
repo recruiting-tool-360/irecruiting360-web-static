@@ -47,25 +47,48 @@ export function pickChannelByUrl(url) {
  * 显式指定 channel 打开招聘站 URL（前往登录、详情页、沟通页都用它）
  * @param {string} channel  渠道 key (boss/zhilian/liepin/job51)
  * @param {string} url      完整 URL
- * @returns {Promise<{success:boolean, message?:string}|Window|null>}
+ * @param {Object} [opts]
+ * @param {boolean} [opts.forceReload=false]
+ *   tab 已存在（同 URL 复用）时强制 reload，让 SPA 重新拉数据。
+ *   场景："立即沟通" 跳 BOSS 互动消息页 / 查看详情等——用户刚操作完
+ *   （收藏 / 加入人才库 / 分配职位），跳过去期望看到刚加进去的人，
+ *   但 BOSS SPA 不会自动刷新，必须 reload。
+ * @returns {Promise<{success:boolean, message?:string, tabId?:string}|Window|null>}
  */
-export function openChannelUrl(channel, url) {
+export async function openChannelUrl(channel, url, opts = {}) {
   if (!url) {
     console.warn('[openChannelUrl] empty url, skip');
-    return Promise.resolve({ success: false, message: 'empty url' });
+    return { success: false, message: 'empty url' };
   }
 
   if (isElectronClient()) {
     const recruitBridge = window.api && window.api.recruitBridge;
     if (recruitBridge && typeof recruitBridge.openSiteWindow === 'function') {
-      return recruitBridge.openSiteWindow(channel, url);
+      const result = await recruitBridge.openSiteWindow(channel, url);
+      // forceReload 选项：拿到 tabId 之后调一次 tabs.loadUrl，触发完整 navigation，
+      // SPA 重新启动 → 自动拉最新数据。
+      if (opts && opts.forceReload && result && result.tabId) {
+        try {
+          const tabsApi = window.api && window.api.tabs;
+          if (tabsApi && typeof tabsApi.loadUrl === 'function') {
+            await tabsApi.loadUrl(result.tabId, url);
+            console.log(`[openChannelUrl] forceReload tab=${result.tabId} url=${url}`);
+          } else if (tabsApi && typeof tabsApi.reload === 'function') {
+            await tabsApi.reload(result.tabId);
+            console.log(`[openChannelUrl] forceReload fallback tab=${result.tabId} reload()`);
+          }
+        } catch (e) {
+          console.warn('[openChannelUrl] forceReload 失败（忽略）:', e?.message || e);
+        }
+      }
+      return result;
     }
     console.warn(
       '[openChannelUrl] Electron 客户端环境但 recruitBridge 未就绪，回退 window.open'
     );
   }
 
-  return Promise.resolve(window.open(url, '_blank'));
+  return window.open(url, '_blank');
 }
 
 /**
@@ -74,10 +97,10 @@ export function openChannelUrl(channel, url) {
  * @param {string} url
  * @returns {Promise<*>}
  */
-export function openExternalSiteUrl(url) {
+export function openExternalSiteUrl(url, opts) {
   const channel = pickChannelByUrl(url);
   if (channel) {
-    return openChannelUrl(channel, url);
+    return openChannelUrl(channel, url, opts);
   }
   // 不是招聘站 URL：浏览器模式 window.open；客户端模式下主进程的 setWindowOpenHandler
   // 会把它丢给 shell.openExternal（系统浏览器），这是合理的（用户协议、文档等外链）

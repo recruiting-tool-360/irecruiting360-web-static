@@ -60,20 +60,21 @@
           - BOSS 推荐 API 返回的 geek 数据通过 mapBossGeekToResume() 适配成 ResumeCard 期望的 resume shape
           - BOSS 推荐没有的字段（简要描述 / 工作经历 / 教育经历 / AI 评分 / 性别 / 年龄 ...）留空，
             ResumeCard 内部已有空态处理（暂无工作经历 / AI 分析中 / 无 badge 等）
-          - **read-only="true"**：BOSS 推荐候选人是匿名的，id 是 encryptGeekId，
-            i 人事后端不认识，ResumeCard 内部的 markResumeBlindReadStatus / bossHandleViewDetail
-            等"标已读 / 跳详情"业务联动都会报错（400 / JSON.parse undefined）。
-            设 readOnly 后所有联动跳过，只 emit 'detail'，由 RecommendList 自己处理（onCardClick）。
-          - 4 个底部按钮（分配职位 / 加入人才库 / 相似简历 / 立即沟通）在 readOnly 下统一 disabled。
-            未来候选人详情抽屉接好了，再设计该 tab 的专属交互。
+          - readOnly 按 geek.resumeBlindId 是否回填**动态判断**：
+              * 已回填（/results 之后，patchBossRecommendGeek 把 i 人事真实 resumeBlindId 写进 geek）
+                → readOnly=false，跟搜索 tab 等价，可分配职位 / 加入人才库 / 相似简历 / AI 评估
+              * 未回填（/results 之前的瞬时态，只有 encryptGeekId）
+                → readOnly=true，按钮 disable
+            老版本写死 readOnly=true 是因为那时 resume.id=encryptGeekId 后端不认识；
+            现在 /results 后端给了真实 resumeBlindId，跟搜索通道完全对等。
       -->
       <div class="rl-resume-list">
         <ResumeCard
           v-for="(geek, idx) in bucket.geekList"
-          :key="geek.encryptGeekId || geek.geekId || idx"
+          :key="geek.encryptGeekId || geek.geekId || geek.resumeBlindId || idx"
           :resume="mapBossGeekToResume(geek)"
           :is-read="false"
-          :read-only="true"
+          :read-only="!geek.resumeBlindId"
           tab-str="推荐牛人"
           @detail="() => onCardClick(geek)"
         />
@@ -122,6 +123,16 @@ import ResumeCard from 'src/components/resume/ResumeCard.vue';
  */
 function mapBossGeekToResume(geek) {
   const g = geek || {};
+  // ★ 兼容两种数据源：
+  //   (a) BOSS 推荐 API 原生 geek 结构（含 geek.geekCard.geekName/geekGender/...）
+  //       → 走下面整段 mapping
+  //   (b) 后端任务结果接口返回的标准化 resume（含 r.name / r.id / r.gender，无 geekCard）
+  //       → 已经是 ResumeCard 期望的形态，直接返回。
+  //   handleViewResults 把 RECOMMEND 数据灌进 BossRecommendData.geekList 时就是 (b)，
+  //   不需要额外转一次。
+  if (!g.geekCard && (g.name || g.resumeBlindId)) {
+    return g;
+  }
   const c = g.geekCard || {};
   // BOSS geekGender：1=男 0=女（跟 ResumeCard 期望一致，直接透传）
   let gender = null;
@@ -199,10 +210,16 @@ function mapBossGeekToResume(geek) {
     isRead: false,
     inCollection: false,
     resumeThirdPartyInfo: null,
-    // 防御性占位：搜索 tab 的 BOSS 简历有 `originalResumeUrlInfo` 字段（JSON 字符串），
-    // ResumeCard 内部 bossHandleViewDetail 会 JSON.parse 它。推荐 tab 已经走 readOnly
-    // 跳过了那条路径，但万一未来代码改动让它意外被调，'null' 是合法 JSON 避免 SyntaxError
-    originalResumeUrlInfo: 'null',
+    // ⚠️ originalResumeUrlInfo 必须是合法 JSON 字符串，且 .request.securityId 可读，
+    // 否则下游 bossUrl()（src/pluginSrc/util/ChannelUrlUtil.js）会 JSON.parse 后访问
+    // .request.securityId 报 TypeError → handleResume 异常退出 → importResume / 加入人才库
+    // / 分配职位 / 立即沟通 整条流程都 break。
+    //
+    // BOSS 推荐 API 的 securityId 在 geekCard.securityId（500+ 字符的防爬签名），
+    // 拼成跟搜索通道相同的 originalResumeUrlInfo 格式：{"request":{"securityId":"..."}}
+    originalResumeUrlInfo: c.securityId
+      ? JSON.stringify({ request: { securityId: c.securityId } })
+      : 'null',
     // 保留原始 BOSS geek，候选人详情抽屉 / "立即沟通" 等动作需要时能拿到 securityId / lid
     _raw: g,
     _isBossRecommend: true

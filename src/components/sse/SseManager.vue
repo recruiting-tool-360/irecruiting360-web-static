@@ -42,17 +42,54 @@ async function handleAuthError(data) {
 }
 
 //更新ai分数
+//
+// SSE 推过来的"score 已更新"消息可能针对**搜索通道**的 resumeBlindId（在 ChannelConfig.ALL.data）
+// 或**推荐通道**的 resumeBlindId（在 BossRecommendData.byJobId[jobId].geekList）。
+// 老版本不分通道全部塞给 JobInfo (ALL.cardInfoRef)，推荐的 ID 找不到 → 报"未找到ID为 XXX 的简历"
+// 噪音刷屏，且 UI 上推荐的分数不会被这条 SSE 路径写回（虽然 polling 兜底了）。
+//
+// 新策略：
+//   1) 先检查这条 resumeBlindId 是否在 BossRecommendData 某个 bucket 里
+//      → 是的话 commit patchBossRecommendGeek，**不再骚扰 JobInfo**
+//   2) 否则才走 JobInfo（搜索通道）
 const updateChannelScore = (msg) => {
-  const resumeData = { id: msg.resumeId, score: msg.score }
-  // ⚠️ 推荐通道当前在 RecommendList 渲染，JobInfo (ALL.cardInfoRef) 没挂载，
-  // 直接调会报 "Cannot read properties of null (reading 'updateResumeScoreFN')"。
-  // 防御性 optional chain：JobInfo 没挂载就 silent skip，由 scoreAutoUpdater 的
-  // polling 路径兜底写回分数（推荐通道也走 polling，patchBossRecommendGeek 写回 BossRecommendData）。
+  const resumeId = msg?.resumeId
+  if (!resumeId) return
+
+  // 推荐通道：扫描所有 BossRecommendData bucket 找这个 blindId
+  let isRecommendId = false
+  let recommendJobId = null
+  try {
+    const byJobId = store.state?.BossRecommendData?.byJobId || {}
+    for (const jId of Object.keys(byJobId)) {
+      const bucket = byJobId[jId]
+      const geekList = Array.isArray(bucket?.geekList) ? bucket.geekList : []
+      if (geekList.some((g) => String(g?.resumeBlindId) === String(resumeId))) {
+        isRecommendId = true
+        recommendJobId = jId
+        break
+      }
+    }
+  } catch (_e) { /* ignore */ }
+
+  if (isRecommendId && recommendJobId) {
+    store.commit('patchBossRecommendGeek', {
+      jobId: recommendJobId,
+      resumeBlindId: String(resumeId),
+      patch: {
+        score: typeof msg?.score === 'number' ? msg.score : null,
+        scoreStatus: msg?.scoreStatus || 'SUCCESS'
+      }
+    })
+    return
+  }
+
+  // 搜索通道：找 JobInfo (ALL.cardInfoRef)，没挂载就 silent skip（推荐 tab 切换走时也算这条路径）
   const allChannelRef = allChannel.value?.['ALL']?.cardInfoRef
   if (!allChannelRef || typeof allChannelRef.updateResumeScoreFN !== 'function') {
     return
   }
-  allChannelRef.updateResumeScoreFN(resumeData)
+  allChannelRef.updateResumeScoreFN({ id: resumeId, score: msg.score })
 }
 
 // 退出登录函数 - 从Header.vue复制过来的逻辑
