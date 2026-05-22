@@ -169,18 +169,30 @@ $neutral-800: #262626;
 $neutral-900: #171717;
 
 .ihr-auth-overlay {
+  // 全局浮层：Teleport to="body" 脱离父容器 + 高 z-index 盖在任何业务面板之上。
+  // Quasar Dialog 默认 z-index 是 6000；FloatingActionPanel / 各招聘站 tab 蒙层
+  // 也可能用比较高的 z-index。这里取 9999 保证 i 人事登录授权弹框始终是 top-most。
   position: fixed;
-  inset: 0;
-  z-index: 200;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
+  pointer-events: auto;
 }
 
 .ihr-auth-backdrop {
-  position: absolute;
-  inset: 0;
+  // 用 fixed 而不是 absolute，确保 backdrop 一定盖满整个 viewport
+  // （即使 .ihr-auth-overlay 因为某些祖先样式异常没占满）
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(23, 23, 23, 0.4); /* neutral-900/40 */
   backdrop-filter: blur(4px);
 }

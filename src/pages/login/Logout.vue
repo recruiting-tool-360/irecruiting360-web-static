@@ -9,6 +9,7 @@ import {generateSsoToken, ssoLogin, userlogout} from 'src/api/user/UserApi';
 import { useStore } from 'vuex';
 import notify from 'src/util/notify';
 import Cookies from 'js-cookie'
+import { redirectToLogin } from 'src/util/redirectToLogin';
 
 const router = useRouter();
 const store = useStore();
@@ -21,7 +22,8 @@ const logout = async () => {
     store.commit('changeUserInfo', null);
     // store.commit('clearSearchConditionId');
     notify.success('退出登录成功');
-    window.location.href = '/login';
+    // 客户端模式拦截跳转 → 弹 IhrAuthModal；浏览器模式照旧跳 /login
+    redirectToLogin({ reason: 'logout_page' });
   } catch (e) {
     console.log(e);
     notify.error('退出登录失败，请重试');

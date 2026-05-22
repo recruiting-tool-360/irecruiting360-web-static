@@ -76,6 +76,12 @@ module.exports = configure(function (/* ctx */) {
         VUE_APP_API_BASE_URL: process.env.VUE_APP_API_BASE_URL,
         VUE_APP_WECHAT_CALL_URL: process.env.VUE_APP_WECHAT_CALL_URL,
         VUE_APP_WECHAT_APP_ID: process.env.VUE_APP_WECHAT_APP_ID,
+        // 客户端发版渠道：决定 ClientLauncher 下载链接走 release 还是 qa2 等环境。
+        //   - 'release' (默认) → http://download.ihr360.com/ikuaizhao/  i快招-<v>-<arch>.dmg
+        //   - 'qa2'            → http://download.ihr360.com/ikuaizhao-qa2/  i快招 QA2-<v>-<arch>.dmg
+        // 跟 electron/electron-builder.qa2.yml 的 publish.url + productName 一一对应。
+        // 由 CI / 本地构建命令 export VUE_APP_RELEASE_CHANNEL=qa2 切换。
+        VUE_APP_RELEASE_CHANNEL: process.env.VUE_APP_RELEASE_CHANNEL || 'release',
       },
       // rawDefine: {}
       // ignorePublicFolder: true,
