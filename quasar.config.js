@@ -76,12 +76,16 @@ module.exports = configure(function (/* ctx */) {
         VUE_APP_API_BASE_URL: process.env.VUE_APP_API_BASE_URL,
         VUE_APP_WECHAT_CALL_URL: process.env.VUE_APP_WECHAT_CALL_URL,
         VUE_APP_WECHAT_APP_ID: process.env.VUE_APP_WECHAT_APP_ID,
+        // 部署环境（由 CI 显式设置）：'test' / 'qa' / 'sit' / 'staging' / 'production' 等
+        // ClientLauncher 根据这个值推断客户端发版渠道（release vs qa2 等）。
+        // 由 CI 命令 export VUE_APP_ENV=test 注入。
+        VUE_APP_ENV: process.env.VUE_APP_ENV || '',
         // 客户端发版渠道：决定 ClientLauncher 下载链接走 release 还是 qa2 等环境。
         //   - 'release' (默认) → http://download.ihr360.com/ikuaizhao/  i快招-<v>-<arch>.dmg
         //   - 'qa2'            → http://download.ihr360.com/ikuaizhao-qa2/  i快招 QA2-<v>-<arch>.dmg
         // 跟 electron/electron-builder.qa2.yml 的 publish.url + productName 一一对应。
-        // 由 CI / 本地构建命令 export VUE_APP_RELEASE_CHANNEL=qa2 切换。
-        VUE_APP_RELEASE_CHANNEL: process.env.VUE_APP_RELEASE_CHANNEL || 'release',
+        // 优先级：VUE_APP_RELEASE_CHANNEL > 按 VUE_APP_ENV 自动推断 > 'release' 默认。
+        VUE_APP_RELEASE_CHANNEL: process.env.VUE_APP_RELEASE_CHANNEL || '',
       },
       // rawDefine: {}
       // ignorePublicFolder: true,

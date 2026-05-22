@@ -344,12 +344,34 @@ const CHANNELS = [
 
 // ============ 下载链接 ============
 
-// 客户端发版渠道（由 quasar build 时 VUE_APP_RELEASE_CHANNEL 注入）：
-//   - 'release' (默认)  → ikuaizhao/                + 文件名前缀 "i快招"
-//   - 'qa2'             → ikuaizhao-qa2/            + 文件名前缀 "i快招 QA2"
+// 客户端发版渠道（决定 ClientLauncher 下载链接走哪个 COS 目录 + 文件名前缀）：
+//   - 'release' (默认)  → ikuaizhao/        + "i快招"      （生产）
+//   - 'qa2'             → ikuaizhao-qa2/    + "i快招 QA2"  （非生产）
 // 文件名前缀必须跟 electron/electron-builder*.yml 的 productName 保持一致
 // （electron-builder artifactName 模板：${productName}-${version}-${arch}.${ext}）。
-const RELEASE_CHANNEL = process.env.VUE_APP_RELEASE_CHANNEL || 'release';
+//
+// 渠道判定优先级（高 → 低）：
+//   1. VUE_APP_RELEASE_CHANNEL —— CI 显式指定（如 export VUE_APP_RELEASE_CHANNEL=qa2）
+//   2. VUE_APP_ENV             —— CI 部署环境标识（test/qa/sit/staging → qa2；production → release）
+//   3. VUE_APP_API_BASE_URL    —— 兜底按 API 域名反推
+//   4. NODE_ENV === 'development' —— 本地 `quasar dev` 时（production build 时 NODE_ENV
+//      会被 vite 强制覆盖成 'production'，仅 dev 时此判定生效，让本地联调默认走 qa2 包）
+//   5. 'release'               —— 最终默认值
+function inferChannelFromEnv() {
+  const env = (process.env.VUE_APP_ENV || '').toLowerCase();
+  if (env) {
+    if (env === 'production' || env === 'prod' || env === 'release') return 'release';
+    // test / qa / qa2 / sit / staging / stg / dev / development → 非生产，走 qa2 包
+    return 'qa2';
+  }
+  const api = (process.env.VUE_APP_API_BASE_URL || '').toLowerCase();
+  if (/(test|qa|sit|stg|staging|dev)\.ihire365/.test(api)) return 'qa2';
+  // 本地 `quasar dev` 模式（vite production build 时 NODE_ENV 会被强制 'production'）
+  if (process.env.NODE_ENV === 'development') return 'qa2';
+  return 'release';
+}
+const RELEASE_CHANNEL =
+  process.env.VUE_APP_RELEASE_CHANNEL || inferChannelFromEnv();
 const CHANNEL_CONFIG = {
   release: {
     base: 'http://download.ihr360.com/ikuaizhao',
