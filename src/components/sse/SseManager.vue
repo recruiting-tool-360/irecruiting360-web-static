@@ -10,6 +10,7 @@ import notify from 'src/util/notify'
 import sseClient from 'src/api/sse'
 import { getUserInfo, userlogout } from "src/api/user/UserApi"
 import Cookies from 'js-cookie'
+import { redirectToLogin } from "src/util/redirectToLogin"
 
 const store = useStore();
 const userInfo = computed(() => store.getters.getUserInfo);
@@ -102,7 +103,8 @@ async function logout() {
   } catch (e) {
     console.log(e)
   }
-  window.location.href = '/login';
+  // 客户端模式拦截跳转 → 弹 IhrAuthModal；浏览器模式照旧跳 /login
+  redirectToLogin({ reason: 'sse_auth_error_logout' });
 }
 
 // 初始化用户信息
@@ -116,13 +118,13 @@ async function userInfoInit() {
     } else {
       store.commit('changeUserInfo', null)
       notify.error('用户信息异常，请联系管理员')
-      window.location.href = '/login'
+      redirectToLogin({ reason: 'user_info_failed_business' });
     }
   } catch (ex) {
     store.commit('changeUserInfo', null)
     notify.error('用户信息异常，请联系管理员')
     console.log(ex)
-    window.location.href = '/login'
+    redirectToLogin({ reason: 'user_info_failed_exception' });
   }
 }
 

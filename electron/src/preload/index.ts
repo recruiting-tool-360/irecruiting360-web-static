@@ -172,11 +172,24 @@ const ihrBridge = {
   }> => ipcRenderer.invoke('ihrBridge:getAccessTokenStatus'),
 
   /**
-   * 在主窗口里新开 tab 加载 i 人事 manage 入口，引导用户登录。
-   * 登录成功后 cookie 持久化到该 partition，之后 ihrBridge 所有调用自动带 cookie。
+   * 引导用户登录 i 人事 manage 系统。
+   *
+   * @param opts.useSystemBrowser true → shell.openExternal 走系统浏览器
+   *                              false / undefined → 主窗口新开 tab（cookie 写 partition）
+   * @param opts.loginPath        拼到 manageUrl 后面的登录路径，默认 '/'
+   *
+   * ★ 老版本 preload 这里没透传 opts，导致渲染端传的 useSystemBrowser:true 永远收不到，
+   *   main 进程总是按默认 false 走客户端 tab。修复：必须把 opts 转发进 ipcRenderer.invoke。
    */
-  openManageLoginTab: (): Promise<{ ok: boolean; manageUrl: string; message?: string }> =>
-    ipcRenderer.invoke('ihrBridge:openManageLoginTab')
+  openManageLoginTab: (opts?: {
+    useSystemBrowser?: boolean
+    loginPath?: string
+  }): Promise<{
+    ok: boolean
+    manageUrl: string
+    message?: string
+    via?: 'systemBrowser' | 'clientTab'
+  }> => ipcRenderer.invoke('ihrBridge:openManageLoginTab', opts)
 }
 
 interface IhrApiResult<T = unknown> {

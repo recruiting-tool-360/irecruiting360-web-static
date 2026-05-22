@@ -88,6 +88,7 @@ import {userlogout} from "src/api/user/UserApi";
 import notify from "src/util/notify";
 import PluginDownloadDialog from 'src/components/plugins/PluginDownloadDialog.vue';
 import { isElectronClient } from "src/util/openChannelLoginUrl";
+import { redirectToLogin } from "src/util/redirectToLogin";
 
 // 是否在 Electron 客户端模式下：用于隐藏插件相关入口
 const isClient = isElectronClient();
@@ -144,7 +145,8 @@ const logout = async () => {
     store.commit('changeUserInfo', null);
     // store.commit('clearSearchConditionId');
     notify.success('退出登录成功');
-    window.location.href = '/login';
+    // 客户端模式拦截跳转 → 弹 IhrAuthModal；浏览器模式照旧跳 /login
+    redirectToLogin({ reason: 'user_manual_logout_header' });
   } catch (e) {
     console.log(e);
     notify.error('退出登录失败，请重试');

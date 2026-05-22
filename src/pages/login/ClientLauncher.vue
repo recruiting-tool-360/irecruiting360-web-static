@@ -344,15 +344,36 @@ const CHANNELS = [
 
 // ============ 下载链接 ============
 
+// 客户端发版渠道（由 quasar build 时 VUE_APP_RELEASE_CHANNEL 注入）：
+//   - 'release' (默认)  → ikuaizhao/                + 文件名前缀 "i快招"
+//   - 'qa2'             → ikuaizhao-qa2/            + 文件名前缀 "i快招 QA2"
+// 文件名前缀必须跟 electron/electron-builder*.yml 的 productName 保持一致
+// （electron-builder artifactName 模板：${productName}-${version}-${arch}.${ext}）。
+const RELEASE_CHANNEL = process.env.VUE_APP_RELEASE_CHANNEL || 'release';
+const CHANNEL_CONFIG = {
+  release: {
+    base: 'http://download.ihr360.com/ikuaizhao',
+    productName: 'i快招'
+  },
+  qa2: {
+    base: 'http://download.ihr360.com/ikuaizhao-qa2',
+    productName: 'i快招 QA2'
+  }
+};
+const _ch = CHANNEL_CONFIG[RELEASE_CHANNEL] || CHANNEL_CONFIG.release;
+const DOWNLOAD_BASE = _ch.base;
+const PRODUCT_NAME = _ch.productName;
+console.log(`[ClientLauncher] 当前发版渠道=${RELEASE_CHANNEL} | base=${DOWNLOAD_BASE} | productName=${PRODUCT_NAME}`);
+
 // TODO: 后续从 manifest.json / latest.yml 拉（见 docs/client-auto-update.md）
-const DOWNLOAD_BASE = 'http://download.ihr360.com/ikuaizhao';
+//
 // 把某个平台值设为 null 可临时禁用对应按钮（自动置灰 + 提示"即将开放"）
 // 文件名约定与 electron-builder.yml 的 dmg.artifactName / nsis.artifactName 对齐：
 //   ${productName}-${version}-${arch}.${ext}
 const DOWNLOAD_URLS = {
-  win: `${DOWNLOAD_BASE}/i快招-1.0.0-setup.exe`,
-  'mac-intel': `${DOWNLOAD_BASE}/i快招-1.0.0-x64.dmg`,
-  'mac-apple': `${DOWNLOAD_BASE}/i快招-1.0.0-arm64.dmg`
+  win: `${DOWNLOAD_BASE}/${PRODUCT_NAME}-1.0.0-setup.exe`,
+  'mac-intel': `${DOWNLOAD_BASE}/${PRODUCT_NAME}-1.0.0-x64.dmg`,
+  'mac-apple': `${DOWNLOAD_BASE}/${PRODUCT_NAME}-1.0.0-arm64.dmg`
 };
 
 function isMacAvailable() {

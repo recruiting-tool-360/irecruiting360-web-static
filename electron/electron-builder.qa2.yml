@@ -1,0 +1,116 @@
+# ============================================================
+# i 快招 QA2 打包配置（跟 release 的 electron-builder.yml 隔离，可同机共存安装）
+#
+# 跟 release 配置的差异：
+#   1. appId            com.ihire365.ikuaizhao.qa2     ← release 是 com.ihire365.ikuaizhao
+#                       不同 appId 让 macOS / Windows 把 qa2 包当**独立应用**，
+#                       userData / cookie / preferences 全部独立，跟 release 互不污染。
+#   2. productName      i快招 QA2                       ← release 是 i快招
+#                       打出来的 .app / .exe 名字就带 QA2，用户一眼能区分。
+#                       artifactName 模板 ${productName}-${version}-${arch}.${ext}
+#                       自动会变成 "i快招 QA2-1.0.0-arm64.dmg"。
+#   3. publish.url      http://download.ihr360.com/ikuaizhao-qa2/
+#                       autoUpdater 检查更新时拉这个目录下的 latest.yml / latest-mac.yml，
+#                       跟 release 完全隔离 → release 包永远不会自动更新到 qa2，反之亦然。
+#   4. macOS 强制 adhoc 签名 + 不公证（npm script 命令行还会再 override 一次保险）。
+#
+# 用法：
+#   npm run build:mac:qa2      产 macOS dmg/zip（adhoc 签名，无需 Apple Developer 证书）
+#   npm run build:win:qa2      产 Windows nsis 安装包（无需代码签名证书）
+#   npm run publish:cos:qa2    上传到 COS 桶 ikuaizhao-qa2/ 目录
+# ============================================================
+
+appId: com.ihire365.ikuaizhao.qa2
+productName: i快招 QA2
+directories:
+  buildResources: build
+afterPack: build/afterPack.js
+files:
+  - out/**
+  - resources/**
+  - package.json
+  - 'node_modules/**'
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{dist,dist-*,build,scripts}/**'
+  - '!**/{__pycache__,*.tsbuildinfo,*.map}'
+asarUnpack:
+  - resources/**
+
+# QA2 仍然注册同样的 deep link 协议 ikuaizhao://（i 人事 portal 用同一个 URL 唤起客户端）
+# 如果想让 QA2 用独立 scheme（比如 ikuaizhao-qa2://）避免被 release 抢走，可以改：
+#   schemes:
+#     - ikuaizhao-qa2
+# 但那样 i 人事 portal 那边也得配套支持。当前 dev 阶段先共用 scheme，谁先打开谁抢到。
+protocols:
+  - name: i快招 QA2
+    schemes:
+      - ikuaizhao
+
+win:
+  icon: resources/icons/icon.ico
+  executableName: ikuaizhao-qa2
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  # QA2 不需要 Windows 代码签名（npm script --config.win.signtoolOptions=null 再次保险）
+  # 装的时候会有 SmartScreen "未知发布者" 警告，点"更多信息 → 仍要运行"能装
+
+nsis:
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+
+mac:
+  icon: resources/icons/icon.icns
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  # ★ QA2 macOS 不签名、不公证：
+  #   identity=null 强制 adhoc 签名（npm script 命令行还会再覆盖一次保险），用户首次打开
+  #   需要"右键 → 打开"绕过 Gatekeeper，但能装能跑。Apple Silicon 必须 adhoc 才能启动，
+  #   afterPack.js 会自动做 ad-hoc 签名兜底。
+  notarize: false
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
+appImage:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+npmRebuild: false
+
+# ★ QA2 autoUpdater 的元数据/包资源都拉这个独立目录，跟 release 隔离
+publish:
+  provider: generic
+  url: http://download.ihr360.com/ikuaizhao-qa2/
+  channel: latest
+  useMultipleRangeRequest: true
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

@@ -28,11 +28,20 @@
     "build:mac:release:arm64": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --arm64 --config.mac.notarize=true",
     "build:mac:release:x64": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --x64 --config.mac.notarize=true",
     "build:win:release": "node ./scripts/check-release-env.js win && npm run build && electron-builder --win",
+    "build:mac:qa2": "electron-vite build && electron-builder --mac --config electron-builder.qa2.yml --config.mac.identity=null --config.mac.notarize=false",
+    "build:mac:qa2:arm64": "electron-vite build && electron-builder --mac --arm64 --config electron-builder.qa2.yml --config.mac.identity=null --config.mac.notarize=false",
+    "build:mac:qa2:x64": "electron-vite build && electron-builder --mac --x64 --config electron-builder.qa2.yml --config.mac.identity=null --config.mac.notarize=false",
+    "build:win:qa2": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false WIN_CSC_LINK= npm run build && electron-builder --win --config electron-builder.qa2.yml",
     "publish:cos": "node ./scripts/publish-cos.js",
     "publish:cos:win": "node ./scripts/publish-cos.js --platform win",
     "publish:cos:mac": "node ./scripts/publish-cos.js --platform mac",
     "publish:cos:dry": "node ./scripts/publish-cos.js --dry-run",
-    "publish:cos:check": "node ./scripts/publish-cos.js --check"
+    "publish:cos:check": "node ./scripts/publish-cos.js --check",
+    "publish:cos:qa2": "node ./scripts/publish-cos.js --prefix ikuaizhao-qa2/",
+    "publish:cos:qa2:win": "node ./scripts/publish-cos.js --prefix ikuaizhao-qa2/ --platform win",
+    "publish:cos:qa2:mac": "node ./scripts/publish-cos.js --prefix ikuaizhao-qa2/ --platform mac",
+    "publish:cos:qa2:dry": "node ./scripts/publish-cos.js --prefix ikuaizhao-qa2/ --dry-run",
+    "publish:cos:qa2:check": "node ./scripts/publish-cos.js --prefix ikuaizhao-qa2/ --check"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
