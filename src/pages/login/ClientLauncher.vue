@@ -387,19 +387,64 @@ const DOWNLOAD_BASE = _ch.base;
 const PRODUCT_NAME = _ch.productName;
 console.log(`[ClientLauncher] 当前发版渠道=${RELEASE_CHANNEL} | base=${DOWNLOAD_BASE} | productName=${PRODUCT_NAME}`);
 
-// TODO: 后续从 manifest.json / latest.yml 拉（见 docs/client-auto-update.md）
+// 下载链接是 ref，启动时去 CDN 拉 latest.yml / latest-mac.yml 提取真实 version。
+// 拉之前先用 fallback 1.0.0 兜底（保证用户即使 CDN 抽风也能看到一个可用链接）。
+// publish-cos 会把这两个 yml 文件跟 dmg/exe 一起发，所以 yml 永远跟最新包同步。
 //
-// 把某个平台值设为 null 可临时禁用对应按钮（自动置灰 + 提示"即将开放"）
 // 文件名约定与 electron-builder.yml 的 dmg.artifactName / nsis.artifactName 对齐：
 //   ${productName}-${version}-${arch}.${ext}
-const DOWNLOAD_URLS = {
-  win: `${DOWNLOAD_BASE}/${PRODUCT_NAME}-1.0.0-setup.exe`,
-  'mac-intel': `${DOWNLOAD_BASE}/${PRODUCT_NAME}-1.0.0-x64.dmg`,
-  'mac-apple': `${DOWNLOAD_BASE}/${PRODUCT_NAME}-1.0.0-arm64.dmg`
-};
+const FALLBACK_VERSION = '1.0.0';
+function buildDownloadUrls(version) {
+  return {
+    win: `${DOWNLOAD_BASE}/${PRODUCT_NAME}-${version}-setup.exe`,
+    'mac-intel': `${DOWNLOAD_BASE}/${PRODUCT_NAME}-${version}-x64.dmg`,
+    'mac-apple': `${DOWNLOAD_BASE}/${PRODUCT_NAME}-${version}-arm64.dmg`
+  };
+}
+const DOWNLOAD_URLS = ref(buildDownloadUrls(FALLBACK_VERSION));
+const clientVersion = ref(FALLBACK_VERSION);
+
+/**
+ * 拉 electron-updater 的 latest.yml / latest-mac.yml 解析出最新 version。
+ *
+ * yml 格式（electron-builder 生成）：
+ *   version: 1.0.7
+ *   files:
+ *     - url: i快招 QA2-1.0.7-arm64.dmg
+ *       sha512: ...
+ *   path: i快招 QA2-1.0.7-arm64.dmg
+ *   sha512: ...
+ *   releaseDate: '...'
+ *
+ * 简单 regex 提 version 字段就够（不需要装 yaml 库）。
+ * 解析失败 / CORS 失败 → 静默 fallback 到 hardcoded 1.0.0，不影响其它逻辑。
+ *
+ * ⚠️ CORS 要求：CDN（download.ihr360.com）必须给 yml 文件设
+ *    `Access-Control-Allow-Origin: *`，否则前端 fetch 跨域被拦。
+ */
+async function fetchLatestVersion() {
+  // Windows 用 latest.yml，macOS 用 latest-mac.yml；两个文件 version 字段一般相同（一起发布的）
+  // 这里取 mac 那份，没拿到再 fallback win 那份
+  const candidates = [`${DOWNLOAD_BASE}/latest-mac.yml`, `${DOWNLOAD_BASE}/latest.yml`];
+  for (const url of candidates) {
+    try {
+      const resp = await fetch(url, { cache: 'no-store' });
+      if (!resp.ok) continue;
+      const text = await resp.text();
+      const m = text.match(/^version:\s*['"]?([^'"\s]+)['"]?\s*$/m);
+      if (m && m[1]) {
+        console.log(`[ClientLauncher] fetchLatestVersion ok url=${url} version=${m[1]}`);
+        return m[1];
+      }
+    } catch (e) {
+      console.warn(`[ClientLauncher] fetchLatestVersion fail url=${url}:`, e?.message || e);
+    }
+  }
+  return null;
+}
 
 function isMacAvailable() {
-  return !!(DOWNLOAD_URLS['mac-intel'] || DOWNLOAD_URLS['mac-apple']);
+  return !!(DOWNLOAD_URLS.value['mac-intel'] || DOWNLOAD_URLS.value['mac-apple']);
 }
 
 // ============ 状态 ============
@@ -708,7 +753,7 @@ function handleStartDownload(platform) {
   selectedPlatform.value = platform;
   isMacModalOpen.value = false;
 
-  const url = DOWNLOAD_URLS[platform];
+  const url = DOWNLOAD_URLS.value[platform];
   if (!url) {
     console.warn('[ClientLauncher] no download url for platform:', platform);
     return;
@@ -767,6 +812,19 @@ onMounted(() => {
     void router.replace('/');
     return;
   }
+
+  // 异步拉 CDN latest yml 拿最新 version 更新 DOWNLOAD_URLS
+  // 失败时保留 fallback 1.0.0 不影响其它流程
+  void (async () => {
+    const v = await fetchLatestVersion();
+    if (v) {
+      clientVersion.value = v;
+      DOWNLOAD_URLS.value = buildDownloadUrls(v);
+      console.log(`[ClientLauncher] DOWNLOAD_URLS 已更新到 version=${v}`);
+    } else {
+      console.warn(`[ClientLauncher] 没拉到最新 version，保留 fallback=${FALLBACK_VERSION}`);
+    }
+  })();
 
   // 开发期 mock：用测试 payload 直接唤起
   if (isMockMode.value) {
