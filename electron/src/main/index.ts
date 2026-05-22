@@ -94,10 +94,33 @@ import { startProbeServer, setHomeWebContentsForProbe } from './probeServer'
  *   - release 包（productName="i快招"）        → https://login.ihire365.com  生产
  *   - QA2 包  （productName="i快招 QA2"）      → https://test.ihire365.com   测试
  *
- * 通过 electron-builder 的 productName / appId 区分（无需 build 时注入额外 env）。
+ * 通过 process.execPath（可执行文件完整路径）反查 productName 区分。
+ *
+ * ⚠️ 为啥不用 app.getName()：electron/package.json 的 name 字段写的是 "electron"
+ *   （dev 阶段刻意保持不动避免 userData 漂移），且没在里面写 productName（只在 electron-builder.yml）。
+ *   app.getName() 优先读 package.json 的 productName 字段，没有就 fallback name → 返回 "electron"。
+ *   所以无法用 app.getName() 区分 QA2 vs release，只能从打包后的 .app 路径反推。
+ *
+ *   process.execPath 在打包后形如：
+ *     /Applications/i快招 QA2.app/Contents/MacOS/i快招 QA2
+ *     /Applications/i快招.app/Contents/MacOS/i快招
+ *   含 "QA2" 就是 QA2 包。
  */
 const PROD_TARGET_URL_RELEASE = 'https://login.ihire365.com'
 const PROD_TARGET_URL_QA2 = 'https://test.ihire365.com'
+
+/** 是否运行在 QA2 打包版本里（用 execPath 路径反查 productName） */
+function isQa2Build(): boolean {
+  try {
+    const execPath = process.execPath || ''
+    if (/qa2/i.test(execPath)) return true
+    const appPath = app.getAppPath() || ''
+    if (/qa2/i.test(appPath)) return true
+  } catch {
+    /* silent */
+  }
+  return false
+}
 
 const DEEP_LINK_PROTOCOL = 'ikuaizhao'
 
@@ -131,14 +154,7 @@ function resolveTargetUrl(): string {
   if (is.dev && process.env.DEV_TARGET_URL) {
     return process.env.DEV_TARGET_URL
   }
-  // 按 productName 区分发版渠道
-  let appName = ''
-  try {
-    appName = app.getName() || ''
-  } catch {
-    /* app 在某些早期 hook 里可能不可用，silent fallback */
-  }
-  if (/qa2/i.test(appName)) {
+  if (isQa2Build()) {
     return PROD_TARGET_URL_QA2
   }
   return PROD_TARGET_URL_RELEASE
@@ -472,17 +488,34 @@ function createMainWindow(): BrowserWindow {
     // 主窗口创建之后再做 hydrate（让主页 SPA 先正常加载）
     void hydrateLoggedInSites()
 
-    // 开发期可选开 devtools；设 OPEN_HOME_DEVTOOLS=1 才弹，默认不弹
-    // （default 不弹，避免每次启动客户端都强制打开 devtools 面板）
-    if (is.dev && process.env.OPEN_HOME_DEVTOOLS === '1' && homeWc && !homeWc.isDestroyed()) {
-      homeWc.openDevTools({ mode: 'detach' })
+    // 开启 home tab devtools 的条件（满足任一即开）：
+    //   1. OPEN_HOME_DEVTOOLS=1     env 强制开（dev / 任意 packaged 包都有效）
+    //   2. QA2 打包                  isQa2Build() 命中 → 默认开（测试包方便调试 + 排查问题）
+    //
+    // release 包默认不开（避免给最终用户看到 devtools）。
+    if (homeWc && !homeWc.isDestroyed()) {
+      const envForceOn = process.env.OPEN_HOME_DEVTOOLS === '1'
+      const qa2 = isQa2Build()
+      if (envForceOn || qa2) {
+        homeWc.openDevTools({ mode: 'detach' })
+        console.log(
+          `[main] home tab devtools 已打开 (envForceOn=${envForceOn} isQa2=${qa2}` +
+            ` execPath=${process.execPath} appPath=${app.getAppPath()})`
+        )
+      } else {
+        console.log(`[main] home tab devtools 跳过 (envForceOn=${envForceOn} isQa2=${qa2})`)
+      }
     }
 
     void homeTabId
   })
 
-  // 开发期为壳层也开 devtools（方便调试标签栏 UI）
-  if (is.dev && process.env.OPEN_SHELL_DEVTOOLS === '1') {
+  // 壳层（标签栏 / React UI）devtools 开启条件（同 home tab 三档判定）：
+  //   1. is.dev + OPEN_SHELL_DEVTOOLS=1
+  //   2. 任意时刻 OPEN_SHELL_DEVTOOLS=1（强制）
+  //   3. QA2 打包默认开（注释 QA2 默认只开 home tab 那个就够用，壳层 devtools 一般不需要）
+  // 这里只保留 1+2，QA2 不默认开壳层 devtools（双 devtools 太干扰）。
+  if (process.env.OPEN_SHELL_DEVTOOLS === '1') {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 
