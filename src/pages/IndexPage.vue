@@ -96,7 +96,20 @@
             （只有一个时 tab 不显示，但对应 pane 仍会显示，因为 activeResultTab 已自动校正）
           -->
           <div class="results-body">
-            <div v-if="searchPaneVisible" v-show="activeResultTab === 'search'" class="result-tab-pane">
+            <!--
+              ⚠️ 注意：两个 pane 都用 v-show 而不是 v-if 控制可见性。
+              用 v-if 会让 AISearch / JobSearchFilter 在"没任务"时直接不挂载，aiSearchRef
+              和 jobSearchFilterRef 都是 null，handleAggregateSearch 调
+              aiSearchRef.prepareConditionOnly() 会失败 → 拿不到 condId → 整个任务创建链路
+              全部卡死（searchConditionId 30s 内未就绪 → 跳过任务创建）。
+
+              v-show 保证组件**永远挂载**，仅根据 visible 切换显示/隐藏。RecommendList 自己
+              有空态处理（"暂无推荐牛人"），所以推荐 pane 没任务时挂载也无害。
+            -->
+            <div
+              v-show="searchPaneVisible && activeResultTab === 'search'"
+              class="result-tab-pane"
+            >
               <JobSearchFilter
                 ref="jobSearchFilterRef"
                 v-model:searchState="searchState"
@@ -105,7 +118,10 @@
               />
               <AISearch ref="aiSearchRef" v-model:search-state="searchState"></AISearch>
             </div>
-            <div v-if="recommendPaneVisible" v-show="activeResultTab === 'recommend'" class="result-tab-pane">
+            <div
+              v-show="recommendPaneVisible && activeResultTab === 'recommend'"
+              class="result-tab-pane"
+            >
               <RecommendList
                 :job-id="currentRecommendJobId"
                 :bucket="currentRecommendBucket"
