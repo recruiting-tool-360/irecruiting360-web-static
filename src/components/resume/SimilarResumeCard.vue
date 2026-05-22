@@ -132,8 +132,12 @@ const emit = defineEmits([
 // 在新窗口中打开详情页面
 // 客户端模式：通过 IPC 让主进程开独立 BrowserWindow（带对应招聘站 partition cookie）
 // 浏览器模式：保持原 window.open 行为
-const openDetailInNewWindow = (url) => {
-  openExternalSiteUrl(url);
+//
+// @param {string} url
+// @param {Object} [opts]
+// @param {boolean} [opts.forceReload=false] 同 URL tab 复用时强制 reload，让 SPA 重拉数据。
+const openDetailInNewWindow = (url, opts) => {
+  openExternalSiteUrl(url, opts);
 }
 
 // 替换openDetailInNewWindow2函数
@@ -206,7 +210,8 @@ const bossScheduleInterview = async (resume) => {
     let bossCollect = await runCollect(boosJobInfo);
     if(bossCollect){
       const url = pluginAllUrls.BOSS.baseUrl + pluginAllUrls.BOSS.interactionUrl;
-      openDetailInNewWindow(url);
+      // ★ forceReload: BOSS 互动消息 tab 可能已经打开，激活后必须 reload 才看到刚收藏的人
+      openDetailInNewWindow(url, { forceReload: true });
     }else{
       notify.warning(resume.channel+"联系人才失败");
     }

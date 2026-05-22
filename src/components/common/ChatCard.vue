@@ -1190,14 +1190,27 @@ function ensureTaskStatusCardForCurrentChat() {
   if (!isAlive) return;
 
   // 超过 15 分钟的"在跑"任务多半是僵尸（SSE 没正常结束就被刷新打断）
+  // ★ 豁免：后端 queue items 里还有这个任务 → 一定还活着（比如 OUT_OF_WORK_PERIOD 等几小时），
+  //   不能用 createdAt 15min 阈值跳过——这类任务恰恰是用户最想看到的"排队中"。
+  const queueItemsList = store.state?.SearchTasks?.taskQueue?.items || [];
+  const inBackendQueue = queueItemsList.some(
+    (it) => it?.taskId && String(it.taskId) === String(latestTask.taskId)
+  );
+
   const FIFTEEN_MIN_MS = 15 * 60 * 1000;
   const createdAt = Number(latestTask.createdAt) || 0;
   const isRecent = createdAt > 0 && Date.now() - createdAt < FIFTEEN_MIN_MS;
-  if (!isRecent) {
+  if (!isRecent && !inBackendQueue) {
     console.log(
-      `[ChatCard] 跳过任务回放（疑似僵尸）: taskId=${latestTask.taskId} status=${latestTask.taskStatus} createdAt=${new Date(createdAt).toLocaleString()}`
+      `[ChatCard] 跳过任务回放（疑似僵尸）: taskId=${latestTask.taskId} status=${latestTask.taskStatus}` +
+        ` createdAt=${new Date(createdAt).toLocaleString()} inBackendQueue=${inBackendQueue}`
     );
     return;
+  }
+  if (!isRecent && inBackendQueue) {
+    console.log(
+      `[ChatCard] 任务超 15min 但在后端 queue 中（活的）→ 仍然回放: taskId=${latestTask.taskId} status=${latestTask.taskStatus}`
+    );
   }
 
   const alreadyExists = internalMessages.value.some(

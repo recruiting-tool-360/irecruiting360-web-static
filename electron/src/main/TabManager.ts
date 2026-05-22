@@ -198,14 +198,34 @@ class TabManager {
     // 1) 已有 tab 的 URL 完全相同 → 激活复用，不新开
     //    hidden 模式不复用现有可见 tab（否则会把用户当前正在浏览的 tab 偷偷变成隐藏 tab）
     if (url && !isHidden) {
+      let reused = false
       for (const tab of this.tabs.values()) {
         if (tab.pinned) continue // 跳过 home tab（home 永远不是招聘站点）
         if (tab.hidden) continue // 隐藏 tab 不参与"同 URL 复用"
         const currentUrl = tab.view.webContents.getURL()
         if (currentUrl && sameUrl(currentUrl, url)) {
+          console.log(
+            `[TabManager] openOrActivateSiteTab REUSE tab=${tab.id} channel=${key}` +
+              ` | currentUrl=${currentUrl}` +
+              ` | requestedUrl=${url}`
+          )
           this.activate(tab.id)
+          reused = true
           return tab.id
         }
+      }
+      if (!reused) {
+        // 没复用 → 列一下当前所有同 channel 可见 tab 的 URL，方便排查"为啥又新开了一个"
+        const candidates: string[] = []
+        for (const tab of this.tabs.values()) {
+          if (tab.pinned || tab.hidden) continue
+          if (tab.channel !== key) continue
+          candidates.push(`${tab.id}=${tab.view.webContents.getURL()}`)
+        }
+        console.log(
+          `[TabManager] openOrActivateSiteTab NEW channel=${key} url=${url}` +
+            ` | 既有 ${key} tabs (URL 不匹配)=[${candidates.join(', ') || 'none'}]`
+        )
       }
     }
     // 2) URL 不同 → 新开 tab（即使同 channel 已经有其它 tab）
@@ -640,6 +660,36 @@ export function pickChannelForUrl(url: string): string | null {
  *   - URL 末尾 fragment hash（同一页面的锚点）
  * 不容忍 query string 顺序差异（同样的 query 不同顺序视为不同 URL，避免误判）
  */
+/**
+ * 忽略一些"我们自己加的"或"无业务意义"的 query 参数，避免破坏 tab 同 URL 复用判定。
+ *
+ * 典型场景：bossRecommend 给 chat/recommend 加 `_t=Date.now()` 做 cache-bust，
+ * 让 BOSS SPA 完整重启。如果 sameUrl 严格比较 search，下次同 jobid 启动时：
+ *   - 现有 tab URL: `?jobid=xxx&_t=12345`
+ *   - 新请求 URL : `?jobid=xxx`
+ * 严格比较会判不同 → 新开 tab → 用户看到一堆重复 BOSS tab。
+ *
+ * 这里把 `_t` 之类的 cache-bust 参数过滤掉再比较，保证同 jobid 一定能复用。
+ */
+const IGNORED_QUERY_PARAMS_FOR_SAMEURL: ReadonlySet<string> = new Set([
+  '_t', // bossRecommend 用的 cache-bust 时间戳
+  '_'   // 兜底（很多框架默认用 `_` 作 cache-bust）
+])
+
+function normalizedSearch(u: URL): string {
+  const filtered = new URLSearchParams()
+  // URLSearchParams 没保证有序，sort 一下避免顺序差异导致误判
+  const entries: Array<[string, string]> = []
+  u.searchParams.forEach((v, k) => {
+    if (IGNORED_QUERY_PARAMS_FOR_SAMEURL.has(k)) return
+    entries.push([k, v])
+  })
+  entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  for (const [k, v] of entries) filtered.append(k, v)
+  const s = filtered.toString()
+  return s ? `?${s}` : ''
+}
+
 function sameUrl(a: string, b: string): boolean {
   if (a === b) return true
   try {
@@ -649,7 +699,9 @@ function sameUrl(a: string, b: string): boolean {
     if (ua.host.toLowerCase() !== ub.host.toLowerCase()) return false
     const normPath = (p: string): string => (p.endsWith('/') && p.length > 1 ? p.slice(0, -1) : p)
     if (normPath(ua.pathname) !== normPath(ub.pathname)) return false
-    if (ua.search !== ub.search) return false
+    // 忽略 `_t` / `_` 这类 cache-bust 参数，并对剩余 params 排序后再比，
+    // 让同 jobid 不同时间戳的 URL 仍视为同一个页面
+    if (normalizedSearch(ua) !== normalizedSearch(ub)) return false
     // 忽略 hash（同一页内锚点跳转，不需要新开 tab）
     return true
   } catch {

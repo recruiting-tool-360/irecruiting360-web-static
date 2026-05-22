@@ -387,7 +387,8 @@ function mapBossRecommendGeekToSearchRaw(geek) {
   const currentName = firstWork
     ? `${firstWork.company || ''}·${firstWork.positionName || firstWork.positionCategory || ''}`
     : (c.middleContent?.content || '');
-  const worksForSearch = (c.geekWorks || []).map((w) => ({
+  const geekWorks = c.geekWorks || [];
+  const worksForSearch = geekWorks.map((w) => ({
     name: `${w.positionName || w.positionCategory || ''}|${w.company || ''}`,
     dateRange: null,
     code: null,
@@ -395,7 +396,7 @@ function mapBossRecommendGeekToSearchRaw(geek) {
     highlightList: null,
     intentList: null
   }));
-  const topWorks = (c.geekWorks || []).map((w) => ({
+  const topWorks = geekWorks.map((w) => ({
     isCurrent: !!w.current,
     company: { value: w.company || '', highlights: null, color: 0, setValue: true, setHighlights: false, setColor: false, highlightsSize: 0, highlightsIterator: null },
     position: { value: w.positionName || w.positionCategory || '', highlights: null, color: 0, setValue: true, setHighlights: false, setColor: false, highlightsSize: 0, highlightsIterator: null },
@@ -545,7 +546,9 @@ function mapBossRecommendGeekToSearchRaw(geek) {
     applyStatus: c.applyStatus || 0,
     applyStatusDesc: c.applyStatusDesc || '',
     friendRelationStatus: g.isFriend || 0,
-    highlightWorkNames: (c.geekWorks || []).map((w) => `${w.positionName || w.positionCategory || ''}-${w.company || ''}`),
+    highlightWorkNames: geekWorks.map(
+      (w) => `${w.positionName || w.positionCategory || ''}-${w.company || ''}`
+    ),
     geekCallStatus: g.geekCallStatus || 0,
     talkTimeDesc: g.talkTimeDesc || null,
     cooperate: g.cooperate || 0,
@@ -780,11 +783,26 @@ async function doFetchRecommend(args) {
       });
       const savedCount = Array.isArray(jobList) ? jobList.length : 0;
       console.log(
-        `[IndexPage] 推荐 /results ok: geekList=${geekList.length} → taskResumes=${savedCount}`
+        `[IndexPage] 推荐 /results ok: geekList=${geekList.length} → taskResumes=${savedCount}` +
+          ` (jobList 前 3 条 ID 样例: ${
+            savedCount > 0
+              ? jobList.slice(0, 3).map((r) => `tri=${r?.taskResumeId}/blind=${r?.resumeBlindId}`).join(' | ')
+              : '(empty)'
+          })`
       );
 
+      // ⚠️ jobList 为空时**不立即 return**，仍然尝试发 detail。
+      //
+      // 场景：后端 /results 接受了请求但 taskResumes 响应字段为空（可能是 BOSS-RECOMMEND
+      // 解析器返回的 taskResumes 字段缺失，但实际后端已经入库了 task_resume）。这时如果
+      // 直接 FAILED return，前端再也不会调 detail → AI 评分永远不会启动。
+      // 改成"jobList 空也警告但继续"——但显然没 taskResumeId 也发不了 detail，所以会自然
+      // skip 掉每条；至少给用户清晰的诊断日志看到根因是后端没返 taskResumes。
       if (savedCount === 0) {
-        console.warn('[IndexPage] 推荐 /results 没拿到 taskResumes，后端不会触发 AI 评分');
+        console.warn(
+          '[IndexPage] 推荐 /results 没拿到 taskResumes，后端可能未触发 AI 评分链路；' +
+            '请检查 Network 里这条 /results 的 Response Body 看 data.taskResumes 字段'
+        );
         setPhase('FAILED');
         return;
       }
@@ -1528,7 +1546,7 @@ async function handleViewResults(payload) {
       LIEPIN: '猎聘'
     };
 
-    const list = rawList.map((item) => {
+    const normalized = rawList.map((item) => {
       const blind = item?.resumeBlind && typeof item.resumeBlind === 'object'
         ? item.resumeBlind
         : {};
@@ -1542,6 +1560,8 @@ async function handleViewResults(payload) {
       // channel 必须是中文 desc（如 'boss直聘'），fallback 到 channelSubType→desc 映射
       const channelDesc =
         flat.channel || blind.channel || SUBTYPE_TO_DESC[channelSubType] || channelSubType || '';
+      // 保留 businessChannel 用于后续分流（SEARCH vs RECOMMEND）
+      const businessChannel = item.businessChannel || flat.businessChannel || 'SEARCH';
       return {
         ...flat,
         id: blindId,
@@ -1549,11 +1569,52 @@ async function handleViewResults(payload) {
         taskResumeId: item.taskResumeId || flat.taskResumeId,
         channel: channelDesc,
         channelSubType,
+        businessChannel,
         searchConditionId: item.searchConditionId || flat.searchConditionId
       };
     });
 
-    // 按 channelSubType 分组
+    // ★ 按 businessChannel 分流：
+    //   - SEARCH (默认) → 灌进 ChannelConfig.ALL.data，搜索 tab 显示
+    //   - RECOMMEND     → 灌进 BossRecommendData.byJobId[jobId]，推荐 tab 显示
+    //   推荐数据是后端标准化的 resume 形态（含 name/resumeBlindId/score 等），
+    //   mapBossGeekToResume 已经兼容这种"无 geekCard 已是 resume"的输入，直接返回。
+    const list = normalized.filter((x) => x.businessChannel !== 'RECOMMEND');
+    const recommendList = normalized.filter((x) => x.businessChannel === 'RECOMMEND');
+    console.log(
+      `[IndexPage] /search/task/results/query 分流: search=${list.length} recommend=${recommendList.length}`
+    );
+
+    // 推荐数据灌进 BossRecommendData（按任务对应的 jobId 分桶）
+    if (recommendList.length > 0) {
+      // 从 task 的 RECOMMEND/BOSS channel 反查 jobId（searchTaskConfig.relatedPositionValue）
+      const task = store.getters['SearchTasks/getTaskById']?.(taskId);
+      let recJobId = null;
+      const recCh = task?.channels?.find(
+        (c) => c.businessChannel === 'RECOMMEND' && c.channelSubType === 'BOSS'
+      );
+      if (recCh?.searchTaskConfig) {
+        try {
+          const cfg = typeof recCh.searchTaskConfig === 'string'
+            ? JSON.parse(recCh.searchTaskConfig)
+            : recCh.searchTaskConfig;
+          recJobId = cfg?.relatedPositionValue || null;
+        } catch (_e) { /* ignore */ }
+      }
+      // jobId 取不到就兜底用 taskId 作 key（保证有桶可放）
+      const bucketKey = recJobId || `task-${taskId}`;
+      store.commit('setBossRecommendList', {
+        jobId: bucketKey,
+        geekList: recommendList,
+        totalSize: recommendList.length,
+        hasMore: false,
+        fetchedAt: Date.now()
+      });
+      store.commit('setCurrentRecommendJobId', bucketKey);
+      console.log(`[IndexPage] 推荐数据已灌进 BossRecommendData jobId=${bucketKey}`);
+    }
+
+    // 按 channelSubType 分组（搜索通道的）
     const grouped = { ALL: list, BOSS: [], ZHILIAN: [], JOB51: [], LIEPIN: [] };
     for (const item of list) {
       const k = item?.channelSubType;
@@ -1562,7 +1623,7 @@ async function handleViewResults(payload) {
       grouped[k].push(item);
     }
     console.log(
-      `[IndexPage] /search/task/results/query ok | taskId=${taskId} totalCount=${totalCount} 分组=`,
+      `[IndexPage] /search/task/results/query ok | taskId=${taskId} totalCount=${totalCount} 搜索分组=`,
       Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.length]))
     );
 
@@ -1725,16 +1786,35 @@ onMounted(() => {
   }
   window.addEventListener('resize', updatePageSize);
 
-  // 任务化搜索初始化：严格按顺序执行
-  //   1. cleanupZombies：清理本地持久化的"僵尸任务"（createdAt 超过 15 分钟还卡在 RUNNING/
-  //      WAITING 的，标记为 STOPPED，避免 LeftMenu badge / ChatCard 卡片显示假状态）。
-  //   2. cleanupOrphanRunningAndResume（用户指定的串行流程）：
-  //      a) GET /search/task/queue                ← 拉队列
-  //      b) 找 taskStatus=RUNNING 且不是本地 runningTaskId 的孤立任务
-  //         → 对每个 channel 调 POST /finish { status:'FAILED' }（可能多次）
-  //      c) 等所有 finish 完成后再调 GET /search/task/current 拉真正可执行任务
-  store.dispatch('SearchTasks/cleanupZombies');
-  void store.dispatch('SearchTasks/cleanupOrphanRunningAndResume');
+  // 任务化搜索初始化：**先拉后端 queue 拿真实状态**，再清理本地僵尸。
+  //
+  // ⚠️ 顺序很关键：
+  //   - 老顺序：cleanupZombies → cleanupOrphan(fetchTaskQueue)
+  //     问题：cleanupZombies 用本地持久化 createdAt > 15min 标 STOPPED，
+  //     但**后端还在排队**的任务（OUT_OF_WORK_PERIOD 等待工作时间窗口）会被误杀，
+  //     之后 fetchTaskQueue 拿回 WAITING 状态再覆盖回去，但 ChatCard / LeftMenu
+  //     的 15min 跳过规则仍然不显示。
+  //   - 新顺序：cleanupOrphan(fetchTaskQueue + hydrate tasksById) → cleanupZombies
+  //     这样 cleanupZombies 看到的 tasksById 已经是后端确认的最新状态，
+  //     在 queue items 里活着的任务 cleanupZombies 内部会豁免（看 state.taskQueue）。
+  //
+  // cleanupOrphanRunningAndResume：
+  //   a) GET /search/task/queue → 把 items hydrate 进 tasksById + 缓存到 state.taskQueue
+  //   b) 找 taskStatus=RUNNING 且不是本地 runningTaskId 的孤立任务
+  //      → 对每个 channel 调 POST /finish { status:'FAILED' }
+  //   c) 等所有 finish 完成后再调 GET /search/task/current 拉真正可执行任务
+  (async () => {
+    try {
+      await store.dispatch('SearchTasks/cleanupOrphanRunningAndResume');
+    } catch (e) {
+      console.warn('[IndexPage] cleanupOrphanRunningAndResume threw:', e?.message || e);
+    }
+    try {
+      store.dispatch('SearchTasks/cleanupZombies');
+    } catch (e) {
+      console.warn('[IndexPage] cleanupZombies threw:', e?.message || e);
+    }
+  })();
 
   // 把"真实聚合搜索执行器"暴露到 store，让 SearchTasks actionRunner 在收到
   // 后端 STEP_COMMAND 时能"代用户"启动一次真实搜索。详见 runRealAggregateSearch 注释。
