@@ -200,6 +200,14 @@ const activeResultTabByChatId = ref({});
  */
 const viewingTaskIdByChatId = ref({});
 
+/**
+ * 记录"上次实际灌进 ChannelConfig.ALL.data 的 taskId"，给 handleViewResults 的
+ * "store 已有数据就跳过 API"缓存判定用。
+ *
+ * 必须按 taskId 区分，否则点了任务 A 再点任务 B 时，B 会复用 A 的数据 → 数据错乱。
+ */
+const lastViewedTaskIdForCache = ref(null);
+
 
 // 注意：computed getter/setter 里直接读 store getter，避免依赖下方还没定义的 latestChatIdComp
 const currentView = computed({
@@ -1514,15 +1522,28 @@ async function handleViewResults(payload) {
     viewingTaskIdByChatId.value = { ...viewingTaskIdByChatId.value, [cid]: taskId };
   }
 
-  // 优先用 store 里已有的数据（搜索刚完成时数据就在 channelConf.ALL.data）
-  // 只有数据为空时才去查 API（例如用户切换了 chat 再回来点"查看结果"）
+  // 优先用 store 里已有的数据（搜索刚完成时数据就在 channelConf.ALL.data）。
+  //
+  // ⚠️ 必须**同 taskId** 才能复用：之前老代码"ALL.data 有数据就跳过 API"会让
+  // 上次点过任务 106 的数据被任务 105 复用 → 105 显示 106 的数据，奇葩 bug。
+  //
+  // lastViewedTaskIdForCache 记录"上次实际灌过数据的 taskId"，跟本次 taskId 比较：
+  //   - 同 task + ALL.data 有数据 → 走缓存，跳 API（避免重复请求）
+  //   - 不同 task → **强制重新拉**，覆盖 ALL.data
   const existingData = store.getters.getChannelConfByAll?.data;
-  console.log('[handleViewResults] store ALL.data 条数=', existingData?.length ?? 'null');
-  if (Array.isArray(existingData) && existingData.length > 0) {
-    console.log('[handleViewResults] ✅ store 已有数据，直接用，跳过 API');
+  const sameTaskAsLastView =
+    lastViewedTaskIdForCache.value &&
+    String(lastViewedTaskIdForCache.value) === String(taskId);
+  console.log(
+    `[handleViewResults] store ALL.data 条数=${existingData?.length ?? 'null'}` +
+    ` lastViewedTaskId=${lastViewedTaskIdForCache.value} curTaskId=${taskId}` +
+    ` sameTask=${sameTaskAsLastView}`
+  );
+  if (sameTaskAsLastView && Array.isArray(existingData) && existingData.length > 0) {
+    console.log('[handleViewResults] ✅ 同 task + 已有数据，跳过 API');
     return;
   }
-  console.log('[handleViewResults] store 无数据，去查 API');
+  console.log('[handleViewResults] 重新拉 API');
 
   if (!taskId) {
     console.warn('[handleViewResults] 缺少 taskId，无法调 /search/task/results/query');
@@ -1623,34 +1644,30 @@ async function handleViewResults(payload) {
       `[IndexPage] /search/task/results/query 分流: search=${list.length} recommend=${recommendList.length}`
     );
 
-    // 推荐数据灌进 BossRecommendData（按任务对应的 jobId 分桶）
-    if (recommendList.length > 0) {
-      // 从 task 的 RECOMMEND/BOSS channel 反查 jobId（searchTaskConfig.relatedPositionValue）
-      const task = store.getters['SearchTasks/getTaskById']?.(taskId);
-      let recJobId = null;
-      const recCh = task?.channels?.find(
-        (c) => c.businessChannel === 'RECOMMEND' && c.channelSubType === 'BOSS'
-      );
-      if (recCh?.searchTaskConfig) {
-        try {
-          const cfg = typeof recCh.searchTaskConfig === 'string'
-            ? JSON.parse(recCh.searchTaskConfig)
-            : recCh.searchTaskConfig;
-          recJobId = cfg?.relatedPositionValue || null;
-        } catch (_e) { /* ignore */ }
-      }
-      // jobId 取不到就兜底用 taskId 作 key（保证有桶可放）
-      const bucketKey = recJobId || `task-${taskId}`;
-      store.commit('setBossRecommendList', {
-        jobId: bucketKey,
-        geekList: recommendList,
-        totalSize: recommendList.length,
-        hasMore: false,
-        fetchedAt: Date.now()
-      });
-      store.commit('setCurrentRecommendJobId', bucketKey);
-      console.log(`[IndexPage] 推荐数据已灌进 BossRecommendData jobId=${bucketKey}`);
-    }
+    // 推荐数据灌进 BossRecommendData：每个 task 用**独立 bucket key**（`task-<taskId>`），
+    // 避免不同任务的推荐结果互相串扰。
+    //
+    // 之前用 jobId 作 bucket key，同一个职位（同 jobId）的两次任务会共用一个 bucket，
+    // 后跑的任务把先跑的覆盖；而**没有推荐数据的任务**根本不进 commit 分支，
+    // currentRecommendJobId 还停留在上一个任务的 jobId → RecommendList 显示旧数据。
+    //
+    // 改成 task-${taskId} 后：
+    //   - 每个 task 独立 bucket，不会互相覆盖
+    //   - 不管有没有推荐数据都 commit + 切 currentRecommendJobId，
+    //     让"任务 B 没推荐"时 RecommendList 显示本任务的空 bucket（"暂无推荐牛人"），
+    //     而不是显示任务 A 的旧数据
+    const recommendBucketKey = `task-${taskId}`;
+    store.commit('setBossRecommendList', {
+      jobId: recommendBucketKey,
+      geekList: recommendList,
+      totalSize: recommendList.length,
+      hasMore: false,
+      fetchedAt: Date.now()
+    });
+    store.commit('setCurrentRecommendJobId', recommendBucketKey);
+    console.log(
+      `[IndexPage] 推荐数据已切到 task bucket=${recommendBucketKey} count=${recommendList.length}`
+    );
 
     // 按 channelSubType 分组（搜索通道的）
     const grouped = { ALL: list, BOSS: [], ZHILIAN: [], JOB51: [], LIEPIN: [] };
@@ -1690,6 +1707,9 @@ async function handleViewResults(payload) {
       store.commit('changeChannelConfDataSize', { key: ch, value: (grouped[ch] || []).length });
     }
     console.log('[handleViewResults] commit 后 ALL.data 条数=', store.getters.getChannelConfByAll?.data?.length);
+
+    // 记下"上次实际灌进 ALL.data 的 taskId"，下次同 task 复用缓存，不同 task 强制重拉
+    lastViewedTaskIdForCache.value = taskId;
 
     // 把任务真正用的 searchConditionId 回填到 store——AI 评估 / 相似简历等接口要用
     const firstWithCondId = list.find((x) => x.searchConditionId);
