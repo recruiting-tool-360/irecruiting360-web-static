@@ -261,21 +261,43 @@ const hasRecommendForCurrentChat = computed(() => {
 });
 
 /**
+ * 推荐 tab 内容是否渲染——优先看 task.channels，没有 task 时（别的电脑创建的任务点查看结果场景）
+ * 兜底看 BossRecommendData 有没有数据。
+ */
+const recommendPaneVisible = computed(() => {
+  if (!bossEnabled.value) return false;
+  if (hasRecommendForCurrentChat.value) return true;
+  // 查看结果模式：本地没 task 但 BossRecommendData 桶里有数据 → 显示推荐 pane
+  const bucket = store.getters.getCurrentBossRecommend;
+  return !!(bucket && Array.isArray(bucket.geekList) && bucket.geekList.length > 0);
+});
+
+/**
+ * 搜索 tab 内容是否渲染——优先看 task.channels，兜底看 ChannelConfig.ALL.data。
+ *
+ * 场景：用户在 A 电脑创建任务，在 B 电脑打开点"查看结果" → handleViewResults 灌
+ * ChannelConfig.ALL.data → 但本地 SearchTasks.tasksById 没这条 task →
+ * hasSearchForCurrentChat=false → 老版 searchPaneVisible=false → 整个搜索 pane v-show
+ * 隐藏 → **白屏**（接口查到了数据但用户看不到）。
+ *
+ * 改成兜底检查 ALL.data：有数据就显示，跨电脑查看结果不再白屏。
+ */
+const searchPaneVisible = computed(() => {
+  if (hasSearchForCurrentChat.value) return true;
+  const allData = store.getters.getChannelConfByAll?.data;
+  return Array.isArray(allData) && allData.length > 0;
+});
+
+/**
  * tab 切换器是否显示——用户要求：**只有同时有 SEARCH + RECOMMEND 时才显示**；
  * 只勾了搜索 / 只勾了推荐都不显示（只有一个时直接渲染对应内容，没必要冗余 tab）。
  *
- * 之前 recommendTabVisible 只看 hasRecommend → 只勾推荐时也会显示 tab，跟需求不符。
+ * 用 searchPaneVisible / recommendPaneVisible 而不是 hasXxxForCurrentChat，是为了
+ * 跨电脑查看结果场景下也能正确显示切换器（本地没 task，但 ALL.data + BossRecommendData 都有数据）。
  */
 const showResultTabs = computed(() =>
-  bossEnabled.value && hasSearchForCurrentChat.value && hasRecommendForCurrentChat.value
+  bossEnabled.value && searchPaneVisible.value && recommendPaneVisible.value
 );
-
-/**
- * 推荐 tab 内容是否渲染——只要任务包含 RECOMMEND 就渲染推荐内容，
- * 不依赖 tab 切换器是否显示（"只有推荐"的场景，tab 不显示但推荐内容仍要展示）。
- */
-const recommendPaneVisible = computed(() => bossEnabled.value && hasRecommendForCurrentChat.value);
-const searchPaneVisible = computed(() => hasSearchForCurrentChat.value);
 
 // 任务 channel 变化时，把 activeResultTab 自动校正到唯一可见的那个 pane
 watch(
