@@ -248,7 +248,8 @@ $neutral-900: #171717;
 }
 
 .ihr-auth-content {
-  padding: 0 40px 48px;
+  // 顶部 48px 补偿被隐藏的 .ihr-auth-toolbar（原 64px，留点视觉缓冲适当收窄到 48px）
+  padding: 48px 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
