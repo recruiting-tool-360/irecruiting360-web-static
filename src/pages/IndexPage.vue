@@ -248,49 +248,94 @@ const bossEnabled = computed(() => {
 });
 
 /**
- * 当前 chat 最新任务包含什么 channel（用于决定结果页 tab 切换器和默认 tab）。
+ * **当前 chat 正在查看的任务** 包含什么 channel（用于决定结果页 tab 切换器和默认 tab）。
+ *
+ * ⚠️ 关键修复（2026-05）：之前用 `getLatestTaskByChat` 拿"最新任务"，会出现：
+ *   - 任务 A（含 RECOMMEND）是该 chat 最新
+ *   - 用户点 TaskCompletionCard "查看结果"打开老任务 B（仅 SEARCH）
+ *   - hasRecommendForCurrentChat 仍然 true（看的是 A 的 channels）→ 推荐 tab 错显
+ *
+ * 改成两阶段：
+ *   1) 如果 `viewingTaskIdByChatId[cid]` 有值（用户显式点过"查看结果"）→
+ *      只看那个 task 的 channels；**不 fallback 到 latest**（fallback 会把 RECOMMEND
+ *      串回来）。本地 store 没该 task（老任务清掉了）→ 返回 null，让下游的
+ *      bucket-based 兜底来判（recommendPaneVisible 内有 currentRecommendBucket.geekList
+ *      检查，能拿到本次 `task-${taskId}` 桶的实际数据情况）。
+ *   2) 没显式 viewingId（live aggregate 搜索流程、首次进入结果页等）→ 用 latest。
+ *
+ * 返回值约定：
+ *   - 'pinned-found'   显式查看 + task 在 store → 用 task.channels
+ *   - 'pinned-missing' 显式查看 + task 不在 store → 调用方应不依赖 channels，
+ *                     直接看下游数据（bucket / ALL.data）
+ *   - 'latest'         没显式查看 → 用 latest task.channels
  */
-const hasSearchForCurrentChat = computed(() => {
+function getCurrentViewingTaskInfo() {
   const cid = store.getters.getLatestChatId;
-  if (!cid) return false;
-  const getter = store.getters['SearchTasks/getLatestTaskByChat'];
-  const t = typeof getter === 'function' ? getter(cid) : null;
-  if (!t || !Array.isArray(t.channels)) return false;
-  return t.channels.some((c) => c && c.businessChannel === 'SEARCH');
+  if (!cid) return { mode: 'latest', task: null };
+  const viewingId = viewingTaskIdByChatId.value[cid];
+  if (viewingId) {
+    const getById = store.getters['SearchTasks/getTaskById'];
+    const t = typeof getById === 'function' ? getById(viewingId) : null;
+    if (t) return { mode: 'pinned-found', task: t };
+    return { mode: 'pinned-missing', task: null };
+  }
+  const getLatest = store.getters['SearchTasks/getLatestTaskByChat'];
+  return { mode: 'latest', task: typeof getLatest === 'function' ? getLatest(cid) : null };
+}
+
+const hasSearchForCurrentChat = computed(() => {
+  const { mode, task } = getCurrentViewingTaskInfo();
+  if (mode === 'pinned-missing') return false; // 让下游数据兜底
+  if (!task || !Array.isArray(task.channels)) return false;
+  return task.channels.some((c) => c && c.businessChannel === 'SEARCH');
 });
 
 const hasRecommendForCurrentChat = computed(() => {
-  const cid = store.getters.getLatestChatId;
-  if (!cid) return false;
-  const getter = store.getters['SearchTasks/getLatestTaskByChat'];
-  const t = typeof getter === 'function' ? getter(cid) : null;
-  if (!t || !Array.isArray(t.channels)) return false;
-  return t.channels.some((c) => c && c.businessChannel === 'RECOMMEND');
+  const { mode, task } = getCurrentViewingTaskInfo();
+  if (mode === 'pinned-missing') return false; // 让下游数据兜底
+  if (!task || !Array.isArray(task.channels)) return false;
+  return task.channels.some((c) => c && c.businessChannel === 'RECOMMEND');
 });
 
 /**
- * 推荐 tab 内容是否渲染——优先看 task.channels，没有 task 时（别的电脑创建的任务点查看结果场景）
- * 兜底看 BossRecommendData 有没有数据。
+ * 推荐 tab 内容是否渲染。
+ *
+ * ⚠️ 严禁 stale-data fallback 闪烁（2026-05 用户反馈"tab 闪一下"）：
+ *   - pinned-found：task 在本地 store，channels 就是真相。**只看 task.channels**，
+ *     不要再 fallback 看 bucket.geekList（bucket 可能还残留上一个 task 的数据，
+ *     在 API 返回新数据 commit 之前会让 tab 错误地显示一瞬）。
+ *   - pinned-missing：跨电脑查看，本地无 task，**只能** fallback 到 bucket 数据。
+ *   - latest：aggregate 搜索 / 首次进入流程，用最新 task channels（这条路径
+ *     latest task 就是用户当前操作的对象，channels 准确）。
  */
 const recommendPaneVisible = computed(() => {
   if (!bossEnabled.value) return false;
+  const { mode, task } = getCurrentViewingTaskInfo();
+  if (mode === 'pinned-found') {
+    return Array.isArray(task?.channels) &&
+      task.channels.some((c) => c && c.businessChannel === 'RECOMMEND');
+  }
+  // pinned-missing（跨电脑查看）/ latest（aggregate 搜索流程）：
+  // 优先 task.channels（latest 模式拿到的 task 也有 channels），其次看 bucket 数据
   if (hasRecommendForCurrentChat.value) return true;
-  // 查看结果模式：本地没 task 但 BossRecommendData 桶里有数据 → 显示推荐 pane
   const bucket = store.getters.getCurrentBossRecommend;
   return !!(bucket && Array.isArray(bucket.geekList) && bucket.geekList.length > 0);
 });
 
 /**
- * 搜索 tab 内容是否渲染——优先看 task.channels，兜底看 ChannelConfig.ALL.data。
+ * 搜索 tab 内容是否渲染。
  *
- * 场景：用户在 A 电脑创建任务，在 B 电脑打开点"查看结果" → handleViewResults 灌
- * ChannelConfig.ALL.data → 但本地 SearchTasks.tasksById 没这条 task →
- * hasSearchForCurrentChat=false → 老版 searchPaneVisible=false → 整个搜索 pane v-show
- * 隐藏 → **白屏**（接口查到了数据但用户看不到）。
+ * ⚠️ 同 recommendPaneVisible：pinned-found 时**只看 task.channels**，
+ * 不 fallback 到 ALL.data（避免上一个 task 的 stale ALL.data 让 tab 闪烁显示）。
  *
- * 改成兜底检查 ALL.data：有数据就显示，跨电脑查看结果不再白屏。
+ * pinned-missing（跨电脑查看，本地无 task）才允许 ALL.data 兜底，否则白屏。
  */
 const searchPaneVisible = computed(() => {
+  const { mode, task } = getCurrentViewingTaskInfo();
+  if (mode === 'pinned-found') {
+    return Array.isArray(task?.channels) &&
+      task.channels.some((c) => c && c.businessChannel === 'SEARCH');
+  }
   if (hasSearchForCurrentChat.value) return true;
   const allData = store.getters.getChannelConfByAll?.data;
   return Array.isArray(allData) && allData.length > 0;
@@ -1667,6 +1712,28 @@ async function handleViewResults(payload) {
     store.commit('setCurrentRecommendJobId', recommendBucketKey);
     console.log(
       `[IndexPage] 推荐数据已切到 task bucket=${recommendBucketKey} count=${recommendList.length}`
+    );
+
+    // ★ 显式按本次 task 的数据情况切 activeResultTab，避免上一次的选中态污染本次：
+    //   - 只有搜索数据 → 强制切到 'search' tab
+    //   - 只有推荐数据 → 强制切到 'recommend' tab
+    //   - 两个都有     → 保留当前 activeResultTab（让用户自己选）
+    //   - 两个都没有   → 不动（pane 都会空态）
+    //
+    // 之前依赖 watch([searchPaneVisible, recommendPaneVisible]) 自动校正，但 computed
+    // 依赖链有时序漂移（先看到上次的 recommendBucket → activeResultTab 已是 'recommend' →
+    // 后续 commit 空 bucket 后 watch 才触发，但已经渲染了一次"推荐 tab 选中"的瞬时态）。
+    // 这里直接按本次数据切，最稳。
+    const hasSearchData = list.length > 0;
+    const hasRecommendData = recommendList.length > 0;
+    if (hasSearchData && !hasRecommendData) {
+      activeResultTab.value = 'search';
+    } else if (!hasSearchData && hasRecommendData) {
+      activeResultTab.value = 'recommend';
+    }
+    console.log(
+      `[handleViewResults] activeResultTab → ${activeResultTab.value}` +
+      ` (hasSearchData=${hasSearchData} hasRecommendData=${hasRecommendData})`
     );
 
     // 按 channelSubType 分组（搜索通道的）

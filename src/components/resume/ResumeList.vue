@@ -113,6 +113,7 @@
                 :resume="resume"
                 :is-read="resume.isRead"
                 :tab-str="channelStr"
+                :search-condition-id-override="resume.searchConditionId || null"
                 @collect="handleCollect"
                 @read="handleRead"
                 @download="handleDownload"

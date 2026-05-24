@@ -76,6 +76,7 @@
           :is-read="false"
           :read-only="!geek.resumeBlindId"
           tab-str="推荐牛人"
+          :search-condition-id-override="geek.searchConditionId || null"
           @detail="() => onCardClick(geek)"
         />
       </div>
