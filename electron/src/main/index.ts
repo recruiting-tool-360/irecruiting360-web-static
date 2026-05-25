@@ -695,6 +695,52 @@ function registerIpc(): void {
       })
     }
   )
+
+  // ========== JS eval on tab：在指定 tab 的 page 上下文执行任意 JS ==========
+  //
+  // 走 `wc.executeJavaScript()`，**不连 CDP**——Electron 自带的 V8 binding 通道，
+  // 不会暴露 navigator.webdriver / DevTools attach 痕迹。
+  //
+  // 用途（safe primitives，零风控风险）：
+  //   - 拟人化滚动（container.scrollTo + setTimeout 分段，scroll 事件 isTrusted=true）
+  //   - 读 DOM 数据（document.querySelector / getBoundingClientRect）
+  //   - 等元素出现（MutationObserver / 轮询）
+  //   - 注入引导浮层（独立 DOM，不污染页面 state）
+  //
+  // ⚠️ 不要用本 API 做 `el.click()` / `dispatchEvent(new Event('click'))` 等模拟点击 ——
+  // 这类事件 `isTrusted=false`，BOSS 一行 JS 就能识破。点击必须走 clickOnTab（CDP）。
+  ipcMain.handle(
+    'automation:evalOnTab',
+    async (_e, opts: { tabId: string; code: string; awaitPromise?: boolean }) => {
+      if (!opts || typeof opts.tabId !== 'string' || typeof opts.code !== 'string') {
+        return { ok: false, error: { code: 'BAD_REQUEST', message: 'tabId & code required' } }
+      }
+      const wc = tabManager.getWebContentsById(opts.tabId)
+      if (!wc) {
+        return {
+          ok: false,
+          error: { code: 'TAB_NOT_FOUND', message: `tabId=${opts.tabId} not found` }
+        }
+      }
+      if (wc.isDestroyed()) {
+        return {
+          ok: false,
+          error: { code: 'WC_DESTROYED', message: 'webContents destroyed' }
+        }
+      }
+      try {
+        // 第 2 参数 userGesture=false（默认）；awaitPromise=true 时 executeJavaScript 会 await
+        // 注入脚本返回的 Promise 再 resolve，方便上层写 async IIFE。
+        const result = await wc.executeJavaScript(opts.code, !!opts.awaitPromise)
+        return { ok: true, result }
+      } catch (e) {
+        return {
+          ok: false,
+          error: { code: 'EVAL_FAILED', message: (e as Error)?.message || String(e) }
+        }
+      }
+    }
+  )
 }
 
 // =============== App 生命周期 ===============

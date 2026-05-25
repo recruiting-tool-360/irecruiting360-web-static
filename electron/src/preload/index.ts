@@ -418,6 +418,36 @@ const automation = {
     logs: string[]
   }> => ipcRenderer.invoke('automation:clickOnTab', opts),
 
+  /**
+   * 在指定 tab 的 page 上下文执行任意 JS（safe primitive，零风控风险）。
+   *
+   * 走 Electron 内置 `webContents.executeJavaScript`，**不连 CDP / debugger**，
+   * 不会暴露 navigator.webdriver / DevTools attach 痕迹。
+   *
+   * 用途：
+   *   - 拟人化滚动 / 滚到目标位置（scroll 事件 isTrusted=true，BOSS lazy load 会响应）
+   *   - 读 DOM 数据（querySelector / getBoundingClientRect 等）
+   *   - 等元素出现（MutationObserver / 轮询）
+   *   - 注入引导浮层（独立 DOM，不污染原页面 state）
+   *
+   * ⚠️ **不要**用本 API 做 `el.click()` / `dispatchEvent(new MouseEvent(...))` ——
+   * 这类合成事件 `isTrusted=false`，BOSS 一行 JS 就能识破。点击必须走 clickOnTab（CDP）。
+   *
+   * 参数：
+   *   - code: JS 表达式字符串。返回值会被 returnByValue 序列化传回。
+   *   - awaitPromise: 如果 code 是 IIFE async function（返回 Promise），
+   *                   设 true 让本调用 await 它再 resolve。
+   */
+  evalOnTab: (opts: {
+    tabId: string
+    code: string
+    awaitPromise?: boolean
+  }): Promise<{
+    ok: boolean
+    result?: unknown
+    error?: { code: string; message: string }
+  }> => ipcRenderer.invoke('automation:evalOnTab', opts),
+
   captureViaNewTab: (req: {
     channel: string
     pageUrl: string
