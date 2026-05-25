@@ -78,10 +78,7 @@
         客户端嵌入式模式：未选职位 → ChatEmptyState 引导
         其它（浏览器模式 / 浮窗 / 已有职位但无消息）保持原 hint 空占位
       -->
-      <ChatEmptyState
-        v-if="shouldShowEmptyState"
-        :selected-job="null"
-      />
+      <ChatEmptyState v-if="shouldShowEmptyState" :selected-job="null" />
       <div
         v-else-if="messages.length === 0 && internalMessages.length === 0"
         class="text-center text-grey q-pa-md empty-message-hint"
@@ -260,7 +257,10 @@
         {
           'centered-input':
             !visibleThirdSwitchPlus &&
-            isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage
+            isNewChat &&
+            messages.length === 0 &&
+            internalMessages.length === 0 &&
+            !isFirstMessage
         }
       ]"
     >
@@ -271,7 +271,10 @@
       <div
         v-if="
           !visibleThirdSwitchPlus &&
-          isNewChat && messages.length === 0 && internalMessages.length === 0 && !isFirstMessage
+          isNewChat &&
+          messages.length === 0 &&
+          internalMessages.length === 0 &&
+          !isFirstMessage
         "
         class="q-pa-md q-mb-md rounded-borders"
       >
@@ -296,12 +299,20 @@
       </div>
       <!--  输入框    -->
       <div class="input-container">
+        <!--
+          输入框 disable 三种情况（优先级 isTaskRunning > emptyState）：
+            1) shouldShowEmptyState：还没选职位 → 禁用 + 提示选职位
+            2) isTaskRunningForCurrentChat：当前 chat 有任务跑中 → 禁用 + 提示等任务完成
+            3) 其它：正常输入
+
+          enter 键发送也要拦：keydown 时 check 这两个 flag，命中就 prevent 不调 sendChatMessage
+        -->
         <q-input
           v-model="chatMessage"
           borderless
           type="textarea"
           autogrow
-          :disable="shouldShowEmptyState"
+          :disable="shouldShowEmptyState || isTaskRunningForCurrentChat"
           :input-style="{
             maxHeight: inputMaxHeight,
             minHeight: '40px',
@@ -312,31 +323,48 @@
           :placeholder="
             shouldShowEmptyState
               ? '请从左侧列表选择职位开始'
-              : '给[i快招]AI发送消息，示例：发送一段招聘JD'
+              : isTaskRunningForCurrentChat
+                ? '当前任务进行中，请等待任务完成后再发送消息'
+                : '给[i快招]AI发送消息，示例：发送一段招聘JD'
           "
           class="full-width message-input"
-          @keydown.enter.exact.prevent="() => sendChatMessage()"
+          @keydown.enter.exact.prevent="onEnterPress"
           @keydown.shift.enter.prevent="newLine"
         >
-          <template v-slot:hint v-if="!chatFluxStatus">
+          <template v-slot:hint v-if="!chatFluxStatus && !isTaskRunningForCurrentChat">
             <span class="text-grey-6">Shift+Enter 换行，Enter 发送</span>
           </template>
         </q-input>
 
         <div class="send-button-container">
           <q-badge class="bg-transparent text-grey-8"> Shift+Enter 换行，Enter 发送 </q-badge>
+          <!--
+            统一用同一个 q-btn round dense（位置/大小/形状完全一致），
+            只按当前状态切换 color/icon/click：
+              1) isTaskRunningForCurrentChat：当前 chat 有跑中的聚合搜索任务
+                 → 红色 stop icon，点击调 SearchTasks/stopForChat 终止整个任务
+              2) chatFluxStatus：AI 流式回复进行中
+                 → 蓝色 send icon + loading，点击 abort 当前 stream（原有逻辑）
+              3) 默认 → 蓝色 send icon，点击发送消息
+          -->
           <q-btn
             round
             dense
-            :loading="chatFluxStatus"
+            :loading="!isTaskRunningForCurrentChat && chatFluxStatus"
             :disable="shouldShowEmptyState"
-            color="primary"
-            icon="send"
-            @click="() => sendChatMessage()"
+            :color="isTaskRunningForCurrentChat ? 'negative' : 'primary'"
+            :icon="isTaskRunningForCurrentChat ? 'stop' : 'send'"
+            @click="isTaskRunningForCurrentChat ? handleStopTask() : sendChatMessage()"
             class="send-button"
           >
             <q-tooltip>{{
-              shouldShowEmptyState ? '请先从左侧列表选择职位' : chatFluxStatus ? '停止输出' : '发送'
+              shouldShowEmptyState
+                ? "请先从左侧列表选择职位"
+                : isTaskRunningForCurrentChat
+                ? "停止当前搜索任务"
+                : chatFluxStatus
+                ? "停止输出"
+                : "发送"
             }}</q-tooltip>
           </q-btn>
         </div>
@@ -461,6 +489,81 @@ const userInfo = computed(() => store.getters.getUserInfo);
 const latestChatId = computed(() => store.getters.getLatestChatId);
 
 /**
+ * 当前 chat 是否有"正在跑"的聚合搜索任务（含 RUNNING / WAITING / RESTING +
+ * COMPLETED 但 AI 评分还没跑完的过渡态）。
+ *
+ * 用 SearchTasks/canCreateForChat 反推：能创建 = 没活跃任务；不能创建 = 有活跃任务。
+ * 实现已经覆盖了"任务收敛 COMPLETED 但本 chat AI 评分还在跑"这种 corner case。
+ *
+ * 用途：发送按钮三态切换的关键 flag（见模板 send-button-container）。
+ */
+const isTaskRunningForCurrentChat = computed(() => {
+  const cid = currentChatId.value || latestChatId.value;
+  if (!cid) return false;
+  const canCreate = store.getters["SearchTasks/canCreateForChat"];
+  return typeof canCreate === "function" && !canCreate(cid);
+});
+
+/**
+ * 用户点红色"停止"按钮 → 调 SearchTasks/stopForChat 终止整个任务。
+ *
+ * 流程：finishChannel(STOPPED) × N + 停 scoreUpdater + 标记本地 task STOPPED。
+ * humanize+pagination 循环还在跑的话不会立刻 abort，但 task 已 STOPPED 后端会
+ * 拒绝后续 /results /detail 调用，不会污染数据。
+ *
+ * 业务侧后续可在 humanize 循环每轮顶部加 check `state.userStoppedTaskIds[taskId]`
+ * 实现立即 abort（state 字段已铺好）。
+ */
+/**
+ * 输入框 Enter 键 handler。
+ *
+ * 任务跑中 / 空状态时**忽略** Enter 不发送（同时 q-input disable 也会阻止输入，
+ * 这里是双保险——避免用户在 disable 一瞬间按 Enter 触发到 sendChatMessage）。
+ */
+const onEnterPress = () => {
+  if (shouldShowEmptyState.value || isTaskRunningForCurrentChat.value) {
+    console.log('[ChatCard] Enter 被忽略：emptyState 或 taskRunning');
+    return;
+  }
+  sendChatMessage();
+};
+
+const handleStopTask = async () => {
+  const cid = currentChatId.value || latestChatId.value;
+  if (!cid) {
+    console.warn("[ChatCard] handleStopTask: 没有 chatId，跳过");
+    return;
+  }
+  console.log("[ChatCard] 用户点击红色停止按钮 chatId=", cid);
+  try {
+    const res = await store.dispatch("SearchTasks/stopForChat", cid);
+    if (res?.ok) {
+      $q.notify({
+        type: "positive",
+        message: res.message || "已停止当前搜索任务",
+        timeout: 2500,
+        position: "top"
+      });
+    } else {
+      $q.notify({
+        type: "warning",
+        message: res?.message || "停止任务失败",
+        timeout: 3000,
+        position: "top"
+      });
+    }
+  } catch (e) {
+    console.error("[ChatCard] handleStopTask 异常:", e);
+    $q.notify({
+      type: "negative",
+      message: `停止任务失败：${e?.message || e}`,
+      timeout: 3000,
+      position: "top"
+    });
+  }
+};
+
+/**
  * 嵌入式模式下：用户主动选中的职位实体（UI 空状态的唯一判定依据）
  *
  * 数据源：store.chatList.chosenJobId（独立 key，由 LeftMenu selectChat 设置，
@@ -470,7 +573,7 @@ const latestChatId = computed(() => store.getters.getLatestChatId);
  *   - 清空 localStorage 的 `vuex.chatList.chosenJobId` 即可复现"请先选择职位"空状态
  *   - 业务 SSO / 聊天加载等流程对 latestChatId 的隐式 set 不会污染 UI 状态
  */
-const chosenJobId = computed(() => store.getters.getChosenJobId || '');
+const chosenJobId = computed(() => store.getters.getChosenJobId || "");
 const currentEmbeddedChat = computed(() => {
   const id = chosenJobId.value;
   if (!id) return null;
@@ -489,9 +592,7 @@ const currentEmbeddedChat = computed(() => {
  *   - **只看 chosenJobId 是否为空**，不去 chatList 里 find；
  *     否则 chatList 异步加载完成前 find 返回 null，会出现"先显示后消失"的闪烁
  */
-const shouldShowEmptyState = computed(
-  () => visibleThirdSwitchPlus.value && !chosenJobId.value
-);
+const shouldShowEmptyState = computed(() => visibleThirdSwitchPlus.value && !chosenJobId.value);
 
 /**
  * 当前选中职位标题 + 代码（用在 workspace toolbar 左侧）
@@ -530,7 +631,32 @@ const internalMessages = ref([]);
 
 // 合并消息列表（优先使用内部消息，如果内部没有则使用props传入的）
 const displayMessages = computed(() => {
-  return internalMessages.value.length > 0 ? internalMessages.value : props.messages;
+  const raw = internalMessages.value.length > 0 ? internalMessages.value : props.messages;
+
+  // ★ 排队中（WAITING）不显示 task_status 卡片（用户要求：真正开始执行才插入卡片）
+  //
+  // 数据层面：internalMessages 里仍然保留占位 msg（pendingTaskBindingsByChat /
+  // sessionStartedTaskIds 这些回填机制依赖它）。这里只在渲染层 filter 掉，
+  // 当 task 进入 RUNNING / 终态时 computed 自动重算 → 卡片立刻显形。
+  //
+  // 过滤规则：
+  //   - 不是 task_status → 一律保留
+  //   - isStopped（任务创建失败）→ 保留（显示失败提示）
+  //   - 没绑 taskId（占位刚 push，create 还没回）→ 隐藏
+  //   - task 还在 store 没同步 → 隐藏（短暂窗口期）
+  //   - task.taskStatus === 'WAITING'（排队中）→ 隐藏
+  //   - 其它（RUNNING / RESTING / 终态）→ 保留
+  const getTaskById = store.getters["SearchTasks/getTaskById"];
+  return raw.filter((msg) => {
+    if (msg?.type !== "task_status") return true;
+    if (msg.isStopped) return true;
+    if (!msg.taskId) return false;
+    if (typeof getTaskById !== "function") return false;
+    const task = getTaskById(msg.taskId);
+    if (!task) return false;
+    if (task.taskStatus === "WAITING") return false;
+    return true;
+  });
 });
 
 // 定义组件属性
@@ -852,6 +978,57 @@ const handleNewChat = () => {
   emit("open-chat");
 };
 
+/**
+ * 清空当前对话（保留当前 chatId，只清消息历史）
+ *
+ * 跟 handleNewChat 的区别：
+ *   - handleNewChat：新建会话，会清掉 chatId、SET_LATEST_CHAT_ID('')，会切回首屏
+ *   - clearCurrentChat：保留 chatId 和职位绑定，只清空对话内容 + 输入框
+ *
+ * 调用时机：用户点击 WorkspaceContainer 顶部「清空当前对话」按钮 + 确认弹框
+ *
+ * TODO（后端接口已就绪但暂未接入，按用户要求先只清本地缓存）：
+ *   src/api/chat/ChatApi.js → clearChatHistory(chatId, userId)
+ *   接入时机：等本地清空流程跑通后，再串行 await 后端清空，避免刷新后历史"复活"
+ *
+ *   await clearChatHistory(chatId, store.getters.getUserInfo?.id);
+ *
+ * 此外要清掉跟当前 chat 相关的占位 task 卡片绑定（pendingTaskBindingsByChat[chatId]），
+ * 否则清完再启动新任务时旧占位会回填错误。
+ */
+const clearCurrentChat = () => {
+  const chatId = currentChatId.value || props.chatId;
+  console.log(`[ChatCard] clearCurrentChat 开始 chatId=${chatId}`);
+
+  // 1) 清本地消息
+  internalMessages.value = [];
+  store.commit("clearChatMessage");
+
+  // 2) 清搜索条件 ID（避免之前的搜索条件残留影响下次启动）
+  store.commit("clearSearchConditionId");
+
+  // 3) 清输入框
+  chatMessage.value = "";
+
+  // 4) 清掉当前 chat 的 task_status 占位卡片绑定记录
+  //    （internalMessages 已清，但 pendingTaskBindings 是 ref 字典，要单独清掉对应 key）
+  if (chatId && pendingTaskBindingsByChat.value[chatId]) {
+    const next = { ...pendingTaskBindingsByChat.value };
+    delete next[chatId];
+    pendingTaskBindingsByChat.value = next;
+  }
+
+  // 5) TODO: 调后端清空历史接口（保留 chatId，只清 history）
+  //    api: clearChatHistory(chatId, userInfo.id) —— src/api/chat/ChatApi.js
+  //    按用户要求本次只清本地缓存，等接口联调通过后再放开下面这行：
+  //    await clearChatHistory(chatId, store.getters.getUserInfo?.id);
+
+  console.log(`[ChatCard] clearCurrentChat 完成 chatId=${chatId}（仅本地，未调后端）`);
+
+  // 6) 通知外部组件
+  emit("chat-cleared", { chatId });
+};
+
 // 编辑搜索条件
 const handleEdit = (msg) => {
   // emit('edit-search', {
@@ -980,7 +1157,8 @@ const sessionStartedTaskIds = ref(new Set());
  *        kind='all' 用于兼容（向后兼容旧调用 / 不确定时全显示）。
  */
 function pushTaskStatusPlaceholder(chatId, kind = "all") {
-  const id = "task-status-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6) + "-" + kind;
+  const id =
+    "task-status-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6) + "-" + kind;
   const createdAt = Date.now();
   internalMessages.value.push({
     id,
@@ -1005,7 +1183,11 @@ function pushTaskStatusPlaceholder(chatId, kind = "all") {
     [chatId]: arr
   };
   nextTick(() => {
-    try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
+    try {
+      scrollChatToBottom();
+    } catch (_e) {
+      /* ignore */
+    }
   });
   return id;
 }
@@ -1058,8 +1240,8 @@ watch(
     const pendingEntries = Array.isArray(pendingRaw)
       ? pendingRaw
       : pendingRaw
-        ? [typeof pendingRaw === "string" ? { id: pendingRaw, createdAt: 0 } : pendingRaw]
-        : [];
+      ? [typeof pendingRaw === "string" ? { id: pendingRaw, createdAt: 0 } : pendingRaw]
+      : [];
     if (pendingEntries.length > 0) {
       const newTaskCreatedAt = Number(newTask.createdAt) || 0;
       let anyBound = false;
@@ -1076,7 +1258,11 @@ watch(
         } else if (target && !target.taskId && !isFreshEnough) {
           anySkipped = true;
           console.log(
-            `[ChatCard] 占位卡片跳过绑定旧任务 taskId=${newTask.taskId}（createdAt=${newTaskCreatedAt} < placeholder=${placeholderCreatedAt}）kind=${entry.kind || 'all'}`
+            `[ChatCard] 占位卡片跳过绑定旧任务 taskId=${
+              newTask.taskId
+            }（createdAt=${newTaskCreatedAt} < placeholder=${placeholderCreatedAt}）kind=${
+              entry.kind || "all"
+            }`
           );
         }
       }
@@ -1239,7 +1425,11 @@ function ensureTaskStatusCardForCurrentChat() {
     });
   }
   nextTick(() => {
-    try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
+    try {
+      scrollChatToBottom();
+    } catch (_e) {
+      /* ignore */
+    }
   });
 }
 
@@ -1360,9 +1550,7 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   // 拒绝重复点击：跟 handleSearch 出口同样的处理——仍然 emit 让 IndexPage 弹 notify
   const canCreate = store.getters["SearchTasks/canCreateForChat"];
   if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
-    console.warn(
-      `[ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`
-    );
+    console.warn(`[ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`);
     emit("aggregate-search", basePayload);
     return;
   }
@@ -2073,7 +2261,11 @@ watch(
   (newLen, oldLen) => {
     if (newLen > (oldLen || 0)) {
       nextTick(() => {
-        try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
+        try {
+          scrollChatToBottom();
+        } catch (_e) {
+          /* ignore */
+        }
       });
     }
   }
@@ -2111,7 +2303,7 @@ watch(
 
     // 识别任务完成卡片：content 是 TASK_COMPLETION_CARD HTML → 走 TaskCompletionCard
     //                  其它富文本 → 走 server_html 路径（普通 v-html 渲染，无按钮事件代理）
-    const content = evt.message.content || '';
+    const content = evt.message.content || "";
 
     // 旧版后端的"任务进度卡片 JSON"消息直接过滤掉，不渲染
     // （任务进度由 TaskStatusCard 通过 store reactive 实时绘制）
@@ -2121,27 +2313,34 @@ watch(
     }
 
     const isCompletionCard =
-      isTaskCompletionCardHtml(content) || evt.message.messageType === 'TASK_COMPLETION_CARD';
+      isTaskCompletionCardHtml(content) || evt.message.messageType === "TASK_COMPLETION_CARD";
 
     const wireMessage = {
       id: msgId || uuidv4(),
-      type: isCompletionCard ? 'task_completion_card' : 'server_html',
-      role: evt.message.role || 'assistant',
+      type: isCompletionCard ? "task_completion_card" : "server_html",
+      role: evt.message.role || "assistant",
       content,
-      messageType: evt.message.messageType || '',
-      time: typeof evt.message.timestamp === 'string'
-        ? evt.message.timestamp
-        : new Date().toLocaleTimeString(),
+      messageType: evt.message.messageType || "",
+      time:
+        typeof evt.message.timestamp === "string"
+          ? evt.message.timestamp
+          : new Date().toLocaleTimeString(),
       chatId: evt.chatId,
-      user: 'bot',
+      user: "bot",
       // 任务卡片消息把 content 复制到 html 字段（TaskCompletionCard 的 prop 名）
       ...(isCompletionCard ? { html: content } : {})
     };
     internalMessages.value.push(wireMessage);
     nextTick(() => {
-      try { scrollChatToBottom(); } catch (_e) { /* ignore */ }
+      try {
+        scrollChatToBottom();
+      } catch (_e) {
+        /* ignore */
+      }
     });
-    console.log(`[ChatCard] 已渲染 server-pushed 消息 type=${wireMessage.messageType} chatId=${evt.chatId}`);
+    console.log(
+      `[ChatCard] 已渲染 server-pushed 消息 type=${wireMessage.messageType} chatId=${evt.chatId}`
+    );
   },
   { deep: false }
 );
@@ -2235,6 +2434,7 @@ defineExpose({
   endStreamResponse,
   loadHistory,
   handleNewChat,
+  clearCurrentChat,
   insertMessageToInput,
   fillMessageToInput
 });

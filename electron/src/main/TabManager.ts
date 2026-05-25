@@ -34,6 +34,14 @@ export interface TabState {
   canGoBack: boolean
   canGoForward: boolean
   active: boolean
+  /**
+   * 是否锁定（不可关）。跟 pinned 区别：
+   *   - pinned：home tab 永久锁定 + 拖拽禁用 + 标题写死
+   *   - locked：业务侧动态控制（比如 BOSS 推荐任务跑中），tab 还能拖能切但 X 按钮不显示，
+   *     底层 close() 也会拒绝
+   * 业务完成后调 setLocked(id, false) 解锁，用户就能正常关了。
+   */
+  locked: boolean
 }
 
 interface InternalTab {
@@ -48,6 +56,8 @@ interface InternalTab {
    * 用于 tabFetcher 这类静默抓取场景（用户视觉无感）。
    */
   hidden?: boolean
+  /** 见 TabState.locked 注释；业务侧通过 setLocked 控制 */
+  locked?: boolean
 }
 
 // =============== 配置 ===============
@@ -311,6 +321,10 @@ class TabManager {
     const tab = this.tabs.get(id)
     if (!tab) return false
     if (tab.pinned) return false // home 不可关
+    if (tab.locked) {
+      console.log(`[TabManager] close 拒绝：tab=${id} 已 locked (业务侧未 setLocked(false))`)
+      return false
+    }
 
     const idx = this.order.indexOf(id)
     if (idx < 0) return false
@@ -536,8 +550,26 @@ class TabManager {
       loading,
       canGoBack: canBack,
       canGoForward: canFwd,
-      active: this.activeId === id
+      active: this.activeId === id,
+      locked: !!tab.locked
     }
+  }
+
+  /**
+   * 动态锁定/解锁 tab：locked=true 时 TabBar 隐藏 X 按钮 + close() 拒绝。
+   * 业务侧用：启动 BOSS 推荐任务时 setLocked(true) 防误关，任务完成 setLocked(false) 解锁。
+   * 操作 home tab 无效（home 始终 pinned，行为更严格）。
+   *
+   * @returns true=操作成功；false=tab 不存在 / 是 home
+   */
+  setLocked(id: string, locked: boolean): boolean {
+    const tab = this.tabs.get(id)
+    if (!tab) return false
+    if (tab.pinned) return false // home 不允许改 locked
+    tab.locked = !!locked
+    this.broadcastState()
+    console.log(`[TabManager] setLocked tab=${id} → ${tab.locked}`)
+    return true
   }
 
   private broadcastState(): void {

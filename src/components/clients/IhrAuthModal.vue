@@ -34,7 +34,9 @@
                 stroke-linejoin="round"
                 class="ihr-auth-icon-sparkles"
               >
-                <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+                <path
+                  d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
+                />
                 <path d="M20 3v4" />
                 <path d="M22 5h-4" />
                 <path d="M4 17v2" />
@@ -52,11 +54,7 @@
 
             <!-- 登录按钮 -->
             <div class="ihr-auth-actions">
-              <button
-                class="ihr-auth-btn"
-                :disabled="loading"
-                @click="handleLogin"
-              >
+              <button class="ihr-auth-btn" :disabled="loading" @click="handleLogin">
                 <svg
                   v-if="!loading"
                   viewBox="0 0 24 24"
@@ -83,11 +81,12 @@
                 >
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
-                <span>{{ loading ? '正在打开浏览器…' : '前往浏览器版' }}</span>
+                <span>{{ loading ? "正在打开浏览器…" : "登录账号" }}</span>
               </button>
 
               <p class="ihr-auth-hint">
-                客户端访问令牌已过期。点击按钮将用系统浏览器打开 i 人事招聘工作台，工作台会自动签发新的 accessToken 并通过深链送回客户端。
+                客户端访问令牌已过期。点击按钮将用系统浏览器打开 i
+                人事招聘工作台，工作台会自动签发新的 accessToken 并通过深链送回客户端。
               </p>
             </div>
           </div>
@@ -116,8 +115,8 @@
  *   → 用户在浏览器里完成 i 人事 manage 登录
  *   → 回到客户端再次触发业务（modal 自动关闭，由调用方再次调 API 后判定）
  */
-import { ref, computed } from 'vue';
-import { useStore } from 'vuex';
+import { ref, computed } from "vue";
+import { useStore } from "vuex";
 
 const store = useStore();
 const loading = ref(false);
@@ -126,11 +125,11 @@ const visible = computed(() => store.getters.getIhrAuthModalVisible);
 
 // 与 i 人事 RecruitAssistant 页面路径一致
 const LOGIN_PATH =
-  '/web/page/single/#/recruit/recruit-assistant?menu=60000&subMenu=60070&thirdMenu=';
+  "/web/page/single/#/recruit/recruit-assistant?menu=60000&subMenu=60070&thirdMenu=";
 
 function handleClose() {
   if (loading.value) return; // 正在打开浏览器期间不让关
-  store.commit('setIhrAuthModalVisible', false);
+  store.commit("setIhrAuthModalVisible", false);
 }
 
 async function handleLogin() {
@@ -143,20 +142,20 @@ async function handleLogin() {
         useSystemBrowser: true,
         loginPath: LOGIN_PATH
       });
-      console.log('[IhrAuthModal] openManageLoginTab result:', res);
+      console.log("[IhrAuthModal] openManageLoginTab result:", res);
     } else {
       // 客户端外（fallback）：跳浏览器同路径，能跑就跑（实际不会走到这里，
       // 因为这个 modal 设计就是只在客户端模式触发的）
-      const fallbackUrl =
-        (window.location.origin || '') + LOGIN_PATH;
-      window.open(fallbackUrl, '_blank', 'noopener');
+      const fallbackUrl = (window.location.origin || "") + LOGIN_PATH;
+      window.open(fallbackUrl, "_blank", "noopener");
     }
   } catch (e) {
-    console.warn('[IhrAuthModal] open browser failed:', e);
+    console.warn("[IhrAuthModal] open browser failed:", e);
   } finally {
     loading.value = false;
-    // 让用户去浏览器登录，关闭弹框（保留它阻拦后续业务的话也行，但用户体验不好）
-    store.commit('setIhrAuthModalVisible', false);
+    // ★ 不主动关闭弹框：让用户去浏览器完成登录回来后，业务侧再次调 API 成功（说明
+    // accessToken 已经回来了）→ 由调用方主动 commit setIhrAuthModalVisible(false) 关闭。
+    // 这样如果用户没真去登录或者登录失败，弹框还在能阻拦后续误操作。
   }
 }
 </script>
@@ -211,9 +210,8 @@ $neutral-900: #171717;
   border: 1px solid $neutral-100;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   overflow: hidden;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Microsoft YaHei', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    sans-serif;
 }
 
 .ihr-auth-toolbar {
@@ -285,8 +283,15 @@ $neutral-900: #171717;
 }
 
 @keyframes ihr-auth-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.04); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.04);
+  }
 }
 
 /* 标题 + 描述 */
@@ -335,9 +340,7 @@ $neutral-900: #171717;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  transition:
-    background-color 0.18s,
-    transform 0.12s;
+  transition: background-color 0.18s, transform 0.12s;
 
   &:hover:not(:disabled) {
     background: $primary-600;

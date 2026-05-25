@@ -21,13 +21,32 @@
     - 本卡片：steps[].status 由 task.channels[].taskChannelStatus 决定，reactive
 -->
 <template>
-  <!-- 任务还没创建出来：占位 loading -->
+  <!--
+    任务创建失败（forceStopped=true 由 ChatCard 的 pendingCreate watch 标记）：
+    单独显示"任务创建失败，请重试"，让用户知道点了启动但没成功
+  -->
   <ExecutionLog
-    v-if="!task"
+    v-if="!task && forceStopped"
     :content="initContent"
     :steps="initSteps"
     :data="{ isStopped: false }"
   />
+
+  <!--
+    ★ 用户要求：排队中（taskStatus === 'WAITING'）不显示状态卡片，
+       要等任务真正开始执行（RUNNING / RESTING / 终态）才插入卡片。
+    本组件 v-show=false 时 ChatCard 里的 message bubble 看起来就是没东西 —
+    这个气泡仍然挂在 internalMessages 里（pending binding / sessionStartedTaskIds
+    等回填逻辑依赖它）；只是视觉上不出现，等 task 推进到 RUNNING 时就立刻显形。
+
+    场景覆盖：
+      - 没 taskId（占位刚 push、create 接口还没回）→ 不显示
+      - task 存在但 taskStatus === WAITING（已 create 成功但在队列前面排队）→ 不显示
+      - task 进入 RUNNING / RESTING（执行中 / 短歇）/ 终态 → 正常显示
+  -->
+  <template v-else-if="!task || task.taskStatus === 'WAITING'">
+    <!-- 故意留空，让 ChatCard 的消息气泡视觉上不出现 -->
+  </template>
 
   <!-- 搜索牛人流程卡 + 推荐牛人流程卡（按 kind 决定渲染哪一段） -->
   <div v-else class="task-status-card-wrap">
@@ -387,11 +406,11 @@ const recommendCardContent = computed(() => {
  * 开始，AI 行就 processing"的假象。
  *
  * phase → step 映射（每步从 pending → processing → complete）：
- *   step 0 (校对 BOSS 关联职位)     : OPENING+ 起 complete
- *   step 1 (分析画像关键词)         : OPENING+ 起 complete
- *   step 2 (获取推荐候选人列表)     : FETCHED+ 起 complete
+ *   step 0 (校对 BOSS 关联职位)     : OPENING/SELECTING 时 processing，SELECTED+ complete
+ *   step 1 (分析画像关键词)         : SELECTED 时 processing，FETCHING+ complete
+ *   step 2 (获取推荐候选人列表)     : FETCHING 时 processing，FETCHED+ complete
  *   step 3 (AI 语义匹配初筛)        : SCORING 时 processing，DONE 时 complete
- *   step 4 (汇总推荐结果)           : DONE 时 complete
+ *   step 4 (汇总推荐结果)           : SCORING 时 processing，DONE 时 complete
  *   step 5 (执行完毕)               : DONE 时 complete
  *
  * channel.taskChannelStatus 仅作为兜底：
@@ -417,10 +436,13 @@ const recommendCardSteps = computed(() => {
   const isChannelDone = st === 'COMPLETED';
   const isChannelFailed = st === 'FAILED' || st === 'STOPPED' || phase === 'FAILED';
 
-  // phase 等级：IDLE=0 / WAITING=1 / OPENING=2 / FETCHING=3 / FETCHED=4 / SAVED=5 / SCORING=6 / DONE=7
+  // phase 等级：把 select 流程拆出来，对应 step 0 / step 1 的细分推进
+  //   IDLE=0 / WAITING=1 / OPENING=2 / SELECTING=3 / SELECTED=4 /
+  //   FETCHING=5 / FETCHED=6 / SAVED=7 / SCORING=8 / DONE=9
+  // 兼容旧 phase 名：没 SELECTING/SELECTED 的老数据走 OPENING(2) / FETCHING(5) 路径
   const phaseRank = {
-    IDLE: 0, WAITING: 1, OPENING: 2, FETCHING: 3,
-    FETCHED: 4, SAVED: 5, SCORING: 6, DONE: 7
+    IDLE: 0, WAITING: 1, OPENING: 2, SELECTING: 3, SELECTED: 4,
+    FETCHING: 5, FETCHED: 6, SAVED: 7, SCORING: 8, DONE: 9
   }[phase] || 0;
 
   function s(idx) {
@@ -428,33 +450,33 @@ const recommendCardSteps = computed(() => {
     if (isChannelFailed) return idx <= 2 ? 'complete' : 'skipped';
 
     if (idx === 0) {
-      // 校对岗位：进入 OPENING 就显示 processing，FETCHING+ complete
-      if (phaseRank >= 3) return 'complete';
+      // 校对岗位：OPENING/SELECTING 时 processing，SELECTED+ complete
+      if (phaseRank >= 4) return 'complete';
       if (phaseRank >= 2) return 'processing';
       return 'pending';
     }
     if (idx === 1) {
-      // 分析关键词：FETCHING 时 processing，FETCHED+ complete
-      if (phaseRank >= 4) return 'complete';
-      if (phaseRank >= 3) return 'processing';
+      // 分析关键词：SELECTED 时 processing，FETCHING+ complete
+      if (phaseRank >= 5) return 'complete';
+      if (phaseRank >= 4) return 'processing';
       return 'pending';
     }
     if (idx === 2) {
       // 获取候选人列表：FETCHING 时 processing，FETCHED+ complete
-      if (phaseRank >= 4) return 'complete';
-      if (phaseRank >= 3) return 'processing';
+      if (phaseRank >= 6) return 'complete';
+      if (phaseRank >= 5) return 'processing';
       return 'pending';
     }
     if (idx === 3) {
       // AI 语义匹配：SCORING 时 processing，DONE 时 complete
-      if (phaseRank >= 7) return 'complete';
-      if (phaseRank >= 6) return 'processing';
+      if (phaseRank >= 9) return 'complete';
+      if (phaseRank >= 8) return 'processing';
       return 'pending';
     }
     if (idx === 4) {
-      // 汇总：DONE 时 complete，SCORING 时 processing
-      if (phaseRank >= 7) return 'complete';
-      if (phaseRank >= 6) return 'processing';
+      // 汇总：SCORING 时 processing，DONE complete
+      if (phaseRank >= 9) return 'complete';
+      if (phaseRank >= 8) return 'processing';
       return 'pending';
     }
     // step 5：完毕，只有 DONE 才 complete

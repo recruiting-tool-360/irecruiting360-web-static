@@ -12,10 +12,14 @@
 #   3. publish.url      http://download.ihr360.com/ikuaizhao-qa2/
 #                       autoUpdater 检查更新时拉这个目录下的 latest.yml / latest-mac.yml，
 #                       跟 release 完全隔离 → release 包永远不会自动更新到 qa2，反之亦然。
-#   4. macOS 强制 adhoc 签名 + 不公证（npm script 命令行还会再 override 一次保险）。
+#   4. macOS 跟 release 一样走 Developer ID 签名 + Apple 公证（2026-05-25 改，
+#      之前是 adhoc 不公证，但 QA2 给客户测试时 Gatekeeper 警告让人误判客户端有问题）。
+#      Windows 仍然无代码签名（QA2 给内部用，SmartScreen 警告可接受）。
 #
 # 用法：
-#   npm run build:mac:qa2      产 macOS dmg/zip（adhoc 签名，无需 Apple Developer 证书）
+#   npm run build:mac:qa2      产 macOS dmg/zip（Developer ID 签名 + 公证，
+#                              需要 CSC_LINK / APPLE_ID / APPLE_TEAM_ID 等 env，
+#                              参考 docs/macos-release.md）
 #   npm run build:win:qa2      产 Windows nsis 安装包（无需代码签名证书）
 #   npm run publish:cos:qa2    上传到 COS 桶 ikuaizhao-qa2/ 目录
 # ============================================================
@@ -85,11 +89,11 @@ mac:
       arch:
         - x64
         - arm64
-  # ★ QA2 macOS 不签名、不公证：
-  #   identity=null 强制 adhoc 签名（npm script 命令行还会再覆盖一次保险），用户首次打开
-  #   需要"右键 → 打开"绕过 Gatekeeper，但能装能跑。Apple Silicon 必须 adhoc 才能启动，
-  #   afterPack.js 会自动做 ad-hoc 签名兜底。
-  notarize: false
+  # ★ QA2 macOS 跟 release 一样走 Developer ID 签名 + Apple 公证（2026-05-25 改）。
+  # 命令行 `--config.mac.notarize=true` 覆盖；electron-builder 会从 env 读
+  # CSC_LINK / CSC_KEY_PASSWORD 做签名，APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+  # APPLE_TEAM_ID 做公证。打包前 npm script 用 check-release-env.js 校验 env 齐全。
+  notarize: true
   hardenedRuntime: true
   gatekeeperAssess: false
 

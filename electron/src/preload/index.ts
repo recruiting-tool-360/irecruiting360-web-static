@@ -217,6 +217,8 @@ export interface TabState {
   canGoBack: boolean
   canGoForward: boolean
   active: boolean
+  /** 业务侧动态锁定（不可关 + X 按钮隐藏），跟 home pinned 区分。详见 main 进程 TabManager. */
+  locked: boolean
 }
 
 const tabs = {
@@ -225,6 +227,12 @@ const tabs = {
     ipcRenderer.invoke('tabs:create', opts),
   activate: (id: string): Promise<boolean> => ipcRenderer.invoke('tabs:activate', id),
   close: (id: string): Promise<boolean> => ipcRenderer.invoke('tabs:close', id),
+  /**
+   * 动态锁定/解锁 tab：locked=true 时 TabBar 隐藏 X 按钮 + 底层 close() 拒绝。
+   * 用法：业务侧（如 BOSS 推荐自动化）开 tab 后立刻 setLocked(true)，任务完成 setLocked(false)。
+   */
+  setLocked: (opts: { id: string; locked: boolean }): Promise<boolean> =>
+    ipcRenderer.invoke('tabs:setLocked', opts),
   reorder: (orderedIds: string[]): Promise<boolean> =>
     ipcRenderer.invoke('tabs:reorder', orderedIds),
   goBack: (id: string): Promise<void> => ipcRenderer.invoke('tabs:goBack', id),

@@ -10,6 +10,9 @@ import BossData from "src/store/modules/BossData";
 import BossRecommendData from "src/store/modules/BossRecommendData";
 import PinnedJobs from "src/store/modules/PinnedJobs";
 import SearchTasks from "src/store/modules/SearchTasks";
+// ViewingResults：查看历史 task 结果时按 taskId 隔离的渲染 store，
+// 跟 runtime ChannelConfig 完全解耦（详见模块顶部注释）
+import ViewingResults from "src/store/modules/ViewingResults";
 import createPersistedState from "vuex-persistedstate";
 import chatList from './modules/chatList'
 
@@ -20,7 +23,7 @@ const store = createStore({
   mutations: {},
   actions: {},
   modules: {
-    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig,BossData,BossRecommendData,PinnedJobs,SearchTasks
+    TestConfig,PluginConfig,ChatConfig,AiSerachConfig,ChannelConfig,UserConfig,chatList,SimilarResumeConfig,BossData,BossRecommendData,PinnedJobs,SearchTasks,ViewingResults
   },
   plugins: [
     createPersistedState({
@@ -54,11 +57,14 @@ const store = createStore({
         "BossRecommendData.currentJobId",
         // 左侧职位列表的置顶状态（参考 ihraisaas JobList.isPinned）
         "PinnedJobs.pinnedJobIds",
-        // 任务化搜索（按 chatId / taskId 分桶）：跨会话保留，刷新 / 重启后职位 badge 状态 +
-        // 已采集的搜索结果都能立即恢复。runtime 字段（queue / runningTaskId / activeSseContext）
-        // **不持久化**，启动时会通过 SearchTasks/resumeFromCurrent 重新拉服务端真实状态。
-        "SearchTasks.tasksById",
-        "SearchTasks.chatTaskIdx",
+        // ⚠️ SearchTasks 完全不持久化（2026-05-25 改）：
+        //   旧版持久化 tasksById / chatTaskIdx 让刷新 / 重启后 LeftMenu badge 立刻有状态，
+        //   但是会出现"后端 queue 已经空了，本地 tasksById 还残留一个 WAITING/RUNNING task →
+        //   LeftMenu 一直显示排队中"的 stale 状态。
+        //   后端 task 状态变了（任务被别的 client 接管 / 后端清理 / 出 STOPPED）前端拿不到通知。
+        //   改成不持久化：启动时通过 cleanupOrphanRunningAndResume（含 fetchTaskQueue +
+        //   resumeFromCurrent）+ currentTaskPoller 拉真实状态，跟后端永远一致。
+        //   trade-off：启动时 LeftMenu 会有短暂空白（几百 ms），等接口回来后填充。
       ],
     })
   ],

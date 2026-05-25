@@ -579,6 +579,15 @@ function registerIpc(): void {
     return tabManager.close(id)
   })
 
+  /**
+   * 动态锁定/解锁 tab：locked=true 时 TabBar 隐藏 X 按钮 + close 拒绝。
+   * 业务侧（如 BOSS 推荐自动化）开 tab 后立刻 setLocked(true)，任务跑完调 setLocked(false)。
+   */
+  ipcMain.handle('tabs:setLocked', (_e, opts: { id: string; locked: boolean }) => {
+    if (!opts || typeof opts.id !== 'string') return false
+    return tabManager.setLocked(opts.id, !!opts.locked)
+  })
+
   ipcMain.handle('tabs:reorder', (_e, ids: string[]) => {
     if (!Array.isArray(ids)) return false
     tabManager.reorder(ids)
