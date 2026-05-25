@@ -129,13 +129,7 @@ export async function openBossRecommend(encryptJobId, opts = {}) {
  * }>}
  */
 export async function openBossRecommendForJob(args) {
-  const {
-    encryptJobId,
-    filters,
-    waitListMs = 12000,
-    urlOpts,
-    opts = {}
-  } = args || {};
+  const { encryptJobId, filters, waitListMs = 12000, urlOpts, opts = {} } = args || {};
 
   const opened = await openBossRecommend(encryptJobId, urlOpts);
   if (!opened.ok) return opened;
@@ -226,8 +220,7 @@ export async function fetchBossRecommendList(args) {
       tabId: opened.tabId,
       url: opened.url,
       errorCode: "NOT_IN_CLIENT",
-      message:
-        "window.api.siteNetwork 不可用（preload 未更新？请重启客户端 Electron 进程）"
+      message: "window.api.siteNetwork 不可用（preload 未更新？请重启客户端 Electron 进程）"
     };
   }
 
@@ -406,37 +399,61 @@ export async function verifyBossRecommend(args) {
 }
 
 /**
- * 完整业务入口：打开推荐 tab → 随机 dwell → 抓首屏 → 拟人浏览 + 滚动加载到目标数量。
+ * 完整业务入口：打开推荐 tab → 主动 CDP 选职位 → 抓首屏 → 拟人浏览 + 滚动加载到目标数量。
  *
  * 推荐**业务侧**统一调这个，而不是分别调 `fetchBossRecommendList` + `humanizeBossRecommend`。
  *
- * 拟人节奏（对照 docs/automation-protocol.md §5.7 拟人原则）：
+ * 拟人节奏：
  *   1. openOrActivate 打开 tab（用户可见）
- *   2. **随机 5-15s dwell** —— 模拟"用户加载完页面，先看一眼再动手"。
- *      没有这个 dwell，自动化轨迹会出现"页面刚加载完瞬间触发 fetch + scroll + click"，
- *      跟真人节奏明显不同，是被风控盯上的高危特征。
- *   3. fetchBossRecommendList 抓首屏（仍是监听式，没有 fetch）
- *   4. humanize 循环滚动浏览到目标数量
- *
- * 暂时不做的事（按用户当前要求）：
- *   - 不调 selectPosition 浮层 —— URL 已经带 `?jobid=<id>` 直接定向，不点筛选
- *   - 不带额外 filterParams —— 用 BOSS 默认推荐
+ *   2. **autoSelectJob=true（默认）**：调 selectJobInBossRecommend
+ *      → 15s 初始 dwell（等 iframe + Vue + 反爬脚本稳定）
+ *      → CDP click `.job-selecter-wrap` 打开下拉
+ *      → 15s 浏览 dwell（拟人化）
+ *      → CDP click `li.job-item[value=<encryptJobId>]` 选中目标
+ *      → 1.5s settle（让 BOSS 因切职位发出的新 `/rec/geek/list` 落地）
+ *      此分支 sinceTs 取 selectRes.liClickedAt（li 点击之前一刻），
+ *      保证 fetchBossRecommendList 等到的是切职位后的新响应。
+ *   3. **autoSelectJob=false**：退化到旧路径
+ *      → clearCache + loadUrl(?_t=...) 强制 BOSS 重启 SPA 重发 API
+ *      → 随机 5-15s dwell
+ *      此分支 sinceTs 取 loadUrl 完成之后的 Date.now()。
+ *   4. fetchBossRecommendList 抓首屏（仍是被动监听）
+ *   5. **humanizeBrowseGeeks**：在首屏 geek 上随机挑 0-3 个 click（点开 → 15-60s dwell → 关闭弹框）
+ *      + 4-10 个 browse（滚到目标位置 + 1.5-4.5s dwell），全程 safe scroll + 选择性 CDP click。
+ *      详见 src/util/automation/bossHumanizeBrowse.js 顶部 CONFIG。
  *
  * @param {object} args
  * @param {string} args.encryptJobId
  * @param {number} args.targetCount
  * @param {(stage, payload) => void} [args.onProgress]
  *   阶段回调：
- *     - ('opened',     { tabId, url })
- *     - ('dwell',      { ms })                                ← 新增：dwell 起止
- *     - ('firstPage',  { geekList, totalSize, hasMore, source })
- *     - ('humanized',  { processed, pagesLoaded, accumulated, reachedTarget, stoppedReason })
- * @param {[number, number]} [args.firstDwellMs]  打开后 dwell 范围 [min, max]，默认 [5000, 15000]
- * @param {object} [args.humanizeOpts]   传给 humanize 的额外参数（dwellMs/pauseMs/maxPages/...）
+ *     - ('opened',          { tabId, url })
+ *     - ('select.waiting',  { delayMs })           ← autoSelectJob=true 才有
+ *     - ('select.openingDropdown',  { selector })
+ *     - ('select.browsingDropdown', { dwellMs })
+ *     - ('select.selectingItem',    { selector })
+ *     - ('select.settling',         { delayMs })
+ *     - ('select.done')
+ *     - ('dwell',           { ms })                ← autoSelectJob=false 才有
+ *     - ('firstPage',       { geekList, totalSize, hasMore, source })
+ *     - ('humanize.plan',       { plan, clickCount, browseCount })   ← humanizeBrowseGeeks 阶段
+ *     - ('humanize.itemStart',  { geekId, action, index, total })
+ *     - ('humanize.itemDone',   { geekId, action, index, total })
+ *     - ('humanize.itemError',  { geekId, action, error })
+ *     - ('humanize.done',       { executed, errors })
+ *     - ('humanized',           humanize)                            ← 完成时给一条兼容旧调用方
+ * @param {[number, number]} [args.firstDwellMs]  仅 autoSelectJob=false 时生效，dwell 范围 [min, max]
+ * @param {boolean} [args.autoSelectJob=true]     是否主动 CDP 点选职位（推荐路径，确保 BOSS UI 切到目标职位）
+ * @param {object} [args.selectJobOpts]           透传给 selectJobInBossRecommend 的 opts
+ *                                                （initialDelayMs / dropdownDwellMs / selectSettleMs 等）
+ * @param {object} [args.humanizeOpts]   传给 humanizeBrowseGeeks 的额外参数：
+ *                                       - config: 部分覆盖 HUMANIZE_BROWSE_CONFIG
+ *                                         （CLICK_COUNT_RANGE / BROWSE_COUNT_RANGE / 各 DWELL 范围 / SELECTOR 等）
  * @returns {Promise<{
  *   ok: boolean,
  *   tabId?: string,
  *   url?: string,
+ *   select?: object,           // autoSelectJob=true 才有，selectJobInBossRecommend 的返回
  *   firstPage?: object,
  *   humanize?: object,
  *   geekList: Array,           // 首页 + humanize accumulated 的去重合并
@@ -452,76 +469,205 @@ export async function runBossRecommend(args) {
     humanizeOpts = {},
     firstDwellMs,
     /**
+     * ★ 主动 CDP 点选职位（默认开启）。
+     *   true  → 走 selectJobInBossRecommend，由 li click 触发 BOSS 切职位 + 拉新数据
+     *   false → 退化到旧路径：clearCache + loadUrl + 被动 dwell + 等 BOSS 自动发 API
+     *
+     * 关掉只在两种情况下用：
+     *   1. 上层调用方自己已经做了 select（避免重复）
+     *   2. 临时 fallback 排查（怀疑 CDP 触发风控 → 改回纯被动模式）
+     */
+    autoSelectJob = true,
+    selectJobOpts = {},
+    /**
      * 调试用：在某一阶段提前退出
-     *   - 'open'      → 只打开 tab + dwell，不跑任何脚本
-     *   - 'verify'    → 打开 tab + dwell + 跑 verify 脚本（验证职位选中 + 列表可见）
+     *   - 'open'      → 只打开 tab + select/dwell，不跑任何抓数据脚本
+     *   - 'verify'    → 打开 tab + select/dwell + 跑 verify 脚本（验证职位选中 + 列表可见）
      *   - 'firstPage' → 上面所有 + fetch 首屏（不 humanize）
      *   - undefined / 其它 → 完整流程
      */
     stopAfter
   } = args || {};
 
-  // 1) 打开推荐 tab（幂等：已开则激活）
+  // 1) 主动 select 分支需要在 open 之前做三件事：
+  //    a. **关掉已存在的、URL 跟 target 一致的 BOSS tab** —— 强制 openBossRecommend 走
+  //       新建 tab 路径，避免 openOrActivate reuse 已存在 tab 时**不触发 navigation**导致
+  //       BOSS 不重发 /rec/geek/list 的 edge case（详见 alreadySelected 注释）
+  //    b. clearCache('boss') —— 清旧响应防 sinceTs 过滤后还混入历史数据
+  //    c. 记 openStartTs —— 给「alreadySelected」短路 case 用作 sinceTs
+  //    （被动 dwell 分支不需要，它在 else 里自己 clearCache + loadUrl 强制 navigation）
+  let openStartTs = 0;
+  if (autoSelectJob) {
+    // a. 关掉匹配 target 的旧 BOSS tab
+    //
+    // 判断条件：channel === 'boss' AND url 包含 `jobid=<encryptJobId>`。
+    // 用 substring 匹配比精确匹配宽松，能容忍 BOSS URL 上其它 query 参数 / hash 不一致。
+    // 不动其它 BOSS tab（用户可能手动开了别的职位的推荐页，不能误关）。
+    try {
+      if (typeof window?.api?.tabs?.list === "function") {
+        const allTabs = await window.api.tabs.list();
+        const targetMarker = `jobid=${encryptJobId}`;
+        const matching = (Array.isArray(allTabs) ? allTabs : []).filter(
+          (t) =>
+            t &&
+            t.channel === "boss" &&
+            typeof t.url === "string" &&
+            t.url.includes(targetMarker)
+        );
+        if (matching.length > 0) {
+          console.log(
+            `[bossRecommend] 检测到 ${matching.length} 个已存在 BOSS 推荐 tab (target jobid=${encryptJobId}) → close 后重开` +
+              ` (tabIds=${matching.map((t) => t.id).join(",")})`
+          );
+          for (const t of matching) {
+            try {
+              await window.api.tabs.close(t.id);
+              console.log(`[bossRecommend] tabs.close(${t.id}) ok url=${t.url}`);
+            } catch (e) {
+              console.warn(
+                `[bossRecommend] tabs.close(${t.id}) 失败（忽略）：`,
+                e?.message || e
+              );
+            }
+          }
+        } else {
+          console.log(
+            `[bossRecommend] 无匹配 target jobid=${encryptJobId} 的旧 BOSS tab，无需 close`
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("[bossRecommend] tabs.list 失败（忽略，继续开 tab）：", e?.message || e);
+    }
+
+    // b. 清缓存
+    try {
+      if (typeof window?.api?.siteNetwork?.clearCache === "function") {
+        await window.api.siteNetwork.clearCache("boss");
+        console.log("[bossRecommend] siteNetwork.clearCache(boss) ok（清旧响应防混淆）");
+      }
+    } catch (e) {
+      console.warn("[bossRecommend] clearCache 失败（忽略）：", e?.message || e);
+    }
+
+    // c. 记 openStartTs（必须在 openBossRecommend 之前，确保 BOSS 自动发的首屏响应
+    //    receivedAt > openStartTs，能被 waitForResponse 命中）
+    openStartTs = Date.now();
+    console.log(
+      `[bossRecommend] openStartTs=${openStartTs}（如果 alreadySelected 就用这个等 BOSS 自动加载的首屏响应）`
+    );
+  }
+
+  // 2) 打开推荐 tab（幂等：已开则激活）
   const opened = await openBossRecommend(encryptJobId);
   if (!opened.ok) return opened;
   if (typeof onProgress === "function") {
     onProgress("opened", { tabId: opened.tabId, url: opened.url });
   }
 
-  // 1.5) ★ 清缓存 + 强制 loadURL 完整 navigation（带 _t 时间戳防 HTTP 缓存）。
-  //
-  // 为什么不用 reload()：经实测 webContents.reload() 对 BOSS 推荐 SPA **没让它重新发**
-  //   `/wapi/zpjob/rec/geek/list`（疑似 sessionStorage / 路由层缓存），dwell 12s 后
-  //   `listCache(boss) size=0`。
-  //   webContents.loadURL() 强制完整 navigation，URL 带个 `_t=Date.now()` 兜底防 HTTP cache，
-  //   BOSS 必然完整重启 SPA → 一定会重发推荐 API → CDP capture 命中。
-  //
-  // sinceTs 抓在 loadUrl 之后：waitForResponse 只接受 navigation 后真正新到达的响应，
-  //   避免命中上一轮缓冲里的旧数据。
-  try {
-    if (typeof window?.api?.siteNetwork?.clearCache === "function") {
-      await window.api.siteNetwork.clearCache("boss");
+  // 2.5) 主动 select 分支 vs 旧被动 dwell 分支
+  let sinceTs;
+  let selectResult = null;
+
+  if (autoSelectJob) {
+    // ★ 主动 CDP 点选职位 + 「已选中目标」短路逻辑
+    //
+    // BOSS 推荐 tab 打开后会自动发一次 /wapi/zpjob/rec/geek/list（基于 URL 的 jobid）。
+    // 我们 clearCache + 记 openStartTs 已经放到 open 之前，siteNetworkCapture 自动抓这条。
+    //
+    // selectJobInBossRecommend 内部判断当前选中是否 === 目标：
+    //   - 一致 → alreadySelected=true，不点 li（点了 BOSS 也不重发 API，浪费）
+    //     → 我们用 openStartTs 当 sinceTs，等首屏响应
+    //   - 不一致 → 点目标 li 切职位 → BOSS 发新 API
+    //     → 用 selectRes.liClickedAt 当 sinceTs，等切职位的响应
+    const { selectJobInBossRecommend } = await import("src/util/automation/bossSelectJob");
+    const selectRes = await selectJobInBossRecommend(opened.tabId, encryptJobId, {
+      ...selectJobOpts,
+      onProgress: (stage, payload) => {
+        // 前缀化避免跟 runBossRecommend 自己的 stage 名冲突
+        if (typeof onProgress === "function") onProgress(`select.${stage}`, payload);
+      }
+    });
+    selectResult = selectRes;
+    if (!selectRes.ok) {
+      console.warn(
+        `[bossRecommend] selectJob 失败 → 整体放弃: ${selectRes.errorCode} ${selectRes.message}`
+      );
+      return {
+        ok: false,
+        tabId: opened.tabId,
+        url: opened.url,
+        select: selectRes,
+        errorCode: `SELECT_FAILED:${selectRes.errorCode}`,
+        message: selectRes.message,
+        geekList: []
+      };
     }
-  } catch (e) {
-    console.warn(`[bossRecommend] clearCache 失败（忽略）：`, e?.message || e);
-  }
-  try {
-    // 带时间戳 URL 强制 BOSS 视作新页面（HTTP cache miss + SPA 路由重启）。
-    // 一些参数是 BOSS 不认识的字段（_t），它会忽略，业务上 jobid 不变。
-    const navUrl = `${opened.url}${opened.url.includes("?") ? "&" : "?"}_t=${Date.now()}`;
-    if (typeof window?.api?.tabs?.loadUrl === "function") {
-      await window.api.tabs.loadUrl(opened.tabId, navUrl);
-      console.log(`[bossRecommend] tabs.loadUrl 已触发 tab=${opened.tabId} url=${navUrl}`);
-    } else if (typeof window?.api?.tabs?.reload === "function") {
-      // 兜底：preload 没更新（旧客户端）→ 至少 reload 一次，比啥都不做强
-      await window.api.tabs.reload(opened.tabId);
+
+    if (selectRes.alreadySelected) {
+      // ★ 已经选中目标 → 没点 li，BOSS 没发新 API → 用 openStartTs 等"open 时自动发的"那条
+      sinceTs = openStartTs;
       console.log(
-        `[bossRecommend] tabs.loadUrl 不可用，降级 reload tab=${opened.tabId}（请重启 Electron 客户端拿到新 preload）`
+        `[bossRecommend] selectJob: alreadySelected (current===target=${encryptJobId}) ` +
+          `→ sinceTs=${openStartTs}（openStartTs），等 BOSS 打开时自动发的首屏响应`
+      );
+    } else {
+      // 切换职位 → BOSS 会发新 API → 用 liClickedAt 等切职位后的响应
+      sinceTs = selectRes.liClickedAt || Date.now();
+      console.log(
+        `[bossRecommend] selectJob ok (current=${selectRes.currentSelectedJobId || "?"} → target=${encryptJobId}) ` +
+          `→ sinceTs=${sinceTs}（liClickedAt），等 BOSS 切职位响应`
       );
     }
-  } catch (e) {
-    console.warn(`[bossRecommend] loadUrl/reload 失败（忽略，继续）：`, e?.message || e);
-  }
-  const sinceTs = Date.now();
+  } else {
+    // 旧路径：clearCache + loadUrl(_t) + 随机 dwell + 被动等
+    //
+    // 为什么不用 reload()：经实测 webContents.reload() 对 BOSS 推荐 SPA **没让它重新发**
+    //   `/wapi/zpjob/rec/geek/list`（疑似 sessionStorage / 路由层缓存），dwell 12s 后
+    //   `listCache(boss) size=0`。
+    //   webContents.loadURL() 强制完整 navigation，URL 带个 `_t=Date.now()` 兜底防 HTTP cache。
+    try {
+      if (typeof window?.api?.siteNetwork?.clearCache === "function") {
+        await window.api.siteNetwork.clearCache("boss");
+      }
+    } catch (e) {
+      console.warn(`[bossRecommend] clearCache 失败（忽略）：`, e?.message || e);
+    }
+    try {
+      const navUrl = `${opened.url}${opened.url.includes("?") ? "&" : "?"}_t=${Date.now()}`;
+      if (typeof window?.api?.tabs?.loadUrl === "function") {
+        await window.api.tabs.loadUrl(opened.tabId, navUrl);
+        console.log(`[bossRecommend] tabs.loadUrl 已触发 tab=${opened.tabId} url=${navUrl}`);
+      } else if (typeof window?.api?.tabs?.reload === "function") {
+        await window.api.tabs.reload(opened.tabId);
+        console.log(
+          `[bossRecommend] tabs.loadUrl 不可用，降级 reload tab=${opened.tabId}（请重启 Electron 客户端拿到新 preload）`
+        );
+      }
+    } catch (e) {
+      console.warn(`[bossRecommend] loadUrl/reload 失败（忽略，继续）：`, e?.message || e);
+    }
+    sinceTs = Date.now();
 
-  // 2) 拟人 dwell：打开后随机停留 5-15s 再继续，让"加载完看一眼"的节奏成立
-  const dwellRange =
-    Array.isArray(firstDwellMs) && firstDwellMs.length === 2
-      ? [Number(firstDwellMs[0]) || 5000, Number(firstDwellMs[1]) || 15000]
-      : [5000, 15000];
-  const dwellLow = Math.min(dwellRange[0], dwellRange[1]);
-  const dwellHigh = Math.max(dwellRange[0], dwellRange[1]);
-  const dwell = Math.floor(dwellLow + Math.random() * (dwellHigh - dwellLow));
-  console.log(
-    `[bossRecommend] open ok, 拟人 dwell ${dwell}ms (${dwellLow}-${dwellHigh}) before next stage`
-  );
-  if (typeof onProgress === "function") onProgress("dwell", { ms: dwell });
-  await new Promise((r) => setTimeout(r, dwell));
+    // 拟人 dwell：打开后随机停留 5-15s 再继续
+    const dwellRange =
+      Array.isArray(firstDwellMs) && firstDwellMs.length === 2
+        ? [Number(firstDwellMs[0]) || 5000, Number(firstDwellMs[1]) || 15000]
+        : [5000, 15000];
+    const dwellLow = Math.min(dwellRange[0], dwellRange[1]);
+    const dwellHigh = Math.max(dwellRange[0], dwellRange[1]);
+    const dwell = Math.floor(dwellLow + Math.random() * (dwellHigh - dwellLow));
+    console.log(
+      `[bossRecommend] open ok, 拟人 dwell ${dwell}ms (${dwellLow}-${dwellHigh}) before next stage`
+    );
+    if (typeof onProgress === "function") onProgress("dwell", { ms: dwell });
+    await new Promise((r) => setTimeout(r, dwell));
+  }
 
   // 2.5) stopAfter='open' → 提前返回
   if (stopAfter === "open") {
     console.log("[bossRecommend] stopAfter=open, return without running scripts");
-    return { ok: true, tabId: opened.tabId, url: opened.url, geekList: [] };
+    return { ok: true, tabId: opened.tabId, url: opened.url, select: selectResult, geekList: [] };
   }
 
   // 2.6) stopAfter='verify' → 只跑 verify 脚本，不抓数据
@@ -537,6 +683,7 @@ export async function runBossRecommend(args) {
       ok: res.ok,
       tabId: opened.tabId,
       url: opened.url,
+      select: selectResult,
       verify: res.data,
       geekList: [],
       errorCode: res.errorCode,
@@ -583,6 +730,7 @@ export async function runBossRecommend(args) {
       ok: true,
       tabId: first.tabId,
       url: first.url,
+      select: selectResult,
       firstPage: first.data,
       humanize: null,
       geekList: list
@@ -599,43 +747,238 @@ export async function runBossRecommend(args) {
     merged.push(g);
   }
 
-  // 如果首页已经够了，跳过 humanize
-  if (merged.length >= targetCount) {
-    return {
-      ok: true,
-      tabId: first.tabId,
-      url: first.url,
-      firstPage: first.data,
-      humanize: null,
-      geekList: merged.slice(0, targetCount)
-    };
-  }
+  // ⚠️ 注意：这里**不再**有 "firstPage 已够 → 跳过 humanize" 的早返回。
+  // 原因：用户明确要求"拟人化操作"是流程的一部分（防风控关键），即使首屏已经够数也
+  // 要走一轮 humanize 让 BOSS 看到自然行为节奏。下面的循环内部首轮会处理 firstPage 数据，
+  // 之后如果 merged >= targetCount 就 break，不会做多余的滚底/翻页。
+  //
+  // 如果以后想要"firstPage 够就秒回"模式，加 `args.skipHumanizeIfEnough: boolean` 配置即可。
 
-  const humanize = await humanizeBossRecommend({
-    tabId: first.tabId,
-    jobId: encryptJobId,
-    targetCount,
-    ...humanizeOpts
-  });
-  if (typeof onProgress === "function") onProgress("humanized", humanize.data);
+  // ============= 拟人浏览 + 分页加载循环（safe-only）=============
+  //
+  // 循环流程（每一轮 = 一个 "round"）：
+  //   ① 选当前 batch = merged 里**还没被 humanize 过**的 geek
+  //   ② humanizeBrowseGeeks 跑一遍 batch（每个 click 15-60s，browse 1.5-4.5s）
+  //   ③ 检查 humanize 期间 BOSS 自家有没有发新 /wapi/zpjob/rec/geek/list
+  //      （humanize 的 smooth scroll 可能触发了 BOSS lazy load）
+  //      → 有：新 geek 进 merged，进入下一轮（下轮 batch = 这些新 geek）
+  //   ④ 没自动触发 → 主动调 smoothScrollToBottom 强制把容器滚到底
+  //      → siteNetwork.waitForResponse 等下一页 /rec/geek/list（8s 超时）
+  //      → 有响应：新 geek 进 merged，进入下一轮
+  //      → 超时：真没数据了（BOSS 推荐池见底），结束循环
+  //   ⑤ accumulated >= targetCount → 结束（拿够了）
+  //   ⑥ 安全护栏：最多 MAX_HUMANIZE_ROUNDS 轮（防死循环）
+  //
+  // 设计要点：
+  //   - `processedGeekIds` Set 标记"已 humanize 过"，避免反复看同一个 geek
+  //   - `seen` Set 全局 dedup encryptGeekId（first page → humanize → 多轮分页都不重复）
+  //   - 每轮 humanize 一开始记 humanizeStartTs，后续 listCache 用它过滤"本轮期间新到的响应"
+  //   - 触发性 lazy load（humanize 内 scroll 引起）+ 强制性滚到底两种触发方式
+  //     都通过 BOSS 自家 SPA 发请求，不是我们 fetch，安全
+  let humanizeError = null;
+  const humanizePerRoundResults = [];
+  const processedGeekIds = new Set();
+  const MAX_HUMANIZE_ROUNDS = 8;
+  let rounds = 0;
 
-  if (humanize.ok && humanize.data && Array.isArray(humanize.data.accumulated)) {
-    for (const g of humanize.data.accumulated) {
+  const { humanizeBrowseGeeks, smoothScrollToBottom } = await import(
+    "src/util/automation/bossHumanizeBrowse"
+  );
+
+  // helper：把 BOSS rec/geek/list 响应里的 geek 合进 merged（dedup），返回实际新增数
+  function mergeNewGeeks(geeks) {
+    let added = 0;
+    for (const g of geeks) {
       const id = String(g.encryptGeekId || g.geekId || "");
       if (!id || seen.has(id)) continue;
       seen.add(id);
       merged.push(g);
+      added++;
+    }
+    return added;
+  }
+
+  // helper：扫 siteNetwork 缓存里 BOSS 在 sinceTs 之后发的 /rec/geek/list 响应，
+  // 提取所有 geek。这是"humanize 期间是否触发了 lazy load"的判定依据。
+  async function collectLazyLoadedGeeksSince(sinceTs) {
+    try {
+      const cache = await window.api.siteNetwork.listCache("boss");
+      const arr = Array.isArray(cache) ? cache : cache?.entries || [];
+      const newResps = arr.filter(
+        (c) =>
+          c &&
+          typeof c.url === "string" &&
+          c.url.includes("/wapi/zpjob/rec/geek/list") &&
+          c.receivedAt > sinceTs
+      );
+      const geeks = [];
+      for (const r of newResps) {
+        const list = r.bodyJson?.zpData?.geekList || [];
+        if (Array.isArray(list)) geeks.push(...list);
+      }
+      return { responses: newResps.length, geeks };
+    } catch (e) {
+      console.warn(`[bossRecommend] listCache 失败:`, e?.message || e);
+      return { responses: 0, geeks: [] };
     }
   }
+
+  while (rounds < MAX_HUMANIZE_ROUNDS) {
+    rounds++;
+
+    // ① 选当前 batch
+    const batchGeekIds = merged
+      .map((g) => String(g.encryptGeekId || g.geekId || ""))
+      .filter((id) => id && !processedGeekIds.has(id));
+
+    if (batchGeekIds.length === 0) {
+      console.log(`[bossRecommend][humanize][round ${rounds}] 无未处理 batch，结束循环`);
+      break;
+    }
+    console.log(
+      `[bossRecommend][humanize][round ${rounds}] batch=${batchGeekIds.length} ` +
+        `accumulated=${merged.length}/${targetCount}`
+    );
+
+    // ② 跑 humanize（记录开始时间用于过滤本轮 lazy load 响应）
+    const humanizeStartTs = Date.now();
+    try {
+      const hRes = await humanizeBrowseGeeks(first.tabId, batchGeekIds, {
+        config: humanizeOpts?.config || undefined,
+        onProgress: (stage, payload) => {
+          if (typeof onProgress === "function") {
+            onProgress(`humanize.${stage}`, { ...payload, round: rounds });
+          }
+        }
+      });
+      humanizePerRoundResults.push(hRes);
+      batchGeekIds.forEach((id) => processedGeekIds.add(id));
+
+      if (!hRes?.ok) {
+        humanizeError = { code: hRes?.errorCode || "UNKNOWN", message: hRes?.message || "" };
+        console.warn(
+          `[bossRecommend][humanize][round ${rounds}] humanizeBrowseGeeks failed:`,
+          humanizeError
+        );
+        break;
+      }
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] humanize ok: plan=${hRes.plan.length} ` +
+          `executed=${hRes.executed.length} errors=${hRes.errors.length}`
+      );
+    } catch (e) {
+      humanizeError = { code: "EXCEPTION", message: e?.message || String(e) };
+      console.warn(`[bossRecommend][humanize][round ${rounds}] humanize 异常:`, humanizeError);
+      break;
+    }
+
+    // ③ 检查 humanize 期间 BOSS 自家有没有 lazy load
+    const lazyAutoLoad = await collectLazyLoadedGeeksSince(humanizeStartTs);
+    console.log(
+      `[bossRecommend][humanize][round ${rounds}] humanize 期间 BOSS 自动发了 ` +
+        `${lazyAutoLoad.responses} 条 /rec/geek/list，含 ${lazyAutoLoad.geeks.length} 个 geek`
+    );
+
+    let newGeeksThisRound = lazyAutoLoad.geeks;
+
+    // ④ 没自动触发 → 主动滚到底强制触发
+    if (newGeeksThisRound.length === 0) {
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] 未自动触发 lazy load，主动 smoothScrollToBottom（多管齐下：主frame+iframe多容器+sentinel scrollIntoView）`
+      );
+      const forceTs = Date.now();
+      try {
+        await smoothScrollToBottom(first.tabId, {
+          config: humanizeOpts?.config || undefined
+        });
+        // smoothScrollToBottom 内部已经打了详细 attempts 日志（每个容器的 scrolled / scrollHeight / clientHeight）
+      } catch (e) {
+        console.warn(
+          `[bossRecommend][humanize][round ${rounds}] smoothScrollToBottom 失败:`,
+          e?.message || e
+        );
+        break;
+      }
+      // 等 BOSS 自家发下一页响应（延长到 12s，给 IntersectionObserver + 网络往返多留点时间）
+      const next = await window.api.siteNetwork.waitForResponse({
+        siteKey: "boss",
+        urlPattern: "/wapi/zpjob/rec/geek/list",
+        timeoutMs: 12_000,
+        sinceTs: forceTs
+      });
+      if (!next?.ok) {
+        console.log(
+          `[bossRecommend][humanize][round ${rounds}] 强制滚底后 12s 没等到响应（${next?.code}），结束循环（BOSS 推荐池可能见底 或 lazy load 未触发）`
+        );
+        break;
+      }
+      const geeks = next.data?.bodyJson?.zpData?.geekList || [];
+      if (geeks.length === 0) {
+        console.log(
+          `[bossRecommend][humanize][round ${rounds}] BOSS 返回空 geekList，结束循环（无更多数据）`
+        );
+        break;
+      }
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] 强制滚底触发成功，BOSS 返回 ${geeks.length} 个新 geek`
+      );
+      newGeeksThisRound = geeks;
+    }
+
+    // ⑤ 合并到 merged，检查是否够了
+    const added = mergeNewGeeks(newGeeksThisRound);
+    console.log(
+      `[bossRecommend][humanize][round ${rounds}] dedup 后新增 ${added} 个，` +
+        `accumulated=${merged.length}/${targetCount}`
+    );
+
+    if (added === 0) {
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] 全部 duplicate（BOSS 返回的都跟已有重复），跳出避免死循环`
+      );
+      break;
+    }
+
+    if (merged.length >= targetCount) {
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] 已达到 targetCount=${targetCount}，结束循环`
+      );
+      break;
+    }
+  }
+
+  if (rounds >= MAX_HUMANIZE_ROUNDS) {
+    console.warn(
+      `[bossRecommend][humanize] 达到最大轮数护栏 MAX_HUMANIZE_ROUNDS=${MAX_HUMANIZE_ROUNDS}，强制结束`
+    );
+  }
+
+  console.log(
+    `[bossRecommend] humanize+pagination 整体结束 rounds=${rounds} ` +
+      `final=${merged.length}/${targetCount} 各轮 humanize=${humanizePerRoundResults
+        .map((r) => `${r.executed?.length || 0}/${r.plan?.length || 0}`)
+        .join(", ")}`
+  );
+
+  // 给上层一个聚合的 humanize 结果（包含每轮明细）
+  const humanizeAggregate = {
+    rounds,
+    perRound: humanizePerRoundResults,
+    totalExecuted: humanizePerRoundResults.reduce((s, r) => s + (r.executed?.length || 0), 0),
+    totalPlan: humanizePerRoundResults.reduce((s, r) => s + (r.plan?.length || 0), 0),
+    totalErrors: humanizePerRoundResults.reduce((s, r) => s + (r.errors?.length || 0), 0)
+  };
+  if (typeof onProgress === "function") onProgress("humanized", humanizeAggregate);
 
   return {
     ok: true,
     tabId: first.tabId,
     url: first.url,
+    select: selectResult,
     firstPage: first.data,
-    humanize: humanize.ok ? humanize.data : null,
-    humanizeError: humanize.ok ? null : { code: humanize.errorCode, message: humanize.message },
-    geekList: merged
+    humanize: humanizeAggregate,
+    humanizeError,
+    geekList: merged.slice(0, targetCount) // 不超过 targetCount，多余的截掉
   };
 }
 

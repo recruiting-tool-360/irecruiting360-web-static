@@ -36,8 +36,14 @@
     <!-- 列表 -->
     <template v-else>
       <div class="rl-toolbar">
+        <!--
+          ⚠️ 这里显示的是"已抓到的实际人数"，必须用 bucket.geekList.length。
+          bucket.totalSize 是 BOSS 首屏响应里的 totalSize 字段（BOSS 给的"理论"总数，
+          通常是首屏的 15），如果用 totalSize 会出现「已抓 60 条但 header 只显示 15」的 bug。
+          —— 实际累计抓取数量 = geekList 数组长度。
+        -->
         <span class="rl-count">
-          共 <strong>{{ bucket.totalSize || bucket.geekList.length }}</strong> 人
+          共 <strong>{{ bucket.geekList.length }}</strong> 人
         </span>
         <span class="rl-meta" v-if="bucket.fetchedAt">
           抓取于 {{ formatTime(bucket.fetchedAt) }}

@@ -782,6 +782,20 @@ async function doFetchRecommend(args) {
     } else if (stage === 'dwell') {
       console.log(`[IndexPage] 拟人 dwell ${payload?.ms}ms 模拟用户加载后停留观察`);
       setPhase('FETCHING');
+    } else if (stage === 'select.waiting') {
+      // autoSelectJob=true 路径：select 流程开始（15s 初始 dwell）
+      // 这是 OPENING → FETCHING 之间的过渡阶段，让 UI 提前进入 FETCHING，
+      // 用户看到"正在准备数据"而不是卡在 OPENING 30s+。
+      console.log(`[IndexPage] BOSS 主动选职位流程开始，initial dwell ${payload?.delayMs}ms`);
+      setPhase('FETCHING');
+    } else if (stage === 'select.openingDropdown') {
+      console.log('[IndexPage] CDP click 打开 BOSS 职位下拉');
+    } else if (stage === 'select.browsingDropdown') {
+      console.log(`[IndexPage] 下拉已打开，浏览 dwell ${payload?.dwellMs}ms`);
+    } else if (stage === 'select.selectingItem') {
+      console.log(`[IndexPage] CDP click 选中目标职位 ${payload?.selector}`);
+    } else if (stage === 'select.done') {
+      console.log('[IndexPage] BOSS 职位选中完成，等切职位响应');
     } else if (stage === 'verified') {
       console.log('[IndexPage] BOSS 推荐 verify 通过:', payload);
     } else if (stage === 'firstPage' && payload?.geekList?.length > 0) {
@@ -830,10 +844,13 @@ async function doFetchRecommend(args) {
     return;
   }
   // 用首屏 + humanize accumulated 的去重合并结果写回 store
+  // ⚠️ totalSize 用实际合并后的数量（res.geekList.length），不是 firstPage.totalSize。
+  // firstPage.totalSize 只反映 BOSS 单页响应的 totalSize 字段（通常 15），跟我们实际累计
+  // 抓到的数量不一致 → UI header 显示「共 15 人」但实际 60 人，bug。
   store.commit('setBossRecommendList', {
     jobId,
     geekList: res.geekList || [],
-    totalSize: res.firstPage?.totalSize,
+    totalSize: (res.geekList || []).length,
     hasMore: res.firstPage?.hasMore,
     fetchedAt: Date.now()
   });
@@ -1179,10 +1196,17 @@ async function runRealAggregateSearch(opts) {
     let recommendPromise = null;
     if (recommendChecked && jobId) {
       const targetCount = Number(opts?.resumeCount) > 0 ? Number(opts.resumeCount) : 10;
+      // ⚠️ 不再传 stopAfter: 'firstPage'。原因：
+      //   - 早期 runBossRecommend 只支持"抓首屏"，stopAfter='firstPage' 是当时的临时设计
+      //   - 现在 runBossRecommend 内置了 humanize + 分页循环（详见 bossRecommend.js
+      //     "拟人浏览 + 分页加载循环"一节），会自动滚到 targetCount 或 BOSS 见底为止
+      //   - 必须等完整循环跑完拿到目标数量的 geek，再调 /results + AI 评分（IndexPage
+      //     doFetchRecommend 里在 await runBossRecommend 之后才调 postBatchResults +
+      //     postTaskResumeDetail），否则会出现"才 15 条就触发 AI 评分，后续滚动加载的
+      //     数据没机会评分"的问题。
       const args = {
         encryptJobId: jobId,
         targetCount,
-        stopAfter: 'firstPage',
         humanizeOpts: {},
         awaitBeforeStart: searchPromise
       };
@@ -1945,37 +1969,9 @@ onMounted(() => {
   // 后端 STEP_COMMAND 时能"代用户"启动一次真实搜索。详见 runRealAggregateSearch 注释。
   store.commit('setAggregateSearchExecutor', runRealAggregateSearch);
 
-  // ⚠️ BOSS Playwright 冒烟测试入口已下线（2026-05-18 17:33 实测被风控）。
-  // 详见 docs/boss地址资料.md 反爬警告区。不要再加任何"调 Playwright 跑 BOSS"
-  // 的 debug helper —— BOSS 检测的是 `--remote-debugging-port` Chromium 启动指纹本身，
-  // 不是脚本动作。
-  //
-  // ✅ 新的 CDP 路径：window.__DEV_bossClickFilter('<encryptJobId>')
-  // 走 webContents.debugger.sendCommand('Input.dispatchMouseEvent')，
-  // 同进程 CDP、零端口暴露、isTrusted=true。详见 cdpInputDispatcher.ts。
-  //
-  // 三重守卫：
-  //   1) import.meta.env.DEV         编译期常量，生产 build 整个分支被 tree-shake
-  //   2) window.__IKUAIZHAO_NATIVE__  preload 注入；浏览器版不挂
-  //   3) 动态 import bossClickFilterDebug   生产 bundle 不含该文件
-  if (
-    typeof window !== 'undefined' &&
-    import.meta.env.DEV &&
-    window.__IKUAIZHAO_NATIVE__
-  ) {
-    void import('src/util/automation/bossClickFilterDebug')
-      .then(({ testClickFilterOnce }) => {
-        window.__DEV_bossClickFilter = testClickFilterOnce;
-        console.log(
-          '[IndexPage][dev-only] CDP 调试入口已挂载：window.__DEV_bossClickFilter(encryptJobId)。' +
-            '走同进程 CDP Input.dispatchMouseEvent，不需要 ENABLE_REMOTE_DEBUG。' +
-            '⚠️ 用没被风控过的 BOSS 账号测试！只点一次！'
-        );
-      })
-      .catch((e) => {
-        console.warn('[IndexPage][dev-only] bossClickFilterDebug 动态 import 失败:', e?.message || e);
-      });
-  }
+  // 已下线：早期的 BOSS dev-only 调试入口（window.__DEV_bossClickFilter / Playwright
+  // 冒烟测试）。业务流程现在走 runBossRecommend → selectJobInBossRecommend +
+  // humanizeBrowseGeeks 这条正式链路，无需 dev console helper。
 });
 
 onUnmounted(() => {

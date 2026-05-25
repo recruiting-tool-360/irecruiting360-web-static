@@ -395,6 +395,16 @@ export interface AutomationBridge {
     error?: { code: string; message: string }
     logs: string[]
   }>
+
+  /**
+   * 在 tab 的 page 上下文跑任意 JS（webContents.executeJavaScript），不连 CDP。
+   * 详见 main 进程 IPC handler `automation:evalOnTab` 头注释。
+   */
+  evalOnTab(opts: { tabId: string; code: string; awaitPromise?: boolean }): Promise<{
+    ok: boolean
+    result?: unknown
+    error?: { code: string; message: string }
+  }>
 }
 
 /**

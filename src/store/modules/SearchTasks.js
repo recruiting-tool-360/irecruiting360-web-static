@@ -1088,9 +1088,17 @@ const actions = {
         // SKIPPED 表示 aggregateSearchInFlight=true（前一次 executor 还在跑）
         // 这种情况下 ChannelConfig 可能正在被填充，等 inFlight 变 false 再继续，
         // 否则下面调 postSearchResults 拿到的可能是空 / 不完整数据
+        //
+        // ⚠️ 节奏说明：2026-05-24 把上限从 60s 延长到 20 分钟。
+        // 原因：runRealAggregateSearch 在 try 内调 doFetchRecommend，doFetchRecommend
+        // 内部跑 runBossRecommend（含 humanize+pagination 循环，可能 10+ 分钟），
+        // 这期间 inFlight 一直 true。旧版 60s 远远不够 → 这里超时跳出后 runTask
+        // 继续往下走 finish，把还在跑的 humanize 流程提前中断。
+        // 新版 20 分钟兜底，跟下面推荐 phase 等待一致（注意：inFlight 一旦释放就立刻
+        // break，正常情况下不会真等满 20 分钟，只有异常死锁才会触发这个上限）。
         console.log(`[SearchTasks] runTask: executor SKIPPED（前一次还在跑），等 inFlight 释放...`);
-        const POLL_INTERVAL_MS = 200;
-        const MAX_WAIT_MS = 60_000;
+        const POLL_INTERVAL_MS = 500;
+        const MAX_WAIT_MS = 20 * 60_000; // 20 分钟兜底
         const startWait = Date.now();
         while (Date.now() - startWait < MAX_WAIT_MS) {
           const stillRunning =
@@ -1287,34 +1295,75 @@ const actions = {
           const rsuMod = await import('src/utils/recommendScoreUpdater');
           const rsu = rsuMod.default || rsuMod;
           if (rsu) {
-            const REC_WAIT_MAX_MS = 10 * 60 * 1000;
+            // ⚠️ 节奏说明（2026-05-24 改）：
+            //
+            // 旧版用「60s 内没看到 scoreUpdater active 就放弃」当兜底，原因是早期
+            // doFetchRecommend 不带 humanize 几秒内就跑到 recommendScoreUpdater.start()。
+            //
+            // 现在加了 humanize+pagination 循环（每轮 70-230s，N 轮可能 10+ 分钟），
+            // scoreUpdater 必须等 humanize 全部跑完才能启动。60s 窗口远远不够 →
+            // runTask 误判推荐异常 → 提前 finish → 中断 humanize → 数据丢失。
+            //
+            // 新版改用 recommendClientPhase 状态机驱动：
+            //   - phase=DONE   → humanize 完成 + scoreUpdater 完成 → break
+            //   - phase=FAILED → 推荐流程失败 → break
+            //   - phase 30s 内一直 IDLE → 真没启动（doFetchRecommend 异常/没调）→ break
+            //   - 其它中间态（WAITING/OPENING/FETCHING/FETCHED/SAVED/SCORING）→ 继续等
+            //   - 总上限 20 分钟兜底（humanize 极端情况 + AI 评分 60 条简历）
+            const REC_WAIT_MAX_MS = 20 * 60 * 1000; // 20 分钟硬兜底
             const REC_POLL_MS = 1000;
-            const REC_START_GRACE_MS = 60 * 1000; // 给 doFetchRecommend 启动 recommendScoreUpdater 留 60s 启动窗口
+            const REC_NO_PHASE_GRACE_MS = 30 * 1000; // 30s 没看到任何 phase 推进 = 真没启动
             const recStart = Date.now();
-            let seenActive = false;
+            let seenActiveAi = false;
+            let seenAnyPhase = false;
+            const phaseHistory = []; // 调试用，记 phase 变化轨迹
+            let lastPhase = null;
             console.log(
-              `[SearchTasks] runTask: finish RECOMMEND/BOSS 前再等 recommendScoreUpdater (channelId=${ch.taskChannelId})`
+              `[SearchTasks] runTask: finish RECOMMEND/BOSS 前等推荐 phase 终态 (channelId=${ch.taskChannelId}, taskId=${taskId})`
             );
             while (Date.now() - recStart < REC_WAIT_MAX_MS) {
               const timerOn = !!rsu.timer;
               const pending = rsu.pendingBlindIds?.size || 0;
-              if (timerOn || pending > 0) seenActive = true;
+              const phase = state.recommendClientPhase?.[taskId]?.phase || 'IDLE';
               const elapsed = Date.now() - recStart;
-              // 已经见过 active → timer 没了且 pending=0 → 真正完成
-              if (seenActive && !timerOn && pending === 0) break;
-              // 始终没见过 active 而且过了启动窗口 → 推荐根本没启动（异常 / 跳过），不再等
-              if (!seenActive && elapsed >= REC_START_GRACE_MS) {
+
+              if (timerOn || pending > 0) seenActiveAi = true;
+              if (phase && phase !== 'IDLE') seenAnyPhase = true;
+              if (phase !== lastPhase) {
+                phaseHistory.push(`${elapsed}ms:${phase}`);
+                lastPhase = phase;
+              }
+
+              // 终态判定
+              if (phase === 'FAILED') {
                 console.warn(
-                  `[SearchTasks] runTask: 推荐 scoreUpdater 60s 内未启动，可能 doFetchRecommend 异常，不再等待直接 finish`
+                  `[SearchTasks] runTask: 推荐 phase=FAILED (耗时 ${elapsed}ms) → finish`
                 );
                 break;
               }
+              if (phase === 'DONE' && !timerOn && pending === 0) {
+                // phase=DONE 表示 doFetchRecommend 业务流程跑完（含 humanize + /results + /detail）
+                // 同时 scoreUpdater 已停（timer null + pending 0）→ AI 评分也跑完 → 真正可 finish
+                break;
+              }
+
+              // 兜底：30s 内 phase 一直 IDLE → 推荐根本没启动（doFetchRecommend 异常或没调）
+              if (!seenAnyPhase && elapsed >= REC_NO_PHASE_GRACE_MS) {
+                console.warn(
+                  `[SearchTasks] runTask: 推荐 phase 30s 内一直 IDLE，doFetchRecommend 可能异常，跳过等待 → finish`
+                );
+                break;
+              }
+
               await new Promise((r) => setTimeout(r, REC_POLL_MS));
             }
             const recWaitMs = Date.now() - recStart;
             console.log(
-              `[SearchTasks] runTask: 推荐 AI 等待结束 耗时=${recWaitMs}ms seenActive=${seenActive}` +
-              ` timer=${!!rsu.timer} pending=${rsu.pendingBlindIds?.size || 0}`
+              `[SearchTasks] runTask: 推荐 phase 等待结束 耗时=${recWaitMs}ms ` +
+              `final phase=${state.recommendClientPhase?.[taskId]?.phase || 'IDLE'} ` +
+              `seenActiveAi=${seenActiveAi} seenAnyPhase=${seenAnyPhase} ` +
+              `timer=${!!rsu.timer} pending=${rsu.pendingBlindIds?.size || 0} ` +
+              `轨迹=[${phaseHistory.join(' → ')}]`
             );
           }
         } catch (e) {
