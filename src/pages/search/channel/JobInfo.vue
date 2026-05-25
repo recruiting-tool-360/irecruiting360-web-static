@@ -106,8 +106,12 @@ const getChannelDisable = (key) => {
 };
 
 // 数据 - 聚合渠道从vuex中获取数据
+// ★ 渲染优先用 getEffectiveChannelConfByAll（viewing 模式下取 ViewingResults 的数据，
+//   非 viewing 模式 fallback 回 ChannelConfig.ALL）—— 让"查看历史 task 结果"跟 runtime 任务隔离。
+//   详见 src/store/modules/ViewingResults.js 顶部注释。
 const jobList = computed(() => {
-  const data = channelConfig.value.data;
+  const effective = store.getters.getEffectiveChannelConfByAll;
+  const data = effective?.data;
   console.log('[JobInfo] jobList 计算，ALL.data 条数=', data?.length ?? 'null');
   return data || [];
 });

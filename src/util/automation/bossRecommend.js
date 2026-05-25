@@ -15,6 +15,42 @@
  */
 
 import { runOnTab } from "src/util/automation/runScript";
+
+/**
+ * 模块级 state：记录最近一次 runBossRecommend 锁定的 tabId。
+ *
+ * 为什么这么设计：runBossRecommend 内部 return 路径很多（按错误码 / 短路 / 正常完成），
+ * 在每个 return 前都 setLocked(false) 太脆弱。
+ * 上层调用方（IndexPage.doFetchRecommend）的 try/finally 是更可靠的解锁时机，
+ * 这里导出 unlockRecommendTab() 让上层在 finally 里一次性兜底。
+ *
+ * 不存进 Vuex 是因为这只是「跟当前 runBossRecommend 调用绑定」的临时状态，
+ * 没有跨组件/跨 chat 的语义，放模块变量足够。
+ */
+let __lockedRecommendTabId = null;
+
+/**
+ * 解锁最近一次 runBossRecommend 锁定的 BOSS 推荐 tab（X 按钮重新显示，用户可关）。
+ *
+ * 调用时机：
+ *   - IndexPage.doFetchRecommend 的 try/finally 里（任务正常完成 / 报错 / 中断都会走）
+ *   - SearchTasks.stopForChat（用户手动停任务时）
+ *
+ * 幂等：没锁过 / 已解锁都是 no-op。
+ */
+export async function unlockRecommendTab() {
+  if (!__lockedRecommendTabId) return;
+  const tabId = __lockedRecommendTabId;
+  __lockedRecommendTabId = null;
+  try {
+    if (typeof window?.api?.tabs?.setLocked === "function") {
+      await window.api.tabs.setLocked({ id: tabId, locked: false });
+      console.log(`[bossRecommend] unlockRecommendTab(${tabId}) ok`);
+    }
+  } catch (e) {
+    console.warn(`[bossRecommend] unlockRecommendTab(${tabId}) 失败（忽略）：`, e?.message || e);
+  }
+}
 import {
   scriptCode as bossRecommendFilterScript,
   buildCtx as buildRecommendFilterCtx
@@ -506,34 +542,31 @@ export async function runBossRecommend(args) {
     try {
       if (typeof window?.api?.tabs?.list === "function") {
         const allTabs = await window.api.tabs.list();
-        const targetMarker = `jobid=${encryptJobId}`;
+        // ★ 用户要求：启动 BOSS 推荐任务前，**所有** BOSS 相关 tab 都关掉（不论 URL 是否匹配 target）。
+        // 业务侧考虑：自动化期间多个 BOSS tab 同时存在容易让用户误以为有多个任务在跑，
+        // siteNetworkCapture 也可能抓到非目标 tab 的响应（虽然有 sinceTs 兜底）。
         const matching = (Array.isArray(allTabs) ? allTabs : []).filter(
-          (t) =>
-            t &&
-            t.channel === "boss" &&
-            typeof t.url === "string" &&
-            t.url.includes(targetMarker)
+          (t) => t && t.channel === "boss"
         );
         if (matching.length > 0) {
           console.log(
-            `[bossRecommend] 检测到 ${matching.length} 个已存在 BOSS 推荐 tab (target jobid=${encryptJobId}) → close 后重开` +
+            `[bossRecommend] 检测到 ${matching.length} 个已存在 BOSS tab，全部 close 后重开` +
               ` (tabIds=${matching.map((t) => t.id).join(",")})`
           );
           for (const t of matching) {
             try {
+              // 先解锁（防止上次任务异常 leave 了 locked=true 的 tab，否则 close 被拒绝）
+              if (t.locked && typeof window?.api?.tabs?.setLocked === "function") {
+                await window.api.tabs.setLocked({ id: t.id, locked: false });
+              }
               await window.api.tabs.close(t.id);
               console.log(`[bossRecommend] tabs.close(${t.id}) ok url=${t.url}`);
             } catch (e) {
-              console.warn(
-                `[bossRecommend] tabs.close(${t.id}) 失败（忽略）：`,
-                e?.message || e
-              );
+              console.warn(`[bossRecommend] tabs.close(${t.id}) 失败（忽略）：`, e?.message || e);
             }
           }
         } else {
-          console.log(
-            `[bossRecommend] 无匹配 target jobid=${encryptJobId} 的旧 BOSS tab，无需 close`
-          );
+          console.log("[bossRecommend] 无 BOSS tab，无需 close");
         }
       }
     } catch (e) {
@@ -563,6 +596,23 @@ export async function runBossRecommend(args) {
   if (!opened.ok) return opened;
   if (typeof onProgress === "function") {
     onProgress("opened", { tabId: opened.tabId, url: opened.url });
+  }
+
+  // ★ 立刻锁住这个 BOSS tab：用户不能手动 X 关掉（防止自动化跑中被误关导致中断）。
+  // 记到模块级变量，由上层（IndexPage.doFetchRecommend 的 finally / stopForChat）
+  // 通过 unlockRecommendTab() 解锁，覆盖所有正常/异常退出路径。
+  // 上一次任务异常 leave 的锁先解掉再设新的（理论上调用前已 close 所有 BOSS tab，但保险）
+  if (__lockedRecommendTabId && __lockedRecommendTabId !== opened.tabId) {
+    await unlockRecommendTab();
+  }
+  if (typeof window?.api?.tabs?.setLocked === "function") {
+    try {
+      await window.api.tabs.setLocked({ id: opened.tabId, locked: true });
+      __lockedRecommendTabId = opened.tabId;
+      console.log(`[bossRecommend] tabs.setLocked(${opened.tabId}, true) ok - 任务期间锁定`);
+    } catch (e) {
+      console.warn(`[bossRecommend] tabs.setLocked(true) 失败（忽略）：`, e?.message || e);
+    }
   }
 
   // 2.5) 主动 select 分支 vs 旧被动 dwell 分支
@@ -615,8 +665,9 @@ export async function runBossRecommend(args) {
       // 切换职位 → BOSS 会发新 API → 用 liClickedAt 等切职位后的响应
       sinceTs = selectRes.liClickedAt || Date.now();
       console.log(
-        `[bossRecommend] selectJob ok (current=${selectRes.currentSelectedJobId || "?"} → target=${encryptJobId}) ` +
-          `→ sinceTs=${sinceTs}（liClickedAt），等 BOSS 切职位响应`
+        `[bossRecommend] selectJob ok (current=${
+          selectRes.currentSelectedJobId || "?"
+        } → target=${encryptJobId}) ` + `→ sinceTs=${sinceTs}（liClickedAt），等 BOSS 切职位响应`
       );
     }
   } else {
@@ -691,6 +742,17 @@ export async function runBossRecommend(args) {
     };
   }
 
+  // ★ 给推荐卡 step1 "分析画像关键词" 一个可见的 processing 窗口（仅 autoSelectJob 路径）
+  //
+  // 实际前端没真的在做"分析"，但用户期望「选中职位 → 分析关键词 → 获取候选人」三步顺次显示。
+  // select.done 之后到 fetchBossRecommendList 之间有真实的等待（响应延迟可短可长），
+  // 这里 emit 'analyzing' 让 IndexPage 切 SELECTED phase，并 sleep 一小段确保 UI 渲染到位。
+  // 顺带也降低了"select 完立刻 fetch"的机器人节奏。
+  if (autoSelectJob) {
+    if (typeof onProgress === "function") onProgress("analyzing", { dwellMs: 1200 });
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+
   // 3) 抓首屏（不再额外等导航：上面 dwell 已经包含足够的"页面加载稳定"时间）
   // 把 runBossRecommend 入口拿到的 sinceTs 传给 fetchBossRecommendList，
   // 确保它能扫到 dwell 期间已经发生的"BOSS 自动发 /rec/geek/list"那条 HIT
@@ -715,6 +777,9 @@ export async function runBossRecommend(args) {
   } catch (e) {
     console.warn(`[bossRecommend] listCache 失败（忽略）：`, e?.message || e);
   }
+
+  // emit 'fetching'：让 UI 推荐卡切到 step2 "获取候选人列表" processing
+  if (typeof onProgress === "function") onProgress("fetching", { sinceTs });
 
   const first = await fetchBossRecommendList({ encryptJobId, navWaitMs: 0, sinceTs });
   if (!first.ok) return first;
@@ -823,8 +888,39 @@ export async function runBossRecommend(args) {
     }
   }
 
+  // 用户主动停止 abort check：每轮 humanize 顶部检查当前 chat 的 task 是否被用户标 STOPPED。
+  // 来源：SearchTasks/stopForChat action 会 commit markTaskUserStopped → state.userStoppedTaskIds
+  // 同时也会改 task.taskStatus=STOPPED，所以两个信号都可以判定。
+  // 动态 import store 避免顶层循环依赖。
+  async function isUserAborted() {
+    try {
+      const storeMod = await import("src/store");
+      const store = storeMod.default || storeMod;
+      const cid = store?.getters?.getLatestChatId;
+      if (!cid) return false;
+      const getLatest = store?.getters?.["SearchTasks/getLatestTaskByChat"];
+      const task = typeof getLatest === "function" ? getLatest(cid) : null;
+      if (!task) return false;
+      // 双重判定：state.userStoppedTaskIds 命中 OR task.taskStatus 已是 STOPPED
+      const stoppedMap = store?.state?.SearchTasks?.userStoppedTaskIds || {};
+      return stoppedMap[String(task.taskId)] === true || task.taskStatus === "STOPPED";
+    } catch (e) {
+      console.warn("[bossRecommend] isUserAborted check 失败（默认 false）:", e?.message || e);
+      return false;
+    }
+  }
+
   while (rounds < MAX_HUMANIZE_ROUNDS) {
     rounds++;
+
+    // ★ 每轮先 check 用户是否主动停止；停了就立刻 break，把已有的 merged 数据带回去
+    if (await isUserAborted()) {
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] 用户主动停止任务，立即 break 循环（已累计 ${merged.length} 条）`
+      );
+      humanizeError = { code: "USER_STOPPED", message: "用户主动停止任务" };
+      break;
+    }
 
     // ① 选当前 batch
     const batchGeekIds = merged

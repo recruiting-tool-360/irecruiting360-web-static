@@ -165,7 +165,20 @@ const initialState = () => ({
    *
    * 不持久化（runtime only）。
    */
-  recommendClientPhase: {}
+  recommendClientPhase: {},
+
+  /**
+   * 用户主动停止的 taskId 集合。
+   * 形态：`{ [taskId]: true }`（不用 Set 是为了 vuex devtools / persistedstate 友好）。
+   *
+   * 用途：业务侧（bossRecommend humanize 循环 / runRealAggregateSearch 等长流程）
+   * 在每轮工作前 check `state.userStoppedTaskIds[taskId] === true` → 立刻 break，
+   * 让用户点"停止"按钮后能尽快终止还在跑的拟人浏览/分页加载。
+   *
+   * 写入：mutation `markTaskUserStopped` (action `stopForChat` 调)
+   * 清理：mutation `clearTaskUserStopped`（任务完全 finalize 后调，避免内存累积）
+   */
+  userStoppedTaskIds: {}
 });
 
 const state = initialState();
@@ -394,6 +407,34 @@ const mutations = {
     const next = { ...state.recommendClientPhase };
     delete next[taskId];
     state.recommendClientPhase = next;
+  },
+
+  /**
+   * 标记某 taskId 为"用户主动停止"。
+   *
+   * 同时做两件事：
+   *   1) 写 state.userStoppedTaskIds[taskId] = true（让长流程检测后 break）
+   *   2) 把 task.taskStatus 改 STOPPED + isManualStopped=true
+   *      （isManualStopped 控制 LeftMenu 不显示红色 STOPPED badge，因为不是异常停止）
+   */
+  markTaskUserStopped(state, { taskId }) {
+    if (!taskId) return;
+    state.userStoppedTaskIds = { ...state.userStoppedTaskIds, [String(taskId)]: true };
+    const t = state.tasksById?.[taskId];
+    if (t) {
+      state.tasksById = {
+        ...state.tasksById,
+        [taskId]: { ...t, taskStatus: TASK_STATUS.STOPPED, isManualStopped: true }
+      };
+    }
+  },
+  /** 清理 userStoppedTaskIds 里某个 taskId（finalize 后或者下一次开新任务时） */
+  clearTaskUserStopped(state, taskId) {
+    if (!taskId) return;
+    if (!state.userStoppedTaskIds?.[taskId]) return;
+    const next = { ...state.userStoppedTaskIds };
+    delete next[taskId];
+    state.userStoppedTaskIds = next;
   },
 
   /**
@@ -795,6 +836,14 @@ const actions = {
               }
             }
           }
+          // ★ 调完 finish 后再拉一次 queue，让 state.taskQueue.items 同步成最新
+          // （刚 FAILED 的那批 task 在 queue 里应该消失了）
+          try {
+            await dispatch('fetchTaskQueue');
+            console.log('[SearchTasks] cleanupOrphan: finish 后 fetchTaskQueue ok（已同步后端最新 queue）');
+          } catch (e) {
+            console.warn('[SearchTasks] cleanupOrphan: finish 后 fetchTaskQueue 失败（忽略）:', e?.message || e);
+          }
         } else {
           console.log('[SearchTasks] cleanupOrphan: 无孤立 RUNNING 任务');
         }
@@ -804,6 +853,143 @@ const actions = {
     }
     // 不管清理结果如何，最后都要拉 current 拿真正可执行的任务
     return dispatch('resumeFromCurrent');
+  },
+
+  /**
+   * 用户主动停止某个 chat 当前的活跃任务（点 chatCard 上的红色"停止"按钮触发）。
+   *
+   * 流程：
+   *   1) 找该 chat 最新 task；若状态不在 RUNNING/WAITING/RESTING 直接返回
+   *   2) 标记本地 task.taskStatus=STOPPED + isManualStopped=true（不显示红 badge）
+   *      同时记 state.userStoppedTaskIds[taskId]=true 让 humanize 循环 / 各 polling
+   *      能检测到后立即 abort（业务侧自己加 check）
+   *   3) 对所有未完成 channel 调 postFinishChannel(STOPPED, USER_STOPPED)
+   *   4) 停 scoreAutoUpdater + recommendScoreUpdater（轮询的评分查询也停）
+   *
+   * 返回：`{ ok, stoppedChannels, errors, message? }`
+   */
+  async stopForChat({ state, commit, getters, dispatch }, chatId) {
+    if (!chatId) return { ok: false, message: 'chatId required' };
+
+    const task = getters.getLatestTaskByChat(chatId);
+    if (!task) {
+      return { ok: false, message: '当前职位没有进行中的任务' };
+    }
+    // ★ STOPPABLE 判定：跟 canCreateForChat 的"任务进行中"语义对齐（防止 UI 显示"进行中"
+    //   但点停止却被拒绝的 inconsistency bug）
+    //   - RUNNING / WAITING / RESTING：任务本身在跑，要停（调 finishChannel + 停 scoreUpdater）
+    //   - COMPLETED + AI 分析中（评分轮询还在跑）：任务收敛了但用户感知还在"进行中"
+    //     → 也要支持停（不调 finishChannel，channels 都 final 了；只停 scoreUpdater）
+    const STOPPABLE_RUNNING = [TASK_STATUS.RUNNING, TASK_STATUS.WAITING, TASK_STATUS.RESTING];
+    const isTaskAlive = STOPPABLE_RUNNING.includes(task.taskStatus);
+    const isScoringActive =
+      task.taskStatus === TASK_STATUS.COMPLETED &&
+      typeof getters.isAiAnalyzingForChat === 'function' &&
+      getters.isAiAnalyzingForChat(chatId) === true;
+    if (!isTaskAlive && !isScoringActive) {
+      return {
+        ok: false,
+        message: `任务 ${task.taskId} 当前状态 ${task.taskStatus}，无需停止`
+      };
+    }
+
+    const taskId = task.taskId;
+    console.log(
+      `[SearchTasks/stopForChat] 用户主动停止 taskId=${taskId} chatId=${chatId}` +
+        ` isTaskAlive=${isTaskAlive} isScoringActive=${isScoringActive}`
+    );
+
+    // 1) 立刻标记本地状态 + abort 标志位
+    //    放在调接口之前，让 humanize 循环 / runRealAggregateSearch 能尽快检测后 break
+    commit('markTaskUserStopped', { taskId });
+
+    // 2) 立刻把 task 从本地 runtime queue / runningTaskId 移除
+    //    否则 LeftMenu 的 getAggregateStatus 优先看这两个 state，会一直显示"进行中/排队中"
+    commit('dequeue', taskId);
+    if (state.runningTaskId === taskId) {
+      commit('setRunning', null);
+      console.log(`[SearchTasks/stopForChat] 释放 runningTaskId（原本 = ${taskId}）`);
+    }
+
+    // 3) 调 finishChannel：仅在 isTaskAlive 时调（有未结束的 channel）
+    //    isScoringActive only 场景：channels 都 final 了，不用再调 finish
+    const channels = Array.isArray(task.channels) ? task.channels : [];
+    const finalStatuses = ['COMPLETED', 'FAILED', 'STOPPED'];
+    let stoppedChannels = 0;
+    const errors = [];
+    if (isTaskAlive) {
+      for (const ch of channels) {
+        if (!ch.taskChannelId) continue;
+        if (finalStatuses.includes(ch.taskChannelStatus)) continue;
+        try {
+          await taskApi.postFinishChannel(ch.taskChannelId, {
+            status: 'STOPPED',
+            errorCode: 'USER_STOPPED',
+            errorMessage: '用户主动停止任务'
+          });
+          console.log(
+            `[SearchTasks/stopForChat] finish STOPPED ok channel=${ch.channelSubType}-${ch.businessChannel} channelId=${ch.taskChannelId}`
+          );
+          stoppedChannels++;
+        } catch (e) {
+          errors.push({ taskChannelId: ch.taskChannelId, message: e?.message || String(e) });
+          console.warn(
+            `[SearchTasks/stopForChat] finish STOPPED failed channelId=${ch.taskChannelId}:`,
+            e?.message || e
+          );
+        }
+      }
+    } else {
+      console.log(
+        '[SearchTasks/stopForChat] 任务本身已 COMPLETED，跳过 finishChannel（仅停 scoreUpdater 评分轮询）'
+      );
+    }
+
+    // 4) 停搜索 + 推荐两套 scoreUpdater 轮询（评分 polling 不再发新请求）
+    try {
+      const [sa, rsa] = await Promise.all([
+        import('src/utils/scoreAutoUpdater'),
+        import('src/utils/recommendScoreUpdater')
+      ]);
+      (sa.default || sa)?.stop?.();
+      (rsa.default || rsa)?.stop?.();
+      console.log('[SearchTasks/stopForChat] scoreAutoUpdater + recommendScoreUpdater 已停');
+    } catch (e) {
+      console.warn('[SearchTasks/stopForChat] 停 scoreUpdater 失败（忽略）:', e?.message || e);
+    }
+
+    // 5) 重新拉后端 queue，让 state.taskQueue.items 同步成最新（剔掉刚 finish 的任务）
+    //    否则 LeftMenu 的 getAggregateStatus 看到 queueItem 还在 → 仍然显示"排队中"
+    try {
+      await dispatch('fetchTaskQueue');
+      console.log('[SearchTasks/stopForChat] fetchTaskQueue ok（已同步后端 queue 最新状态）');
+    } catch (e) {
+      console.warn('[SearchTasks/stopForChat] fetchTaskQueue 失败（忽略，本地 state 已自己清）:', e?.message || e);
+    }
+
+    // 6) 解锁 BOSS 推荐 tab（用户停任务后 X 按钮重新出现，可以手动关 tab）
+    //    bossRecommend.js 模块级 state 记录了当前锁定的 tabId，幂等：没锁过就 no-op
+    try {
+      const { unlockRecommendTab } = await import('src/util/automation/bossRecommend');
+      await unlockRecommendTab();
+      console.log('[SearchTasks/stopForChat] unlockRecommendTab ok');
+    } catch (e) {
+      console.warn('[SearchTasks/stopForChat] unlockRecommendTab 失败（忽略）:', e?.message || e);
+    }
+
+    // ⚠️ 注意：humanize+pagination 循环（在 src/util/automation/bossRecommend.js）
+    // 还在 IndexPage runRealAggregateSearch 的 await 链里跑，本 action 无法直接打断，
+    // 但 humanize 内部每轮顶部会 check state.userStoppedTaskIds[taskId] 主动 break。
+    // 即便没 break 干净，task 已 STOPPED → 后端拒绝后续 /results /detail 调用，不会污染数据。
+    return {
+      ok: true,
+      taskId,
+      stoppedChannels,
+      errors,
+      message: isScoringActive && !isTaskAlive
+        ? '已停止 AI 评分轮询'
+        : `已停止任务 (${stoppedChannels} 个渠道)${errors.length ? `，${errors.length} 个失败` : ''}`
+    };
   },
 
   /**
@@ -1308,7 +1494,7 @@ const actions = {
             //   - phase=DONE   → humanize 完成 + scoreUpdater 完成 → break
             //   - phase=FAILED → 推荐流程失败 → break
             //   - phase 30s 内一直 IDLE → 真没启动（doFetchRecommend 异常/没调）→ break
-            //   - 其它中间态（WAITING/OPENING/FETCHING/FETCHED/SAVED/SCORING）→ 继续等
+            //   - 其它中间态（WAITING/OPENING/SELECTING/SELECTED/FETCHING/FETCHED/SAVED/SCORING）→ 继续等
             //   - 总上限 20 分钟兜底（humanize 极端情况 + AI 评分 60 条简历）
             const REC_WAIT_MAX_MS = 20 * 60 * 1000; // 20 分钟硬兜底
             const REC_POLL_MS = 1000;
@@ -1424,6 +1610,15 @@ const actions = {
     commit("clearTaskResumeIds");
     if (task?.chatId) {
       commit("clearPendingDetailsForChat", task.chatId);
+    }
+    // ★ 任务终态后刷新后端 queue（这批 channel 都 finish 了 → queue 里应该不再有它）
+    // 同时为 LeftMenu 等用 state.taskQueue.items 渲染的组件提供最新数据。
+    // 失败容忍：异常不阻塞后面的 resumeFromCurrent
+    try {
+      await dispatch("fetchTaskQueue");
+      console.log(`[SearchTasks] runTask: finish 后 fetchTaskQueue ok（taskId=${taskId}）`);
+    } catch (e) {
+      console.warn(`[SearchTasks] runTask: finish 后 fetchTaskQueue 失败（忽略）:`, e?.message || e);
     }
     // 任务结束后调 /search/task/current 拉下一个待执行任务（替代本地 processQueue）
     // 后端按 RUNNING > WAITING > RESTING + create_time 排序，前端不再维护本地排队

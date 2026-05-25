@@ -157,7 +157,8 @@ export function TabBar({ platform }: Props): React.JSX.Element {
       >
         {renderFavicon(tab)}
         <span className="tab-title">{title}</span>
-        {!tab.pinned ? (
+        {/* X 关闭按钮：home tab (pinned) 永不显示；业务侧 setLocked(true) 时也不显示 */}
+        {!tab.pinned && !tab.locked ? (
           <button
             type="button"
             className="tab-close"

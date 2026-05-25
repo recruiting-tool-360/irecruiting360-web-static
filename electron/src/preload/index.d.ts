@@ -80,6 +80,8 @@ export interface TabState {
   canGoBack: boolean
   canGoForward: boolean
   active: boolean
+  /** 业务侧动态锁定（不可关 + X 按钮隐藏），跟 home pinned 区分。详见 main 进程 TabManager. */
+  locked: boolean
 }
 
 export interface TabsBridge {
@@ -87,6 +89,7 @@ export interface TabsBridge {
   create(opts: { url: string; channel?: string; title?: string }): Promise<string | null>
   activate(id: string): Promise<boolean>
   close(id: string): Promise<boolean>
+  setLocked(opts: { id: string; locked: boolean }): Promise<boolean>
   reorder(orderedIds: string[]): Promise<boolean>
   goBack(id: string): Promise<void>
   goForward(id: string): Promise<void>

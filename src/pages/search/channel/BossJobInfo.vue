@@ -81,7 +81,10 @@ const store = useStore();
 const $q = useQuasar();
 const channelKey = "BOSS";
 const channelConfig = computed(() => store.getters.getChannelConfByChannel(channelKey));
-const allDataConfig = computed(() => store.getters.getChannelConfByAll);
+// ★ 用 getEffectiveChannelConfByAll 替代 getChannelConfByAll：viewing 模式下渲染历史 task 数据，
+//   runtime 模式 fallback 到 ChannelConfig.ALL（业务侧 push 行为完全不变）。
+//   详见 src/store/modules/ViewingResults.js 顶部注释。
+const allDataConfig = computed(() => store.getters.getEffectiveChannelConfByAll);
 const aiSortSwitch = computed(() => channelConfig.value.aiSort);
 //渠道历史查询参数
 const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);

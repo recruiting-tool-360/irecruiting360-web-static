@@ -60,7 +60,7 @@
               [返回对话] | [ 搜索牛人 ] [ 推荐牛人 ]
           -->
           <div class="results-sub-header">
-            <button class="back-to-chat" type="button" @click="currentView = 'chat'">
+            <button class="back-to-chat" type="button" @click="handleBackToChat">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="m12 19-7-7 7-7" />
                 <path d="M19 12H5" />
@@ -133,7 +133,34 @@
             </div>
           </div>
         </div>
+
+        <!--
+          全局「回到顶部」浮动按钮（嵌入式模式专用）
+          - 浏览器模式由 FloatingActionPanel 提供同样功能（window.scrollTo）
+          - 嵌入式模式下没有 window 级滚动，需要手动找当前 view 的滚动容器
+          - 容器选择：chat → .chat-content；results → 当前可见的 .result-tab-pane
+          - 滚动距离 ≥ 200px 才显示，避免顶部就出现冗余按钮
+        -->
+        <button
+          v-show="showScrollTopBtn"
+          type="button"
+          class="workspace-scroll-top"
+          title="回到顶部"
+          @click="handleScrollToTop"
+        >
+          <q-icon name="arrow_upward" size="20px" />
+        </button>
       </WorkspaceContainer>
+
+      <!--
+        清空对话确认弹框（1:1 还原 ihraisaas isChatClearConfirmOpen 设计）
+        触发：WorkspaceContainer 顶部「清空当前对话」按钮 → handleClearChat
+        确认：调 ChatCard.clearCurrentChat（保留 chatId，只清本地缓存；后端接口暂留 TODO）
+      -->
+      <ClearChatConfirmModal
+        v-model="clearChatConfirmVisible"
+        @confirm="confirmClearChat"
+      />
     </template>
 
     <!-- 浏览器 + 插件模式：保持原有渲染 -->
@@ -161,7 +188,8 @@ import FloatingActionPanel from 'src/components/common/FloatingActionPanel.vue';
 import WorkspaceContainer from 'src/components/clients/WorkspaceContainer.vue';
 import ChatCard from 'src/components/common/ChatCard.vue';
 import {getCurrentConditionByChatId} from "src/api/chat/ChatApi";
-import { runBossRecommend } from 'src/util/automation/bossRecommend';
+import { runBossRecommend, unlockRecommendTab } from 'src/util/automation/bossRecommend';
+import ClearChatConfirmModal from 'src/components/clients/ClearChatConfirmModal.vue';
 import { openChannelUrl } from 'src/util/openChannelLoginUrl';
 import { pluginAllUrls } from 'src/pluginSrc/config/PluginRequestManager';
 import RecommendList from 'src/components/clients/RecommendList.vue';
@@ -235,6 +263,65 @@ const activeResultTab = computed({
     activeResultTabByChatId.value = { ...activeResultTabByChatId.value, [cid]: val };
   }
 });
+
+// =====================================================================
+// 嵌入式模式「回到顶部」浮动按钮
+//
+// 浏览器模式由 FloatingActionPanel 提供（window.scrollTo），但嵌入式模式下
+// 没有 window 级滚动，每个 view 都在自己的内部容器里滚：
+//   - chat view    → .workspace-card .chat-content    （ChatCard 内部）
+//   - results view → 当前可见的 .workspace-card .result-tab-pane
+//
+// 实现：当前可见容器加 scroll listener，scrollTop ≥ 200 才显示按钮；
+//      点击 smooth 滚到 0。view / tab 切换时重新绑定 listener。
+// =====================================================================
+const SCROLL_TOP_THRESHOLD = 200;
+const currentScrollTop = ref(0);
+const showScrollTopBtn = computed(() => currentScrollTop.value >= SCROLL_TOP_THRESHOLD);
+
+let __scrollBoundEl = null;
+function __onScrollContainer() {
+  if (!__scrollBoundEl) return;
+  currentScrollTop.value = __scrollBoundEl.scrollTop || 0;
+}
+
+function getActiveScrollContainer() {
+  if (!embeddedMode.value) return null;
+  if (currentView.value === 'chat') {
+    return document.querySelector('.workspace-card .chat-content');
+  }
+  // results view：可能同时存在 search/recommend 两个 .result-tab-pane（都 v-show 挂载着），
+  // 选当前 active 的那个：用 offsetParent 判可见性（v-show 隐藏时 display:none → offsetParent=null）
+  const panes = Array.from(
+    document.querySelectorAll('.workspace-card .result-tab-pane')
+  );
+  return panes.find((el) => el.offsetParent !== null) || null;
+}
+
+function rebindScrollContainer() {
+  if (__scrollBoundEl) {
+    __scrollBoundEl.removeEventListener('scroll', __onScrollContainer);
+    __scrollBoundEl = null;
+  }
+  const el = getActiveScrollContainer();
+  if (el) {
+    __scrollBoundEl = el;
+    el.addEventListener('scroll', __onScrollContainer, { passive: true });
+    currentScrollTop.value = el.scrollTop || 0;
+  } else {
+    currentScrollTop.value = 0;
+  }
+}
+
+function handleScrollToTop() {
+  const el = getActiveScrollContainer();
+  if (!el) return;
+  if (typeof el.scrollTo === 'function') {
+    el.scrollTo({ top: 0, behavior: 'smooth' });
+  } else {
+    el.scrollTop = 0;
+  }
+}
 
 /**
  * BOSS 是否启用（settings 里勾选）——推荐牛人功能依赖 BOSS
@@ -374,11 +461,27 @@ watch(
  * AND 有记录的 taskId → 自动重新加载任务结果数据，避免空白。
  *
  * 复现路径：A 查看结果 → 选 B（ALL.data 被 selectChat 清空）→ 选 A → 结果页空白
+ *
+ * ★ 同时清理离开的旧 chat 的 viewing 状态：避免之前的 viewing taskId 在 chat 切换后
+ * 仍然挂在 currentViewingByChat 里干扰下一次进入。
  */
 watch(
   () => store.getters.getLatestChatId,
   async (newChatId, oldChatId) => {
     if (!newChatId || newChatId === oldChatId) return;
+
+    // ★ 清理 oldChat 的 viewing 状态（除非用户切回时还想看之前的 viewing 数据）
+    // 当前策略：切走时直接清，下次回来用户重新点"查看结果"。
+    // 不清的话 currentViewingByChat[oldChatId] 残留，下次 getLatestChatId=oldChatId 时
+    // 又会自动走 viewing → 显示旧 viewing 数据，跟用户预期可能不符。
+    if (oldChatId) {
+      try {
+        store.commit('clearCurrentViewingTask', oldChatId);
+      } catch (e) {
+        console.warn('[IndexPage] clearCurrentViewingTask 失败（忽略）:', e?.message || e);
+      }
+    }
+
     // 只在嵌入式模式（有 WorkspaceContainer）下处理
     if (!embeddedMode.value) return;
     // 切回的 chat 是否处于结果视图
@@ -776,18 +879,27 @@ async function doFetchRecommend(args) {
   }
 
   // 阶段回调：让用户在 UI 上看到推进
+  //
+  // phase 状态机（对应 TaskStatusCard recommendCardSteps 的 step 推进）：
+  //   OPENING   = tab 已打开                       → step 0 "校对岗位" processing
+  //   SELECTING = select 流程进行中（dwell/打开下拉/click li）→ step 0 仍 processing
+  //   SELECTED  = 职位已选中（select.done + analyzing 模拟）  → step 0 complete, step 1 "分析关键词" processing
+  //   FETCHING  = 已发请求等首屏响应               → step 1 complete, step 2 "获取候选人" processing
+  //   FETCHED   = 首屏数据到了                     → step 2 complete
+  //   SCORING / DONE = AI 评分 / 全部完成
   function onProgress(stage, payload) {
     if (stage === 'opened') {
       console.log('[IndexPage] BOSS 推荐 tab 已打开:', payload?.url);
     } else if (stage === 'dwell') {
+      // 旧被动路径（autoSelectJob=false）：没有 select，直接被动等响应
+      // 这里 emit FETCHING 是合理的（已经在等数据了）
       console.log(`[IndexPage] 拟人 dwell ${payload?.ms}ms 模拟用户加载后停留观察`);
       setPhase('FETCHING');
     } else if (stage === 'select.waiting') {
       // autoSelectJob=true 路径：select 流程开始（15s 初始 dwell）
-      // 这是 OPENING → FETCHING 之间的过渡阶段，让 UI 提前进入 FETCHING，
-      // 用户看到"正在准备数据"而不是卡在 OPENING 30s+。
+      // 进入 SELECTING：step 0 "校对岗位" 仍显示 processing（让用户知道还在准备）
       console.log(`[IndexPage] BOSS 主动选职位流程开始，initial dwell ${payload?.delayMs}ms`);
-      setPhase('FETCHING');
+      setPhase('SELECTING');
     } else if (stage === 'select.openingDropdown') {
       console.log('[IndexPage] CDP click 打开 BOSS 职位下拉');
     } else if (stage === 'select.browsingDropdown') {
@@ -795,7 +907,18 @@ async function doFetchRecommend(args) {
     } else if (stage === 'select.selectingItem') {
       console.log(`[IndexPage] CDP click 选中目标职位 ${payload?.selector}`);
     } else if (stage === 'select.done') {
-      console.log('[IndexPage] BOSS 职位选中完成，等切职位响应');
+      // select 完成（li 已 click 或 alreadySelected）但还没进 analyzing → 仍 SELECTING
+      // 由 bossRecommend.js 下一行立刻 emit 'analyzing' 切到 SELECTED，避免闪烁
+      console.log('[IndexPage] BOSS 职位选中完成，等 analyzing 模拟');
+    } else if (stage === 'analyzing') {
+      // bossRecommend.js select 成功后 emit：模拟 1.2s "分析画像关键词"
+      // 切到 SELECTED phase → step 0 complete + step 1 processing
+      console.log(`[IndexPage] 模拟分析画像关键词 ${payload?.dwellMs}ms`);
+      setPhase('SELECTED');
+    } else if (stage === 'fetching') {
+      // 发 fetchBossRecommendList 之前 emit → step 1 complete + step 2 processing
+      console.log('[IndexPage] 开始抓取 BOSS 推荐候选人列表（等响应）');
+      setPhase('FETCHING');
     } else if (stage === 'verified') {
       console.log('[IndexPage] BOSS 推荐 verify 通过:', payload);
     } else if (stage === 'firstPage' && payload?.geekList?.length > 0) {
@@ -831,6 +954,13 @@ async function doFetchRecommend(args) {
       await window?.api?.automation?.hideOverlay?.();
     } catch (e) {
       console.warn('[IndexPage] hideOverlay failed:', e?.message || e);
+    }
+    // 解锁 BOSS 推荐 tab（用户可以重新 X 关掉它）
+    // 覆盖所有退出路径：正常完成 / runBossRecommend throw / 内部短路 return
+    try {
+      await unlockRecommendTab();
+    } catch (e) {
+      console.warn('[IndexPage] unlockRecommendTab failed:', e?.message || e);
     }
   }
 
@@ -1104,10 +1234,52 @@ watch(embeddedChatRef, (ref) => {
   }
 }, { immediate: false });
 
+/**
+ * 「清空当前对话」工具栏按钮入口（WorkspaceContainer 顶部）。
+ *
+ * 流程：
+ *   1) 用户点击 → 弹出 ClearChatConfirmModal 确认框（1:1 对照 ihraisaas 设计）
+ *   2) 用户点「确认清空」→ confirmClearChat 调 ChatCard.clearCurrentChat（清本地缓存）
+ *   3) 切回 chat 视图（如果用户当前在 results 视图）
+ *
+ * 注意：clearCurrentChat 内部保留 chatId（跟 handleNewChat 新建会话语义不同），
+ *       只清空当前职位对话内容。后端清空历史接口暂留 TODO（按用户要求先只清本地）
+ */
+const clearChatConfirmVisible = ref(false);
 function handleClearChat() {
-  // 让 ChatCard 调自己的 handleNewChat / 清空逻辑
-  // TODO: 待 ChatCard 暴露 clearMessages 后调；暂时只切回 chat 视图
+  clearChatConfirmVisible.value = true;
+}
+function confirmClearChat() {
+  try {
+    const chatCard = embeddedChatRef.value;
+    if (chatCard && typeof chatCard.clearCurrentChat === 'function') {
+      chatCard.clearCurrentChat();
+    } else {
+      console.warn('[IndexPage] embeddedChatRef.clearCurrentChat 不可用，跳过本地清空');
+    }
+  } catch (e) {
+    console.warn('[IndexPage] confirmClearChat 异常：', e?.message || e);
+  }
   currentView.value = 'chat';
+}
+
+/**
+ * 用户点 "返回对话" 按钮 —— 切回 chat 视图 + 清掉 viewing 状态。
+ *
+ * 清 viewing 是关键：如果当前 chat 处于 viewing 模式（在看某个历史 task 的结果），
+ * 切回 chat 视图后下次再进 results 视图（比如点 aggregate / 测试按钮）默认应该显示
+ * runtime 数据，而不是上次的历史 task。所以这里 commit clearCurrentViewingTask 让
+ * UI 走 ChannelConfig 默认数据。
+ *
+ * 用户如果想再看那个历史 task，重新点 task_completion_card 的 "查看结果" 即可，
+ * ViewingResults.byTaskId 缓存还在（同 taskId 会直接复用，不重新 fetch API）。
+ */
+function handleBackToChat() {
+  currentView.value = 'chat';
+  const cid = store.getters.getLatestChatId;
+  if (cid) {
+    store.commit('clearCurrentViewingTask', cid);
+  }
 }
 
 /**
@@ -1556,22 +1728,17 @@ async function handleAggregateSearch(payload) {
 async function handleViewResults(payload) {
   currentView.value = 'results';
   if (!payload || payload.source !== 'task_completion_card') {
-    return;
-  }
-
-  // 任务跑期间禁止覆盖 ChannelConfig.ALL.data（会污染正在跑的 runTask 数据收集）。
-  // 用户切到其它职位查看老结果时：聊天可以看，但点"查看结果"会改全局 store 灌新数据，
-  // 这会让正在跑的 A 任务末尾读到错的数据 → 报 search_result_set_id 没值 → 任务失败。
-  // 提示用户等任务跑完再看（loading 通知，不阻塞任务）。
-  const runningTaskId = store.state?.SearchTasks?.runningTaskId;
-  if (runningTaskId && String(runningTaskId) !== String(payload.taskId)) {
-    console.warn(
-      `[handleViewResults] 任务 ${runningTaskId} 正在跑，禁止加载其它任务结果 (${payload.taskId})，避免污染数据`
-    );
-    notify.warning?.('有任务正在进行中，请等任务完成后再查看其它结果');
+    // 不带 cardData 的视图切换（aggregate 后自动切 / 测试按钮等）：
+    // 切到 results 视图，但不动 viewing 状态（继续显示当前 chat 已有数据，无论 runtime / 上次 viewing）
     return;
   }
   console.log('[handleViewResults] ▶ 开始，payload=', payload);
+
+  // ⚠️ 注意：之前的 runningTaskId 拦截已删除。
+  // 现在通过 ViewingResults store（按 taskId 隔离）实现：handleViewResults 把数据写到
+  // ViewingResults.byTaskId[taskId]，并 setCurrentViewingTask；渲染层 (BossJobInfo /
+  // ZHILIANJobInfo / JobInfo 等) 通过 getEffectiveChannelConfByAll getter 优先读 viewing
+  // 数据。runtime task 继续往 ChannelConfig 写完全不受影响 → 跑任务时也能自由查看历史。
   console.log('[handleViewResults] aiSearchRef.value=', aiSearchRef.value, 'hasResetFn=', typeof aiSearchRef.value?.resetToAggregateTab);
 
   // 重置到渠道聚合 tab（不管 store 里有没有数据都要做）
@@ -1585,31 +1752,32 @@ async function handleViewResults(payload) {
 
   const taskId = payload.taskId;
 
+  // ★ cid 优先用 payload.chatId（卡片所在的 chat），fallback 到 latestChatId。
+  //   防止用户在 chat A 看到（罕见的）chat B 的卡片时，把 viewing 状态绑错到 A。
+  const cid = payload.chatId || store.getters.getLatestChatId;
+
   // 记住本 chat 当前查看的 taskId，供切回时自动重新加载
-  const cid = store.getters.getLatestChatId;
   if (taskId && cid) {
     viewingTaskIdByChatId.value = { ...viewingTaskIdByChatId.value, [cid]: taskId };
   }
 
-  // 优先用 store 里已有的数据（搜索刚完成时数据就在 channelConf.ALL.data）。
-  //
-  // ⚠️ 必须**同 taskId** 才能复用：之前老代码"ALL.data 有数据就跳过 API"会让
-  // 上次点过任务 106 的数据被任务 105 复用 → 105 显示 106 的数据，奇葩 bug。
-  //
-  // lastViewedTaskIdForCache 记录"上次实际灌过数据的 taskId"，跟本次 taskId 比较：
-  //   - 同 task + ALL.data 有数据 → 走缓存，跳 API（避免重复请求）
-  //   - 不同 task → **强制重新拉**，覆盖 ALL.data
-  const existingData = store.getters.getChannelConfByAll?.data;
+  // 优先用 ViewingResults store 里已有的数据（本 task 之前查看过就直接复用，不重新 fetch）。
+  // ⚠️ 必须**同 taskId** 才能复用 cache。lastViewedTaskIdForCache 记录"上次实际拉过数据的 taskId"。
+  //   - 同 taskId + ViewingResults 有 bucket → 走缓存，跳 API（但要重新 setCurrentViewingTask
+  //     让 currentViewingByChat 指向本 task）
+  //   - 不同 taskId → 重新拉 API，覆盖 ViewingResults bucket
+  const existingBucket = store.state?.ViewingResults?.byTaskId?.[taskId];
   const sameTaskAsLastView =
     lastViewedTaskIdForCache.value &&
     String(lastViewedTaskIdForCache.value) === String(taskId);
   console.log(
-    `[handleViewResults] store ALL.data 条数=${existingData?.length ?? 'null'}` +
+    `[handleViewResults] ViewingResults bucket 条数=${existingBucket?.byChannel?.ALL?.length ?? 'null'}` +
     ` lastViewedTaskId=${lastViewedTaskIdForCache.value} curTaskId=${taskId}` +
     ` sameTask=${sameTaskAsLastView}`
   );
-  if (sameTaskAsLastView && Array.isArray(existingData) && existingData.length > 0) {
-    console.log('[handleViewResults] ✅ 同 task + 已有数据，跳过 API');
+  if (sameTaskAsLastView && existingBucket && Array.isArray(existingBucket.byChannel?.ALL) && existingBucket.byChannel.ALL.length > 0) {
+    console.log('[handleViewResults] ✅ 同 task + 已有 ViewingResults 缓存，跳过 API + 设置 viewing 切换');
+    if (cid) store.commit('setCurrentViewingTask', { chatId: cid, taskId });
     return;
   }
   console.log('[handleViewResults] 重新拉 API');
@@ -1788,18 +1956,49 @@ async function handleViewResults(payload) {
     //     连锁反应 → 5×5 = 25 次冗余 reactive 工作 → tab 切换非常卡）。
     //   - 「per-channel dataSize」是 tab 右上角红色 badge `[20] [11] [9]` 用，**要** commit。
     //   - 不再用 TaskResultsView——同一套 AISearch 渲染才是单一事实源头。
-    console.log('[handleViewResults] commit 前 ALL.data 条数=', store.getters.getChannelConfByAll?.data?.length);
-    // ALL.data 是唯一数据源：BossJobInfo/ZHILIANJobInfo/JOB51JobInfo 都从 ALL.data.filter 取
-    // 不再写 per-channel .data（会引入 stale 脏数据问题，见 handleAggregateSearch 注释）
-    store.commit('changeChannelConfData', { key: 'ALL', value: list });
-    store.commit('changeChannelConfDataSize', { key: 'ALL', value: list.length });
-    // tab badge（红色数字）用 per-channel dataSize，但不写 .data
+    // ★ 写到 ViewingResults store（按 taskId 隔离），不动 ChannelConfig.ALL.data。
+    //   这样 runtime task 写 ChannelConfig 不被打断，UI 渲染 (BossJobInfo / ZHILIANJobInfo /
+    //   JobInfo 等) 通过 getEffectiveChannelConfByAll getter 优先读 viewing 数据。
+    //   实现见 src/store/modules/ViewingResults.js + 4 个 JobInfo.vue 的 allDataConfig 修改。
+    store.commit('setViewingTaskResults', {
+      taskId,
+      byChannel: {
+        ALL: list,
+        BOSS: grouped.BOSS,
+        ZHILIAN: grouped.ZHILIAN,
+        JOB51: grouped.JOB51,
+        LIEPIN: grouped.LIEPIN
+      }
+    });
+    // 标记当前 chat 进入 viewing 模式，渲染层 getter 据此从 ViewingResults 取数据
+    if (cid) {
+      store.commit('setCurrentViewingTask', { chatId: cid, taskId });
+    }
+    // tab badge（红色数字）仍写 ChannelConfig per-channel dataSize（不写 .data，无 reactive 爆炸风险）
+    // viewing 模式下这个 badge 数字会跟 ChannelConfig runtime 的同步，**可能跟实际显示数据不一致**。
+    // 接受这个 trade-off：badge 数量对照 ChannelConfig runtime 而不是 viewing，业务上影响较小。
     for (const ch of ['BOSS', 'ZHILIAN', 'JOB51', 'LIEPIN']) {
       store.commit('changeChannelConfDataSize', { key: ch, value: (grouped[ch] || []).length });
     }
-    console.log('[handleViewResults] commit 后 ALL.data 条数=', store.getters.getChannelConfByAll?.data?.length);
+    // 详细日志：能看到每条 resume 的 score 状态，方便排查"AI分析中"是数据本身还是 polling 串扰
+    const scoreStats = list.reduce(
+      (acc, r) => {
+        const score = r.score;
+        if (score === null || score === undefined) acc.nullCount++;
+        else if (score === -2 || r.scoreStatus === 'FAILED') acc.failedCount++;
+        else if (typeof score === 'number' && score >= 0) acc.scoredCount++;
+        else acc.otherCount++;
+        return acc;
+      },
+      { nullCount: 0, failedCount: 0, scoredCount: 0, otherCount: 0 }
+    );
+    console.log(
+      `[handleViewResults] viewing 模式 commit ok taskId=${taskId} chatId=${cid} 总条数=${list.length}` +
+      ` 分组=${JSON.stringify(Object.fromEntries(['BOSS', 'ZHILIAN', 'JOB51', 'LIEPIN'].map((k) => [k, (grouped[k] || []).length])))}` +
+      ` score 状态=${JSON.stringify(scoreStats)} (null=等评分/FAILED=评分失败/scored=已评)`
+    );
 
-    // 记下"上次实际灌进 ALL.data 的 taskId"，下次同 task 复用缓存，不同 task 强制重拉
+    // 记下"上次实际灌进的 taskId"，下次同 task 复用缓存（不重新 fetch）
     lastViewedTaskIdForCache.value = taskId;
 
     // 把任务真正用的 searchConditionId 回填到 store——AI 评估 / 相似简历等接口要用
@@ -1829,7 +2028,12 @@ async function handleViewResults(payload) {
 
     // commit 完再等一帧，确认数据没被清掉
     await nextTick();
-    console.log('[handleViewResults] nextTick 后 ALL.data 条数=', store.getters.getChannelConfByAll?.data?.length, '(如果变少说明有东西清掉了数据！)');
+    const effectiveAfter = store.getters.getEffectiveChannelConfByAll;
+    console.log(
+      '[handleViewResults] nextTick 后 effective ALL.data 条数=',
+      effectiveAfter?.data?.length,
+      '(viewing 模式应该等于 list 长度)'
+    );
 
     // 数据已写入 store，resetToAggregateTab 在函数开头已经调过，无需再调
   } catch (e) {
@@ -1963,6 +2167,41 @@ onMounted(() => {
     } catch (e) {
       console.warn('[IndexPage] cleanupZombies threw:', e?.message || e);
     }
+
+    // ★ 启动 current 轮询（仅在 queue 非空但本地没活跃任务时）
+    //
+    // 场景：cleanupOrphanRunningAndResume 内部已经调过 fetchTaskQueue（拿到后端队列）
+    // + resumeFromCurrent（取本客户端可执行 task）。如果走完之后：
+    //   - state.taskQueue.items 非空 → 后端确实排队中
+    //   - state.runningTaskId / state.queue 都空 → 本客户端这次没拿到可执行 task
+    //     （可能后端在等工作时间窗 OUT_OF_WORK_PERIOD，或前面有别 client 在跑）
+    //
+    // → 启动 CurrentTaskPoller，每 60s 调一次 /search/task/current 直到拿到 task，
+    //   然后 dispatch resumeFromCurrent 触发任务执行并停轮询。
+    //   避免用户必须手动刷新页面才能拿到新任务。
+    try {
+      const st = store.state?.SearchTasks;
+      const queueItems = st?.taskQueue?.items || [];
+      const hasActiveLocal = !!st?.runningTaskId || (Array.isArray(st?.queue) ? st.queue.length > 0 : false);
+      if (queueItems.length > 0 && !hasActiveLocal) {
+        const [pollerMod, apiMod] = await Promise.all([
+          import('src/util/automation/currentTaskPoller'),
+          import('src/api/searchTaskApi')
+        ]);
+        const poller = pollerMod.default || pollerMod;
+        const taskApi = apiMod.default || apiMod;
+        poller.start({ store, taskApi, intervalMs: 60_000, maxTicks: 60 });
+        console.log(
+          `[IndexPage] 后端 queue 非空 (${queueItems.length}) 但本客户端无活跃任务 → 启动 CurrentTaskPoller (1min/tick)`
+        );
+      } else {
+        console.log(
+          `[IndexPage] queue 状态正常 (queueItems=${queueItems.length} hasActiveLocal=${hasActiveLocal})，无需启动 CurrentTaskPoller`
+        );
+      }
+    } catch (e) {
+      console.warn('[IndexPage] CurrentTaskPoller 启动失败（忽略，不影响主流程）:', e?.message || e);
+    }
   })();
 
   // 把"真实聚合搜索执行器"暴露到 store，让 SearchTasks actionRunner 在收到
@@ -1972,10 +2211,25 @@ onMounted(() => {
   // 已下线：早期的 BOSS dev-only 调试入口（window.__DEV_bossClickFilter / Playwright
   // 冒烟测试）。业务流程现在走 runBossRecommend → selectJobInBossRecommend +
   // humanizeBrowseGeeks 这条正式链路，无需 dev console helper。
+
+  // 「回到顶部」按钮 scroll 容器绑定（嵌入式模式专用）
+  // nextTick 等 DOM 渲染完，且容器视图切换 / tab 切换时重新绑（容器变化）
+  if (embeddedMode.value) {
+    nextTick(() => rebindScrollContainer());
+    watch(
+      [currentView, activeResultTab],
+      () => nextTick(() => rebindScrollContainer()),
+      { flush: 'post' }
+    );
+  }
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', updatePageSize);
+  if (__scrollBoundEl) {
+    __scrollBoundEl.removeEventListener('scroll', __onScrollContainer);
+    __scrollBoundEl = null;
+  }
 });
 
 // 处理 AISearch 组件发出的 update-search-state 事件
@@ -2090,5 +2344,38 @@ onUnmounted(() => {
 .result-tab-pane {
   height: 100%;
   overflow: auto;
+}
+
+/* 「回到顶部」浮动按钮（嵌入式模式专用）
+ * absolute 定位到 .workspace-body 右下角（.workspace-body 是 position:relative）
+ * z-index 高于 .workspace-view (绝对定位 inset:0) 确保始终可点击
+ */
+.workspace-scroll-top {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #1976d2;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1),
+    background 0.25s, color 0.25s, box-shadow 0.25s;
+}
+.workspace-scroll-top:hover {
+  background: #1976d2;
+  color: #ffffff;
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(25, 118, 210, 0.32);
+}
+.workspace-scroll-top:active {
+  transform: translateY(-1px);
 }
 </style>
