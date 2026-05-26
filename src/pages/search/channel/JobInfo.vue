@@ -52,6 +52,15 @@ const props = defineProps({
   aiSort: {
     type: Boolean,
     default: false
+  },
+  /**
+   * 查看历史 task 结果时由 AISearch 透传过来。
+   * 非空 → 直接读 ViewingResults.byTaskId[viewingTaskId]；空 → fallback ChannelConfig.ALL（runtime）。
+   * 详见 BossJobInfo.vue 同名 prop 注释。
+   */
+  viewingTaskId: {
+    type: [String, Number],
+    default: null
   }
 });
 
@@ -105,14 +114,21 @@ const getChannelDisable = (key) => {
   return channelConfig.enableConfig;
 };
 
-// 数据 - 聚合渠道从vuex中获取数据
-// ★ 渲染优先用 getEffectiveChannelConfByAll（viewing 模式下取 ViewingResults 的数据，
-//   非 viewing 模式 fallback 回 ChannelConfig.ALL）—— 让"查看历史 task 结果"跟 runtime 任务隔离。
-//   详见 src/store/modules/ViewingResults.js 顶部注释。
+// 数据 - 聚合渠道从 vuex 获取
+// ★ 按 props.viewingTaskId 直接读 ViewingResults bucket（不依赖全局 viewing state），
+//   fallback 到 ChannelConfig.ALL（runtime）。详见 ViewingResults.js 顶部注释。
 const jobList = computed(() => {
-  const effective = store.getters.getEffectiveChannelConfByAll;
-  const data = effective?.data;
-  console.log('[JobInfo] jobList 计算，ALL.data 条数=', data?.length ?? 'null');
+  if (props.viewingTaskId) {
+    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
+    const cfg = typeof byTask === 'function' ? byTask(props.viewingTaskId) : null;
+    if (cfg?.data) {
+      console.log('[JobInfo] viewing 模式 taskId=', props.viewingTaskId, '条数=', cfg.data.length);
+      return cfg.data;
+    }
+  }
+  const runtimeCfg = store.getters.getChannelConfByAll;
+  const data = runtimeCfg?.data;
+  console.log('[JobInfo] runtime 模式 ALL.data 条数=', data?.length ?? 'null');
   return data || [];
 });
 

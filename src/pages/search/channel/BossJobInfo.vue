@@ -74,6 +74,19 @@ const props = defineProps({
   aiSort: {
     type: Boolean,
     default: false
+  },
+  /**
+   * 查看历史 task 结果时由 AISearch 透传过来。
+   * - 非空 → 直接读 ViewingResults.byTaskId[viewingTaskId] 的数据
+   * - 空 / null → fallback 到 ChannelConfig.ALL（runtime 模式）
+   *
+   * 设计意图：彻底绕开旧 `getEffectiveChannelConfByAll` 依赖的全局 viewing state
+   * （getLatestChatId + currentViewingByChat[cid]）—— 那种间接寻址在 chat 切换 /
+   * clearCurrentViewingTask 时容易让数据"消失"。按 taskId 直接取，taskId 不变数据稳定。
+   */
+  viewingTaskId: {
+    type: [String, Number],
+    default: null
   }
 });
 
@@ -81,10 +94,17 @@ const store = useStore();
 const $q = useQuasar();
 const channelKey = "BOSS";
 const channelConfig = computed(() => store.getters.getChannelConfByChannel(channelKey));
-// ★ 用 getEffectiveChannelConfByAll 替代 getChannelConfByAll：viewing 模式下渲染历史 task 数据，
-//   runtime 模式 fallback 到 ChannelConfig.ALL（业务侧 push 行为完全不变）。
-//   详见 src/store/modules/ViewingResults.js 顶部注释。
-const allDataConfig = computed(() => store.getters.getEffectiveChannelConfByAll);
+// ★ 按 props.viewingTaskId 直接取 viewing bucket（详见 ViewingResults.js）；
+//   非 viewing 模式 fallback 到 ChannelConfig.ALL（runtime 模式）。
+//   完全不依赖 currentViewingByChat 全局 state，taskId 不变时数据稳定不抖动。
+const allDataConfig = computed(() => {
+  if (props.viewingTaskId) {
+    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
+    const cfg = typeof byTask === 'function' ? byTask(props.viewingTaskId) : null;
+    if (cfg) return cfg;
+  }
+  return store.getters.getChannelConfByAll;
+});
 const aiSortSwitch = computed(() => channelConfig.value.aiSort);
 //渠道历史查询参数
 const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);

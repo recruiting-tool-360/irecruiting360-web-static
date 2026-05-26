@@ -126,21 +126,55 @@ const getters = {
    *   - viewing 模式（getCurrentViewingBucket 有值）→ 用 viewing bucket 的 byChannel.ALL，
    *     desc 等字段从 ChannelConfig 借用（结构兼容）
    *   - 否则 fallback 到 ChannelConfig.channelConf.ALL（runtime 模式）
+   *
+   * ⚠️ 已不推荐使用：这个 getter 依赖 `getLatestChatId` + `currentViewingByChat[cid]`
+   *    两层间接寻址，任何一处 chat 切换 / clearCurrentViewingTask 都会让它 fallback 到
+   *    runtime（ChannelConfig.ALL）→ 已 viewing 的数据"消失"。
+   *
+   *    新方案：组件直接通过 prop 拿 viewingTaskId，调 `getViewingChannelConfByTaskIdAll`
+   *    （见下方），完全绕开间接寻址。本 getter 保留只为兼容尚未迁移的调用方。
    */
   getEffectiveChannelConfByAll: (state, getters, rootState) => {
     const bucket = getters.getCurrentViewingBucket;
     const baseAll = rootState?.ChannelConfig?.channelConf?.ALL || { data: [], desc: 'ALL' };
     if (bucket && Array.isArray(bucket.byChannel?.ALL)) {
-      // viewing 模式：复用 baseAll 的元数据（desc / cardInfoRef 等业务字段），
-      // 但 data 用 viewing bucket 的（runtime 数据完全不混入）
       return {
         ...baseAll,
         data: bucket.byChannel.ALL,
-        // 显示当前条数（避免 dataSize 跟 data 长度对不上）
         dataSize: bucket.byChannel.ALL.length
       };
     }
     return baseAll;
+  },
+
+  /**
+   * ★★ 推荐入口：按 taskId 直接取 viewing bucket 的 "ALL 频道" 配置（不依赖任何全局 state）。
+   *
+   * 组件用法（注入 prop 后）：
+   *   const cfg = store.getters.getViewingChannelConfByTaskIdAll(props.viewingTaskId);
+   *   if (cfg) {
+   *     // viewing 模式：渲染 cfg.data
+   *   } else {
+   *     // 退到 runtime：store.getters.getChannelConfByAll
+   *   }
+   *
+   * 跟 getEffectiveChannelConfByAll 的区别：
+   *   - 不依赖 getLatestChatId / currentViewingByChat → chat 切换 / 别的 mutation 不会"擦掉" UI
+   *   - taskId 由调用方（组件 props）决定 → 多 task 并存时各自取各自的 bucket，互不影响
+   *   - 返回 null 表示"按这个 taskId 没找到 bucket"，让调用方决定如何 fallback
+   *
+   * @returns {(taskId: string|number) => {data, desc, dataSize, ...} | null}
+   */
+  getViewingChannelConfByTaskIdAll: (state, _getters, rootState) => (taskId) => {
+    if (!taskId) return null;
+    const bucket = state.byTaskId[taskId];
+    if (!bucket || !Array.isArray(bucket.byChannel?.ALL)) return null;
+    const baseAll = rootState?.ChannelConfig?.channelConf?.ALL || { data: [], desc: 'ALL' };
+    return {
+      ...baseAll,
+      data: bucket.byChannel.ALL,
+      dataSize: bucket.byChannel.ALL.length
+    };
   }
 };
 

@@ -8,11 +8,11 @@
  *   说明本客户端这次没轮到（可能在等工作时间窗 OUT_OF_WORK_PERIOD，或前面有别 client 在跑）。
  *   不开 poller 的话用户得手动刷新页面才能拿到新 task。
  *
- * 工作机制：每 60s 调 /search/task/current；
+ * 工作机制：每 10s 调 /search/task/current；
  *   - 拿到 task → dispatch('SearchTasks/resumeFromCurrent') → 内部 enqueue + processQueue 触发执行 → poller stop
  *   - 仍为空 → 继续等
  *   - 检测到 state.runningTaskId / state.queue 已经有别的来源触发了任务 → 也 stop（避免冗余轮询）
- *   - 总轮询上限 maxTicks（默认 60 次 = 60 分钟）兜底防止 forever loop
+ *   - 总轮询上限 maxTicks（默认 360 次 ≈ 60 分钟）兜底防止 forever loop
  *
  * 单例：同进程同时只有一条 poller 在跑，start() 幂等。
  *
@@ -26,10 +26,10 @@ class CurrentTaskPoller {
   constructor() {
     /** @type {ReturnType<typeof setInterval> | null} */
     this.timer = null;
-    /** 轮询间隔（ms），默认 60s */
-    this.intervalMs = 60_000;
-    /** 安全上限：最多轮询多少次（默认 60 = 60 分钟），防止 forever loop */
-    this.maxTicks = 60;
+    /** 轮询间隔（ms），默认 10s */
+    this.intervalMs = 10_000;
+    /** 安全上限：最多轮询多少次（默认 360 ≈ 60 分钟），防止 forever loop */
+    this.maxTicks = 360;
     /** 已经 tick 的次数 */
     this.tickCount = 0;
     /** 启动时间戳（log 用） */
@@ -50,8 +50,8 @@ class CurrentTaskPoller {
    * @param {object} opts
    * @param {object} opts.store - Vuex store 实例（用来 dispatch resumeFromCurrent + 读 state）
    * @param {object} opts.taskApi - searchTaskApi 模块（用来调 getCurrentSearchTask）
-   * @param {number} [opts.intervalMs=60000]   每 tick 间隔
-   * @param {number} [opts.maxTicks=60]        最大 tick 次数兜底
+   * @param {number} [opts.intervalMs=10000]   每 tick 间隔
+   * @param {number} [opts.maxTicks=360]       最大 tick 次数兜底（10s × 360 ≈ 60min）
    */
   start(opts = {}) {
     if (this.timer) {
@@ -65,8 +65,8 @@ class CurrentTaskPoller {
     }
     this._store = store;
     this._taskApi = taskApi;
-    this.intervalMs = Number(intervalMs) > 0 ? Number(intervalMs) : 60_000;
-    this.maxTicks = Number(maxTicks) > 0 ? Number(maxTicks) : 60;
+    this.intervalMs = Number(intervalMs) > 0 ? Number(intervalMs) : 10_000;
+    this.maxTicks = Number(maxTicks) > 0 ? Number(maxTicks) : 360;
     this.startedAt = Date.now();
     this.tickCount = 0;
     console.log(

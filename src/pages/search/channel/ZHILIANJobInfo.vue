@@ -84,6 +84,14 @@ const props = defineProps({
   onLodingClose: {
     type: Function,
     default: () => {}
+  },
+  /**
+   * 查看历史 task 结果时由 AISearch 透传过来，按 taskId 直接取 viewing bucket。
+   * 详见 BossJobInfo.vue 同名 prop 注释。
+   */
+  viewingTaskId: {
+    type: [String, Number],
+    default: null
   }
 });
 
@@ -91,8 +99,15 @@ const store = useStore();
 const $q = useQuasar();
 const channelKey = "ZHILIAN";
 const channelConfig = computed(() => store.getters.getChannelConfByChannel(channelKey));
-// ★ 用 getEffectiveChannelConfByAll 替代（viewing/runtime 隔离），详见 ViewingResults.js
-const allDataConfig = computed(() => store.getters.getEffectiveChannelConfByAll);
+// ★ 按 props.viewingTaskId 直读 ViewingResults bucket；不依赖全局 viewing state
+const allDataConfig = computed(() => {
+  if (props.viewingTaskId) {
+    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
+    const cfg = typeof byTask === 'function' ? byTask(props.viewingTaskId) : null;
+    if (cfg) return cfg;
+  }
+  return store.getters.getChannelConfByAll;
+});
 const aiSortSwitch = computed(() => channelConfig.value.aiSort);
 //渠道历史查询参数
 const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);
