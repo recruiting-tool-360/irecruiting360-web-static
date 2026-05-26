@@ -365,10 +365,45 @@
         </svg>
         <span>设置功能</span>
       </button>
+
+      <!--
+        版本号 + 立即更新提示行
+        1:1 视觉还原 ihraisaas/src/components/AIAssistant/JobList.tsx 第 178-194 行
+        - 版本号：text-[11px] neutral-400 font-bold tracking-tight
+        - 有新版：primary-500 text-[11px] font-black + 1.5px 圆点脉冲 + "立即更新 🚀"
+        - 无新版：neutral-300 text-[10px] font-medium "最新版本"
+        点击 "立即更新" → 打开 UpdateModal（接 main 进程 autoUpdater 真实下载/进度/重启）
+      -->
+      <div class="iHR-version-row">
+        <div class="iHR-version-row-left">
+          <span class="iHR-version-text">版本：{{ currentVersionDisplay }}</span>
+          <button
+            v-if="newVersionAvailable"
+            type="button"
+            class="iHR-update-btn"
+            @click="handleOpenUpdateModal"
+          >
+            <span class="iHR-update-dot" />
+            立即更新 🚀
+          </button>
+        </div>
+        <span v-if="!newVersionAvailable" class="iHR-version-latest">最新版本</span>
+      </div>
     </div>
 
     <!-- 设置功能弹框（运行策略配置：工作时段 / 策略只读展示） -->
     <SettingsModal v-model="settingsVisible" />
+
+    <!--
+      自动更新弹框（Electron 客户端唯一更新 UI 入口）
+      - 自动弹起：首次检测到更新 / 下载完成时
+      - 手动弹起：点上方「立即更新 🚀」按钮
+      - 主进程 setupAutoUpdater 已不再用 Electron 原生 dialog
+    -->
+    <UpdateModal
+      v-model="updateModalOpen"
+      :new-version="newVersionAvailable"
+    />
 
     <!-- 重命名对话框 -->
     <q-dialog v-model="renameDialogVisible">
@@ -391,7 +426,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick, watch } from "vue";
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from "vue";
 import { useQuasar } from "quasar";
 import { useStore } from "vuex";
 import { getChatList, deleteChat, renameChat, getChatHistory } from "src/api/chat/ChatApi";
@@ -399,6 +434,7 @@ import { generateJobPostingFromResume } from "src/util/jobPostingGenerator";
 import { isFromMenu, isVisibleThirdA, usePlanVisibility } from "src/hooks/usePlanVisibility";
 import notify from "src/util/notify";
 import SettingsModal from "src/components/clients/SettingsModal.vue";
+import UpdateModal from "src/components/clients/UpdateModal.vue";
 
 const $q = useQuasar();
 const store = useStore();
@@ -632,6 +668,106 @@ const settingsVisible = ref(false);
 const handleOpenSettings = () => {
   settingsVisible.value = true;
 };
+
+/* ===========================================================================
+ * Electron 自动更新（1:1 ihraisaas JobList 底部 currentVersion / newVersionAvailable）
+ *
+ * 流程：
+ *   1. mount 时调一次 window.api.appUpdater.getStatus() hydrate 当前状态
+ *      （处理"主进程已 emit 过 available 事件、但 LeftMenu 还没 ready"的竞态）
+ *   2. 持续订阅 available / downloaded / not-available / error 事件刷新状态
+ *   3. 首次发现可用更新或下载完成 → 自动弹一次 UpdateModal（替代原 Electron dialog 行为）
+ *   4. 之后用户可随时点 "立即更新 🚀" 再次打开 UpdateModal
+ *
+ * 非 Electron 环境（浏览器 / 插件）：currentVersion 写一个占位 v1.0.0，
+ * newVersionAvailable 永远空，整个区块表现为"已是最新"。
+ * ========================================================================== */
+const currentVersionDisplay = ref("v1.0.0");
+const newVersionAvailable = ref(""); // 空串 → 显示"最新版本"；有值 → 显示"立即更新 🚀"
+const updateModalOpen = ref(false);
+let _hasAutoPoppedUpdate = false;
+const _appUpdaterOffs = [];
+
+function _stripVPrefix(v) {
+  return v ? String(v).replace(/^v/i, "") : "";
+}
+function _formatVersion(v) {
+  if (!v) return "";
+  return "v" + _stripVPrefix(v);
+}
+
+function handleOpenUpdateModal() {
+  updateModalOpen.value = true;
+}
+
+function _maybeAutoPopUpdateModal() {
+  if (_hasAutoPoppedUpdate) return;
+  if (!newVersionAvailable.value) return;
+  _hasAutoPoppedUpdate = true;
+  updateModalOpen.value = true;
+}
+
+/**
+ * 启动序列（清晰的两步）：
+ *   1) getCurrentVersion()   —— 立即拿到客户端版本号显示
+ *   2) checkUpdate()         —— 主动检查是否有更新，决定显示"立即更新"或"最新版本"
+ * 期间订阅 main 进程后续事件，让"后台周期 check（4h）"也能更新到 UI。
+ */
+async function _setupAppUpdater() {
+  const updater = typeof window !== "undefined" ? window.api?.appUpdater : null;
+  if (!updater) {
+    // 非 Electron 环境：保持默认版本号显示"最新版本"
+    return;
+  }
+
+  // === Step 1: 启动立即获取客户端版本号（不发网络请求，立刻返回）===
+  try {
+    const ver = await updater.getCurrentVersion();
+    currentVersionDisplay.value = _formatVersion(ver);
+    console.log("[LeftMenu] getCurrentVersion →", ver);
+  } catch (e) {
+    console.warn("[LeftMenu] getCurrentVersion 失败:", e?.message || e);
+  }
+
+  // === Step 2: 订阅 main 进程后续事件（4h 定时 check / 下载完成 等）===
+  _appUpdaterOffs.push(
+    updater.on("available", (p) => {
+      console.log("[LeftMenu] event available:", p);
+      newVersionAvailable.value = _formatVersion(p?.version);
+      _maybeAutoPopUpdateModal();
+    })
+  );
+  _appUpdaterOffs.push(
+    updater.on("not-available", () => {
+      console.log("[LeftMenu] event not-available");
+      newVersionAvailable.value = "";
+    })
+  );
+  _appUpdaterOffs.push(
+    updater.on("downloaded", (p) => {
+      console.log("[LeftMenu] event downloaded:", p);
+      if (p?.version) newVersionAvailable.value = _formatVersion(p.version);
+      _hasAutoPoppedUpdate = false; // downloaded 必弹一次让用户确认重启
+      _maybeAutoPopUpdateModal();
+    })
+  );
+
+  // === Step 3: 主动 checkUpdate 决定 UI（立即更新 vs 最新版本）===
+  //   IPC invoke 是 request/response 模型，绝对可靠，避免依赖主进程
+  //   setTimeout 5s 的 webContents.send race（dev 模式 renderer 还在 bundle 时事件会丢）
+  try {
+    const r = await updater.checkUpdate();
+    console.log("[LeftMenu] checkUpdate →", r);
+    if (r?.hasUpdate && r?.newVersion) {
+      newVersionAvailable.value = _formatVersion(r.newVersion);
+      _maybeAutoPopUpdateModal();
+    } else {
+      newVersionAvailable.value = "";
+    }
+  } catch (e) {
+    console.warn("[LeftMenu] checkUpdate 失败:", e?.message || e);
+  }
+}
 
 // 创建新聊天
 const handleNewChat = async () => {
@@ -1021,6 +1157,20 @@ onMounted(() => {
   // 不再无脑选第一个 —— 用户上次选中的职位由 vuex-persistedstate 自动从 localStorage
   // 恢复（chatList.latestChatId 已在 store/index.js paths 持久化）。
   // 如果 localStorage 没记录，currentChatId 保持空，右侧显示 ChatEmptyState 引导用户手动选。
+
+  // Electron 自动更新接入（仅 client 模式有效）
+  _setupAppUpdater();
+});
+
+onUnmounted(() => {
+  _appUpdaterOffs.forEach((off) => {
+    try {
+      off && off();
+    } catch (e) {
+      console.warn("[LeftMenu] unsubscribe appUpdater failed:", e?.message || e);
+    }
+  });
+  _appUpdaterOffs.length = 0;
 });
 
 // 处理招聘操作
@@ -1195,6 +1345,65 @@ watch(
     width: 16px // w-4
     height: 16px // h-4
     flex-shrink: 0
+
+  // ===== 版本号 / 立即更新提示行 =====
+  // 1:1 对照 ihraisaas JobList.tsx 第 178-194 行
+  //   pt-2 flex items-center justify-between px-2 pb-1 border-t border-neutral-50/50
+  .iHR-version-row
+    display: flex
+    align-items: center
+    justify-content: space-between
+    padding: 8px 8px 4px // pt-2 px-2 pb-1
+    border-top: 1px solid rgba(245, 245, 245, 0.5) // border-neutral-50/50
+
+  .iHR-version-row-left
+    display: flex
+    align-items: center
+    gap: 8px // space-x-2
+
+  // 11px neutral-400 font-bold tracking-tight
+  .iHR-version-text
+    font-size: 11px
+    color: #a3a3a3 // neutral-400
+    font-weight: 700 // font-bold
+    letter-spacing: -0.025em
+
+  // 11px primary-500 font-black hover:underline + 圆点脉冲
+  .iHR-update-btn
+    display: inline-flex
+    align-items: center
+    border: none
+    background: transparent
+    padding: 0
+    font-size: 11px
+    font-weight: 900 // font-black
+    color: #15B8A6 // primary-500
+    cursor: pointer
+    animation: lm-update-pulse 2s ease-in-out infinite
+    line-height: 1.2
+
+    &:hover
+      text-decoration: underline
+      text-underline-offset: 2px
+
+  .iHR-update-dot
+    display: inline-block
+    width: 6px
+    height: 6px
+    border-radius: 999px
+    background: #15B8A6 // primary-500
+    margin-right: 4px
+
+  .iHR-version-latest
+    font-size: 10px
+    color: #d4d4d4 // neutral-300
+    font-weight: 500
+
+  @keyframes lm-update-pulse
+    0%, 100%
+      opacity: 1
+    50%
+      opacity: 0.5
 
   // 1:1 对照 ihraisaas JobList.tsx 第 51-149 行
   .job-item

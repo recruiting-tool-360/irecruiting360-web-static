@@ -607,22 +607,84 @@ const native = {
 /**
  * 自动更新 bridge
  *
- * Main 进程在 setupAutoUpdater 已自动定期检查并弹 dialog 询问；
- * 这里只暴露给渲染层"按钮主动触发" + "订阅进度事件"的能力，比如：
- *   - 设置弹框里的「检查更新」按钮：await window.api.appUpdater.check()
- *   - 显示下载进度条：window.api.appUpdater.onProgress(({percent}) => {...})
+ * Main 进程在 setupAutoUpdater **不再弹任何 dialog**，所有 UI 由 renderer
+ * `src/components/clients/UpdateModal.vue` 实现（1:1 ihraisaas 设计）。
  *
- * 不传 mainWindow 参数；main 进程内已保存 mainWindow 引用做事件 send / dialog parent。
+ * 用法：
+ *   1. 入口（如 LeftMenu）mount 时：
+ *      const st = await window.api.appUpdater.getStatus()
+ *      if (st.phase === 'available' || st.phase === 'downloaded') { 展示「立即更新」按钮 + 弹 modal }
+ *   2. 订阅持续事件：window.api.appUpdater.on('available', ({version}) => setNewVersion(version))
+ *   3. UpdateModal 打开 → 点「立即更新」→ window.api.appUpdater.download()
+ *      期间监听 progress / downloaded → 切换 modal 阶段
+ *   4. downloaded 完成 → 2s 后 window.api.appUpdater.quitAndInstall()
  */
 const appUpdater = {
-  /** 立即检查更新（不下载）。返回 { ok, version, available } 或 { ok:false, message } */
-  check: (): Promise<{ ok: boolean; version?: string; available?: boolean; message?: string }> =>
-    ipcRenderer.invoke('autoUpdater:check'),
+  /**
+   * ★ 仅获取客户端版本号（立刻返回，不发网络请求）。
+   *
+   * 推荐用法：renderer 启动时调一次，立刻在 UI 上显示版本号。
+   */
+  getCurrentVersion: (): Promise<string> => ipcRenderer.invoke('autoUpdater:getCurrentVersion'),
+
+  /**
+   * ★ 主动检查更新（发网络请求拉 latest.yml 对比版本）。
+   *
+   * 语义清晰版本，比 check() 更推荐使用：
+   *   const r = await window.api.appUpdater.checkUpdate()
+   *   if (r.hasUpdate) {
+   *     // 显示"立即更新"按钮 / 弹 UpdateModal
+   *   } else {
+   *     // 显示"最新版本"
+   *   }
+   */
+  checkUpdate: (): Promise<{
+    hasUpdate: boolean
+    currentVersion: string
+    newVersion?: string
+    releaseDate?: string
+    releaseNotes?: string
+    error?: string
+  }> => ipcRenderer.invoke('autoUpdater:checkUpdate'),
+
+  /** [兼容] 旧 check 接口。新代码请用 checkUpdate。 */
+  check: (): Promise<{
+    ok: boolean
+    version?: string
+    currentVersion?: string
+    available?: boolean
+    message?: string
+  }> => ipcRenderer.invoke('autoUpdater:check'),
   /** 主动触发下载（autoDownload=false 时手动调）。返回 { ok } 或 { ok:false, message } */
   download: (): Promise<{ ok: boolean; message?: string }> =>
     ipcRenderer.invoke('autoUpdater:download'),
-  /** 立刻退出 + 安装（适用于已 update-downloaded 状态） */
-  quitAndInstall: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('autoUpdater:quitAndInstall'),
+  /**
+   * 立刻退出 + 安装（适用于已 update-downloaded 状态）。
+   *
+   * dev 模式：electron-updater 没有 packaged installer，主进程会 fallback 到 app.quit()
+   * 并返回 `{ ok:true, devMode:true, message:'...' }`，方便调试。
+   * 生产包：正常 quit + 自动安装 + 启动新版本。
+   */
+  quitAndInstall: (): Promise<{ ok: boolean; devMode?: boolean; message?: string }> =>
+    ipcRenderer.invoke('autoUpdater:quitAndInstall'),
+  /**
+   * 一次性拉当前更新状态（解决 renderer 晚于首次 update-available 事件 mount 错过事件的问题）。
+   * 返回结构跟主进程 UpdateStatus 一致。UpdateModal 内部用以处理"用户关闭 modal 后又打开"场景。
+   */
+  getStatus: (): Promise<{
+    phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+    currentVersion: string
+    newVersion: string | null
+    releaseDate?: string | null
+    releaseNotes?: string | null
+    progress: {
+      percent: number
+      transferred: number
+      total: number
+      bytesPerSecond: number
+    } | null
+    error: string | null
+  }> => ipcRenderer.invoke('autoUpdater:getStatus'),
   /** 订阅事件：返回 unsubscribe 函数。事件名：checking / available / not-available / progress / downloaded / error */
   on: (
     event: 'checking' | 'available' | 'not-available' | 'progress' | 'downloaded' | 'error',
