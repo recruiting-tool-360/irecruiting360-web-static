@@ -8,9 +8,7 @@
   -->
   <div
     :class="visibleThirdSwitchPlus && 'iHR-style'"
-    :style="visibleThirdSwitchPlus
-      ? { height: '100%' }
-      : { height: '100%', minHeight: '100vh' }"
+    :style="visibleThirdSwitchPlus ? { height: '100%' } : { height: '100%', minHeight: '100vh' }"
   >
     <!-- 新建AI聊天按钮 -->
     <div class="q-mx-md q-my-md" v-if="!visibleThirdSwitchPlus">
@@ -245,6 +243,24 @@
                   >异常停止</span
                 >
               </div>
+              <!--
+                ★ 预计开始时间（1:1 对照 ihraisaas JobList.tsx 第 131-136 行）
+                  显示条件：
+                    - estimatedStartTime 字段存在（来自后端 /search/task/queue items[i].estimatedStartTime）
+                    - 仅 processing / queued / resting 状态显示（完成 / 失败的任务无意义）
+                  格式：
+                    - 今天 → HH:mm
+                    - 其它日期 → MM-dd HH:mm
+              -->
+              <div
+                v-if="
+                  jobAggregateStatus(item.id).task?.estimatedStartTime &&
+                  ['processing', 'queued', 'resting'].includes(jobAggregateStatus(item.id).status)
+                "
+                class="status-estimated"
+              >
+                预计 {{ formatEstimatedTime(jobAggregateStatus(item.id).task.estimatedStartTime) }}
+              </div>
             </template>
           </div>
         </div>
@@ -332,11 +348,7 @@
       统一改 SCSS 控制（class 见下面 .iHR-settings-btn）
     -->
     <div v-if="visibleThirdSwitchPlus" class="iHR-bottom-actions">
-      <button
-        type="button"
-        class="iHR-settings-btn"
-        @click="handleOpenSettings"
-      >
+      <button type="button" class="iHR-settings-btn" @click="handleOpenSettings">
         <svg
           class="iHR-settings-icon"
           viewBox="0 0 24 24"
@@ -445,6 +457,32 @@ function jobAggregateStatus(chatId) {
     return { status: "idle", queuePosition: 0, task: null };
   }
   return getter(chatId);
+}
+
+/**
+ * 格式化预计开始时间（来自后端 /search/task/queue items[i].estimatedStartTime）。
+ *
+ * 1:1 对照 ihraisaas JobList.tsx 第 133-135 行的 isToday + format 'HH:mm' / 'MM-dd HH:mm' 逻辑。
+ * 自己实现而不引入 date-fns（项目没装，引入只为这一个函数不划算）。
+ *
+ * @param {string} iso  ISO 8601 字符串，如 "2026-05-26T14:25:18"
+ * @returns {string}    今天 → "14:25"；其它 → "05-26 14:25"；非法 → ""
+ */
+function formatEstimatedTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const isToday =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const HH = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  if (isToday) return `${HH}:${mm}`;
+  const MM = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${MM}-${dd} ${HH}:${mm}`;
 }
 
 /** 列表渲染时用：置顶项排在前面 */
@@ -1330,6 +1368,15 @@ watch(
       font-weight: 700
       letter-spacing: -0.01em
       margin-top: 2px
+
+  // ★ 预计开始时间（1:1 对照 ihraisaas text-[8px] text-neutral-400 font-bold mt-0.5 whitespace-nowrap）
+  .status-estimated
+    font-size: 8px
+    font-weight: 700
+    color: #a3a3a3 // text-neutral-400
+    margin-top: 2px // mt-0.5
+    white-space: nowrap
+    line-height: 1.2
 
   // icon 颜色
   .status-icon-spinner

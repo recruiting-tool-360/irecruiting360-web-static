@@ -338,6 +338,7 @@ import {setDefaultPluginRules} from "src/pluginSrc/util/BasePluginManager";
 import {pluginRequest} from "src/pluginSrc/config/PluginStatus";
 import {convertSearchConditionRequest} from "src/pjo/dto/request/SaveSearchRequest";
 import {saveCondition} from "src/api/search/SearchApi";
+import { setConditionCache } from "src/util/searchConditionCache";
 import QueueStatusMonitor from './components/QueueStatusMonitor.vue';
 import ChannelSettingsDialog from 'src/components/settings/ChannelSettingsDialog.vue';
 import {convertSearchState} from "src/pjo/dto/request/SearchStateConfig";
@@ -1120,6 +1121,21 @@ const executeSearch = async (searchState, opts = {}) => {
         data.config = [];
         searchRequestData = data;
 
+        // ★ 写入条件缓存（按 searchConditionId 永久存到 localStorage）
+        //   用于 current 拉的任务下次跑时跳过 saveCondition。
+        //   详见 src/util/searchConditionCache.js
+        //
+        //   TODO: 等后端提供 `GET /search/getConditionById?id=xxx` 接口
+        //   （返回结构跟 saveCondition data 同构），本地缓存就可以删掉，
+        //   改成 runTask 内部按 condId 调接口反查。
+        if (searchRequestData?.id) {
+          try {
+            setConditionCache(searchRequestData.id, searchRequestData);
+          } catch (_e) {
+            /* 缓存写入失败不影响主流程 */
+          }
+        }
+
         // 构建分页信息
         if (data.channelSearchConditions) {
           data.channelSearchConditions.forEach((item) => {
@@ -1313,6 +1329,17 @@ const prepareConditionOnly = async () => {
     }
     store.commit('changeSearchChannelConditionRequestData', data);
     store.commit('changeSearchConditionId', data.id);
+
+    // ★ 写入条件缓存（按 searchConditionId 永久存到 localStorage）
+    //   跟 executeSearch saveCondition 分支保持一致，详见 src/util/searchConditionCache.js
+    if (data?.id) {
+      try {
+        setConditionCache(data.id, data);
+      } catch (_e) {
+        /* 缓存写入失败不影响主流程 */
+      }
+    }
+
     console.log('[AISearch] prepareConditionOnly 完成，conditionId=', data.id);
     // 返回完整 data：caller (IndexPage.handleAggregateSearch) 可以把它传给 executeSearch
     // 让 executeSearch 跳过内部第二次 saveCondition（避免 Network 上重复出现）

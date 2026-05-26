@@ -9,6 +9,28 @@ export const saveCondition = (data) => {
     });
 }
 
+/**
+ * 按 searchConditionId 反查搜索条件（替代重复 saveCondition）
+ *
+ * 后端：@GetMapping("/getCondition") Response<SearchConditionResponse> getCondition(
+ *         @RequestParam("searchConditionId") Long searchConditionId)
+ *
+ * 返回结构跟 saveCondition data 同构（含 id / channelSearchConditions[] / config[] 等），
+ * 可以直接当 searchRequestData 传给 executeSearch 走"复用"分支跳过 saveCondition。
+ *
+ * 用途场景：
+ *   - current 拉的任务执行时（task.searchRequestData = null）
+ *   - 客户端重启 / 跨设备查看任务结果时
+ *   - 本地缓存失效 / 没命中时的兜底
+ */
+export const getCondition = (searchConditionId) => {
+    return request({
+        method: 'GET',
+        url: '/search/getCondition',
+        params: { searchConditionId }
+    });
+}
+
 //分页查询列表
 export const querySearch = (data) => {
     return request({
