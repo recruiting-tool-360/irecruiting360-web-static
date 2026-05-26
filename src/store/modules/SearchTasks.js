@@ -1314,9 +1314,97 @@ const actions = {
           );
         }
       }
+      // ===== searchRequestData 准备 =====
+      //
+      // 优先级（按命中代价从低到高）：
+      //   1. task.searchRequestData（主动启动场景：handleAggregateSearch 创建时已缓存到 task 上）
+      //   2. 本地 localStorage 缓存（saveCondition 时按 condId 写入；详见 src/util/searchConditionCache.js）
+      //   3. 后端反查接口 GET /search/getCondition?searchConditionId=xxx（永远不会失败的兜底，
+      //      覆盖跨 client / 清浏览器缓存 / 跨设备等场景）
+      //   4. 都不行 → null → executor 内 saveCondition 兜底（理论上走不到，留作 last resort）
+      //
+      // 写策略：从后端反查命中后，回写一份到本地缓存 + task.searchRequestData，
+      //         下次同 task 跑 / 同 condId 跑都能直接命中第 1/2 层，避免再调后端。
+      let searchRequestDataForExec = task.searchRequestData || null;
+      if (!searchRequestDataForExec && hasSearch) {
+        const searchCh = task.channels.find(
+          (c) => c.businessChannel === "SEARCH" && c.searchConditionId
+        );
+        if (searchCh) {
+          const condId = searchCh.searchConditionId;
+
+          // 2) 先试本地缓存（同步 + 快）
+          try {
+            const cacheMod = await import("src/util/searchConditionCache");
+            const cached = cacheMod.getConditionCache(condId);
+            if (cached) {
+              searchRequestDataForExec = cached;
+              console.log(
+                `[SearchTasks] runTask: 命中本地 condition 缓存 condId=${condId}` +
+                  ` channels=${cached.channelSearchConditions?.length || 0}（跳过 saveCondition）`
+              );
+            }
+          } catch (e) {
+            console.warn(
+              "[SearchTasks] runTask: 读本地 condition 缓存失败（继续尝试后端接口）:",
+              e?.message || e
+            );
+          }
+
+          // 3) 本地缓存未命中 → 调后端反查接口（最可靠兜底）
+          if (!searchRequestDataForExec) {
+            try {
+              const { getCondition } = await import("src/api/search/SearchApi");
+              const resp = await getCondition(condId);
+              const data = resp?.data;
+              if (data && Array.isArray(data.channelSearchConditions)) {
+                // 跟 executeSearch saveCondition 分支保持结构一致，补 config 占位
+                if (!Array.isArray(data.config)) {
+                  data.config = data.channelSearchConditions.map((item) => ({
+                    channelDataTotal: 0,
+                    channelPage: 0,
+                    channelCountSize: 0,
+                    totalPage: 0,
+                    channelKey: item.channel
+                  }));
+                }
+                searchRequestDataForExec = data;
+                // 命中后端 → 回写本地缓存，下次同 condId 跑直接命中第 2 层
+                try {
+                  const cacheMod = await import("src/util/searchConditionCache");
+                  cacheMod.setConditionCache(condId, data);
+                } catch (_e) { /* 缓存写入失败不阻塞主流程 */ }
+                console.log(
+                  `[SearchTasks] runTask: 后端 getCondition 反查命中 condId=${condId}` +
+                    ` channels=${data.channelSearchConditions.length}（跳过 saveCondition）`
+                );
+              } else {
+                console.warn(
+                  `[SearchTasks] runTask: getCondition 响应缺 channelSearchConditions condId=${condId}（executor 内兜底 saveCondition）`
+                );
+              }
+            } catch (e) {
+              console.warn(
+                `[SearchTasks] runTask: 调 getCondition 失败 condId=${condId}（executor 内兜底 saveCondition）:`,
+                e?.message || e
+              );
+            }
+          }
+
+          // 4) 任何一层命中都回写 task.searchRequestData，下次同 task 跑（极少见）直接走第 1 层
+          if (searchRequestDataForExec) {
+            commit("patchTask", {
+              taskId,
+              patch: { searchRequestData: searchRequestDataForExec }
+            });
+          }
+        }
+      }
+
       console.log(
         `[SearchTasks] runTask: 调 executor search=${hasSearch} recommend=${hasRecommend}`
         + ` jobId=${matchedBossJobId || '(none)'} resumeCount=${recommendResumeCount}`
+        + ` hasSearchRequestData=${!!searchRequestDataForExec}`
       );
 
       const execRes = await executor({
@@ -1324,9 +1412,9 @@ const actions = {
         selectedModules: { search: hasSearch, recommend: hasRecommend },
         matchedBossJobId,
         resumeCount: recommendResumeCount,
-        // 透回 create 时缓存的 prepareConditionOnly data，让 executeSearch
+        // 透回 prepareConditionOnly / 缓存命中拿到的 data，让 executeSearch
         // 跳过重复 saveCondition（节省一个 API 调用 + 保证条件 id 跟 channel 绑定一致）
-        searchRequestData: task.searchRequestData || null
+        searchRequestData: searchRequestDataForExec
       });
       if (execRes && execRes.status === "FAILED") {
         runFailed = true;

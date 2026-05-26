@@ -324,8 +324,8 @@
             shouldShowEmptyState
               ? '请从左侧列表选择职位开始'
               : isTaskRunningForCurrentChat
-                ? '当前任务进行中，请等待任务完成后再发送消息'
-                : '给[i快招]AI发送消息，示例：发送一段招聘JD'
+              ? '当前任务进行中，请等待任务完成后再发送消息'
+              : '给[i快招]AI发送消息，示例：发送一段招聘JD'
           "
           class="full-width message-input"
           @keydown.enter.exact.prevent="onEnterPress"
@@ -391,7 +391,11 @@ import { useStore } from "vuex";
 import { useQuasar } from "quasar";
 import MarkdownIt from "markdown-it";
 import hljs from "highlight.js";
-import { getChatHistory, getCurrentConditionByChatId } from "src/api/chat/ChatApi";
+import {
+  getChatHistory,
+  getCurrentConditionByChatId,
+  clearChatHistory
+} from "src/api/chat/ChatApi";
 import { fetchStream } from "src/api/chat/ChatUtil2";
 import { v4 as uuidv4 } from "uuid";
 import LoginRequiredPanel from "src/components/clients/LoginRequiredPanel.vue";
@@ -522,7 +526,7 @@ const isTaskRunningForCurrentChat = computed(() => {
  */
 const onEnterPress = () => {
   if (shouldShowEmptyState.value || isTaskRunningForCurrentChat.value) {
-    console.log('[ChatCard] Enter 被忽略：emptyState 或 taskRunning');
+    console.log("[ChatCard] Enter 被忽略：emptyState 或 taskRunning");
     return;
   }
   sendChatMessage();
@@ -996,9 +1000,15 @@ const handleNewChat = () => {
  * 此外要清掉跟当前 chat 相关的占位 task 卡片绑定（pendingTaskBindingsByChat[chatId]），
  * 否则清完再启动新任务时旧占位会回填错误。
  */
-const clearCurrentChat = () => {
+const clearCurrentChat = async () => {
   const chatId = currentChatId.value || props.chatId;
   console.log(`[ChatCard] clearCurrentChat 开始 chatId=${chatId}`);
+
+  // ===== 本地优先策略 =====
+  //   1) 先清本地（用户感知秒响应，不等后端往返）
+  //   2) 再 await 后端接口（失败仅 console.warn，不 throw 阻塞 UI；用户可以重试）
+  //   原因：本地清完用户就看到效果了；万一网络问题失败，下次进入会从后端 loadHistory，
+  //   届时如果后端还有历史会重新加载回来（自洽，不会数据丢失也不会数据残留）。
 
   // 1) 清本地消息
   internalMessages.value = [];
@@ -1018,12 +1028,23 @@ const clearCurrentChat = () => {
     pendingTaskBindingsByChat.value = next;
   }
 
-  // 5) TODO: 调后端清空历史接口（保留 chatId，只清 history）
-  //    api: clearChatHistory(chatId, userInfo.id) —— src/api/chat/ChatApi.js
-  //    按用户要求本次只清本地缓存，等接口联调通过后再放开下面这行：
-  //    await clearChatHistory(chatId, store.getters.getUserInfo?.id);
-
-  console.log(`[ChatCard] clearCurrentChat 完成 chatId=${chatId}（仅本地，未调后端）`);
+  // 5) 调后端清空历史接口（保留 chatId，只清 history）
+  //    后端：GET/POST /ihire/chat/clearChatHistory?chatId=xxx
+  //    失败仅日志，不影响本地已清的视觉效果（用户感知不阻塞）
+  if (chatId) {
+    try {
+      const resp = await clearChatHistory(chatId);
+      console.log(
+        `[ChatCard] clearCurrentChat 后端清空 ok chatId=${chatId} resp=`,
+        resp?.data ?? resp
+      );
+    } catch (e) {
+      console.warn(
+        `[ChatCard] clearCurrentChat 后端清空失败（本地已清，不影响 UI）chatId=${chatId}:`,
+        e?.message || e
+      );
+    }
+  }
 
   // 6) 通知外部组件
   emit("chat-cleared", { chatId });

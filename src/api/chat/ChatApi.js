@@ -17,11 +17,21 @@ export const getChatHistory = (chatId,userId) => {
     });
 }
 
-//清理历史对话
-export const clearChatHistory = (chatId,userId) => {
+/**
+ * 清理历史对话（保留 chatId，只清这个 chat 下的消息历史）
+ *
+ * 后端：@RequestMapping(value = "/ihire/chat/clearChatHistory", method = {GET, POST})
+ *        Response<String> clearChatHistory(@RequestParam("chatId") String chatId)
+ *
+ * - 只要 chatId（不需要 userId，后端从登录态拿）
+ * - 用 POST + params（chatId 走 query string，跟后端 @RequestParam 对应）
+ * - 用 axios `params` 让 chatId 安全 encode，避免含 `+ / & =` 等特殊字符时出 bug
+ */
+export const clearChatHistory = (chatId) => {
     return request({
-        method:'GET',
-        url:'/ihire/chat/clearChatHistory?chatId='+chatId+"&userId="+userId
+        method: 'POST',
+        url: '/ihire/chat/clearChatHistory',
+        params: { chatId }
     });
 }
 
