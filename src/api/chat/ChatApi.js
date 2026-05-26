@@ -9,11 +9,28 @@ export const getChatIdByUserId = (userId) => {
 }
 
 
-//查询历史对话
-export const getChatHistory = (chatId,userId) => {
+/**
+ * 查询历史对话
+ *
+ * 两种模式：
+ *   1) 不传 pagination → 走旧逻辑，返回最近 count 轮（默认 10）
+ *   2) 传 { pageNo, pageSize } → 启用分页
+ *       - pageNo=1 返回**最新一页**（页内时间正序：旧→新）
+ *       - pageNo=2 返回更早一页（用于"向上滚动加载更老消息"）
+ *       - 返回结构多 { pageNo, pageSize, total, totalPage, hasNext, hasPrevious }
+ *
+ * @param {string} chatId
+ * @param {string|number} userId
+ * @param {{ pageNo?: number, pageSize?: number }} [pagination]
+ */
+export const getChatHistory = (chatId, userId, pagination) => {
+    const params = { chatId, userId };
+    if (pagination?.pageNo != null) params.pageNo = pagination.pageNo;
+    if (pagination?.pageSize != null) params.pageSize = pagination.pageSize;
     return request({
-        method:'GET',
-        url:'/ihire/chat/getChatHistory?chatId='+chatId+"&userId="+userId
+        method: 'GET',
+        url: '/ihire/chat/getChatHistory',
+        params
     });
 }
 
