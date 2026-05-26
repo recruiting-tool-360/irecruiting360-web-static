@@ -1121,22 +1121,47 @@ const actions = {
       isManualStopped: false,
       channels: mergedChannels,
       results: [],
-      error: null
+      error: null,
+      // ★ searchRequestData：caller（IndexPage.dispatchTaskStore）传过来的 prepareConditionOnly 结果。
+      //   runTask 启动 executor(runRealAggregateSearch) 时把这个透回去，让 executeSearch
+      //   跳过重复 saveCondition（同一次任务只 saveCondition 一次，省一个 API 调用）。
+      //   后端不需要这个字段，纯前端缓存。
+      searchRequestData: payload?.searchRequestData || null
     };
     console.log(
       `[SearchTasks] create: 最终 task.channels=`,
       mergedChannels.map((c) => `${c.channelSubType}-${c.businessChannel}(${c.taskChannelStatus})`).join(",")
     );
     commit("setTask", task);
-    commit("enqueue", task.taskId);
 
-    // 触发队列处理（非 await：让 create action 立刻 return，UI 不阻塞）
-    void dispatch("processQueue");
+    // ★ 用户要求：创建后**不立刻执行**，由 current 接口驱动启动。
+    //
+    // 流程拆分（创建 ≠ 执行）：
+    //   1) create 只把 task 落本地 store（让 UI 立刻显示"已创建"，badge 出来）
+    //   2) 立刻 fetchTaskQueue：拿后端最新队列状态 + 自动启动 CurrentTaskPoller（10s/tick）
+    //   3) 立刻 dispatch resumeFromCurrent：尝试拉一次 current，
+    //      - 后端已就绪（taskStatus=WAITING）→ 进入 enqueue + processQueue → runTask 执行
+    //      - 还没就绪（current 返回 null，比如在等工作时间窗）→ 不执行，等 poller 接管
+    //   4) 真正"执行总方法"是 runTask（由 processQueue 调），resumeFromCurrent 末尾已有
+    //      taskStatus ∈ {WAITING, RUNNING, RESTING} 才入队的判断逻辑（详见该 action 末尾）
+    //
+    // 这样：
+    //   - 后端立即可执行：create → ~100ms 内开始执行（resumeFromCurrent 命中）
+    //   - 后端排队中：create → UI 显示"排队中" → poller 10s 一次 → 命中后立刻执行
+    //   - 完全由 current 接口决定何时执行，create 不再自作主张入队
+    void dispatch("fetchTaskQueue");
+    void dispatch("resumeFromCurrent");
     return { ok: true, taskId: task.taskId };
   },
 
   /**
-   * 处理队列：取队首 → 跑。已有 running 时直接返回。
+   * 处理队列：取队首 → 调 runTask 执行。已有 running 时直接返回。
+   *
+   * ⚠️ runTask 是「真正执行任务的总方法」。所有入口都通过这里：
+   *   - resumeFromCurrent 拉到 current task + taskStatus=WAITING/RUNNING/RESTING → 入队
+   *   - currentTaskPoller 轮询命中 → dispatch resumeFromCurrent → 入队
+   *   - create 后立刻调一次 resumeFromCurrent（同上）
+   *   - runTask 跑完 → 调 resumeFromCurrent 拉下一个 → 入队
    */
   async processQueue({ state, dispatch }) {
     if (state.runningTaskId) return;
@@ -1298,7 +1323,10 @@ const actions = {
         chatId: task.chatId,
         selectedModules: { search: hasSearch, recommend: hasRecommend },
         matchedBossJobId,
-        resumeCount: recommendResumeCount
+        resumeCount: recommendResumeCount,
+        // 透回 create 时缓存的 prepareConditionOnly data，让 executeSearch
+        // 跳过重复 saveCondition（节省一个 API 调用 + 保证条件 id 跟 channel 绑定一致）
+        searchRequestData: task.searchRequestData || null
       });
       if (execRes && execRes.status === "FAILED") {
         runFailed = true;

@@ -96,103 +96,103 @@
     <Transition name="rec-slide">
       <div v-if="selectedModules.recommend" class="recommend-section">
         <div class="config-card">
-      <!-- 行 1：匹配 Boss 直聘职位 -->
-      <div class="config-row">
-        <div class="config-left">
-          <svg
-            class="row-icon"
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <circle cx="12" cy="12" r="10"></circle>
-            <circle cx="12" cy="12" r="6"></circle>
-            <circle cx="12" cy="12" r="2"></circle>
-          </svg>
-          <span class="row-label">匹配 Boss 直聘职位</span>
-        </div>
-        <div class="select-wrap">
-          <select
-            v-model="matchedBossJobId"
-            class="native-select"
-            :disabled="bossJobOptions.length === 0"
-          >
-            <option v-if="bossJobOptions.length === 0" :value="null">暂无 BOSS 我的职位</option>
-            <option v-for="opt in bossJobOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-          <svg
-            class="select-caret"
-            viewBox="0 0 24 24"
-            width="12"
-            height="12"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </div>
-      </div>
+          <!-- 行 1：匹配 Boss 直聘职位 -->
+          <div class="config-row">
+            <div class="config-left">
+              <svg
+                class="row-icon"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="6"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+              </svg>
+              <span class="row-label">匹配 Boss 直聘职位</span>
+            </div>
+            <div class="select-wrap">
+              <select
+                v-model="matchedBossJobId"
+                class="native-select"
+                :disabled="bossJobOptions.length === 0"
+              >
+                <option v-if="bossJobOptions.length === 0" :value="null">暂无 BOSS 我的职位</option>
+                <option v-for="opt in bossJobOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <svg
+                class="select-caret"
+                viewBox="0 0 24 24"
+                width="12"
+                height="12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+          </div>
 
-      <!-- 行 2：本次期望最大搜索"简历数" -->
-      <div class="config-row">
-        <div class="config-left">
-          <svg
-            class="row-icon"
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-            <circle cx="9" cy="7" r="4"></circle>
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-          </svg>
-          <span class="row-label">本次期望最大搜索"简历数"</span>
-        </div>
-        <div class="config-right">
-          <input
-            v-model="resumeCountInput"
-            class="native-input"
-            type="text"
-            inputmode="numeric"
-            maxlength="4"
-            @input="onResumeCountInput"
-          />
-          <span class="config-unit">份</span>
-        </div>
-      </div>
+          <!-- 行 2：本次期望最大搜索"简历数" -->
+          <div class="config-row">
+            <div class="config-left">
+              <svg
+                class="row-icon"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+              <span class="row-label">本次期望最大搜索"简历数"</span>
+            </div>
+            <div class="config-right">
+              <input
+                v-model="resumeCountInput"
+                class="native-input"
+                type="text"
+                inputmode="numeric"
+                maxlength="4"
+                @input="onResumeCountInput"
+              />
+              <span class="config-unit">份</span>
+            </div>
+          </div>
 
-      <!-- 行 3：输入简历数后展开 Schedule Info（参考 ihraisaas predictSchedule 简化版） -->
-      <div v-if="resumeCountNum > 0" class="schedule-info">
-        <div class="schedule-row">
-          <span class="schedule-label">预计本次时长:</span>
-          <span class="schedule-value">{{ estimatedDurationDisplay }}</span>
+          <!-- 行 3：输入简历数后展开 Schedule Info（参考 ihraisaas predictSchedule 简化版） -->
+          <div v-if="resumeCountNum > 0" class="schedule-info">
+            <div class="schedule-row">
+              <span class="schedule-label">预计本次时长:</span>
+              <span class="schedule-value">{{ estimatedDurationDisplay }}</span>
+            </div>
+            <div class="schedule-row">
+              <span class="schedule-label">预计开始时间:</span>
+              <span class="schedule-value">{{ scheduledStartDisplay }}</span>
+            </div>
+            <div class="schedule-row">
+              <span class="schedule-label">预计结束时间:</span>
+              <span class="schedule-value">{{ scheduledEndDisplay }}</span>
+            </div>
+          </div>
         </div>
-        <div class="schedule-row">
-          <span class="schedule-label">预计开始时间:</span>
-          <span class="schedule-value">{{ scheduledStartDisplay }}</span>
-        </div>
-        <div class="schedule-row">
-          <span class="schedule-label">预计结束时间:</span>
-          <span class="schedule-value">{{ scheduledEndDisplay }}</span>
-        </div>
-      </div>
-      </div>
       </div>
     </Transition>
 
@@ -200,27 +200,6 @@
     <div class="bottom-action">
       <p class="bottom-hint">基于深度画像准备搜索策略</p>
       <div class="bottom-action-buttons">
-        <!-- 调试 / 测试用：直接切到 results 视图，不真正触发聚合 -->
-        <button
-          type="button"
-          class="view-results-btn"
-          @click="$emit('view-results')"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="14"
-            height="14"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          <span>查看结果</span>
-        </button>
         <button
           type="button"
           class="aggregate-btn"
@@ -238,8 +217,12 @@
             stroke-linecap="round"
             stroke-linejoin="round"
           >
-            <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
-            <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+            <path
+              d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"
+            />
+            <path
+              d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"
+            />
           </svg>
           <span>启动聚合搜索</span>
         </button>
@@ -249,8 +232,8 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
-import { useStore } from 'vuex';
+import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
+import { useStore } from "vuex";
 
 const props = defineProps({
   message: {
@@ -259,7 +242,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['change', 'aggregate', 'view-results']);
+const emit = defineEmits(["change", "aggregate", "view-results"]);
 
 const store = useStore();
 
@@ -275,7 +258,7 @@ const store = useStore();
  */
 const userChannelConfig = computed(() => store.getters.getUserChannelConfig || []);
 const bossEnabled = computed(() => {
-  const cfg = userChannelConfig.value.find((c) => c?.key === 'BOSS');
+  const cfg = userChannelConfig.value.find((c) => c?.key === "BOSS");
   // 兼容：cfg 缺失时默认启用（避免 store 还没 hydrate 完时整块 UI 闪烁消失）
   if (!cfg) return true;
   return cfg.enableConfig !== false;
@@ -314,7 +297,7 @@ watch(
 function toggleModule(key) {
   // BOSS 禁用时 UI 上根本看不到勾选框（v-if 隐藏），点击不可达；
   // 但万一上层用 ref 强调 toggleModule 时也得防御一下，禁止打开 recommend
-  if (key === 'recommend' && !bossEnabled.value) return;
+  if (key === "recommend" && !bossEnabled.value) return;
   selectedModules.value = {
     ...selectedModules.value,
     [key]: !selectedModules.value[key]
@@ -327,8 +310,11 @@ const bossJobOptions = computed(() =>
   bossJobList.value
     .filter((job) => Number(job.jobStatus) === 0) // 0 = 招聘中；3 = 已关闭
     .map((job) => ({
-      value: job.encryptJobId || job.encryptId || String(job.jobId || job.positionName || job.jobName),
-      label: `${job.jobName || job.positionName || '未命名职位'}${job.salaryDesc ? ` (${job.salaryDesc})` : ''}`,
+      value:
+        job.encryptJobId || job.encryptId || String(job.jobId || job.positionName || job.jobName),
+      label: `${job.jobName || job.positionName || "未命名职位"}${
+        job.salaryDesc ? ` (${job.salaryDesc})` : ""
+      }`,
       raw: job
     }))
 );
@@ -349,10 +335,10 @@ watch(
   { immediate: true }
 );
 
-const resumeCountInput = ref('');
+const resumeCountInput = ref("");
 function onResumeCountInput(e) {
   // 限制只能输入数字
-  const v = String(e.target.value || '').replace(/[^\d]/g, '');
+  const v = String(e.target.value || "").replace(/[^\d]/g, "");
   resumeCountInput.value = v;
 }
 
@@ -379,10 +365,12 @@ const estimatedDurationH = computed(() => {
 const estimatedDurationDisplay = computed(() => `${estimatedDurationH.value}h`);
 
 function pad2(n) {
-  return String(n).padStart(2, '0');
+  return String(n).padStart(2, "0");
 }
 function formatMMddHHmm(date) {
-  return `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  return `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(
+    date.getMinutes()
+  )}`;
 }
 
 const nowTick = ref(Date.now());
@@ -419,7 +407,7 @@ function getState() {
   return {
     selectedModules: selectedModules.value,
     matchedBossJobId: matchedBossJobId.value,
-    resumeCount: resumeCountInput.value === '' ? null : Number(resumeCountInput.value)
+    resumeCount: resumeCountInput.value === "" ? null : Number(resumeCountInput.value)
   };
 }
 
@@ -432,7 +420,7 @@ function getState() {
  *        ChatCard 那边 state 一直是 undefined，handleSearch 走 fallback
  *        { search:true, recommend:true } —— 会触发推荐牛人进度卡片误显示。
  */
-watch(getState, (val) => emit('change', val), { deep: true, immediate: true });
+watch(getState, (val) => emit("change", val), { deep: true, immediate: true });
 
 /** 启动按钮禁用条件：两个模块都没勾 / 勾了推荐牛人但没填简历数 */
 const aggregateDisabled = computed(() => {
@@ -514,9 +502,7 @@ $accent-border: #ccfbf1;
       background: $accent; /* bg-primary-500 */
       border-color: $accent; /* border-primary-500 */
       /* ring-4 ring-primary-50 */
-      box-shadow:
-        0 1px 2px 0 rgba(0, 0, 0, 0.05),
-        0 0 0 4px #f0fdfa;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 0 0 4px #f0fdfa;
     }
     .module-text {
       color: #0d9488; /* text-primary-600 */
@@ -548,12 +534,8 @@ $accent-border: #ccfbf1;
 */
 .rec-slide-enter-active,
 .rec-slide-leave-active {
-  transition:
-    opacity 0.22s ease,
-    max-height 0.28s cubic-bezier(0.2, 0.8, 0.4, 1),
-    padding-top 0.22s ease,
-    border-top-color 0.18s ease,
-    transform 0.22s ease;
+  transition: opacity 0.22s ease, max-height 0.28s cubic-bezier(0.2, 0.8, 0.4, 1),
+    padding-top 0.22s ease, border-top-color 0.18s ease, transform 0.22s ease;
   will-change: opacity, max-height, padding-top, transform;
 }
 .rec-slide-enter-from,

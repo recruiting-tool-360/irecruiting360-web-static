@@ -604,6 +604,37 @@ const native = {
   arch: process.arch
 }
 
+/**
+ * 自动更新 bridge
+ *
+ * Main 进程在 setupAutoUpdater 已自动定期检查并弹 dialog 询问；
+ * 这里只暴露给渲染层"按钮主动触发" + "订阅进度事件"的能力，比如：
+ *   - 设置弹框里的「检查更新」按钮：await window.api.appUpdater.check()
+ *   - 显示下载进度条：window.api.appUpdater.onProgress(({percent}) => {...})
+ *
+ * 不传 mainWindow 参数；main 进程内已保存 mainWindow 引用做事件 send / dialog parent。
+ */
+const appUpdater = {
+  /** 立即检查更新（不下载）。返回 { ok, version, available } 或 { ok:false, message } */
+  check: (): Promise<{ ok: boolean; version?: string; available?: boolean; message?: string }> =>
+    ipcRenderer.invoke('autoUpdater:check'),
+  /** 主动触发下载（autoDownload=false 时手动调）。返回 { ok } 或 { ok:false, message } */
+  download: (): Promise<{ ok: boolean; message?: string }> =>
+    ipcRenderer.invoke('autoUpdater:download'),
+  /** 立刻退出 + 安装（适用于已 update-downloaded 状态） */
+  quitAndInstall: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('autoUpdater:quitAndInstall'),
+  /** 订阅事件：返回 unsubscribe 函数。事件名：checking / available / not-available / progress / downloaded / error */
+  on: (
+    event: 'checking' | 'available' | 'not-available' | 'progress' | 'downloaded' | 'error',
+    cb: (payload: unknown) => void
+  ): (() => void) => {
+    const channel = `autoUpdater:${event}`
+    const handler = (_e: unknown, payload: unknown): void => cb(payload)
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  }
+}
+
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
@@ -614,7 +645,8 @@ if (process.contextIsolated) {
       ihrBridge,
       browserBridge,
       automation,
-      siteNetwork
+      siteNetwork,
+      appUpdater
     })
     contextBridge.exposeInMainWorld('__IKUAIZHAO_NATIVE__', native)
   } catch (error) {
@@ -624,7 +656,7 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
   // @ts-ignore (define in dts)
-  window.api = { recruitBridge, handover, tabs, ihrBridge, browserBridge, automation }
+  window.api = { recruitBridge, handover, tabs, ihrBridge, browserBridge, automation, appUpdater }
   // @ts-ignore (define in dts)
   window.__IKUAIZHAO_NATIVE__ = native
 }

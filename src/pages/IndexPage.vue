@@ -1494,7 +1494,7 @@ function waitForSearchConditionId(timeoutMs = 30000) {
   });
 }
 
-async function dispatchTaskStore({ chatIdToSearch, searchChecked, recommendChecked, jobId, taskType = 'INITIAL', sourceTaskId = null, payload, condId: explicitCondId = null }) {
+async function dispatchTaskStore({ chatIdToSearch, searchChecked, recommendChecked, jobId, taskType = 'INITIAL', sourceTaskId = null, payload, condId: explicitCondId = null, searchRequestData = null }) {
   // 立刻 set pendingCreate 标记，让业务侧 channelDataSavePlus → postBatchResultsToTaskChannel
   // 知道"任务正在 create 中"，需要短轮询等任务出现，而不是立刻当"任务化未启动"丢调用。
   // 注意：必须在 await 之前 set，不然下面任意 await 都会让搜索请求先到。
@@ -1597,7 +1597,11 @@ async function dispatchTaskStore({ chatIdToSearch, searchChecked, recommendCheck
       positionId: store.getters.getLatestPositionId,
       taskType,
       triggerSource: 'USER_CLICK',
-      channels
+      channels,
+      // searchRequestData：handleAggregateSearch 已 prepareConditionOnly 拿到本轮 saveCondition data，
+      // 透传到 task 上，runTask 调 executor 时再透回 runRealAggregateSearch，
+      // 让 executeSearch 复用，避免重复发一次 saveCondition。
+      searchRequestData
     };
     if (sourceTaskId && taskType === 'CONTINUE') {
       createPayload.sourceTaskId = sourceTaskId;
@@ -1720,6 +1724,10 @@ async function handleAggregateSearch(payload) {
     console.warn('[IndexPage] handleAggregateSearch: aiSearchRef.prepareConditionOnly 不可用');
   }
 
+  // ⚠️ 把 prepareConditionOnly 拿到的 searchRequestData 挂到 payload 上，
+  //    让 runTask executor 路径（store.aggregateSearchExecutor）跑时 executeSearch
+  //    跳过重复 saveCondition（Network 上只剩 1 次 saveCondition）。
+  //    存储位置：SearchTasks.tasksById[taskId].searchRequestData，runTask 调 executor 时透传。
   dispatchTaskStore({
     chatIdToSearch,
     searchChecked,
@@ -1728,7 +1736,8 @@ async function handleAggregateSearch(payload) {
     taskType,
     sourceTaskId,
     payload,
-    condId: condIdForCreate
+    condId: condIdForCreate,
+    searchRequestData: searchRequestDataForExec
   })
     .then((res) => {
       if (res && res.ok === false) {
@@ -1740,27 +1749,27 @@ async function handleAggregateSearch(payload) {
     })
     .catch((e) => console.warn('[IndexPage] dispatchTaskStore unexpected:', e?.message || e));
 
-  // condId 已经在上面 await prepareConditionOnly 拿到了，
-  // 这里只决定**是否再跑一次 runRealAggregateSearch**（去抓数据）：
-  //   A) 没有其它任务在跑 → runRealAggregateSearch（含 executeSearch 真去抓数据）。
-  //   B) 有其它任务在跑 → 已经 prepareConditionOnly 过了（condId 拿到了），新任务入队等待，
-  //      runTask 通过 executor 后续再真正抓数据。这里不再触发额外操作。
-  const otherTaskRunning = store.state?.SearchTasks?.runningTaskId;
-  if (otherTaskRunning) {
-    console.log(`[IndexPage] 已有任务 ${otherTaskRunning} 在跑，本任务仅入队，等之前任务跑完`);
-  } else {
-    runRealAggregateSearch({
-      chatId: chatIdToSearch,
-      selectedModules: { search: searchChecked, recommend: recommendChecked },
-      matchedBossJobId: jobId,
-      resumeCount: payload?.resumeCount,
-      // 把 prepareConditionOnly 已经 saveCondition 拿到的 data 透传下去，
-      // executeSearch 内部跳过重复 saveCondition（Network 上只剩 1 次 saveCondition）
-      searchRequestData: searchRequestDataForExec
-    }).catch((e) => {
-      console.error('[IndexPage] runRealAggregateSearch threw:', e);
-    });
-  }
+  // ★ 用户要求：完全由 current 接口驱动执行，前端不再直接调 runRealAggregateSearch。
+  //
+  //   旧逻辑（已废弃）：
+  //     - 本地没 runningTaskId 时立刻 runRealAggregateSearch（去 executeSearch + 写 ChannelConfig）
+  //     - 这等于绕过 current，create 完成后立即开干，跟 current 返回 null 还在排队的语义冲突
+  //
+  //   新链路（统一由 current 驱动）：
+  //     handleAggregateSearch
+  //       → prepareConditionOnly 拿 condId
+  //       → dispatchTaskStore → SearchTasks/create
+  //           → 后端 POST /search/task/create
+  //           → 立刻 dispatch fetchTaskQueue（启动 currentTaskPoller, 10s/tick）
+  //           → 立刻 dispatch resumeFromCurrent（拉一次 current）
+  //               - 后端 ready (WAITING) → enqueue + processQueue → runTask
+  //                                          → executor(runRealAggregateSearch) → 真执行
+  //               - 后端没 ready → 不执行，等 poller 接管
+  //
+  //   好处：前端不再越权决定"何时开始执行"，完全听后端调度（工作时段 / 排队顺序）
+  console.log(
+    `[IndexPage] handleAggregateSearch: 任务已请求创建，执行由 current 接口驱动（不再前端直接调 runRealAggregateSearch）`
+  );
 
   if (recommendChecked && !jobId) {
     console.warn(
