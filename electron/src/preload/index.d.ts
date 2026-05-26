@@ -469,13 +469,59 @@ export interface IKuaiZhaoNative {
  * 自动更新 bridge（基于 electron-updater）
  * 详见 main 进程 setupAutoUpdater（electron/src/main/autoUpdater.ts）
  */
+export interface AppUpdaterStatus {
+  phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+  currentVersion: string
+  newVersion: string | null
+  releaseDate?: string | null
+  releaseNotes?: string | null
+  progress: {
+    percent: number
+    transferred: number
+    total: number
+    bytesPerSecond: number
+  } | null
+  error: string | null
+}
+
+export interface AppUpdaterCheckResult {
+  /** 是否有可用更新（server 版本号高于本地 app.getVersion()） */
+  hasUpdate: boolean
+  /** 当前客户端版本（app.getVersion()） */
+  currentVersion: string
+  /** 可用的新版本号（hasUpdate=true 时存在） */
+  newVersion?: string
+  releaseDate?: string
+  releaseNotes?: string
+  /** check 过程中的错误信息（网络失败 / latest.yml 404 等） */
+  error?: string
+}
+
 export interface AppUpdaterBridge {
-  /** 主动触发检查更新（不下载）。返回当前最新版本信息或失败原因。 */
-  check(): Promise<{ ok: boolean; version?: string; available?: boolean; message?: string }>
+  /** ★ 获取客户端版本号（立即返回，不发网络请求）。 */
+  getCurrentVersion(): Promise<string>
+  /** ★ 主动检查更新（语义清晰版本，新代码推荐用这个）。返回 hasUpdate + newVersion 等。 */
+  checkUpdate(): Promise<AppUpdaterCheckResult>
+  /** [兼容] 旧 check 接口。新代码请用 checkUpdate。 */
+  check(): Promise<{
+    ok: boolean
+    version?: string
+    currentVersion?: string
+    available?: boolean
+    message?: string
+  }>
   /** 主动下载（autoDownload=false 时使用） */
   download(): Promise<{ ok: boolean; message?: string }>
-  /** 立刻退出 + 安装（已 update-downloaded 状态下调用） */
-  quitAndInstall(): Promise<{ ok: boolean }>
+  /**
+   * 立刻退出 + 安装（已 update-downloaded 状态下调用）。
+   * dev 模式 fallback 到 app.quit()，返回 { ok:true, devMode:true, message:'...' }。
+   */
+  quitAndInstall(): Promise<{ ok: boolean; devMode?: boolean; message?: string }>
+  /**
+   * 一次性拉当前状态（解决 renderer 晚于首次 update-available 事件 mount 错过事件的问题）。
+   * UpdateModal / LeftMenu mount 时建议调一次 hydrate。
+   */
+  getStatus(): Promise<AppUpdaterStatus>
   /**
    * 订阅自动更新事件，返回 unsubscribe 函数。
    * - checking: 开始检查
