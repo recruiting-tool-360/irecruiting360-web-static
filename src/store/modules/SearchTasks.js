@@ -775,6 +775,39 @@ const actions = {
         `[SearchTasks] fetchTaskQueue ok: totalCount=${data?.totalCount} queueFull=${data?.queueFull}` +
         ` items=${items.length} hydratedToTasksById=${hydrated}`
       );
+
+      // ★ 自动启停 CurrentTaskPoller（每次 fetchTaskQueue 完成都判断一次）。
+      //
+      // 为什么放这里：之前只在 IndexPage.onMounted 跑一次检查，
+      //   - vite HMR 后 IndexPage 已 mount 不会重跑 → 改完代码必须刷新页面才能生效
+      //   - 一个任务跑完调 fetchTaskQueue 后，如果 queue 里还有别人的任务但本地空 → 应该接着轮询
+      // 放在 fetchTaskQueue 末尾就覆盖了所有 queue 更新时机，无需依赖具体调用方。
+      //
+      // 触发条件：totalCount > 0（后端有任务）AND 本地无活跃任务（runningTaskId / queue 都空）
+      // poller.start 幂等：已 running 时直接跳过；拿到 current task 后会自动 stop。
+      try {
+        const totalCount = Number(data?.totalCount) || 0;
+        const hasActiveLocal = !!state.runningTaskId
+          || (Array.isArray(state.queue) ? state.queue.length > 0 : false);
+        if (totalCount > 0 && !hasActiveLocal) {
+          // 拿真 store 实例（poller 用 store.dispatch('SearchTasks/resumeFromCurrent') 带 namespace）
+          const [pollerMod, storeMod] = await Promise.all([
+            import('src/util/automation/currentTaskPoller'),
+            import('src/store')
+          ]);
+          const poller = pollerMod.default || pollerMod;
+          const realStore = storeMod.default || storeMod;
+          if (!poller.isRunning()) {
+            poller.start({ store: realStore, taskApi, intervalMs: 10_000, maxTicks: 360 });
+            console.log(
+              `[SearchTasks] fetchTaskQueue: 后端 queue 非空 (totalCount=${totalCount}) 本地无活跃任务 → 启动 CurrentTaskPoller (10s/tick)`
+            );
+          }
+        }
+      } catch (e) {
+        console.warn('[SearchTasks] fetchTaskQueue: 启动 CurrentTaskPoller 失败（忽略）:', e?.message || e);
+      }
+
       return data;
     } catch (e) {
       console.warn('[SearchTasks] fetchTaskQueue failed:', e?.message || e);

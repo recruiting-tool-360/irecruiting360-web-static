@@ -116,7 +116,23 @@
                 @search="searchJobList"
                 @reset="resetSearchConnect"
               />
-              <AISearch ref="aiSearchRef" v-model:search-state="searchState"></AISearch>
+              <!--
+                :viewing-task-id 让 AISearch 透传给 5 个 channel 组件，按 taskId 直读
+                ViewingResults bucket。currentViewingTaskId 为 null 时各组件 fallback runtime。
+
+                ★ :key 强制销毁 + 重新挂载：
+                  - 用户从 task A 切到 task B 时，旧 AISearch 实例直接销毁，新实例按 B 的 prop
+                    挂载。避免 reactive 过渡期闪一下上一个 task 的数据（用户明确反馈过）。
+                  - 'runtime' key 用于「返回对话后清掉 viewingTaskId」场景，保持一个稳定 key
+                    给 runtime 模式（chat 视图下 aiSearchRef 仍指向有效实例，prepareConditionOnly
+                    可调用，不破坏 handleAggregateSearch 链路）。
+              -->
+              <AISearch
+                ref="aiSearchRef"
+                :key="`aisearch-${currentViewingTaskId || 'runtime'}`"
+                v-model:search-state="searchState"
+                :viewing-task-id="currentViewingTaskId"
+              ></AISearch>
             </div>
             <div
               v-show="recommendPaneVisible && activeResultTab === 'recommend'"
@@ -227,6 +243,22 @@ const activeResultTabByChatId = ref({});
  * → 自动重新加载任务结果数据。
  */
 const viewingTaskIdByChatId = ref({});
+
+/**
+ * 当前 chat 正在查看的 taskId（reactive）—— 透传给 AISearch 当 prop，
+ * 让 5 个 channel 组件按 taskId 直读 ViewingResults.byTaskId[taskId]。
+ *
+ * 跟旧 `getEffectiveChannelConfByAll` 的间接寻址相比：
+ *   - chat 没切（latestChatId 不变）+ viewingTaskIdByChatId[cid] 没改 → prop 稳定
+ *     → 子组件 computed 不重算 → UI 不会"闪一下消失"
+ *   - 切到别的 chat 自然换 taskId（或 null）→ 自动渲染对应 task 数据
+ *   - 不再依赖 store currentViewingByChat，clearCurrentViewingTask 不会扰动 UI
+ */
+const currentViewingTaskId = computed(() => {
+  const cid = store.getters.getLatestChatId;
+  if (!cid) return null;
+  return viewingTaskIdByChatId.value[cid] || null;
+});
 
 /**
  * 记录"上次实际灌进 ChannelConfig.ALL.data 的 taskId"，给 handleViewResults 的
@@ -398,6 +430,15 @@ const hasRecommendForCurrentChat = computed(() => {
 const recommendPaneVisible = computed(() => {
   if (!bossEnabled.value) return false;
   const { mode, task } = getCurrentViewingTaskInfo();
+
+  // ★ viewing 模式优先看 BossRecommendData 的 task-${taskId} bucket（按 taskId 直接取）。
+  //   重启后 tasksById 不持久化 → mode 可能 pinned-missing，但 viewing bucket 里有刚 commit
+  //   的数据，应该让 pane 可见。getCurrentBossRecommend 已经知道 task bucket，不依赖本地 task。
+  if (currentViewingTaskId.value) {
+    const bucket = store.getters.getCurrentBossRecommend;
+    if (bucket && Array.isArray(bucket.geekList) && bucket.geekList.length > 0) return true;
+  }
+
   if (mode === 'pinned-found') {
     return Array.isArray(task?.channels) &&
       task.channels.some((c) => c && c.businessChannel === 'RECOMMEND');
@@ -419,6 +460,16 @@ const recommendPaneVisible = computed(() => {
  */
 const searchPaneVisible = computed(() => {
   const { mode, task } = getCurrentViewingTaskInfo();
+
+  // ★ viewing 模式优先看 ViewingResults bucket（按 taskId 直接取，不依赖本地 task 是否存在）。
+  //   重启后 tasksById 不持久化 → mode 可能 pinned-missing，但 ViewingResults 内存里有刚拉的
+  //   15 条数据，应该让 pane 可见。getViewingChannelConfByTaskIdAll 直接按 taskId 取 bucket。
+  if (currentViewingTaskId.value) {
+    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
+    const cfg = typeof byTask === 'function' ? byTask(currentViewingTaskId.value) : null;
+    if (cfg && Array.isArray(cfg.data) && cfg.data.length > 0) return true;
+  }
+
   if (mode === 'pinned-found') {
     return Array.isArray(task?.channels) &&
       task.channels.some((c) => c && c.businessChannel === 'SEARCH');
@@ -1278,7 +1329,26 @@ function handleBackToChat() {
   currentView.value = 'chat';
   const cid = store.getters.getLatestChatId;
   if (cid) {
+    // 旧 viewing 全局状态清掉（兼容老调用方）
     store.commit('clearCurrentViewingTask', cid);
+
+    // 新链路：清 viewingTaskIdByChatId[cid] → currentViewingTaskId 回 null →
+    //   AISearch :key 变成 'runtime' → 上次的 task-A AISearch 实例直接销毁，新建 runtime 实例 →
+    //   5 个 channel 组件 fallback 到 ChannelConfig.ALL（runtime）。
+    //
+    // 同时清掉对应 viewing bucket + cache 标志，避免下次进结果页时：
+    //   - 旧数据短暂可见（key 变了组件销毁能挡住，但 store 还有数据是脏的）
+    //   - lastViewedTaskIdForCache 命中导致跳过 API 拉取
+    if (viewingTaskIdByChatId.value[cid]) {
+      const oldTaskId = viewingTaskIdByChatId.value[cid];
+      const next = { ...viewingTaskIdByChatId.value };
+      delete next[cid];
+      viewingTaskIdByChatId.value = next;
+      store.commit('clearViewingTaskResults', oldTaskId);
+      if (lastViewedTaskIdForCache.value === oldTaskId) {
+        lastViewedTaskIdForCache.value = null;
+      }
+    }
   }
 }
 
@@ -2168,35 +2238,39 @@ onMounted(() => {
       console.warn('[IndexPage] cleanupZombies threw:', e?.message || e);
     }
 
-    // ★ 启动 current 轮询（仅在 queue 非空但本地没活跃任务时）
+    // ★ 启动 current 轮询（后端 queue 有数据但本地没活跃任务）
     //
-    // 场景：cleanupOrphanRunningAndResume 内部已经调过 fetchTaskQueue（拿到后端队列）
-    // + resumeFromCurrent（取本客户端可执行 task）。如果走完之后：
-    //   - state.taskQueue.items 非空 → 后端确实排队中
+    // 场景：cleanupOrphanRunningAndResume 内部调过 fetchTaskQueue + resumeFromCurrent。
+    // 走完之后：
+    //   - state.taskQueue.totalCount > 0 → 后端确实有任务（不论 items 字段是否返回详情）
     //   - state.runningTaskId / state.queue 都空 → 本客户端这次没拿到可执行 task
     //     （可能后端在等工作时间窗 OUT_OF_WORK_PERIOD，或前面有别 client 在跑）
     //
-    // → 启动 CurrentTaskPoller，每 60s 调一次 /search/task/current 直到拿到 task，
+    // → 启动 CurrentTaskPoller，每 10s 调一次 /search/task/current 直到拿到 task，
     //   然后 dispatch resumeFromCurrent 触发任务执行并停轮询。
-    //   避免用户必须手动刷新页面才能拿到新任务。
+    //
+    // ⚠️ 判断条件用 totalCount 而不是 items.length：后端 /search/task/queue 可能只返回
+    // 队列汇总（totalCount/maxQueueCount/queueFull），items 字段不在响应里 → items 永远是
+    // undefined/[] → 旧逻辑误判"queue 空"→ poller 不启动 → 用户必须手动刷新。
     try {
       const st = store.state?.SearchTasks;
-      const queueItems = st?.taskQueue?.items || [];
+      const totalCount = Number(st?.taskQueue?.totalCount) || 0;
       const hasActiveLocal = !!st?.runningTaskId || (Array.isArray(st?.queue) ? st.queue.length > 0 : false);
-      if (queueItems.length > 0 && !hasActiveLocal) {
+      if (totalCount > 0 && !hasActiveLocal) {
         const [pollerMod, apiMod] = await Promise.all([
           import('src/util/automation/currentTaskPoller'),
           import('src/api/searchTaskApi')
         ]);
         const poller = pollerMod.default || pollerMod;
         const taskApi = apiMod.default || apiMod;
-        poller.start({ store, taskApi, intervalMs: 60_000, maxTicks: 60 });
+        // intervalMs=10s（用户要求快速反馈），maxTicks=360 ≈ 60min 兜底
+        poller.start({ store, taskApi, intervalMs: 10_000, maxTicks: 360 });
         console.log(
-          `[IndexPage] 后端 queue 非空 (${queueItems.length}) 但本客户端无活跃任务 → 启动 CurrentTaskPoller (1min/tick)`
+          `[IndexPage] 后端 queue 非空 (totalCount=${totalCount}) 但本客户端无活跃任务 → 启动 CurrentTaskPoller (10s/tick)`
         );
       } else {
         console.log(
-          `[IndexPage] queue 状态正常 (queueItems=${queueItems.length} hasActiveLocal=${hasActiveLocal})，无需启动 CurrentTaskPoller`
+          `[IndexPage] queue 状态正常 (totalCount=${totalCount} hasActiveLocal=${hasActiveLocal})，无需启动 CurrentTaskPoller`
         );
       }
     } catch (e) {

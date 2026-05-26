@@ -194,11 +194,7 @@ class TabManager {
    * 之前按 channel 唯一会把现有 tab 内容覆盖掉，丢失浏览历史，体验差。
    * 完全相同 URL 复用，避免用户重复点击产生大量重复 tab。
    */
-  openOrActivateSiteTab(
-    channel: string,
-    url: string,
-    opts?: { hidden?: boolean }
-  ): string {
+  openOrActivateSiteTab(channel: string, url: string, opts?: { hidden?: boolean }): string {
     if (!this.mainWindow) throw new Error('TabManager: mainWindow not set')
     const key = (channel || '').toLowerCase()
     const partition = SITE_PARTITION[key] ?? `persist:ihr360-site-${key}`
@@ -705,7 +701,7 @@ export function pickChannelForUrl(url: string): string | null {
  */
 const IGNORED_QUERY_PARAMS_FOR_SAMEURL: ReadonlySet<string> = new Set([
   '_t', // bossRecommend 用的 cache-bust 时间戳
-  '_'   // 兜底（很多框架默认用 `_` 作 cache-bust）
+  '_' // 兜底（很多框架默认用 `_` 作 cache-bust）
 ])
 
 function normalizedSearch(u: URL): string {

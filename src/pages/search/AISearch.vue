@@ -268,12 +268,17 @@
         <!--        </div>-->
 
         <div class="search-result-container">
-          <!-- 使用v-show替代动态组件加载 -->
-          <JobInfo ref="jobInfoRef" v-show="selectedChannel==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" ></JobInfo>
-          <BossJobInfo ref="bossJobInfoRef" v-show="selectedChannel==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" ></BossJobInfo>
-          <ZHILIANJobInfo ref="zhiLianInfoRef" v-show="selectedChannel==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></ZHILIANJobInfo>
-          <LIEPINJobInfo ref="liePinInfoRef" v-show="selectedChannel==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" ></LIEPINJobInfo>
-          <JOB51JobInfo ref="job51InfoRef" v-show="selectedChannel==='JOB51'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JOB51JobInfo>
+          <!--
+            :viewing-task-id 透传给 5 个 channel 组件
+              - 非空 → 各组件按 taskId 直读 ViewingResults.byTaskId[taskId]（不依赖全局 viewing state）
+              - 空 → runtime 模式，走 ChannelConfig.ALL
+            CollectJobInfo 不参与（收藏 tab 跟任务结果无关）
+          -->
+          <JobInfo ref="jobInfoRef" v-show="selectedChannel==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" :viewing-task-id="viewingTaskId" ></JobInfo>
+          <BossJobInfo ref="bossJobInfoRef" v-show="selectedChannel==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" :viewing-task-id="viewingTaskId" ></BossJobInfo>
+          <ZHILIANJobInfo ref="zhiLianInfoRef" v-show="selectedChannel==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" :viewing-task-id="viewingTaskId"></ZHILIANJobInfo>
+          <LIEPINJobInfo ref="liePinInfoRef" v-show="selectedChannel==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" :viewing-task-id="viewingTaskId" ></LIEPINJobInfo>
+          <JOB51JobInfo ref="job51InfoRef" v-show="selectedChannel==='JOB51'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" :viewing-task-id="viewingTaskId"></JOB51JobInfo>
           <CollectJobInfo ref="collectInfoRef" v-show="selectedChannel==='Collect'&&chatId" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></CollectJobInfo>
         </div>
         <!-- 调试信息 -->
@@ -350,6 +355,19 @@ const props = defineProps({
   searchState: {
     type: Object,
     default: () => ({})
+  },
+  /**
+   * 查看历史 task 结果时由 IndexPage 透传过来，再透给 5 个 channel 组件
+   * （JobInfo / BossJobInfo / ZHILIANJobInfo / JOB51JobInfo / LIEPINJobInfo）。
+   * 非空 → 各组件直读 ViewingResults.byTaskId[viewingTaskId]
+   * 空 / null → runtime 模式，走 ChannelConfig.ALL
+   *
+   * 设计目的：彻底绕开旧 getEffectiveChannelConfByAll 的全局 viewing state，
+   * 避免 chat 切换 / clearCurrentViewingTask 让 UI 数据"消失"。
+   */
+  viewingTaskId: {
+    type: [String, Number],
+    default: null
   }
 });
 
