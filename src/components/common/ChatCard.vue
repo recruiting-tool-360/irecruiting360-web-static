@@ -88,6 +88,23 @@
         <div class="q-mt-sm text-grey">正在加载聊天历史...</div>
       </div>
       <div v-else class="chat-messages">
+        <!--
+          顶部分页 hint（向上滚动加载更早历史）：
+            - loadingMore=true → 加载中 spinner
+            - hasNext=false 且翻过页 → "已加载全部历史"
+            - hasNext=true → 不显示，等用户滚动到顶触发 loadMoreHistory
+          滚动监听在 onMounted 绑定 .chat-content 的 scroll 事件
+        -->
+        <div v-if="historyLoadingMore" class="chat-history-hint loading">
+          <q-spinner color="primary" size="1em" />
+          <span>正在加载更早的消息...</span>
+        </div>
+        <div
+          v-else-if="historyPagination.pageNo > 1 && !historyPagination.hasNext"
+          class="chat-history-hint end"
+        >
+          已加载全部历史
+        </div>
         <div
           v-for="(msg, index) in displayMessages"
           :key="msg.id || index"
@@ -1733,6 +1750,10 @@ onUnmounted(() => {
   document.removeEventListener("compositionstart", () => (isComposing.value = true));
   document.removeEventListener("compositionend", () => (isComposing.value = false));
 
+  // 解绑聊天容器 scroll 监听
+  const chatEl = document.querySelector(".chat-content");
+  if (chatEl) chatEl.removeEventListener("scroll", _handleChatScroll);
+
   // 中断流式响应
   if (chatFluxStatus.value && abortController.value) {
     abortController.value.abort();
@@ -1896,66 +1917,99 @@ const scrollChatToBottom = () => {
   }
 };
 
-// 修改加载历史消息
+/* ========================================================================== *
+ * 历史消息分页加载（接口 GET /ihire/chat/getChatHistory?pageNo=&pageSize=）
+ *   - pageNo=1 返回最新一页（页内时间正序：旧→新）
+ *   - pageNo=2 返回更早一页 → prepend 到 internalMessages 头部
+ *   - hasNext 标识还有更早的历史可拉
+ *
+ * 触发：
+ *   - 首次加载：watch currentChatId 切换时调 loadHistory()
+ *   - 向上滚动：onMounted 绑 .chat-content scroll 监听，scrollTop ≤ 50 时 loadMoreHistory()
+ *
+ * 关键：loadMoreHistory prepend 后必须用 (newScrollHeight - oldScrollHeight) 补 scrollTop，
+ * 否则用户视觉上会"跳到顶部"，体验断裂。
+ * ========================================================================== */
+const HISTORY_PAGE_SIZE = 20;
+
+const historyPagination = ref({
+  pageNo: 0, // 0 = 还没加载过；1+ = 已加载页码
+  pageSize: HISTORY_PAGE_SIZE,
+  hasNext: false,
+  total: 0
+});
+const historyLoadingMore = ref(false);
+
+/**
+ * 把后端返回的单条 chatHistory 转成内部消息对象。
+ *
+ * 分类：
+ *   - role=user → type='user'
+ *   - role=assistant + isTaskCompletionCardHtml → type='task_completion_card'（带 html prop）
+ *   - role=assistant + isTaskChannelProgressCardJson → 返回 null（不渲染，UI 由 TaskStatusCard 接管）
+ *   - role=assistant + 其它 → type='bot'
+ *
+ * @returns 内部消息对象，或 null（应跳过此条）
+ */
+function mapHistoryMessage(msg, chatIdToUse) {
+  if (isTaskChannelProgressCardJson(msg.content)) {
+    console.log(`[ChatCard] 跳过 TASK_CHANNEL_PROGRESS_CARD JSON 历史消息 id=${msg.id}`);
+    return null;
+  }
+  const isUser = msg.role === "user";
+  const isCompletionCard = !isUser && isTaskCompletionCardHtml(msg.content);
+
+  return {
+    id: msg.id || uuidv4(),
+    role: msg.role,
+    content: msg.content,
+    created: new Date(msg.timestamp).getTime() / 1000,
+    type: isUser ? "user" : isCompletionCard ? "task_completion_card" : "bot",
+    time: new Date(msg.timestamp).toLocaleTimeString(),
+    chatId: chatIdToUse,
+    searchConditionId: msg.searchConditionId,
+    ...(isCompletionCard ? { html: msg.content } : {})
+  };
+}
+
+// 修改加载历史消息（首页加载，pageNo=1，加完后 scroll 到底部）
 const loadHistory = async () => {
   if (!currentChatId.value && !props.chatId) return;
 
   const chatIdToUse = currentChatId.value || props.chatId;
 
-  // 清空内部消息列表
+  // 清空内部消息列表 + 重置分页
   internalMessages.value = [];
+  historyPagination.value = {
+    pageNo: 0,
+    pageSize: HISTORY_PAGE_SIZE,
+    hasNext: false,
+    total: 0
+  };
 
   loading.value = true;
   try {
-    // console.log("开始加载历史消息，chatId:", chatIdToUse);
-
-    const { data } = await getChatHistory(chatIdToUse, userInfo.value?.id);
-    // console.log("历史消息加载结果:", data);
+    const { data } = await getChatHistory(chatIdToUse, userInfo.value?.id, {
+      pageNo: 1,
+      pageSize: HISTORY_PAGE_SIZE
+    });
 
     if (data?.chatHistory?.length) {
-      // 清空当前消息(Vuex中的)
-      //store.commit('clearChatMessage');
-
-      // 添加历史消息到内部列表
-      //
-      // 历史消息分类：
-      //   - role=user → 普通用户消息（type='user'）
-      //   - role=assistant + content 是任务完成卡片 HTML → type='task_completion_card'
-      //     用 TaskCompletionCard 渲染（识别按钮 action）
-      //   - role=assistant + content 是 TASK_CHANNEL_PROGRESS_CARD JSON → **跳过不渲染**
-      //     （任务进度由 TaskStatusCard 通过 store reactive 实时绘制，不依赖历史回放）
-      //   - role=assistant + 其它 → 普通 bot 消息（type='bot'）
-      //
-      // 任务完成卡片识别：content 字符串里包含 `data-message-type="TASK_COMPLETION_CARD"`
-      // （后端通过 SSE / messageType 标记，存到 chatHistory 时 content 已是渲染好的完整 HTML）
       data.chatHistory.forEach((msg) => {
-        // 旧版后端的"任务进度卡片 JSON"消息直接过滤掉
-        if (isTaskChannelProgressCardJson(msg.content)) {
-          console.log(`[ChatCard] 跳过 TASK_CHANNEL_PROGRESS_CARD JSON 历史消息 id=${msg.id}`);
-          return;
-        }
-
-        const isUser = msg.role === "user";
-        const isCompletionCard = !isUser && isTaskCompletionCardHtml(msg.content);
-
-        const messageObj = {
-          id: msg.id || uuidv4(),
-          role: msg.role,
-          content: msg.content,
-          created: new Date(msg.timestamp).getTime() / 1000,
-          type: isUser ? "user" : isCompletionCard ? "task_completion_card" : "bot",
-          time: new Date(msg.timestamp).toLocaleTimeString(),
-          chatId: chatIdToUse,
-          searchConditionId: msg.searchConditionId,
-          // 任务卡片消息把 content 复制一份到 html 字段（TaskCompletionCard 的 prop 名）
-          ...(isCompletionCard ? { html: msg.content } : {})
-        };
-
-        addMessage(messageObj);
+        const mapped = mapHistoryMessage(msg, chatIdToUse);
+        if (mapped) addMessage(mapped);
       });
     } else {
       console.log("没有历史消息");
     }
+
+    // 维护分页元数据（后端不传时按"无下一页"处理）
+    historyPagination.value = {
+      pageNo: data?.pageNo ?? 1,
+      pageSize: data?.pageSize ?? HISTORY_PAGE_SIZE,
+      hasNext: data?.hasNext ?? false,
+      total: data?.total ?? (data?.chatHistory?.length || 0)
+    };
 
     // 加载完真实历史后，如果当前 chat 还有进行中 / 排队中 / 刚结束的任务，
     // 自动在末尾补一张 task_status 卡片（taskId 已绑定）
@@ -1992,6 +2046,95 @@ const loadHistory = async () => {
     });
   }
 };
+
+/**
+ * 向上滚动到顶时触发：加载更早的一页历史消息，prepend 到 internalMessages 头部。
+ *
+ * 关键：prepend 后通过 (newScrollHeight - oldScrollHeight) 补 scrollTop，
+ * 保持用户当前视觉位置（不要"跳到顶"造成阅读断裂）。
+ */
+const loadMoreHistory = async () => {
+  if (historyLoadingMore.value || loading.value) return;
+  if (!historyPagination.value.hasNext) return;
+  if (!currentChatId.value && !props.chatId) return;
+
+  const chatIdToUse = currentChatId.value || props.chatId;
+  const nextPage = (historyPagination.value.pageNo || 1) + 1;
+
+  const el = document.querySelector(".chat-content");
+  const prevScrollHeight = el?.scrollHeight || 0;
+  const prevScrollTop = el?.scrollTop || 0;
+
+  historyLoadingMore.value = true;
+  try {
+    const { data } = await getChatHistory(chatIdToUse, userInfo.value?.id, {
+      pageNo: nextPage,
+      pageSize: historyPagination.value.pageSize
+    });
+
+    if (data?.chatHistory?.length) {
+      // 走 mapHistoryMessage 过滤掉 TASK_CHANNEL_PROGRESS_CARD 等不应渲染的消息
+      const mapped = data.chatHistory
+        .map((msg) => mapHistoryMessage(msg, chatIdToUse))
+        .filter(Boolean);
+
+      // ★ prepend 到头部（不能用 addMessage，那个会 push 到末尾 + scrollToBottom）
+      internalMessages.value = [...mapped, ...internalMessages.value];
+
+      // 等 DOM 渲染完后，按 scrollHeight 增量补 scrollTop 保持视觉位置
+      await nextTick();
+      if (el) {
+        const newScrollHeight = el.scrollHeight;
+        el.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+      }
+    }
+
+    historyPagination.value = {
+      pageNo: data?.pageNo ?? nextPage,
+      pageSize: data?.pageSize ?? historyPagination.value.pageSize,
+      hasNext: data?.hasNext ?? false,
+      total: data?.total ?? historyPagination.value.total
+    };
+  } catch (e) {
+    console.error("加载更多历史消息失败:", e);
+    $q.notify({
+      message: "加载更多历史消息失败",
+      color: "negative",
+      position: "top",
+      timeout: 2000
+    });
+  } finally {
+    historyLoadingMore.value = false;
+  }
+};
+
+/**
+ * .chat-content scroll handler：scrollTop ≤ 50px 且还有下一页时，触发 loadMoreHistory。
+ * 用 passive listener（不需要 preventDefault，省主线程开销）。
+ */
+const _handleChatScroll = () => {
+  const el = document.querySelector(".chat-content");
+  if (!el) return;
+  if (
+    el.scrollTop <= 50 &&
+    !historyLoadingMore.value &&
+    !loading.value &&
+    historyPagination.value.hasNext
+  ) {
+    loadMoreHistory();
+  }
+};
+
+/**
+ * 启动 / 重启 scroll 监听（chat-content DOM 可能延迟 mount，多试几次保险）
+ */
+function _bindChatScrollListener() {
+  const el = document.querySelector(".chat-content");
+  if (!el) return false;
+  el.removeEventListener("scroll", _handleChatScroll);
+  el.addEventListener("scroll", _handleChatScroll, { passive: true });
+  return true;
+}
 
 // 添加消息到内部列表
 const addMessage = (message) => {
@@ -2399,6 +2542,14 @@ onMounted(() => {
   }
   // 不添加默认欢迎消息，保持空白聊天
 
+  // 绑定聊天容器 scroll 监听（向上滚到顶 → 加载更早历史）
+  // nextTick 后 chat-content DOM 才存在；多试一次保险（loading 态时 DOM 可能不是目标容器）
+  nextTick(() => {
+    if (!_bindChatScrollListener()) {
+      setTimeout(_bindChatScrollListener, 300);
+    }
+  });
+
   // 绑定键盘事件
   document.addEventListener("compositionstart", () => {
     isComposing.value = true;
@@ -2664,6 +2815,26 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* 历史分页 hint：顶部"加载中" / "已加载全部"提示 */
+.chat-history-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+  font-size: 12px;
+  color: #a3a3a3;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+.chat-history-hint.loading {
+  color: #525252;
+}
+.chat-history-hint.end {
+  color: #d4d4d4;
+  font-size: 11px;
 }
 
 .chat-message {
