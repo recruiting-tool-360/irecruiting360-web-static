@@ -20,6 +20,7 @@ import {
 import { registerHiddenViewIpc } from './hiddenViewRunner'
 import { registerTabFetcherIpc } from './tabFetcher'
 import { registerAutomationRunnerIpc } from './automation/runner'
+import { setupAutoUpdater } from './autoUpdater'
 import {
   waitForResponse as siteNetworkWait,
   getLatest as siteNetworkGetLatest,
@@ -778,6 +779,14 @@ app.whenReady().then(() => {
   registerIpc()
 
   createMainWindow()
+
+  // ★ 自动更新（基于 electron-updater）
+  //   - dev 模式跳过（看 autoUpdater.ts is.dev 判断）
+  //   - 生产：启动 5s 后首次检查，之后每 4h 检查一次
+  //   - 流程：检测到新版 → dialog 询问下载 → 下载完 → dialog 询问立刻安装
+  //   - 渲染层可通过 IPC 主动触发（autoUpdater:check / :download / :quitAndInstall）
+  //   - publish 配置见 electron-builder.yml / electron-builder.qa2.yml 的 publish 块
+  setupAutoUpdater(mainWindow)
 
   // Windows / Linux 冷启动 deep link
   if (process.platform !== 'darwin') {

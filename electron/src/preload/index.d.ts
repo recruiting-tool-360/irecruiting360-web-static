@@ -465,6 +465,32 @@ export interface IKuaiZhaoNative {
   arch: string
 }
 
+/**
+ * 自动更新 bridge（基于 electron-updater）
+ * 详见 main 进程 setupAutoUpdater（electron/src/main/autoUpdater.ts）
+ */
+export interface AppUpdaterBridge {
+  /** 主动触发检查更新（不下载）。返回当前最新版本信息或失败原因。 */
+  check(): Promise<{ ok: boolean; version?: string; available?: boolean; message?: string }>
+  /** 主动下载（autoDownload=false 时使用） */
+  download(): Promise<{ ok: boolean; message?: string }>
+  /** 立刻退出 + 安装（已 update-downloaded 状态下调用） */
+  quitAndInstall(): Promise<{ ok: boolean }>
+  /**
+   * 订阅自动更新事件，返回 unsubscribe 函数。
+   * - checking: 开始检查
+   * - available: 检测到新版本（payload: { version, releaseDate, releaseNotes }）
+   * - not-available: 已是最新（payload: { version }）
+   * - progress: 下载进度（payload: { percent, transferred, total, bytesPerSecond }）
+   * - downloaded: 下载完成（payload: { version }）
+   * - error: 错误（payload: { message }）
+   */
+  on(
+    event: 'checking' | 'available' | 'not-available' | 'progress' | 'downloaded' | 'error',
+    cb: (payload: unknown) => void
+  ): () => void
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -476,6 +502,7 @@ declare global {
       browserBridge: BrowserBridge
       automation: AutomationBridge
       siteNetwork: SiteNetworkBridge
+      appUpdater: AppUpdaterBridge
     }
     __IKUAIZHAO_NATIVE__?: IKuaiZhaoNative
   }
