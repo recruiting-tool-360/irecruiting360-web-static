@@ -208,6 +208,18 @@
                 @unknown-action="onTaskCardUnknownAction(msg, $event)"
               />
               <!--
+                再次启动聚合搜索的配置卡（msg.type === 'retry_config_card'）：
+                  - 由点击 task_completion_card 的「保留增量」/「清空重新」插入
+                  - **仅当原任务包含 BOSS 推荐时才插**：用户需要重新指定本次"简历份数"
+                  - 用户在卡片里改份数 → 点"启动聚合搜索" → emit start → 真正调聚合搜索
+                  - 不含推荐的纯搜索任务直接重启，不插这张卡（行为不变）
+              -->
+              <RetryConfigCard
+                v-else-if="msg.type === 'retry_config_card'"
+                :card-data="msg.cardData || {}"
+                @start="onRetryConfigStart(msg, $event)"
+              />
+              <!--
                 服务端 SSE 推过来的富文本卡片消息（scenario='CHAT'，messageType=TASK_COMPLETION_CARD 等），
                 content 已经是后端拼好的完整 HTML，直接 v-html 渲染。
                 跟普通 bot 消息（v-html=parseMarkdown）区分开：后端 HTML 不要再过 markdown-it 一遍，避免被破坏。
@@ -421,6 +433,7 @@ import AIProfileCard from "src/components/clients/AIProfileCard.vue";
 import ExecutionLog from "src/components/clients/ExecutionLog.vue";
 import TaskStatusCard from "src/components/clients/TaskStatusCard.vue";
 import TaskCompletionCard from "src/components/clients/TaskCompletionCard.vue";
+import RetryConfigCard from "src/components/clients/RetryConfigCard.vue";
 import {
   isTaskCompletionCardHtml,
   isTaskChannelProgressCardJson
@@ -1559,7 +1572,17 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
 /**
  * RESTART / CONTINUE 两个按钮共用的"再来一次"逻辑。
  *
- * 跟 handleSearch（INITIAL 入口）走完全相同的链路：
+ * 分两条路径：
+ *   A) **原任务含 BOSS 推荐 (recommend=true)**：
+ *      用户每次重启都要明确"本次简历份数"（推荐量很影响时长 + 风控）→
+ *      插入一张 RetryConfigCard（type='retry_config_card'）让用户输入份数 →
+ *      用户点"启动聚合搜索"按钮 → onRetryConfigStart → 走 _emitRetryAggregateSearch
+ *
+ *   B) **只有搜索（无推荐）**：
+ *      数量不需要由用户确认（用原任务的 resumeCount / 默认值），直接走 _emitRetryAggregateSearch
+ *      —— 保持旧的"一键重启"体验
+ *
+ * 两条路径最终都走 _emitRetryAggregateSearch：
  *   1) canCreateForChat 拦截重复点击（被拒也 emit 让 IndexPage 弹 notify）
  *   2) 立刻 push 一张占位 task_status 卡片（watchPendingTaskBinding 会自动绑定到新 taskId）
  *   3) emit('aggregate-search') 携带 taskType + originalTaskId，IndexPage 复用同一套
@@ -1573,27 +1596,119 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
     return;
   }
 
+  // ★ 入口拦截：当前 chat 已有任务在跑 → 不插卡 / 不重启，直接 toast 提示
+  //   避免用户看到 RetryConfigCard 插入但点"启动聚合搜索"时被拒绝的体验断裂
+  //   判定语义跟 handleAggregateSearch 入口的 canCreateForChat 完全一致（RUNNING/WAITING/RESTING/AI 评分中）
+  const canCreate = store.getters["SearchTasks/canCreateForChat"];
+  if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
+    console.warn(
+      `[ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`
+    );
+    const latestTask = store.getters["SearchTasks/getLatestTaskByChat"]?.(chatIdForSearch);
+    const isAiAnalyzingPhase =
+      latestTask?.taskStatus === "COMPLETED" &&
+      store.getters["SearchTasks/isAiAnalyzingForChat"]?.(chatIdForSearch);
+    $q.notify({
+      message: isAiAnalyzingPhase
+        ? "搜索已完成，AI 分析还在进行中，请等分析完成后再启动新任务"
+        : "该职位已有搜索任务在进行中，请等待完成后再启动",
+      color: "warning",
+      icon: "warning",
+      position: "top",
+      timeout: 2500
+    });
+    return;
+  }
+
   // 从原任务复原 selectedModules / matchedBossJobId / resumeCount
-  // 找不到时 params 为 null，aggregate-search 不带这些字段，
-  // IndexPage 的 dispatchTaskStore 会基于 settings 默认推（search=true, recommend=false）
   const params = _extractRetrySearchParamsFromOriginalTask(cardData.taskId);
+
+  // ★ 路径 A：含推荐 → 插 RetryConfigCard 中间卡，等用户确认份数
+  //
+  // 防重：用户可能先点"保留增量"又改主意点"清空重新"，不能并排出现两张未启动的卡 ——
+  // 找最近一张 actionExecuted=false 的 retry_config_card **就地替换 cardData**（保留 id
+  // 避免 Vue key 抖动导致 input 失焦），没找到才追加新的。
+  // 跟 ihraisaas useChatLogic.handleRestartSearch/handleContinueSearch 同语义。
+  if (params?.selectedModules?.recommend) {
+    const newContent = taskType === "CONTINUE" ? "保留增量搜索配置" : "清空重新搜索配置";
+    const newCardData = {
+      configType: taskType, // 'CONTINUE' | 'RESTART'
+      chatId: chatIdForSearch,
+      originalTaskId: cardData.taskId,
+      selectedModules: params.selectedModules,
+      matchedBossJobId: params.matchedBossJobId,
+      initialResumeCount:
+        typeof params.resumeCount === "number" && params.resumeCount > 0
+          ? params.resumeCount
+          : 60, // 兜底跟 IndexPage 默认值一致
+      actionExecuted: false
+    };
+
+    const existingIdx = internalMessages.value.findLastIndex(
+      (m) => m?.type === "retry_config_card" && !m?.cardData?.actionExecuted
+    );
+    if (existingIdx !== -1) {
+      const existing = internalMessages.value[existingIdx];
+      existing.content = newContent;
+      existing.cardData = newCardData;
+      existing.time = new Date().toLocaleTimeString();
+      nextTick(() => scrollChatToBottom());
+    } else {
+      addMessage({
+        id: uuidv4(),
+        role: "assistant",
+        type: "retry_config_card",
+        content: newContent,
+        time: new Date().toLocaleTimeString(),
+        chatId: chatIdForSearch,
+        cardData: newCardData
+      });
+    }
+    return;
+  }
+
+  // ★ 路径 B：纯搜索 → 沿用旧直接重启路径
+  _emitRetryAggregateSearch({
+    taskType,
+    chatIdForSearch,
+    originalTaskId: cardData.taskId,
+    params,
+    msgContent: msg?.content
+  });
+}
+
+/**
+ * 实际 emit aggregate-search（路径 A 用户确认后、路径 B 直接调）
+ *
+ * @param {object} opts
+ * @param {'RESTART'|'CONTINUE'} opts.taskType
+ * @param {string} opts.chatIdForSearch
+ * @param {string} opts.originalTaskId
+ * @param {object|null} opts.params  { selectedModules, matchedBossJobId, resumeCount }
+ * @param {string} [opts.msgContent]
+ */
+function _emitRetryAggregateSearch({
+  taskType,
+  chatIdForSearch,
+  originalTaskId,
+  params,
+  msgContent
+}) {
   const basePayload = {
     chatId: chatIdForSearch,
-    taskType, // 'RESTART' | 'CONTINUE'
-    originalTaskId: cardData.taskId,
-    content: msg?.content,
+    taskType,
+    originalTaskId,
+    content: msgContent,
     ...(params || {})
   };
 
-  // 拒绝重复点击：跟 handleSearch 出口同样的处理——仍然 emit 让 IndexPage 弹 notify
   const canCreate = store.getters["SearchTasks/canCreateForChat"];
   if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
-    console.warn(`[ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`);
+    console.warn(`[ChatCard] retry ${taskType} 拒绝：该 chat 已有进行中任务`);
     emit("aggregate-search", basePayload);
     return;
   }
 
-  // push 占位卡片：按 selectedModules 推 search / recommend 两张独立气泡
   const placeholderMsgId = pushTaskStatusPlaceholdersByModules(
     chatIdForSearch,
     params?.selectedModules
@@ -1611,6 +1726,37 @@ function onTaskCardKeepAndIncrement(msg, payload) {
 }
 function onTaskCardUnknownAction(msg, payload) {
   console.warn("[ChatCard] task_completion_card 未知 action", { msg, payload });
+}
+
+/**
+ * RetryConfigCard "启动聚合搜索" 按钮回调。
+ * 把用户填的 resumeCount 覆盖到 params 上，调 _emitRetryAggregateSearch 走原链路。
+ * 同时把 cardData.actionExecuted=true 锁定 UI（输入框 disabled + 按钮文案变化）。
+ */
+function onRetryConfigStart(msg, payload) {
+  const cd = msg?.cardData;
+  if (!cd) return;
+  const resumeCount = Number(payload?.resumeCount) || cd.initialResumeCount;
+  const taskType = cd.configType;
+  const chatIdForSearch = cd.chatId;
+
+  console.log("[ChatCard] retry_config_card start", { taskType, resumeCount, originalTaskId: cd.originalTaskId });
+
+  // 锁定卡片 UI（input disabled + 按钮变"聚合搜索已启动"）
+  cd.actionExecuted = true;
+  cd.initialResumeCount = resumeCount;
+
+  _emitRetryAggregateSearch({
+    taskType,
+    chatIdForSearch,
+    originalTaskId: cd.originalTaskId,
+    params: {
+      selectedModules: cd.selectedModules,
+      matchedBossJobId: cd.matchedBossJobId,
+      resumeCount
+    },
+    msgContent: msg?.content
+  });
 }
 
 // 换行处理

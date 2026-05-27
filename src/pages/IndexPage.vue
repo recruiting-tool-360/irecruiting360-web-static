@@ -218,7 +218,14 @@ import ChatCard from "src/components/common/ChatCard.vue";
 import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import { runBossRecommend, unlockRecommendTab } from "src/util/automation/bossRecommend";
 import ClearChatConfirmModal from "src/components/clients/ClearChatConfirmModal.vue";
-import { openChannelUrl } from "src/util/openChannelLoginUrl";
+import { openChannelUrl, isElectronClient } from "src/util/openChannelLoginUrl";
+import {
+  CHANNEL_DISPLAY_NAME,
+  checkChannelLogins,
+  markChannelExpired,
+  clearChannelExpired,
+  handleChannelLoginExpired
+} from "src/util/channelLoginGuard";
 import { pluginAllUrls } from "src/pluginSrc/config/PluginRequestManager";
 import RecommendList from "src/components/clients/RecommendList.vue";
 const store = useStore();
@@ -1104,6 +1111,30 @@ async function doFetchRecommend(args) {
       jobId,
       error: { code: res?.errorCode, message: res?.message }
     });
+
+    // ★ LOGIN_EXPIRED 路径：顶部红 banner + 停止当前 chat 所有任务 + 上报后端
+    //   ClientHeader / 渠道按钮自动 reactive 到红色状态
+    //   详见 src/util/channelLoginGuard.js handleChannelLoginExpired
+    if (res?.errorCode === "LOGIN_EXPIRED") {
+      const cidForStop = args?.chatId || store.getters.getLatestChatId;
+      const taskForStop = cidForStop
+        ? store.getters["SearchTasks/getLatestTaskByChat"](cidForStop)
+        : null;
+      const recommendChannel = taskForStop?.channels?.find(
+        (c) => c.businessChannel === "RECOMMEND"
+      );
+      handleChannelLoginExpired(store, {
+        channelKey: "BOSS",
+        chatId: cidForStop,
+        taskChannelId: recommendChannel?.taskChannelId,
+        errorMessage: res?.message || "BOSS 推荐接口返回登录失效"
+      }).catch((e) =>
+        console.warn("[IndexPage] handleChannelLoginExpired error:", e?.message || e)
+      );
+      notify.warning(
+        `检测到「${CHANNEL_DISPLAY_NAME.BOSS}」账号异常/已下线，相关任务已自动停止。请重新登录后恢复。`
+      );
+    }
     return;
   }
   // 用首屏 + humanize accumulated 的去重合并结果写回 store
@@ -1784,6 +1815,47 @@ async function handleAggregateSearch(payload) {
       notify.warning("该职位已有搜索任务在进行中，请等待完成后再启动");
     }
     return;
+  }
+
+  // ===== 任务启动前 recheck 渠道登录态 =====
+  //
+  // 防止 cookie 过期但 store.channelConf.login 仍是 true 的情况下，任务跑到一半才
+  // 发现失败。仅 Electron 客户端模式生效（浏览器插件由 host 页面 webRequest 实时
+  // 维护登录态，不需要主动探针）。
+  //
+  // 失败时：
+  //   - markChannelExpired(failedKey) → 顶部红 banner + 渠道按钮变红
+  //   - notify warning 告诉用户哪几个渠道没登录
+  //   - return 不进入 task create 链路
+  if (isElectronClient()) {
+    const keysToCheck = [];
+    if (searchChecked) {
+      const userChannels = store.getters.getUserChannelConfig || [];
+      const enabledKeys = userChannels.length
+        ? userChannels.filter((c) => c.enableConfig).map((c) => c.key)
+        : ["BOSS", "ZHILIAN", "JOB51"]; // 兜底全启用
+      keysToCheck.push(...enabledKeys);
+    }
+    if (recommendChecked && !keysToCheck.includes("BOSS")) {
+      keysToCheck.push("BOSS"); // 推荐固定走 BOSS
+    }
+    if (keysToCheck.length > 0) {
+      try {
+        const r = await checkChannelLogins(store, keysToCheck);
+        if (!r.allLoggedIn) {
+          markChannelExpired(store, r.failedKeys[0]);
+          notify.warning(
+            `「${r.failedNames.join("、")}」未登录或登录已失效，请先在客户端中重新登录后再启动任务`
+          );
+          return;
+        }
+        // 都登录有效 → 清掉可能残留的旧 channelError
+        clearChannelExpired(store);
+      } catch (e) {
+        // 探针接口本身失败时不阻塞任务，仅 log；运行时仍会被 LOGIN_EXPIRED 路径兜底
+        console.warn("[IndexPage] checkChannelLogins 失败，跳过 recheck:", e?.message || e);
+      }
+    }
   }
 
   // ===== 任务 store 创建（**主驱动入口**） =====
