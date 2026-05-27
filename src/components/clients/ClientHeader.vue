@@ -22,13 +22,37 @@
           <p class="csb-error-text">
             检测到「{{ channelError }}」账号异常/已下线，相关任务已自动停止。请重新登录后恢复。
           </p>
-          <button class="csb-error-btn" @click="$emit('continue')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" class="csb-icon-xs">
+          <button
+            class="csb-error-btn"
+            :disabled="rechecking"
+            @click="handleResume"
+          >
+            <svg
+              v-if="!rechecking"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="csb-icon-xs"
+            >
               <path d="M21.801 10A10 10 0 1 1 17 3.335" />
               <path d="m9 11 3 3L22 4" />
             </svg>
-            <span>恢复任务</span>
+            <svg
+              v-else
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="csb-icon-xs csb-spin"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <span>{{ rechecking ? "检查中…" : "恢复任务" }}</span>
           </button>
         </div>
       </template>
@@ -114,20 +138,73 @@
  *   openSettings()  右侧齿轮（待绑定渠道设置弹窗）
  *   continue()      错误状态下点"恢复任务"
  */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useStore } from 'vuex';
+import { useQuasar } from 'quasar';
 import { openChannelLoginUrl } from 'src/util/openChannelLoginUrl';
 import { pluginAllUrls } from 'src/pluginSrc/config/PluginRequestManager';
+import {
+  CHANNEL_DISPLAY_NAME,
+  checkChannelLogin,
+  clearChannelExpired
+} from 'src/util/channelLoginGuard';
 
-const props = defineProps({
-  /** 出错渠道名（'BOSS直聘' / '智联招聘' / '前程无忧'）；为 null 时显示常规提示 */
-  channelError: { type: String, default: null }
-});
-
-defineEmits(['openSettings', 'continue']);
+defineEmits(['openSettings']);
 
 const store = useStore();
+const $q = useQuasar();
 const HELP_URL = 'https://www.yuque.com/help/ai-search';
+
+/**
+ * 当前异常渠道展示名（来源 vuex store.channelError），从 store 直接订阅，
+ * 任何位置（IndexPage 启动前 recheck 失败 / doFetchRecommend 运行时检测 LOGIN_EXPIRED）
+ * 调 `commit('setChannelError', name)` 都会自动反映到这里。
+ */
+const channelError = computed(() => store.getters.getChannelError);
+
+/**
+ * "恢复任务"按钮：recheck 异常渠道的登录态：
+ *   - 登录已恢复 → clearChannelError 关闭横幅；用户可以自己重新点搜索（不自动重跑，更安全）
+ *   - 仍未登录 → 弹 notify 提示用户先去点对应渠道按钮登录
+ */
+const rechecking = ref(false);
+async function handleResume() {
+  const errName = channelError.value;
+  if (!errName) return;
+
+  // 反查 storeKey
+  const entry = Object.entries(CHANNEL_DISPLAY_NAME).find(([, name]) => name === errName);
+  const key = entry?.[0];
+  if (!key) {
+    clearChannelExpired(store);
+    return;
+  }
+
+  rechecking.value = true;
+  try {
+    const ok = await checkChannelLogin(store, key);
+    if (ok) {
+      clearChannelExpired(store);
+      $q.notify({
+        message: `${errName} 已重新登录，可以继续搜索`,
+        color: 'positive',
+        icon: 'check_circle',
+        position: 'top',
+        timeout: 2000
+      });
+    } else {
+      $q.notify({
+        message: `${errName} 仍未登录，请点击右上角「${errName}」按钮在客户端中重新登录`,
+        color: 'warning',
+        icon: 'warning',
+        position: 'top',
+        timeout: 3000
+      });
+    }
+  } finally {
+    rechecking.value = false;
+  }
+}
 
 // 当前展示的渠道（猎聘暂未支持，跟 ClientLauncher 保持一致）
 // 字段名跟原项目 channel/*JobInfo.vue 的 goToLogin 实现 1:1 对齐：
@@ -177,7 +254,7 @@ const displayChannels = computed(() =>
       name: conf.name || cfg.storeKey,
       url: cfg.loginUrl,
       status:
-        props.channelError === conf.name
+        channelError.value === conf.name
           ? 'error'
           : conf.login
             ? 'logged_in'
@@ -507,5 +584,11 @@ $primary-500: $teal-500;
 @keyframes csb-pulse-icon {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
+}
+.csb-spin {
+  animation: csb-spin-anim 1s linear infinite;
+}
+@keyframes csb-spin-anim {
+  to { transform: rotate(360deg); }
 }
 </style>
