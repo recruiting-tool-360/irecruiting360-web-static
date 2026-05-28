@@ -244,22 +244,16 @@
                 >
               </div>
               <!--
-                ★ 预计开始时间（1:1 对照 ihraisaas JobList.tsx 第 131-136 行）
-                  显示条件：
-                    - estimatedStartTime 字段存在（来自后端 /search/task/queue items[i].estimatedStartTime）
-                    - 仅 processing / queued / resting 状态显示（完成 / 失败的任务无意义）
-                  格式：
-                    - 今天 → HH:mm
-                    - 其它日期 → MM-dd HH:mm
+                ★ 预计时间提示
+                  - queued（排队中）→ 显示"预计 X 开始"（用 estimatedStartTime）
+                  - processing / resting（进行中 / 休息中）→ 显示"预计 X 结束"（用 estimatedEndTime）
+                  - 完成 / 失败状态不显示
+                  显示条件：状态对得上 + 对应时间字段非空
+                  时间格式：今天 → HH:mm；其它日期 → MM-dd HH:mm（详见 formatEstimatedTime）
+                  数据来源：后端 /search/task/queue items[i].estimated{Start,End}Time
               -->
-              <div
-                v-if="
-                  jobAggregateStatus(item.id).task?.estimatedStartTime &&
-                  ['processing', 'queued', 'resting'].includes(jobAggregateStatus(item.id).status)
-                "
-                class="status-estimated"
-              >
-                预计 {{ formatEstimatedTime(jobAggregateStatus(item.id).task.estimatedStartTime) }}
+              <div v-if="estimateLabelFor(item.id)" class="status-estimated">
+                {{ estimateLabelFor(item.id) }}
               </div>
             </template>
           </div>
@@ -519,6 +513,30 @@ function formatEstimatedTime(iso) {
   const MM = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${MM}-${dd} ${HH}:${mm}`;
+}
+
+/**
+ * 按 chat 当前聚合状态返回"预计 X 开始/结束"标签文案；状态对不上 / 时间字段为空 → 返回空串
+ * 调用方按 v-if="estimateLabelFor(id)" 决定显不显示
+ *
+ *   - queued     → 预计 HH:mm 开始 （拿 estimatedStartTime；用户在等开始，关心还要等多久）
+ *   - processing → 预计 HH:mm 结束 （拿 estimatedEndTime；任务已开始，关心还要多久结束）
+ *   - resting    → 预计 HH:mm 结束 （同上）
+ *   - 其它       → ''
+ */
+function estimateLabelFor(chatId) {
+  const info = jobAggregateStatus(chatId);
+  const task = info?.task;
+  if (!task) return "";
+  if (info.status === "queued") {
+    const t = formatEstimatedTime(task.estimatedStartTime);
+    return t ? `预计 ${t} 开始` : "";
+  }
+  if (info.status === "processing" || info.status === "resting") {
+    const t = formatEstimatedTime(task.estimatedEndTime);
+    return t ? `预计 ${t} 结束` : "";
+  }
+  return "";
 }
 
 /** 列表渲染时用：置顶项排在前面 */
@@ -1160,6 +1178,20 @@ onMounted(() => {
 
   // Electron 自动更新接入（仅 client 模式有效）
   _setupAppUpdater();
+});
+
+/**
+ * 监听全局"职位列表静默刷新"信号：MainLayout 接到同用户 deep link 时
+ * commit('triggerChatListRefresh') 把它自增 → 本组件 watch 触发 loadChatList。
+ *
+ * 跟 onMounted 里的 loadChatList 共用同一份逻辑，loading 态 / 异常处理一致；
+ * UI 无感（不刷新整页）。
+ */
+const _chatListRefreshSignal = computed(() => store.getters.getChatListRefreshSignal);
+watch(_chatListRefreshSignal, (nv, ov) => {
+  if (nv === ov) return;
+  console.log("[LeftMenu] 收到 chatListRefreshSignal", { from: ov, to: nv });
+  loadChatList();
 });
 
 onUnmounted(() => {

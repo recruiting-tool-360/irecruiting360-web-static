@@ -113,13 +113,6 @@
               </button>
             </div>
 
-            <!-- 兜底：浏览器内继续（仅当父页推了 init 时显示） -->
-            <div v-if="hasInitData" class="cg-fallback">
-              <a class="cg-fallback-link" @click="handleFallbackToBrowser">
-                在浏览器内继续（无需安装客户端）
-              </a>
-            </div>
-
             <!-- 错误提示（30s 没收到 init / 探测失败等） -->
             <div v-if="errorMsg" class="cg-error-msg">{{ errorMsg }}</div>
             <div class="cg-platform-tip">
@@ -171,6 +164,10 @@
                 <SvgZap v-if="!isLaunching" />
                 <SvgSpinner v-else class="cg-svg cg-svg--xs cg-svg--primary cg-spinner" />
                 {{ isLaunching ? '正在尝试唤起客户端…' : '我已完成安装，立即启动' }}
+              </button>
+              <!-- 次要：回到下载页（用户下错版本 / 想换平台 / 想重新下载时） -->
+              <button type="button" class="cg-btn-link" @click="handleBackToIntro">
+                重新下载 / 选择其它版本
               </button>
               <div class="cg-probe-hint">
                 <span class="cg-probe-dot" />
@@ -693,18 +690,14 @@ async function handleManualOpen() {
   await launchWithPayload(initPayload.value);
 }
 
-// 兜底：把 init payload 暂存到 sessionStorage，跳到老 /sso-login
-function handleFallbackToBrowser() {
-  if (!initPayload.value) return;
-  try {
-    sessionStorage.setItem(
-      'ikuaizhao:fallbackInitPayload',
-      JSON.stringify(initPayload.value)
-    );
-  } catch (_e) {
-    /* ignore */
-  }
-  void router.replace('/sso-login?from-launcher=1');
+/**
+ * completed 态下点"重新下载 / 选择其它版本"：回到 intro，让用户重新选平台/重下载。
+ *
+ * 不停 probe —— 探测器仍在后台跑，万一用户在别处装好客户端，回到 intro 还能继续走唤起。
+ * 不清 errorMsg —— 让用户看到为何被卡在 completed（如果之前有 launch 错误）。
+ */
+function handleBackToIntro() {
+  state.value = 'intro';
 }
 
 // ============ 下载流程（来自 ClientGuide UI） ============
@@ -1242,24 +1235,6 @@ $blue-200: #bfdbfe;
   }
 }
 
-/* ============ Intro 兜底 ============ */
-
-.cg-fallback {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid $neutral-100;
-  text-align: center;
-}
-
-.cg-fallback-link {
-  font-size: 12px;
-  color: $neutral-500;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  &:hover { color: $primary-500; }
-}
-
 .cg-error-msg {
   margin-top: 16px;
   padding: 12px;
@@ -1363,6 +1338,24 @@ $blue-200: #bfdbfe;
     padding: 0 40px;
     font-size: 16px;
   }
+}
+
+/* 次要文字按钮（completed 态下"重新下载 / 选择其它版本"等次要操作）
+   跟 cg-btn-primary 同宽，但视觉上明显次要，避免抢主操作的注意力 */
+.cg-btn-link {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 0;
+  background: transparent;
+  border: 0;
+  color: $neutral-500;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 200ms;
+  &:hover { color: $neutral-700; }
 }
 
 .cg-btn-outline {

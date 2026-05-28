@@ -64,6 +64,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, provide, getCurrentInstance } from "vue";
+import { useRouter } from "vue-router";
 import Header from "layouts/header/Header.vue";
 import SseManager from "components/sse/SseManager.vue";
 import { useStore } from "vuex";
@@ -75,11 +76,98 @@ import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { useUpdateResumeStatus } from "src/hooks/useUpdateResumeStatus";
 import { importResumeCallbackPlus } from "src/api/jobList/JobListApi";
 import { ensureBossJobList, bindBossLoginListener } from "src/util/automation/bossJobListAutoFetch";
+import notify from "src/util/notify";
 const store = useStore();
+const router = useRouter();
 
 // 客户端模式：mount 时静默拉一次 BOSS 我的职位列表 + 监听 BOSS 登录成功后自动重拉
 // （隐藏 BrowserWindow + CDP，用户不可见；详见 src/util/automation/bossJobListAutoFetch.js）
 let unbindBossLogin = null;
+
+// 客户端模式：监听 deep link（用户在工作台再次点"打开 i 快招"或换职位推过来）
+let unbindDeepLink = null;
+
+/**
+ * 已登录页面（用户已进入业务主页）收到 deep link 时的策略：
+ *
+ *   1. 当前路由 = /sso-login：本 handler 不动（SSOLogin onDeepLink 自己处理）
+ *   2. 当前未登录（store.userInfo 为空）：router.replace('/sso-login') 走完整 SSO
+ *   3. incoming 用户 = 当前用户（ssoConfig.userConfig 序列化相同）：
+ *      - accessToken 已被主进程注入 ihrBridge（无需 renderer 处理 cookie）
+ *      - 缓存 incoming 职位 JD 到 store（让 LeftMenu auto-send-jd 路径能用）
+ *      - commit 'triggerChatListRefresh' 让 LeftMenu 静默 loadChatList
+ *      - 整页不刷新、URL 不变；toast 提示一次
+ *   4. incoming 用户 ≠ 当前用户：router.replace('/sso-login') 让 SSOLogin 重走整个流程
+ *      （SSO 成功后会重写 user / chatList / token，新用户状态干净接管）
+ */
+async function handleClientDeepLink(data) {
+  if (!data || data.action !== "sso" || !data.payload?.ssoConfig) return;
+
+  // 当前路由是 SSO 页面 → SSOLogin onDeepLink 监听器会处理，本 handler 不动
+  if (router.currentRoute.value.path === "/sso-login") {
+    console.log("[MainLayout] deep link arrived but on /sso-login, defer to SSOLogin handler");
+    return;
+  }
+
+  const incomingSsoUserConfig = data.payload.ssoConfig.userConfig || {};
+  let incomingKey = "";
+  try {
+    incomingKey = JSON.stringify(incomingSsoUserConfig);
+  } catch (_e) {
+    incomingKey = ""; // 兜底：不一致 → 走完整 SSO
+  }
+
+  const currentUserInfo = store.getters.getUserInfo;
+  const lastSsoUserKey = store.getters.getLastSsoUserKey || "";
+
+  // 当前没登录 → 直接跳 SSO 走完整流程
+  if (!currentUserInfo?.id) {
+    console.log("[MainLayout] deep link arrived but no current userInfo, route to /sso-login");
+    void router.replace("/sso-login");
+    return;
+  }
+
+  // 用户不一致 → 跳 SSO 重走（SSO 成功后会自动 setLastSsoUserKey + 写 user / chatList）
+  if (!incomingKey || !lastSsoUserKey || incomingKey !== lastSsoUserKey) {
+    console.log(
+      "[MainLayout] deep link incoming user differs from current user, full re-SSO",
+      { incomingLen: incomingKey.length, lastLen: lastSsoUserKey.length }
+    );
+    void router.replace("/sso-login");
+    return;
+  }
+
+  // ★ 同一用户 → 静默走：缓存职位 JD + 触发 LeftMenu 刷新职位列表，不切页面
+  console.log("[MainLayout] deep link same user, silent refresh chatList + cache JD");
+  try {
+    const positionIds = Array.isArray(data.payload.positionIds) ? data.payload.positionIds : [];
+    if (positionIds.length > 0) {
+      // 用 ihrBridge.getApplicationPosition 重建完整 positionList（含 jd 字段）
+      // 跟 SSOLogin.rebuildPositionList 同一份逻辑，但这里失败也不阻塞主流程（用户已登录，没拿到 JD 只影响 auto-send-jd）
+      const ihrBridge = window?.api?.ihrBridge;
+      if (ihrBridge?.getApplicationPosition) {
+        const resp = await ihrBridge.getApplicationPosition();
+        if (resp?.success) {
+          const positionList = resp?.data?.list || resp?.data || [];
+          if (Array.isArray(positionList) && positionList.length > 0) {
+            const idSet = new Set(positionIds);
+            const filtered = positionList.filter((p) =>
+              idSet.has(p?.positionId || p?.id || "")
+            );
+            if (filtered.length > 0) {
+              store.commit("SET_POSITION_JD_CACHE", filtered);
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[MainLayout] silent rebuildPositionList failed:", e?.message || e);
+  }
+  // 触发 LeftMenu watch 静默 loadChatList
+  store.commit("triggerChatListRefresh");
+  notify.success("已收到来自工作台的最新数据");
+}
 
 const { proxy } = getCurrentInstance();
 const iframeMsg = proxy.$iframeMessenger;
@@ -226,6 +314,14 @@ onMounted(() => {
     void ensureBossJobList(store, { reason: "mainlayout_mounted" });
     // 监听 BOSS 登录态从 false → true，自动再取一次
     unbindBossLogin = bindBossLoginListener(store);
+
+    // 监听 deep link：用户在工作台再次"打开 i 快招"时，业务页面无感刷新（同用户）/
+    // 走完整 SSO（不同用户）
+    if (window?.api?.handover?.onDeepLink) {
+      unbindDeepLink = window.api.handover.onDeepLink((data) => {
+        void handleClientDeepLink(data);
+      });
+    }
   }
 });
 
@@ -236,6 +332,14 @@ onUnmounted(() => {
   if (unbindBossLogin) {
     unbindBossLogin();
     unbindBossLogin = null;
+  }
+  if (unbindDeepLink) {
+    try {
+      unbindDeepLink();
+    } catch (_e) {
+      /* ignore */
+    }
+    unbindDeepLink = null;
   }
 });
 </script>

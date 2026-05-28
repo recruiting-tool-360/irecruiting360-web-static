@@ -77,6 +77,36 @@ export default {
       searchCount:0,
       showQueueMonitor: false,
       showFilterPanel: false,
+      /**
+       * 全局"职位列表静默刷新"信号 —— 自增整数。
+       *
+       * 谁会写：客户端运行中收到同用户 deep link（MainLayout 全局 deep link handler）
+       *         调 store.commit('triggerChatListRefresh') 把它 +1，让 LeftMenu watch 触发
+       *         loadChatList，不需要主进程 navigate / SPA 路由跳转，UI 无感刷新职位列表。
+       *
+       * 谁会读：LeftMenu watch(getChatListRefreshSignal) 触发 loadChatList()
+       *
+       * 不持久化（仅运行态信号）。
+       */
+      chatListRefreshSignal: 0,
+      /**
+       * 用户上次在 AIProfileActionPanel 勾选的"搜索/推荐"模块状态。
+       *
+       * 用途：每次新的 AIProfileActionPanel 实例化（用户选了新的职位、收到新的 AI 卡片）时
+       * 从这里读初始值，避免每次都强制回到默认 —— 用户可能习惯只勾搜索 / 只勾推荐，
+       * 记住偏好下次自动应用。
+       *
+       * 写入时机：用户主动点击切换勾选（toggleModule）。
+       * **不写入时机**：BOSS 渠道禁用时 watch 强制收敛到 { search:true, recommend:false }
+       * —— 那是系统行为不是用户偏好，BOSS 重启后还要回到用户上次的真正选择。
+       *
+       * **首次默认（localStorage 无任何缓存时）**：`{ search: true, recommend: false }`
+       * —— 仅勾"搜索牛人"，避免新用户首次启动就触发 BOSS 推荐（推荐受风控影响，
+       * 应该让用户明确勾选才走）。
+       *
+       * 永久持久化（vuex-persistedstate paths 配置在 store/index.js）。
+       */
+      lastSelectedModules: { search: true, recommend: false },
     }),
     mutations: {
         changeLeftLoadingSwitch(state,payload) {
@@ -305,6 +335,25 @@ export default {
       setFilterPanel(state, payload) {
         state.showFilterPanel = payload;
       },
+      /**
+       * 触发一次全局"职位列表静默刷新"信号 —— LeftMenu watch 到自增就 loadChatList。
+       * 当前用法：MainLayout 收到同用户 deep link 时调，让 LeftMenu 拿到 incoming 的最新职位。
+       */
+      triggerChatListRefresh(state) {
+        state.chatListRefreshSignal = (state.chatListRefreshSignal || 0) + 1;
+      },
+      /**
+       * 写"用户上次勾选的模块"——AIProfileActionPanel.toggleModule 调用。
+       * 仅记录用户主动选择，BOSS 禁用时的强制收敛不调本 mutation。
+       *
+       * @param {{search: boolean, recommend: boolean}} payload
+       */
+      setLastSelectedModules(state, payload) {
+        state.lastSelectedModules = {
+          search: !!payload?.search,
+          recommend: !!payload?.recommend
+        };
+      },
     },
     actions: {
         async fetchAndUpdateScore({ commit, state }) {
@@ -421,6 +470,17 @@ export default {
         },
         getShowFilterPanel(state) {
             return state.showFilterPanel;
+        },
+        /**
+         * 用户上次勾选的模块（搜索/推荐）—— AIProfileActionPanel 初始化时读，
+         * 没有持久化记录时返回默认 { search:true, recommend:true }
+         */
+        getLastSelectedModules(state) {
+            return state.lastSelectedModules || { search: true, recommend: false };
+        },
+        /** 职位列表静默刷新信号自增数（LeftMenu watch 它触发 loadChatList） */
+        getChatListRefreshSignal(state) {
+            return Number(state.chatListRefreshSignal) || 0;
         },
     },
 };

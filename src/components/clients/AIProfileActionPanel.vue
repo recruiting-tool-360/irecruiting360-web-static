@@ -234,6 +234,8 @@
 <script setup>
 import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
+import { estimateSearchTask } from "src/api/searchTaskApi";
+import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
 
 const props = defineProps({
   message: {
@@ -264,14 +266,24 @@ const bossEnabled = computed(() => {
   return cfg.enableConfig !== false;
 });
 
+/**
+ * 初始勾选从 store 的"用户上次偏好"读取（永久缓存，详见 AiSerachConfig.lastSelectedModules）
+ * —— 新的 AIProfileActionPanel 实例化时自动套用上次的勾选状态，
+ * 避免每次都强制回默认 { search:true, recommend:true }。
+ *
+ * 写回时机仅在 toggleModule（用户主动）；下方 watch(bossEnabled) 的强制收敛不写回，
+ * 让 BOSS 重启时仍能从 lastSelectedModules 恢复用户真实偏好。
+ */
+const lastSelectedModules = computed(() => store.getters.getLastSelectedModules);
 const selectedModules = ref({
-  search: true,
-  recommend: true
+  search: !!lastSelectedModules.value?.search,
+  recommend: !!lastSelectedModules.value?.recommend
 });
 
 /**
  * BOSS 切到禁用时：自动收敛 selectedModules 到 { search:true, recommend:false }
- * BOSS 切到启用时：恢复默认 { search:true, recommend:true }（用户随后可手动改）
+ *   —— 仅 UI 层强制，不写 lastSelectedModules，下次 BOSS 启用时恢复用户真实偏好
+ * BOSS 切到启用时：从 lastSelectedModules 恢复用户偏好（兜底全勾）
  *
  * 用 watch immediate:true 保证初次挂载时立刻同步，避免出现"BOSS 禁用 + recommend=true"
  * 的非法组合传给 aggregate 事件。
@@ -280,14 +292,21 @@ watch(
   bossEnabled,
   (enabled) => {
     if (!enabled) {
-      // BOSS 关了：只能搜索；推荐自动收起
+      // BOSS 关了：只能搜索；推荐自动收起（仅运行态，不写 lastSelectedModules）
       if (selectedModules.value.recommend || !selectedModules.value.search) {
         selectedModules.value = { search: true, recommend: false };
       }
     } else {
-      // BOSS 开了：恢复默认（之前用户可能手动改成纯推荐，这里不强行覆盖搜索状态）
-      if (!selectedModules.value.search && !selectedModules.value.recommend) {
-        selectedModules.value = { search: true, recommend: true };
+      // BOSS 开了：从用户偏好恢复（偏好全 false 才兜底默认仅勾搜索，跟 AiSerachConfig
+      // state 默认值 { search:true, recommend:false } 保持一致；推荐由用户明确勾选才走）
+      const pref = lastSelectedModules.value || {};
+      if (!pref.search && !pref.recommend) {
+        selectedModules.value = { search: true, recommend: false };
+      } else {
+        selectedModules.value = {
+          search: !!pref.search,
+          recommend: !!pref.recommend
+        };
       }
     }
   },
@@ -298,10 +317,13 @@ function toggleModule(key) {
   // BOSS 禁用时 UI 上根本看不到勾选框（v-if 隐藏），点击不可达；
   // 但万一上层用 ref 强调 toggleModule 时也得防御一下，禁止打开 recommend
   if (key === "recommend" && !bossEnabled.value) return;
-  selectedModules.value = {
+  const next = {
     ...selectedModules.value,
     [key]: !selectedModules.value[key]
   };
+  selectedModules.value = next;
+  // ★ 写回 lastSelectedModules（永久缓存）—— 下次新卡片用这个初始值
+  store.commit("setLastSelectedModules", next);
 }
 
 // BOSS 职位下拉：仅展示开放（jobStatus === 0）的职位
@@ -347,19 +369,103 @@ const resumeCountNum = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 });
 
+/* ===========================================================================
+ * 预估时长 / 开始时间 / 结束时间 —— 全部通过 POST /search/task/estimate 接口拉取
+ *
+ * 旧版本是本地公式硬算（resumeCount × perSec / 3600），跟后端实际排队 / 工作时段
+ * 都没关系，用户看到的"预计开始时间"永远是"现在"，体感很奇怪。
+ *
+ * 新版本：
+ *   - watch [resumeCountNum, selectedModules, matchedBossJobId] → debounce 300ms 调 estimate
+ *   - 接口返回 estimatedDurationMinutes / estimatedStartTime / estimatedEndTime 直接展示
+ *   - 接口失败 / 还在加载 → 回落本地公式兜底（不让 UI 空白）
+ *   - resumeCount 为 0 或 channels 为空 → 不调接口，显示 '--'
+ *
+ * 接口约定见 src/api/searchTaskApi.js estimateSearchTask 注释
+ * payload 组装见 src/util/searchTaskPayloadBuilder.js buildEstimatePayload
+ * ========================================================================== */
+
+const cfgList = computed(() => store.getters.getUserChannelConfig || []);
+const latestChatId = computed(() => store.getters.getLatestChatId || "");
+const latestPositionId = computed(() => store.getters.getLatestPositionId || "");
+
+/** 接口返回的预估结果（命中时优先于本地兜底） */
+const estimateRemote = ref(null); // { durationMin, startISO, endISO } | null
+const estimateLoading = ref(false);
+
+/** debounce 调 estimate 接口 */
+let _estimateTimer = null;
+let _estimateSeq = 0; // 防 race：晚返回的旧请求丢弃
+function scheduleEstimate() {
+  if (_estimateTimer) clearTimeout(_estimateTimer);
+  _estimateTimer = setTimeout(runEstimate, 300);
+}
+async function runEstimate() {
+  // 简历数为 0（用户没填）→ 不调接口；UI 自然显示 '--'
+  if (resumeCountNum.value <= 0) {
+    estimateRemote.value = null;
+    return;
+  }
+  const payload = buildEstimatePayload({
+    chatId: latestChatId.value,
+    positionId: latestPositionId.value,
+    cfgList: cfgList.value,
+    selectedModules: selectedModules.value,
+    matchedBossJobId: matchedBossJobId.value,
+    resumeCount: resumeCountNum.value,
+    taskType: "INITIAL"
+  });
+  if (!payload) {
+    estimateRemote.value = null; // 没有启用渠道
+    return;
+  }
+  const seq = ++_estimateSeq;
+  estimateLoading.value = true;
+  try {
+    const res = await estimateSearchTask(payload);
+    if (seq !== _estimateSeq) return; // 已被新请求覆盖
+    const data = res?.data || {};
+    estimateRemote.value = {
+      durationMin: Number(data.estimatedDurationMinutes) || 0,
+      startISO: data.estimatedStartTime || null,
+      endISO: data.estimatedEndTime || null
+    };
+  } catch (e) {
+    if (seq !== _estimateSeq) return;
+    console.warn("[AIProfileActionPanel] estimate 接口失败，回落本地公式:", e?.message || e);
+    estimateRemote.value = null; // fallback 走本地公式
+  } finally {
+    if (seq === _estimateSeq) estimateLoading.value = false;
+  }
+}
+
+// 任何会影响 channels / resumeCount 的变化都 trigger 一次（debounce 300ms）
+watch(
+  [resumeCountNum, selectedModules, matchedBossJobId, cfgList, latestChatId],
+  scheduleEstimate,
+  { immediate: true, deep: true }
+);
+
 /**
- * 时长估算（小时）：
- *   - 推荐 + 搜索（同时跑）：每份简历 ~5s
- *   - 仅搜索：每份简历 ~5s
+ * 本地兜底公式（接口失败 / 加载中显示用）：
+ *   - 推荐 + 搜索 / 仅搜索：每份简历 ~5s
  *   - 仅推荐：每份简历 ~3s
- * 与 ihraisaas calculateEstimatedDuration 同口径，结果四舍五入到 0.1h，下限 0.1h。
+ * 与 ihraisaas calculateEstimatedDuration 同口径，四舍五入到 0.1h，下限 0.1h
  */
-const estimatedDurationH = computed(() => {
+const estimatedDurationHLocal = computed(() => {
   if (resumeCountNum.value <= 0) return 0;
   const onlyRecommend = !selectedModules.value.search && selectedModules.value.recommend;
   const perSec = onlyRecommend ? 3 : 5;
   const hours = (resumeCountNum.value * perSec) / 3600;
   return Math.max(0.1, Math.round(hours * 10) / 10);
+});
+
+/** 最终展示用的时长（小时数；接口命中优先，否则本地兜底） */
+const estimatedDurationH = computed(() => {
+  if (estimateRemote.value?.durationMin) {
+    return Math.round((estimateRemote.value.durationMin / 60) * 10) / 10;
+  }
+  return estimatedDurationHLocal.value;
 });
 
 const estimatedDurationDisplay = computed(() => `${estimatedDurationH.value}h`);
@@ -375,7 +481,7 @@ function formatMMddHHmm(date) {
 
 const nowTick = ref(Date.now());
 let nowTimer = null;
-// 每分钟刷新一次"预计开始时间"，让时间显示随时间推移而更新
+// 每分钟刷新一次"预计开始时间"，本地兜底场景下让时间随推移更新
 function startNowTimer() {
   if (nowTimer) return;
   nowTimer = setInterval(() => {
@@ -390,18 +496,30 @@ function stopNowTimer() {
 }
 
 const scheduledStartDisplay = computed(() => {
-  // 简化口径：当前时间即开始；如果需要排队 / 工作时段，可在后端返回真实预计时间后改这里
+  if (estimateRemote.value?.startISO) {
+    const d = new Date(estimateRemote.value.startISO);
+    if (!Number.isNaN(d.getTime())) return formatMMddHHmm(d);
+  }
+  // 兜底：现在
   void nowTick.value;
   return formatMMddHHmm(new Date());
 });
 const scheduledEndDisplay = computed(() => {
+  if (estimateRemote.value?.endISO) {
+    const d = new Date(estimateRemote.value.endISO);
+    if (!Number.isNaN(d.getTime())) return formatMMddHHmm(d);
+  }
+  // 兜底：现在 + 本地估算时长
   void nowTick.value;
   const ms = estimatedDurationH.value * 3600 * 1000;
   return formatMMddHHmm(new Date(Date.now() + ms));
 });
 
 onMounted(() => startNowTimer());
-onBeforeUnmount(() => stopNowTimer());
+onBeforeUnmount(() => {
+  stopNowTimer();
+  if (_estimateTimer) clearTimeout(_estimateTimer);
+});
 
 function getState() {
   return {

@@ -46,6 +46,37 @@ export function createSearchTask(payload) {
 }
 
 /**
+ * 创建任务**前**的预估接口（API 协议 §5.3.1.1）。
+ *
+ * 用途：用户在 AIProfileActionPanel 输入"简历份数"等参数时，**实时**预估
+ *   - estimatedDurationMinutes 本次任务预估耗时
+ *   - estimatedStartTime        排队后预计开始时间
+ *   - estimatedEndTime          预计结束时间
+ * 让用户看到接口算的真实时间（含队列等待 + 工作时段限制），而不是前端写死的本地公式。
+ *
+ * 请求体：跟 `createSearchTask` 完全相同（含 chatId / positionId / taskType / channels[]）。
+ *
+ * 返回体：跟 `createSearchTask` 完全相同 —— 但 **data.taskId 为空字符串**
+ * （不会真正创建 search_task / search_task_channel，仅做预估）。
+ *
+ * 调用约束：
+ *   - 前端**不需要**预先 saveCondition 拿真 condId，可以传 searchConditionId="0" 占位
+ *   - 高频调用建议在 caller 端 debounce 300ms 避免每次按键都打接口
+ *
+ * @param {object} payload  跟 createSearchTask 同结构
+ * @returns {Promise<{ data: {
+ *   taskId: '',                           // 预估接口固定空
+ *   estimatedDurationMinutes: number,
+ *   estimatedStartTime: string,           // ISO
+ *   estimatedEndTime: string,             // ISO
+ *   channels: [...]
+ * } }>}
+ */
+export function estimateSearchTask(payload) {
+  return service.post("/search/task/estimate", payload);
+}
+
+/**
  * 拉当前活跃任务（启动 / SSE 断线恢复 / 用户切回主页时用）。
  *
  * 返回规则：
@@ -227,6 +258,7 @@ export function queryTaskResults(searchTaskId) {
 
 export default {
   createSearchTask,
+  estimateSearchTask,
   getCurrentSearchTask,
   getTaskQueue,
   postExecuteChannel,
