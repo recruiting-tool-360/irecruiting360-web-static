@@ -281,17 +281,24 @@ function handleDeepLink(url: string): void {
   tabManager.activate(homeTabId)
 
   // 根据 action 决定 navigate 还是只发事件给主页 tab 的渲染端
+  //
+  // ★ 时序策略（2026-05-28 改）：
+  //   - 当前已在目标 path（典型：在 /sso-login）→ 直接推送事件，SSOLogin onDeepLink 监听器响应
+  //   - 当前**不在** SSO 页面（说明客户端已完成 SSO 进入主业务页面）→
+  //     **不再 navigate 整页**（避免清空业务状态 + UI 闪烁），只把 deep link 推给 renderer。
+  //     由 MainLayout 的全局 deep link handler 判定：
+  //       同一用户 → 静默刷新职位列表（commit triggerChatListRefresh）
+  //       不同用户 → router.replace('/sso-login') 由 SPA 路由整页跳转重走完整 SSO
   const path = pathForAction(parsed.action)
   if (path) {
-    const fullUrl = joinPath(resolveTargetUrl(), path)
     const currentUrl = homeWc.getURL()
     const onTargetPath = currentUrl.includes(path)
-    if (!onTargetPath) {
-      console.log('[main] navigating home tab to', fullUrl)
-      tabManager.navigate(homeTabId, fullUrl)
-      // SSOLogin.vue onMounted 时会读 pendingDeepLink，不需要额外 send 事件
-    } else {
+    if (onTargetPath) {
       // 已在 SSO 页面 → 直接推送事件让 SSOLogin onDeepLink 监听器响应
+      homeWc.send('app:deep-link', parsed)
+      pendingDeepLink = null
+    } else {
+      // 已在业务页面 → 推 event 让 MainLayout 处理（同用户静默 / 不同用户路由跳转）
       homeWc.send('app:deep-link', parsed)
       pendingDeepLink = null
     }

@@ -217,6 +217,7 @@ import WorkspaceContainer from "src/components/clients/WorkspaceContainer.vue";
 import ChatCard from "src/components/common/ChatCard.vue";
 import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import { runBossRecommend, unlockRecommendTab } from "src/util/automation/bossRecommend";
+import { buildSearchTaskChannels } from "src/util/searchTaskPayloadBuilder";
 import ClearChatConfirmModal from "src/components/clients/ClearChatConfirmModal.vue";
 import { openChannelUrl, isElectronClient } from "src/util/openChannelLoginUrl";
 import {
@@ -1664,28 +1665,10 @@ async function dispatchTaskStore({
       `[IndexPage] dispatchTaskStore: 使用 condId=${condId} (explicit=${!!explicitCondId})`
     );
 
-    // 从 settings 读取启用的渠道，**判定逻辑跟 AISearch.vue 的 getChannelDisable / ResumeCard.vue
-    // 的 getChannelDisable 完全一致**，确保搜索结果列表 tab 和任务卡片显示的渠道严格对齐：
-    //
-    //   - LIEPIN：永远视为禁用（项目里硬规则，没人会在任务里包含猎聘）
-    //   - 其他渠道：在 cfgList 里没找到 → 视为未启用（严格，避免漏判误报）
-    //              找到了 → 直接 truthy 判断 enableConfig
-    //
-    // 旧实现 `cfg.enableConfig !== false` 太宽松：undefined / null 也算启用，导致用户截图里
-    // BOSS 在 settings 没勾的情况下仍被加进 channels —— 这里改严格。
+    // 从 settings 读取启用的渠道 + 组装 channels[] —— 走共用工具 buildSearchTaskChannels
+    // 跟 AIProfileActionPanel 调 estimate 接口共用一份判定逻辑，避免两边 channel 组装漂移
+    // 详见 src/util/searchTaskPayloadBuilder.js 顶部注释
     const cfgList = store.getters.getUserChannelConfig || [];
-    const isEnabled = (key) => {
-      if (key === "LIEPIN") return false; // 跟 AISearch/ResumeCard 一致：LIEPIN 全局禁用
-      if (!Array.isArray(cfgList) || cfgList.length === 0) {
-        // settings 还没 hydrate（首次进入未拉到配置）→ 整张任务先不创建，避免随便发 BOSS
-        console.warn("[IndexPage] dispatchTaskStore: userChannelConfig 为空，无法判定渠道启用状态");
-        return false;
-      }
-      const cfg = cfgList.find((c) => c?.key === key);
-      if (!cfg) return false;
-      return !!cfg.enableConfig;
-    };
-
     console.log(
       "[IndexPage] dispatchTaskStore: cfgList=",
       cfgList
@@ -1698,34 +1681,15 @@ async function dispatchTaskStore({
         .join(",")
     );
 
-    // 搜索：为每个启用的渠道生成一个 SEARCH channel。
-    // 候选渠道白名单：BOSS / ZHILIAN / JOB51（LIEPIN 在 isEnabled 里直接 false 了，留着只为兼容）。
-    if (searchChecked) {
-      const candidateChannels = ["BOSS", "ZHILIAN", "JOB51"];
-      for (const key of candidateChannels) {
-        if (!isEnabled(key)) {
-          console.log(`[IndexPage] dispatchTaskStore: 跳过 ${key}（未启用）`);
-          continue;
-        }
-        channels.push({
-          businessChannel: "SEARCH",
-          channelSubType: key,
-          searchConditionId: condId
-        });
-      }
-    }
-    // 推荐：仅 BOSS 支持，且需要 BOSS 启用 + 用户勾了推荐 + 有 jobId。
-    if (recommendChecked && jobId && isEnabled("BOSS")) {
-      channels.push({
-        businessChannel: "RECOMMEND",
-        channelSubType: "BOSS",
-        searchConditionId: condId,
-        searchTaskConfig: JSON.stringify({
-          relatedPositionValue: jobId,
-          maxSearchCount: Number(payload?.resumeCount) > 0 ? Number(payload.resumeCount) : 10
-        })
-      });
-    }
+    const builtChannels = buildSearchTaskChannels({
+      cfgList,
+      selectedModules: { search: searchChecked, recommend: recommendChecked },
+      matchedBossJobId: jobId,
+      resumeCount: payload?.resumeCount,
+      condId
+    });
+    channels.push(...builtChannels);
+
     if (channels.length === 0) {
       console.warn("[IndexPage] dispatchTaskStore: 无启用渠道，跳过任务创建");
       return { ok: false, errorCode: "NO_ENABLED_CHANNEL", message: "没有启用的渠道" };
@@ -1775,12 +1739,34 @@ async function dispatchTaskStore({
   }
 }
 
+// ★ "上一次任务创建还在 dispatching 中"标志位（兜底防抖）
+//
+// handleAggregateSearch 内部 `prepareConditionOnly + dispatchTaskStore` 是异步链路
+// （含 saveCondition 网络 + create 接口），整个跑完可能 1-3s。期间 SearchTasks
+// store 里还没有新 task → canCreateForChat 仍返回 true → 用户连点能触发多次 dispatch。
+//
+// ChatCard 已有 500ms 时间窗防抖兜住常规连点；这里再加一道 in-progress flag
+// 兜更长 dispatch 期间的恶意连点（如用户狂点 10 下 → 时间窗能挡住，但万一漏掉一次）。
+//
+// 用 chatId 维度而非全局：允许不同 chat 同时启动任务（虽然 SearchTasks 队列层面
+// 也只允许一次跑一个，但 dispatching 阶段可以并行）。
+const _dispatchingChats = new Set(); // Set<chatId>
+
 async function handleAggregateSearch(payload) {
   const chatIdToSearch = payload?.chatId || chatId.value;
   if (!chatIdToSearch) {
     console.warn("[IndexPage] aggregate-search: 没拿到 chatId，跳过真实搜索");
     return;
   }
+
+  // ★ 兜底防抖：上一次的 dispatch 还在跑，静默忽略（ChatCard 时间窗已挡，这里防御性二次防御）
+  if (_dispatchingChats.has(chatIdToSearch)) {
+    console.warn(
+      `[IndexPage] aggregate-search 静默忽略：chat=${chatIdToSearch} 的任务创建链路还在跑`
+    );
+    return;
+  }
+
   // taskType: INITIAL（默认） | RESTART（清空并重新搜索） | CONTINUE（保留并增量搜索）
   // 由 ChatCard 在 TaskCompletionCard 按钮触发时显式带过来；普通"启动聚合搜索"按钮不传 → 走 INITIAL
   // 三者数据来源都灌到 ChannelConfig store，AISearch 统一渲染；后端基于 taskType
@@ -1817,6 +1803,17 @@ async function handleAggregateSearch(payload) {
     return;
   }
 
+  // ===== 至少要选一个搜索模块 =====
+  //
+  // 一般情况下 ChatCard.handleSearch 已经在 fallback 给 `{search:true, recommend:false}`
+  // （AIProfileActionPanel 也默认勾搜索），不会出现两个都 false。但用户**手动取消**了
+  // 默认勾选时（业务允许）会走到这里，必须提示，不能让 dispatchTaskStore 拿到空 channels。
+  if (!searchChecked && !recommendChecked) {
+    console.warn("[IndexPage] aggregate-search 被拒绝：未选择任何搜索模块");
+    notify.warning("请至少选择一个搜索模块（搜索牛人 / 推荐牛人）");
+    return;
+  }
+
   // ===== 任务启动前 recheck 渠道登录态 =====
   //
   // 防止 cookie 过期但 store.channelConf.login 仍是 true 的情况下，任务跑到一半才
@@ -1834,6 +1831,22 @@ async function handleAggregateSearch(payload) {
       const enabledKeys = userChannels.length
         ? userChannels.filter((c) => c.enableConfig).map((c) => c.key)
         : ["BOSS", "ZHILIAN", "JOB51"]; // 兜底全启用
+
+      // ★ 用户显式禁用了所有渠道 —— 仅勾"搜索"时拦截，否则没有任何渠道可搜
+      //   如果同时勾了"推荐"，BOSS 推荐是写死的（不受 userChannelConfig 影响），
+      //   可以继续走推荐路径，所以允许放行但 keysToCheck 仅含 BOSS（recheck 下面加进去）
+      if (userChannels.length > 0 && enabledKeys.length === 0) {
+        if (!recommendChecked) {
+          console.warn(
+            "[IndexPage] aggregate-search 被拒绝：用户禁用了所有渠道且未勾推荐"
+          );
+          notify.warning(
+            "当前没有启用任何招聘渠道，请先在右上角「设置」中启用至少一个渠道后再搜索"
+          );
+          return;
+        }
+      }
+
       keysToCheck.push(...enabledKeys);
     }
     if (recommendChecked && !keysToCheck.includes("BOSS")) {
@@ -1898,6 +1911,11 @@ async function handleAggregateSearch(payload) {
   // 内部如果再调一次 saveCondition（executeSearch 内部业务的一部分），会再产生一个新 id
   // 覆盖到 store，但 dispatchTaskStore 已经 create 完了用的是第 1 次的 id（channel 绑定
   // 不变）。这是已有的"两次 saveCondition"模式，跟搜索通道行为一致。
+  // ★ 校验都通过，正式进入 dispatch 链路 → mark in-progress
+  //   后续的 prepareConditionOnly + dispatchTaskStore 全程都在 set 里，
+  //   期间 handleAggregateSearch 再被调用时本函数顶部的 _dispatchingChats.has 检查会拦下
+  _dispatchingChats.add(chatIdToSearch);
+
   let condIdForCreate = "";
   let searchRequestDataForExec = null;
   if (aiSearchRef.value && typeof aiSearchRef.value.prepareConditionOnly === "function") {
@@ -1945,7 +1963,11 @@ async function handleAggregateSearch(payload) {
         }
       }
     })
-    .catch((e) => console.warn("[IndexPage] dispatchTaskStore unexpected:", e?.message || e));
+    .catch((e) => console.warn("[IndexPage] dispatchTaskStore unexpected:", e?.message || e))
+    .finally(() => {
+      // ★ release in-progress flag —— 此后该 chat 才能接受新一次的 aggregate-search
+      _dispatchingChats.delete(chatIdToSearch);
+    });
 
   // ★ 用户要求：完全由 current 接口驱动执行，前端不再直接调 runRealAggregateSearch。
   //

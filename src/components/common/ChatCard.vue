@@ -628,6 +628,40 @@ const currentEmbeddedChat = computed(() => {
  */
 const shouldShowEmptyState = computed(() => visibleThirdSwitchPlus.value && !chosenJobId.value);
 
+/* ===========================================================================
+ * 「启动聚合搜索 / 保留增量 / 清空重新」三入口共用的 500ms 时间窗防抖
+ *
+ * 背景：三个按钮最终都 emit('aggregate-search') 给 IndexPage.handleAggregateSearch
+ * 处理，handleAggregateSearch 内部 `prepareConditionOnly + dispatchTaskStore` 是
+ * 异步链路（含 saveCondition 网络请求 + create 接口），整个跑完可能要 1-3s。
+ * 期间 SearchTasks/canCreateForChat 仍返回 true（task 还没真正落到 store），
+ * 用户连点会触发多次 dispatch → 创建多个任务。
+ *
+ * 解决：在 ChatCard 三个入口都过一道时间窗防抖（同一职位 chat 维度），
+ * 阻挡 500ms 内的二次点击。配合 IndexPage 内 _dispatchTaskInProgress flag 兜底。
+ * ========================================================================== */
+const AGGREGATE_DEBOUNCE_MS = 500;
+const _lastAggregateClickTsByChat = new Map(); // chatId -> ts
+
+/**
+ * @param {string} chatIdForSearch
+ * @param {string} label    'INITIAL' | 'CONTINUE' | 'RESTART'，仅用于日志
+ * @returns {boolean} true = 被防抖拦截（caller 应直接 return）
+ */
+function _isAggregateClickDebounced(chatIdForSearch, label) {
+  const now = Date.now();
+  const last = _lastAggregateClickTsByChat.get(chatIdForSearch) || 0;
+  const elapsed = now - last;
+  if (elapsed < AGGREGATE_DEBOUNCE_MS) {
+    console.warn(
+      `[ChatCard] ${label} 被 500ms 防抖拦截（距上次 ${elapsed}ms），忽略本次点击 chat=${chatIdForSearch}`
+    );
+    return true;
+  }
+  _lastAggregateClickTsByChat.set(chatIdForSearch, now);
+  return false;
+}
+
 /**
  * 当前选中职位标题 + 代码（用在 workspace toolbar 左侧）
  * chat.name 现存格式如 "研发 (10001)" / "测试 (10002)"：左半为职位名，括号内为代码
@@ -1120,6 +1154,9 @@ const handleSearch = async (msg) => {
     const resumeCount = state?.resumeCount ?? null;
     const chatIdForSearch = props.chatId || currentChatId.value;
 
+    // ★ 500ms 防抖：避免连点导致多次 dispatchTaskStore（详见 _isAggregateClickDebounced 注释）
+    if (_isAggregateClickDebounced(chatIdForSearch, "INITIAL")) return;
+
     // 提前拦截重复点击：同一职位已有 RUNNING/WAITING/RESTING 任务时直接返回，
     // 不 push 占位卡片，避免出现"正在初始化任务..."永远转圈的状态。
     // IndexPage 也会再判一次并通过 notify 告知用户，这里只静默兜底。
@@ -1595,6 +1632,9 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
     console.warn(`[ChatCard] task_completion_card ${taskType}: 没拿到 chatId，跳过`);
     return;
   }
+
+  // ★ 500ms 防抖：避免连点 / 双击 完成卡按钮触发多次任务创建
+  if (_isAggregateClickDebounced(chatIdForSearch, taskType)) return;
 
   // ★ 入口拦截：当前 chat 已有任务在跑 → 不插卡 / 不重启，直接 toast 提示
   //   避免用户看到 RetryConfigCard 插入但点"启动聚合搜索"时被拒绝的体验断裂

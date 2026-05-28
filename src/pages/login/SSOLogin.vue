@@ -89,24 +89,6 @@ if (!isElectronClient()) {
   });
 }
 
-// ====== 入口 D：从 ClientLauncher 兜底跳过来（客户端唤起失败、用户选"在浏览器继续"） ======
-function consumeLauncherFallback() {
-  try {
-    const raw = sessionStorage.getItem('ikuaizhao:fallbackInitPayload');
-    if (!raw) return false;
-    sessionStorage.removeItem('ikuaizhao:fallbackInitPayload');
-    const data = JSON.parse(raw);
-    if (!data?.ssoConfig) return false;
-    iframeParams.value = data;
-    updateGloalColor(data?.sysConfig?.color);
-    handleSSOLogin(data);
-    return true;
-  } catch (e) {
-    console.error('[SSOLogin] consumeLauncherFallback error:', e);
-    return false;
-  }
-}
-
 // ====== SSO 登录核心流程 ======
 //
 // 幂等保护：用 module-level Promise 串行化 handleSSOLogin 调用。
@@ -164,6 +146,18 @@ const doSSOLogin = async (iframeMessage) => {
         let { data, success } = await getUserInfo();
         if (success && success === 'success') {
           store.commit('changeUserInfo', data);
+        }
+
+        // ★ 记录本次 SSO 成功登录使用的 ssoConfig.userConfig 序列化字符串
+        //   下次客户端运行中收到 deep link 时，MainLayout 用它跟 incoming key 比对
+        //   判定"同一用户"（静默刷新）vs "不同用户"（router.replace('/sso-login') 整页重走）
+        try {
+          store.commit(
+            'setLastSsoUserKey',
+            JSON.stringify(ssoConfig?.userConfig || {})
+          );
+        } catch (_e) {
+          /* ignore: 极端情况下 userConfig 含循环引用，比对功能降级到永远不一致即可 */
         }
 
         try {
@@ -321,10 +315,6 @@ onMounted(async () => {
     }
     return;
   }
-
-  // 浏览器模式：先看是不是从 ClientLauncher 兜底跳过来的（用户选"在浏览器继续"）
-  const fellBack = consumeLauncherFallback();
-  if (fellBack) return;
 
   // 30 秒等不到 init 消息就报超时
   timeoutHandle = setTimeout(() => {

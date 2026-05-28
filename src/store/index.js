@@ -46,6 +46,14 @@ const store = createStore({
         "UserConfig.userInfo",
         "UserConfig.userColor",
         "UserConfig.userChannelConfig",
+        // 上次成功 SSO 登录的 ssoConfig.userConfig 序列化字符串：
+        // 客户端运行中收到 deep link 时判断 incoming 用户是否跟当前登录用户一致，
+        // 一致则静默刷新职位，不一致则整页重走 /sso-login。详见 UserConfig.js 注释。
+        "UserConfig.lastSsoUserKey",
+        // 用户上次在 AIProfileActionPanel 勾选的"搜索/推荐"模块状态：跨会话保留，
+        // 避免每次新 AI 卡片都强制回到默认 { search:true, recommend:true } —— 用户可能
+        // 习惯只勾搜索 / 只勾推荐，记住偏好下次自动应用。详见 AiSerachConfig.js state 注释。
+        "AiSerachConfig.lastSelectedModules",
         "SimilarResumeConfig.cooldownStartTime",
         "SimilarResumeConfig.cooldownEndTime",
         // BOSS 我的职位列表（隐藏窗口静默抓取）：跨会话保留，避免每次进主页都等
