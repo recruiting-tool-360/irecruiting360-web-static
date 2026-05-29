@@ -470,7 +470,14 @@ export interface IKuaiZhaoNative {
  * 详见 main 进程 setupAutoUpdater（electron/src/main/autoUpdater.ts）
  */
 export interface AppUpdaterStatus {
-  phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+  phase:
+    | 'idle'
+    | 'checking'
+    | 'available'
+    | 'downloading'
+    | 'downloaded'
+    | 'error'
+    | 'unsignedFallback'
   currentVersion: string
   newVersion: string | null
   releaseDate?: string | null
@@ -482,6 +489,8 @@ export interface AppUpdaterStatus {
     bytesPerSecond: number
   } | null
   error: string | null
+  /** 当前可用更新的完整下载 URL（拼好 base + filename）；签名失败 fallback 用。 */
+  downloadUrl: string | null
 }
 
 export interface AppUpdaterCheckResult {
@@ -518,6 +527,11 @@ export interface AppUpdaterBridge {
    */
   quitAndInstall(): Promise<{ ok: boolean; devMode?: boolean; message?: string }>
   /**
+   * fallback：在系统浏览器打开安装包下载链接。
+   * 用于签名校验失败 / nosign 测试包等无法自动安装的场景。
+   */
+  openDownloadInBrowser(): Promise<{ ok: boolean; url?: string; message?: string }>
+  /**
    * 一次性拉当前状态（解决 renderer 晚于首次 update-available 事件 mount 错过事件的问题）。
    * UpdateModal / LeftMenu mount 时建议调一次 hydrate。
    */
@@ -525,14 +539,23 @@ export interface AppUpdaterBridge {
   /**
    * 订阅自动更新事件，返回 unsubscribe 函数。
    * - checking: 开始检查
-   * - available: 检测到新版本（payload: { version, releaseDate, releaseNotes }）
+   * - available: 检测到新版本（payload: { version, releaseDate, releaseNotes, downloadUrl }）
    * - not-available: 已是最新（payload: { version }）
    * - progress: 下载进度（payload: { percent, transferred, total, bytesPerSecond }）
    * - downloaded: 下载完成（payload: { version }）
    * - error: 错误（payload: { message }）
+   * - unsigned-fallback: 签名校验失败 → 触发"浏览器下载"fallback
+   *   （payload: { message, downloadUrl, version }）
    */
   on(
-    event: 'checking' | 'available' | 'not-available' | 'progress' | 'downloaded' | 'error',
+    event:
+      | 'checking'
+      | 'available'
+      | 'not-available'
+      | 'progress'
+      | 'downloaded'
+      | 'error'
+      | 'unsigned-fallback',
     cb: (payload: unknown) => void
   ): () => void
 }

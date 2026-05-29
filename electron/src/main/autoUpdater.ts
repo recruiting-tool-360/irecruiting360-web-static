@@ -35,7 +35,9 @@
  */
 
 import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
-import { app, ipcMain, BrowserWindow } from 'electron'
+import { app, ipcMain, shell, BrowserWindow } from 'electron'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
 let initialized = false
 
@@ -47,9 +49,12 @@ let initialized = false
  *   - phase='downloading'：用户已点"立即更新"，正在下载
  *   - phase='downloaded'：下载完成，等用户确认重启安装
  *   - phase='error'：上一次操作失败（error 字段拿到 message）
+ *   - phase='unsignedFallback'：自动安装失败（典型场景：nosign 测试包 / 证书过期 / Windows
+ *     SmartScreen 拦截）→ 提示用户在系统浏览器中下载安装包手动安装。
+ *     downloadUrl 字段会指向完整下载 URL，renderer 调 openDownloadInBrowser 让 shell 拉起。
  */
 interface UpdateStatus {
-  phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+  phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error' | 'unsignedFallback'
   currentVersion: string
   newVersion: string | null
   releaseDate?: string | null
@@ -61,6 +66,8 @@ interface UpdateStatus {
     bytesPerSecond: number
   } | null
   error: string | null
+  /** 当前可用更新的完整下载 URL（拼好 base + filename）—— 给签名失败 fallback 用 */
+  downloadUrl: string | null
 }
 
 const lastStatus: UpdateStatus = {
@@ -70,7 +77,85 @@ const lastStatus: UpdateStatus = {
   releaseDate: null,
   releaseNotes: null,
   progress: null,
-  error: null
+  error: null,
+  downloadUrl: null
+}
+
+/**
+ * 读 app-update.yml（生产）/ dev-app-update.yml（dev）拿 publish.url
+ *
+ * 用于在签名失败时拼完整下载 URL（base + files[0].url）让用户在浏览器下载手动安装。
+ * 不引入 js-yaml 依赖，用简单正则提取 url 字段（足够稳定，yml 结构就这样）。
+ */
+function readPublishBaseUrl(): string | null {
+  const candidates: string[] = []
+  if (app.isPackaged) {
+    candidates.push(join(process.resourcesPath, 'app-update.yml'))
+  } else {
+    // dev: electron-vite 跑的目录结构里 dev-app-update.yml 在 electron/
+    candidates.push(join(app.getAppPath(), 'dev-app-update.yml'))
+    candidates.push(join(process.cwd(), 'electron/dev-app-update.yml'))
+  }
+  for (const p of candidates) {
+    try {
+      const content = readFileSync(p, 'utf-8')
+      const m = content.match(/^\s*url\s*:\s*['"]?([^'"\n\r]+)/m)
+      if (m?.[1]) {
+        let u = m[1].trim()
+        if (!u.endsWith('/')) u += '/'
+        return u
+      }
+    } catch (_e) {
+      /* 文件不存在 / 读不到，下个候选 */
+    }
+  }
+  return null
+}
+
+/**
+ * 判断 error.message 是不是签名校验失败（nosign 包 / 证书坏 / Win SmartScreen 等场景）。
+ * electron-updater 各平台错误文案不一样，这里覆盖主要 case：
+ *
+ *   macOS：'Code signature at URL ... did not pass validation: 代码未能满足指定的代码要求'
+ *   Windows：'New version X.X.X is not signed by the application owner: publisherNames: ...'
+ *           （也可能是 'SignatureNotValid' / 'PublisherDoesNotMatch'）
+ *   通用：含 'signature' / 'signed' / 'publisher' 关键字
+ */
+function isSignatureError(msg: string): boolean {
+  const m = String(msg || '').toLowerCase()
+  return (
+    // macOS 标志性文案
+    m.includes('code signature') ||
+    m.includes('did not pass validation') ||
+    // Windows electron-updater 标志性文案（含完整 raw info + cert chain）
+    m.includes('publishernames') ||
+    m.includes('is not signed by the application owner') ||
+    m.includes('signaturenotvalid') ||
+    m.includes('publisherdoesnotmatch') ||
+    // 通用兜底
+    m.includes('not signed') ||
+    (m.includes('signature') && (m.includes('invalid') || m.includes('fail')))
+  )
+}
+
+/**
+ * 把 UpdateInfo 里的相对 url 拼成完整下载 URL
+ * 优先级：
+ *   1. files[0].url 已经是绝对 URL → 直接用
+ *   2. 拼 publishBaseUrl + files[0].url
+ */
+function buildFullDownloadUrl(info: UpdateInfo): string | null {
+  const file = info?.files?.[0] || (info?.path ? { url: info.path } : null)
+  const relUrl = file?.url
+  if (!relUrl) return null
+  if (/^https?:\/\//i.test(relUrl)) return relUrl
+  const base = readPublishBaseUrl()
+  if (!base) return null
+  try {
+    return new URL(relUrl, base).toString()
+  } catch (_e) {
+    return base + relUrl
+  }
 }
 
 /**
@@ -154,8 +239,23 @@ export function setupAutoUpdater(_mainWindow: BrowserWindow | null): void {
   autoUpdater.on('error', (err) => {
     const msg = err?.message || String(err)
     warn('error:', msg)
-    lastStatus.phase = 'error'
     lastStatus.error = msg
+
+    // ★ 签名校验失败 fallback：典型场景是 nosign 测试包 / 证书过期 / 平台拦截。
+    //   不让用户卡在"下载完成但无法安装"，提供"浏览器手动下载"路径让用户继续推进。
+    //   renderer UpdateModal 会切到 'unsigned-fallback' stage 显示对应 UI。
+    if (isSignatureError(msg) && lastStatus.downloadUrl) {
+      lastStatus.phase = 'unsignedFallback'
+      log('签名校验失败，转 fallback 流 → 提示用户在浏览器下载手动安装：', lastStatus.downloadUrl)
+      sendToRenderer('autoUpdater:unsigned-fallback', {
+        message: msg,
+        downloadUrl: lastStatus.downloadUrl,
+        version: lastStatus.newVersion
+      })
+      return
+    }
+
+    lastStatus.phase = 'error'
     sendToRenderer('autoUpdater:error', { message: msg })
   })
 
@@ -181,10 +281,14 @@ export function setupAutoUpdater(_mainWindow: BrowserWindow | null): void {
     lastStatus.releaseNotes = (info?.releaseNotes as string) || null
     lastStatus.progress = null
     lastStatus.error = null
+    // ★ 拼完整下载 URL，存到 lastStatus 供 fallback 流（签名失败时）+ renderer 状态查询用
+    lastStatus.downloadUrl = buildFullDownloadUrl(info)
+    log('下载 URL（备用）:', lastStatus.downloadUrl)
     sendToRenderer('autoUpdater:available', {
       version: info?.version,
       releaseDate: info?.releaseDate,
-      releaseNotes: info?.releaseNotes
+      releaseNotes: info?.releaseNotes,
+      downloadUrl: lastStatus.downloadUrl
     })
     // ★ 不再 dialog.showMessageBox：等 renderer UpdateModal.vue 自己根据
     //   `available` 事件 / `getStatus` 拉取来决定何时显示弹框（点击 LeftMenu 「立即更新」
@@ -315,6 +419,34 @@ function registerIpcHandlers(): void {
     ipcMain.handle('autoUpdater:getStatus', async (): Promise<UpdateStatus> => {
       return { ...lastStatus }
     })
+
+    /**
+     * fallback 流：在系统浏览器打开下载 URL，让用户手动下载安装包。
+     *
+     * 触发场景（renderer 调）：
+     *   - phase='unsignedFallback' 时 UpdateModal 显示"在浏览器下载"按钮
+     *   - 任何 phase 用户主动想用浏览器下载也可调（设置页/手动入口）
+     *
+     * 返回：{ ok: boolean, url?: string, message?: string }
+     */
+    ipcMain.handle(
+      'autoUpdater:openDownloadInBrowser',
+      async (): Promise<{ ok: boolean; url?: string; message?: string }> => {
+        const url = lastStatus.downloadUrl
+        if (!url) {
+          warn('openDownloadInBrowser: 没有可用的 downloadUrl（可能还没检测到更新）')
+          return { ok: false, message: '没有可用的下载链接，请先检查更新' }
+        }
+        try {
+          await shell.openExternal(url)
+          log('已在系统浏览器中打开下载链接：', url)
+          return { ok: true, url }
+        } catch (e) {
+          warn('openDownloadInBrowser 失败：', (e as Error)?.message || e)
+          return { ok: false, message: (e as Error)?.message || String(e), url }
+        }
+      }
+    )
 
     /**
      * ★ 仅获取客户端版本号（不发网络请求，立刻返回）。
