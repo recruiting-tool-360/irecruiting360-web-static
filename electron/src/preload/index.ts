@@ -668,11 +668,24 @@ const appUpdater = {
   quitAndInstall: (): Promise<{ ok: boolean; devMode?: boolean; message?: string }> =>
     ipcRenderer.invoke('autoUpdater:quitAndInstall'),
   /**
+   * fallback：在系统浏览器打开安装包下载链接（用于签名校验失败等无法自动安装的场景）。
+   * 主进程会 shell.openExternal(downloadUrl)；下载后用户手动双击安装。
+   */
+  openDownloadInBrowser: (): Promise<{ ok: boolean; url?: string; message?: string }> =>
+    ipcRenderer.invoke('autoUpdater:openDownloadInBrowser'),
+  /**
    * 一次性拉当前更新状态（解决 renderer 晚于首次 update-available 事件 mount 错过事件的问题）。
    * 返回结构跟主进程 UpdateStatus 一致。UpdateModal 内部用以处理"用户关闭 modal 后又打开"场景。
    */
   getStatus: (): Promise<{
-    phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+    phase:
+      | 'idle'
+      | 'checking'
+      | 'available'
+      | 'downloading'
+      | 'downloaded'
+      | 'error'
+      | 'unsignedFallback'
     currentVersion: string
     newVersion: string | null
     releaseDate?: string | null
@@ -684,10 +697,20 @@ const appUpdater = {
       bytesPerSecond: number
     } | null
     error: string | null
+    downloadUrl: string | null
   }> => ipcRenderer.invoke('autoUpdater:getStatus'),
-  /** 订阅事件：返回 unsubscribe 函数。事件名：checking / available / not-available / progress / downloaded / error */
+  /** 订阅事件：返回 unsubscribe 函数。
+   *  事件名：checking / available / not-available / progress / downloaded / error / unsigned-fallback
+   */
   on: (
-    event: 'checking' | 'available' | 'not-available' | 'progress' | 'downloaded' | 'error',
+    event:
+      | 'checking'
+      | 'available'
+      | 'not-available'
+      | 'progress'
+      | 'downloaded'
+      | 'error'
+      | 'unsigned-fallback',
     cb: (payload: unknown) => void
   ): (() => void) => {
     const channel = `autoUpdater:${event}`

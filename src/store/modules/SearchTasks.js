@@ -946,9 +946,13 @@ const actions = {
 
     // 3) 调 finishChannel：仅在 isTaskAlive 时调（有未结束的 channel）
     //    isScoringActive only 场景：channels 都 final 了，不用再调 finish
+    //
+    // ★ "停止 N 个渠道" 的用户视角：channelSubType 维度（BOSS / 智联 / 51）。
+    //   一个招聘平台同时有 SEARCH + RECOMMEND 两条 channel record 时，仍算 1 个渠道。
+    //   实现：finishChannel 仍按每条 record 单独调；统计用 Set 去重 channelSubType。
     const channels = Array.isArray(task.channels) ? task.channels : [];
     const finalStatuses = ['COMPLETED', 'FAILED', 'STOPPED'];
-    let stoppedChannels = 0;
+    const stoppedSubTypes = new Set();
     const errors = [];
     if (isTaskAlive) {
       for (const ch of channels) {
@@ -963,7 +967,7 @@ const actions = {
           console.log(
             `[SearchTasks/stopForChat] finish STOPPED ok channel=${ch.channelSubType}-${ch.businessChannel} channelId=${ch.taskChannelId}`
           );
-          stoppedChannels++;
+          if (ch.channelSubType) stoppedSubTypes.add(ch.channelSubType);
         } catch (e) {
           errors.push({ taskChannelId: ch.taskChannelId, message: e?.message || String(e) });
           console.warn(
@@ -977,6 +981,7 @@ const actions = {
         '[SearchTasks/stopForChat] 任务本身已 COMPLETED，跳过 finishChannel（仅停 scoreUpdater 评分轮询）'
       );
     }
+    const stoppedChannels = stoppedSubTypes.size;
 
     // 4) 停搜索 + 推荐两套 scoreUpdater 轮询（评分 polling 不再发新请求）
     try {

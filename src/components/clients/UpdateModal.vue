@@ -142,6 +142,46 @@
             </div>
           </div>
 
+          <!-- ===== unsigned-fallback：签名校验失败，回落到"浏览器手动下载" ===== -->
+          <div v-else-if="stage === 'unsigned-fallback'" class="um-stage-fallback">
+            <div class="um-fallback-icon-wrap">
+              <svg
+                class="um-fallback-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+              </svg>
+            </div>
+            <h4 class="um-fallback-title">自动安装暂不可用</h4>
+            <p class="um-fallback-tip">
+              安装包签名校验未通过（常见于测试包 / 证书过期），无法自动安装。<br />
+              请点下面按钮在浏览器中下载，然后双击安装包手动完成更新。
+            </p>
+            <div class="um-completed-actions">
+              <button
+                type="button"
+                class="um-primary-btn um-primary-btn--compact"
+                @click="handleOpenDownloadInBrowser"
+              >
+                在浏览器中下载
+              </button>
+              <button
+                type="button"
+                class="um-secondary-btn um-secondary-btn--compact"
+                @click="handleLater"
+              >
+                稍后再说
+              </button>
+            </div>
+          </div>
+
           <!-- 错误信息（任何阶段都可叠加显示） -->
           <p v-if="errorMessage" class="um-error">{{ errorMessage }}</p>
         </div>
@@ -178,6 +218,7 @@ const isElectron = typeof window !== "undefined" && !!window.api?.appUpdater;
 let offProgress = null;
 let offDownloaded = null;
 let offError = null;
+let offUnsignedFallback = null;
 let restartTickTimer = null; // setInterval 句柄，每秒减倒计时
 let progressPollTimer = null; // ★ downloading 阶段的轮询兜底（事件丢失时仍能拿到进度）
 
@@ -229,6 +270,10 @@ async function hydrateFromMain() {
     } else if (st.phase === "downloaded") {
       stage.value = "completed";
       scheduleAutoInstall();
+    } else if (st.phase === "unsignedFallback") {
+      // 主进程已 fallback：直接展示"浏览器下载"流，不显示通用 error 文案
+      stage.value = "unsigned-fallback";
+      stopProgressPoll();
     } else if (st.phase === "error") {
       errorMessage.value = st.error || "更新失败";
     }
@@ -270,13 +315,24 @@ function subscribeEvents() {
       stopProgressPoll();
     }
   });
+  // 签名校验失败 fallback：主进程把这个事件单独走 'unsigned-fallback' channel
+  offUnsignedFallback = window.api.appUpdater.on("unsigned-fallback", (p) => {
+    console.warn("[UpdateModal] event unsigned-fallback:", p);
+    stopProgressPoll();
+    stopRestartCountdown();
+    progress.value = 0;
+    // 这条不是通用 error，清掉 errorMessage 避免红字跟新文案重叠
+    errorMessage.value = "";
+    stage.value = "unsigned-fallback";
+  });
 }
 
 function unsubscribeEvents() {
   offProgress?.();
   offDownloaded?.();
   offError?.();
-  offProgress = offDownloaded = offError = null;
+  offUnsignedFallback?.();
+  offProgress = offDownloaded = offError = offUnsignedFallback = null;
 }
 
 /**
@@ -420,6 +476,26 @@ async function handleUpdate() {
 
 function handleLater() {
   visible.value = false;
+}
+
+/**
+ * unsigned-fallback 阶段："在浏览器中下载"按钮回调。
+ * 调主进程 shell.openExternal(downloadUrl) 让系统浏览器下载安装包，用户手动双击完成更新。
+ * 成功后关 modal（用户已离开本流程去浏览器下载，没必要继续占着 UI）。
+ */
+async function handleOpenDownloadInBrowser() {
+  if (!isElectron) return;
+  try {
+    const res = await window.api.appUpdater.openDownloadInBrowser();
+    console.log("[UpdateModal] openDownloadInBrowser →", res);
+    if (res?.ok) {
+      visible.value = false;
+    } else {
+      errorMessage.value = res?.message || "打开浏览器失败，请稍后再试";
+    }
+  } catch (e) {
+    errorMessage.value = e?.message || "打开浏览器失败";
+  }
 }
 
 function handleBackdropClick() {
@@ -708,6 +784,47 @@ onUnmounted(() => {
   font-weight: 500;
   letter-spacing: -0.025em;
   animation: um-pulse 2s ease-in-out infinite;
+}
+
+// ===== unsigned-fallback 阶段（签名校验失败，回落浏览器手动下载）=====
+.um-stage-fallback {
+  margin-top: 8px;
+  padding: 16px 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.um-fallback-icon-wrap {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 16px;
+  border-radius: 9999px;
+  background: #fffbeb;           // amber-50
+  border: 1px solid rgba(254, 243, 199, 0.6); // amber-100/60
+  color: #f59e0b;                // amber-500
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.um-fallback-icon {
+  width: 28px;
+  height: 28px;
+}
+.um-fallback-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 900;
+  color: #262626;
+}
+.um-fallback-tip {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #737373;                // neutral-500
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.6;
 }
 
 // completed 阶段下方的双按钮（立即重启 / 稍后再说）
