@@ -282,26 +282,29 @@ function handleDeepLink(url: string): void {
 
   // 根据 action 决定 navigate 还是只发事件给主页 tab 的渲染端
   //
-  // ★ 时序策略（2026-05-28 改）：
-  //   - 当前已在目标 path（典型：在 /sso-login）→ 直接推送事件，SSOLogin onDeepLink 监听器响应
-  //   - 当前**不在** SSO 页面（说明客户端已完成 SSO 进入主业务页面）→
-  //     **不再 navigate 整页**（避免清空业务状态 + UI 闪烁），只把 deep link 推给 renderer。
+  // ★ 时序策略（2026-05-29 修正）：
+  //   - 当前已在目标 path（典型：在 /sso-login）→ 直接推送事件，SSOLogin onDeepLink 监听器响应；
+  //     SSOLogin 已 mount，能即时消费 → 安全清 pendingDeepLink。
+  //   - 当前**不在** SSO 页面（已完成 SSO 进入主业务页面，或未登录停在主页）→
+  //     **不再 navigate 整页**（避免清空已登录用户的业务状态），只把 deep link 推给 renderer，
   //     由 MainLayout 的全局 deep link handler 判定：
-  //       同一用户 → 静默刷新职位列表（commit triggerChatListRefresh）
-  //       不同用户 → router.replace('/sso-login') 由 SPA 路由整页跳转重走完整 SSO
+  //       已登录同一用户 → 静默刷新职位列表（不跳页）
+  //       未登录 / 不同用户 → router.replace('/sso-login') 整页重走 SSO
+  //     ⚠️ 这里**不能清 pendingDeepLink**：未登录场景 MainLayout 会路由到 /sso-login，
+  //        但那时 app:deep-link 事件已经发完（只有 MainLayout 监听器收到），SSOLogin 还没 mount，
+  //        必须靠 pendingDeepLink 让 SSOLogin onMounted 时 getPendingPayload 兜底拿到 payload。
+  //        （首次登录 bug：之前这里清了 → SSOLogin 拿不到 payload → generateToken 不触发 → 登录失败）
+  //        同用户静默刷新场景 MainLayout 会主动 drain 掉 pendingDeepLink，避免后续残留误消费。
   const path = pathForAction(parsed.action)
   if (path) {
     const currentUrl = homeWc.getURL()
     const onTargetPath = currentUrl.includes(path)
+    homeWc.send('app:deep-link', parsed)
     if (onTargetPath) {
-      // 已在 SSO 页面 → 直接推送事件让 SSOLogin onDeepLink 监听器响应
-      homeWc.send('app:deep-link', parsed)
-      pendingDeepLink = null
-    } else {
-      // 已在业务页面 → 推 event 让 MainLayout 处理（同用户静默 / 不同用户路由跳转）
-      homeWc.send('app:deep-link', parsed)
+      // 已在 SSO 页面 → SSOLogin onDeepLink 即时消费，可清
       pendingDeepLink = null
     }
+    // else：在业务页面 → 保留 pendingDeepLink 作为 SSOLogin 路由过去后的兜底
   } else {
     homeWc.send('app:deep-link', parsed)
     pendingDeepLink = null

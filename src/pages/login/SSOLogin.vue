@@ -148,6 +148,9 @@ const doSSOLogin = async (iframeMessage) => {
           store.commit('changeUserInfo', data);
         }
 
+        // ★ SSO 登录成功 = 已正确授权进入主页 → 关掉可能残留的 i 人事授权弹框
+        store.commit('setIhrAuthModalVisible', false);
+
         // ★ 记录本次 SSO 成功登录使用的 ssoConfig.userConfig 序列化字符串
         //   下次客户端运行中收到 deep link 时，MainLayout 用它跟 incoming key 比对
         //   判定"同一用户"（静默刷新）vs "不同用户"（router.replace('/sso-login') 整页重走）
