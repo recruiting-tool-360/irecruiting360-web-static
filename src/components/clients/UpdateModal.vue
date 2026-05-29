@@ -161,8 +161,7 @@
             </div>
             <h4 class="um-fallback-title">自动安装暂不可用</h4>
             <p class="um-fallback-tip">
-              安装包签名校验未通过（常见于测试包 / 证书过期），无法自动安装。<br />
-              请点下面按钮在浏览器中下载，然后双击安装包手动完成更新。
+              {{ fallbackTipText }}
             </p>
             <div class="um-completed-actions">
               <button
@@ -205,13 +204,16 @@ const visible = computed({
   set: (v) => emit("update:modelValue", v)
 });
 
-const stage = ref("info"); // 'info' | 'downloading' | 'completed'
+const stage = ref("info"); // 'info' | 'downloading' | 'completed' | 'unsigned-fallback'
 const progress = ref(0);
 const speedText = ref(""); // "1.2 MB / 35.0 MB · 480 KB/s"
 const errorMessage = ref("");
 const restartCountdown = ref(0); // completed 阶段倒计时，0 = 立即触发 / 已触发
+// fallback 阶段文案区分：'signature'=签名校验失败 / 'relaunch-failed'=quitAndInstall 后没真正重启
+const fallbackReason = ref("signature");
 
 const RESTART_COUNTDOWN_SEC = 3; // 进入 completed 后 3 秒自动 quitAndInstall
+const INSTALL_WATCHDOG_MS = 4000; // quitAndInstall 后多久没退出就判定重启失败
 
 const isElectron = typeof window !== "undefined" && !!window.api?.appUpdater;
 
@@ -221,6 +223,16 @@ let offError = null;
 let offUnsignedFallback = null;
 let restartTickTimer = null; // setInterval 句柄，每秒减倒计时
 let progressPollTimer = null; // ★ downloading 阶段的轮询兜底（事件丢失时仍能拿到进度）
+let installWatchdogTimer = null; // quitAndInstall 后的 watchdog（判定重启是否生效）
+let installing = false; // 防止重复点击"立即重启"刷多次 quitAndInstall
+
+/** fallback 阶段提示文案（按 fallbackReason 区分场景） */
+const fallbackTipText = computed(() => {
+  if (fallbackReason.value === "relaunch-failed") {
+    return "自动重启安装未生效（可能是安装包签名 / 系统权限问题）。请点下面按钮在浏览器中下载，然后双击安装包手动完成更新。";
+  }
+  return "安装包签名校验未通过（常见于测试包 / 证书过期），无法自动安装。请点下面按钮在浏览器中下载，然后双击安装包手动完成更新。";
+});
 
 /**
  * `v1.0.0` → `1.0.0`（避免显示 `vv1.0.0`，因为模板里已经写了 `v` 前缀）
@@ -246,8 +258,11 @@ function resetState() {
   speedText.value = "";
   errorMessage.value = "";
   restartCountdown.value = 0;
+  fallbackReason.value = "signature";
+  installing = false;
   stopRestartCountdown();
   stopProgressPoll();
+  stopInstallWatchdog();
 }
 
 /**
@@ -272,6 +287,7 @@ async function hydrateFromMain() {
       scheduleAutoInstall();
     } else if (st.phase === "unsignedFallback") {
       // 主进程已 fallback：直接展示"浏览器下载"流，不显示通用 error 文案
+      fallbackReason.value = "signature";
       stage.value = "unsigned-fallback";
       stopProgressPoll();
     } else if (st.phase === "error") {
@@ -320,9 +336,12 @@ function subscribeEvents() {
     console.warn("[UpdateModal] event unsigned-fallback:", p);
     stopProgressPoll();
     stopRestartCountdown();
+    stopInstallWatchdog();
+    installing = false;
     progress.value = 0;
     // 这条不是通用 error，清掉 errorMessage 避免红字跟新文案重叠
     errorMessage.value = "";
+    fallbackReason.value = "signature";
     stage.value = "unsigned-fallback";
   });
 }
@@ -410,19 +429,57 @@ async function triggerQuitAndInstall() {
     visible.value = false;
     return;
   }
+  if (installing) {
+    console.log("[UpdateModal] quitAndInstall 已在进行中，忽略重复触发");
+    return;
+  }
+  installing = true;
   try {
     const res = await window.api.appUpdater.quitAndInstall();
     console.log("[UpdateModal] quitAndInstall →", res);
     if (res?.devMode) {
       // dev 模式：app 已经 quit，不会真安装。等用户重启 dev server 看效果。
       errorMessage.value = res.message || "dev 模式仅 app.quit()，不会安装";
-    } else if (!res?.ok) {
-      errorMessage.value = "重启安装失败：" + (res?.message || "未知错误");
+      installing = false;
+      return;
     }
-    // 成功 case：app 已 quit，本组件马上就被销毁了，不用再做什么
+    if (!res?.ok) {
+      errorMessage.value = "重启安装失败：" + (res?.message || "未知错误");
+      installing = false;
+      return;
+    }
+    // ★ ok:true 不代表真重启了。打包版在 macOS zip 更新 / 证书 / 权限异常时，
+    //   quitAndInstall 返回 ok 但 app 不会退出，UI 卡在"正在重启应用"。
+    //   启 watchdog：INSTALL_WATCHDOG_MS 后本组件还活着 = 没重启成功 → 转浏览器手动下载 fallback。
+    //   如果真重启了，app 早就 quit 了，下面这个 timer 根本不会 fire。
+    startInstallWatchdog();
   } catch (e) {
     console.warn("[UpdateModal] quitAndInstall 失败:", e?.message || e);
     errorMessage.value = "重启安装失败：" + (e?.message || e);
+    installing = false;
+  }
+}
+
+function startInstallWatchdog() {
+  stopInstallWatchdog();
+  installWatchdogTimer = setTimeout(() => {
+    // 还能跑到这 = app 没退出 = quitAndInstall 没真正生效
+    console.warn(
+      `[UpdateModal] quitAndInstall ${INSTALL_WATCHDOG_MS}ms 后 app 未退出，判定重启失败 → 转浏览器手动下载 fallback`
+    );
+    installing = false;
+    stopRestartCountdown();
+    restartCountdown.value = 0;
+    errorMessage.value = "";
+    fallbackReason.value = "relaunch-failed";
+    stage.value = "unsigned-fallback";
+  }, INSTALL_WATCHDOG_MS);
+}
+
+function stopInstallWatchdog() {
+  if (installWatchdogTimer) {
+    clearTimeout(installWatchdogTimer);
+    installWatchdogTimer = null;
   }
 }
 
@@ -513,6 +570,8 @@ watch(visible, (v) => {
     // 仅清掉本组件内部的状态与定时器
     stopRestartCountdown();
     stopProgressPoll();
+    stopInstallWatchdog();
+    installing = false;
   }
 });
 
@@ -524,6 +583,7 @@ onUnmounted(() => {
   unsubscribeEvents();
   stopProgressPoll();
   stopRestartCountdown();
+  stopInstallWatchdog();
 });
 </script>
 
