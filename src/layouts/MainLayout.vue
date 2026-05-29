@@ -100,6 +100,39 @@ let unbindDeepLink = null;
  *   4. incoming 用户 ≠ 当前用户：router.replace('/sso-login') 让 SSOLogin 重走整个流程
  *      （SSO 成功后会重写 user / chatList / token，新用户状态干净接管）
  */
+/**
+ * 进入主页 / 收到新 token 时：若 accessToken 当前有效，主动关掉 i 人事授权弹框。
+ *
+ * 背景：IhrAuthModal 由 ihrBridge 业务调用返回 NOT_LOGGED_IN 时被设为 visible=true，
+ * 但**没有**任何地方在"成功进主页 / token 刷新回来"时关它 → 偶发卡住一直显示。
+ * 这里在能确认登录态 OK 的时机统一收口关闭。
+ *
+ * @param {string} reason 仅日志用
+ */
+async function closeIhrAuthModalIfTokenValid(reason) {
+  if (!isElectronClient()) return;
+  try {
+    const ihrBridge = window?.api?.ihrBridge;
+    // 拿不到状态接口：能进主页本身说明登录流程跑通了，保守直接关
+    if (!ihrBridge?.getAccessTokenStatus) {
+      store.commit("setIhrAuthModalVisible", false);
+      return;
+    }
+    const st = await ihrBridge.getAccessTokenStatus();
+    if (st?.hasToken && !st?.expired) {
+      store.commit("setIhrAuthModalVisible", false);
+      console.log(`[MainLayout] accessToken 有效，关闭 IhrAuthModal（${reason}）`);
+    } else {
+      console.log(
+        `[MainLayout] accessToken 无效/过期，保留 IhrAuthModal（${reason}）`,
+        st
+      );
+    }
+  } catch (e) {
+    console.warn("[MainLayout] closeIhrAuthModalIfTokenValid failed:", e?.message || e);
+  }
+}
+
 async function handleClientDeepLink(data) {
   if (!data || data.action !== "sso" || !data.payload?.ssoConfig) return;
 
@@ -166,6 +199,19 @@ async function handleClientDeepLink(data) {
   }
   // 触发 LeftMenu watch 静默 loadChatList
   store.commit("triggerChatListRefresh");
+  // ★ 新 deep link 带回了 accessToken（主进程已注入 ihrBridge）= 已重新授权 → 关授权弹框
+  store.commit("setIhrAuthModalVisible", false);
+
+  // ★ drain 掉主进程的 pendingDeepLink：
+  //   主进程在"业务页面收到 deep link"时**故意保留** pendingDeepLink（给未登录→路由到
+  //   /sso-login 的 SSOLogin 兜底用）。但同用户静默刷新这条路径不会跳 /sso-login，
+  //   若不 drain，残留的 pendingDeepLink 会在用户之后某次进 /sso-login 时被误消费重走 SSO。
+  try {
+    await window?.api?.handover?.getPendingPayload?.();
+  } catch (_e) {
+    /* ignore：drain 失败不影响主流程 */
+  }
+
   notify.success("已收到来自工作台的最新数据");
 }
 
@@ -311,6 +357,11 @@ onMounted(() => {
       }`
   );
   if (inClient) {
+    // ★ 已经能进到主页（MainLayout）→ 若 accessToken 有效，关掉可能残留的 i 人事授权弹框
+    //   解决"client-launcher 打开后偶发授权弹框不关闭"：之前某次后台 ihrBridge 调用返回
+    //   NOT_LOGGED_IN 把弹框设 true，但进主页后没人关它。
+    void closeIhrAuthModalIfTokenValid("mainlayout_mounted");
+
     void ensureBossJobList(store, { reason: "mainlayout_mounted" });
     // 监听 BOSS 登录态从 false → true，自动再取一次
     unbindBossLogin = bindBossLoginListener(store);
