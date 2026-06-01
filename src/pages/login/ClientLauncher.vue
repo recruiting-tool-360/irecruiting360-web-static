@@ -139,6 +139,10 @@
                 <SvgSpinner v-else class="cg-svg cg-svg--xs cg-svg--primary cg-spinner" />
                 {{ isLaunching ? '切换中…' : '切换到客户端' }}
               </button>
+              <!-- 次要：回到下载页（用户想换平台 / 重新下载时） -->
+              <button type="button" class="cg-btn-link" @click="handleBackToIntro">
+                重新下载 / 选择其它版本
+              </button>
             </template>
 
             <!-- 还没探测到客户端：等待用户手动安装 -->
