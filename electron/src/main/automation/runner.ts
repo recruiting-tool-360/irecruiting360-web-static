@@ -433,11 +433,17 @@ function getActiveTab(): { tabId: string | null; url: string; channel: string | 
 }
 
 /** 打开或激活某个招聘站 tab（channel + url） */
-function openOrActivate(opts: { channel: string; url: string; hidden?: boolean }): {
+function openOrActivate(opts: {
+  channel: string
+  url: string
+  hidden?: boolean
+  background?: boolean
+}): {
   tabId: string
 } {
   const tabId = tabManager.openOrActivateSiteTab(opts.channel, opts.url, {
-    hidden: !!opts.hidden
+    hidden: !!opts.hidden,
+    background: !!opts.background
   })
   return { tabId }
 }
