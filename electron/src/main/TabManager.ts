@@ -126,6 +126,15 @@ class TabManager {
   /** home tab id（永远存在，且 pinned，不可关） */
   private homeTabId: string | null = null
   private nextSeq = 1
+  /**
+   * 「后台渲染」tab id：以真实尺寸渲染但**被 active 视图遮挡**的 tab。
+   *
+   * 用途：BOSS 推荐自动化需要 tab 真实渲染（CDP 选职位点击 + 滚动懒加载都依赖布局），
+   * 但产品要求"开任务时打开 tab 但用户继续停在主页，不切过去"。
+   * 后台渲染 tab 在 tab 栏可见（用户可手动点进去看），active 仍是 home（视觉停在主页）。
+   * 配合 webPreferences.backgroundThrottling=false 让被遮挡的视图仍响应 CDP / 定时器。
+   */
+  private bgRenderId: string | null = null
 
   // ----- 生命周期 -----
 
@@ -194,14 +203,20 @@ class TabManager {
    * 之前按 channel 唯一会把现有 tab 内容覆盖掉，丢失浏览历史，体验差。
    * 完全相同 URL 复用，避免用户重复点击产生大量重复 tab。
    */
-  openOrActivateSiteTab(channel: string, url: string, opts?: { hidden?: boolean }): string {
+  openOrActivateSiteTab(
+    channel: string,
+    url: string,
+    opts?: { hidden?: boolean; background?: boolean }
+  ): string {
     if (!this.mainWindow) throw new Error('TabManager: mainWindow not set')
     const key = (channel || '').toLowerCase()
     const partition = SITE_PARTITION[key] ?? `persist:ihr360-site-${key}`
     const title = SITE_TITLE[key] ?? (channel || '新标签')
     const isHidden = !!opts?.hidden
+    // background：tab 在 tab 栏可见 + 真实渲染（自动化能跑），但**不抢焦点**，active 仍停在 home
+    const isBackground = !!opts?.background && !isHidden
 
-    // 1) 已有 tab 的 URL 完全相同 → 激活复用，不新开
+    // 1) 已有 tab 的 URL 完全相同 → 复用，不新开
     //    hidden 模式不复用现有可见 tab（否则会把用户当前正在浏览的 tab 偷偷变成隐藏 tab）
     if (url && !isHidden) {
       let reused = false
@@ -213,9 +228,17 @@ class TabManager {
           console.log(
             `[TabManager] openOrActivateSiteTab REUSE tab=${tab.id} channel=${key}` +
               ` | currentUrl=${currentUrl}` +
-              ` | requestedUrl=${url}`
+              ` | requestedUrl=${url} | background=${isBackground}`
           )
-          this.activate(tab.id)
+          if (isBackground) {
+            // 后台复用：标记后台渲染 + 不切焦点（active 保持 home）
+            this.bgRenderId = tab.id
+            this.updateBounds()
+            this.bringActiveToFront()
+            this.broadcastState()
+          } else {
+            this.activate(tab.id)
+          }
           reused = true
           return tab.id
         }
@@ -243,7 +266,11 @@ class TabManager {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        session: siteSession
+        session: siteSession,
+        // ★ 关掉后台节流：background 模式下 tab 被 home 遮挡（occluded），
+        //   默认 Chromium 会 throttle 定时器 / 暂停渲染 → CDP 选职位点击坐标失效、
+        //   滚动懒加载不触发。关掉后被遮挡的 BOSS 推荐 tab 仍能正常跑自动化。
+        backgroundThrottling: false
       }
     })
     view.webContents.setUserAgent(desktopChromeUserAgent)
@@ -290,16 +317,44 @@ class TabManager {
       // hidden tab：不 activate（保持原 active 不变），不显式 broadcast（getTabs 会过滤掉它）
       // 仅 updateBounds 一次，确保 hidden view 的尺寸保持 0x0 不占主窗口
       this.updateBounds()
+    } else if (isBackground) {
+      // ★ background tab：tab 栏可见 + 真实尺寸渲染（自动化能跑），但 active 仍是 home
+      //   → 用户视觉停在主页，不被切到 BOSS 推荐页
+      this.bgRenderId = id
+      this.updateBounds() // 给 bg tab 真实 bounds（更新后的 updateBounds 会处理）
+      this.bringActiveToFront() // 把 active(home) 视图重新置顶，遮住后台渲染的 bg tab
+      this.broadcastState() // tab 栏出现新 tab，但 activeId 仍是 home
     } else {
       this.activate(id)
     }
     return id
   }
 
+  /**
+   * 把当前 active 视图重新挂到 contentView 子视图最末（= z-order 最上层），
+   * 遮住以真实尺寸渲染的 background tab。
+   *
+   * 背景：contentView 子视图按添加顺序决定 z-order（后添加的在上）。新建 background tab
+   * 时它被 addChildView 到最上层，需要把 home（active）重新置顶才能"停在主页"的视觉。
+   */
+  private bringActiveToFront(): void {
+    if (!this.mainWindow || !this.activeId) return
+    const activeTab = this.tabs.get(this.activeId)
+    if (!activeTab) return
+    try {
+      this.mainWindow.contentView.removeChildView(activeTab.view)
+      this.mainWindow.contentView.addChildView(activeTab.view)
+    } catch (e) {
+      console.warn('[TabManager] bringActiveToFront failed:', (e as Error)?.message || e)
+    }
+  }
+
   // ----- 激活 / 关闭 / 重排 -----
 
   activate(id: string): void {
     if (!this.tabs.has(id)) return
+    // 用户手动切到这个 tab（或它成为前台）→ 清掉它的"后台渲染"标记（已经是前台了）
+    if (this.bgRenderId === id) this.bgRenderId = null
     this.activeId = id
     this.updateBounds()
     // 通知蒙层重新评估：active 是招聘站 tab 时显示，是 home / 其它时隐藏
@@ -324,6 +379,9 @@ class TabManager {
 
     const idx = this.order.indexOf(id)
     if (idx < 0) return false
+
+    // 关掉的是后台渲染 tab → 清标记
+    if (this.bgRenderId === id) this.bgRenderId = null
 
     // 计算下一个激活的 tab：右侧 > 左侧 > home（跳过 hidden tab）
     let nextActive: string | null = null
@@ -492,14 +550,18 @@ class TabManager {
   private updateBounds(): void {
     if (!this.mainWindow) return
     const bounds = this.mainWindow.getContentBounds()
+    const contentBounds = {
+      x: 0,
+      y: CHROME_HEIGHT,
+      width: bounds.width,
+      height: Math.max(0, bounds.height - CHROME_HEIGHT)
+    }
     for (const [id, tab] of this.tabs) {
-      if (id === this.activeId) {
-        tab.view.setBounds({
-          x: 0,
-          y: CHROME_HEIGHT,
-          width: bounds.width,
-          height: Math.max(0, bounds.height - CHROME_HEIGHT)
-        })
+      // active 给真实 bounds（最上层可见）；
+      // bgRender tab 也给真实 bounds（被 active 遮挡，但保证页面布局真实 → CDP / 懒加载能跑）；
+      // 其它（含 hidden）一律 0x0 不占空间。
+      if (id === this.activeId || (id === this.bgRenderId && id !== this.activeId)) {
+        tab.view.setBounds(contentBounds)
       } else {
         tab.view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
       }

@@ -356,6 +356,8 @@ export interface AutomationBridge {
     channel: string
     url: string
     hidden?: boolean
+    /** true → 后台模式：tab 栏显示 + 真实渲染但不抢焦点（active 仍停在 home） */
+    background?: boolean
   }): Promise<{ tabId: string }>
 
   /** 取消所有在跑的脚本 */

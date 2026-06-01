@@ -126,7 +126,10 @@ export async function openBossRecommend(encryptJobId, opts = {}) {
   try {
     const res = await window.api.automation.openOrActivate({
       channel: BOSS_CHANNEL,
-      url
+      url,
+      // ★ 后台模式：tab 栏出现 BOSS 推荐页，但用户继续停在主页（不切过去）。
+      //   tab 仍真实渲染（主进程 background 模式），CDP 选职位 + 滚动懒加载照常工作。
+      background: true
     });
     if (!res?.tabId) {
       return {

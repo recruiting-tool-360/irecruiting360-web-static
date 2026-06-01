@@ -358,11 +358,17 @@ const automation = {
   getActiveTab: (): Promise<{ tabId: string | null; url: string; channel: string | null }> =>
     ipcRenderer.invoke('automation:getActiveTab'),
 
-  /** 打开或激活某个招聘站 tab（hidden=true 走隐藏模式） */
+  /**
+   * 打开或激活某个招聘站 tab。
+   * @param opts.hidden     true → 隐藏模式（tab 栏不显示 + 0x0 不渲染，静默抓取用）
+   * @param opts.background true → 后台模式（tab 栏显示 + 真实渲染但不抢焦点，active 仍停在 home）
+   *                        用于 BOSS 推荐自动化："打开 tab 但用户继续留在主页，不切过去"
+   */
   openOrActivate: (opts: {
     channel: string
     url: string
     hidden?: boolean
+    background?: boolean
   }): Promise<{ tabId: string }> => ipcRenderer.invoke('automation:openOrActivate', opts),
 
   /** 取消所有在跑的脚本 */
