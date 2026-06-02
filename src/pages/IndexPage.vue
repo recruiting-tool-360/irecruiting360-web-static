@@ -77,13 +77,14 @@
               <span>返回对话</span>
             </button>
             <!--
-              tab 切换器：只有同时有 SEARCH + RECOMMEND 时才显示。
-              只有一个的时候不显示，避免冗余 UI（用户明确要求）。
+              tab 切换器：只要有搜索牛人 / 推荐牛人任意一个就显示（用户要求：只有一个也要显示）。
+              每个按钮按各自 pane 可见性单独 v-if，所以只有一个时只显示对应的那个 tab。
             -->
             <template v-if="showResultTabs">
               <div class="result-tab-divider" />
               <div class="result-tabs">
                 <button
+                  v-if="searchPaneVisible"
                   type="button"
                   class="result-tab"
                   :class="{ active: activeResultTab === 'search' }"
@@ -92,6 +93,7 @@
                   搜索牛人
                 </button>
                 <button
+                  v-if="recommendPaneVisible"
                   type="button"
                   class="result-tab"
                   :class="{ active: activeResultTab === 'recommend' }"
@@ -501,27 +503,25 @@ const searchPaneVisible = computed(() => {
 });
 
 /**
- * tab 切换器是否显示——用户要求：**只有同时有 SEARCH + RECOMMEND 时才显示**；
- * 只勾了搜索 / 只勾了推荐都不显示（只有一个时直接渲染对应内容，没必要冗余 tab）。
+ * tab 切换器是否显示——用户要求：**只要有搜索牛人 / 推荐牛人任意一个就显示**；
+ * 只有一个时也显示对应的那个 tab（模板里每个按钮按各自 pane 可见性单独 v-if）。
  *
  * 用 searchPaneVisible / recommendPaneVisible 而不是 hasXxxForCurrentChat，是为了
  * 跨电脑查看结果场景下也能正确显示切换器（本地没 task，但 ALL.data + BossRecommendData 都有数据）。
  */
 const showResultTabs = computed(
-  () => bossEnabled.value && searchPaneVisible.value && recommendPaneVisible.value
+  () => searchPaneVisible.value || recommendPaneVisible.value
 );
 
-// 任务 channel 变化时，把 activeResultTab 自动校正到唯一可见的那个 pane
+// 把 activeResultTab 自动校正到唯一可见的那个 pane（只有一个时，避免选中态停在
+// 不可见的 pane 上导致空白）
 watch(
-  [searchPaneVisible, recommendPaneVisible, showResultTabs],
-  ([sVisible, rVisible, tabsVisible]) => {
-    if (!tabsVisible) {
-      // 只有一个 pane 可见时，强制切到那个 pane
-      if (sVisible && !rVisible && activeResultTab.value !== "search") {
-        activeResultTab.value = "search";
-      } else if (!sVisible && rVisible && activeResultTab.value !== "recommend") {
-        activeResultTab.value = "recommend";
-      }
+  [searchPaneVisible, recommendPaneVisible],
+  ([sVisible, rVisible]) => {
+    if (sVisible && !rVisible && activeResultTab.value !== "search") {
+      activeResultTab.value = "search";
+    } else if (!sVisible && rVisible && activeResultTab.value !== "recommend") {
+      activeResultTab.value = "recommend";
     }
   },
   { immediate: true }
@@ -1873,9 +1873,7 @@ async function handleAggregateSearch(payload) {
       //   可以继续走推荐路径，所以允许放行但 keysToCheck 仅含 BOSS（recheck 下面加进去）
       if (userChannels.length > 0 && enabledKeys.length === 0) {
         if (!recommendChecked) {
-          console.warn(
-            "[IndexPage] aggregate-search 被拒绝：用户禁用了所有渠道且未勾推荐"
-          );
+          console.warn("[IndexPage] aggregate-search 被拒绝：用户禁用了所有渠道且未勾推荐");
           notify.warning(
             "当前没有启用任何招聘渠道，请先在右上角「设置」中启用至少一个渠道后再搜索"
           );

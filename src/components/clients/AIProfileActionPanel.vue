@@ -232,7 +232,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
+import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
 import { estimateSearchTask } from "src/api/searchTaskApi";
 import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
@@ -398,12 +398,19 @@ let _estimateTimer = null;
 let _estimateSeq = 0; // 防 race：晚返回的旧请求丢弃
 function scheduleEstimate() {
   if (_estimateTimer) clearTimeout(_estimateTimer);
+  // 立刻进入"计算中"态：debounce 窗口内也显示占位，避免先闪本地默认值（如 0.1h）
+  // 再被接口结果覆盖。只展示接口返回值，不做本地兜底。
+  if (resumeCountNum.value > 0) {
+    estimateRemote.value = null;
+    estimateLoading.value = true;
+  }
   _estimateTimer = setTimeout(runEstimate, 300);
 }
 async function runEstimate() {
   // 简历数为 0（用户没填）→ 不调接口；UI 自然显示 '--'
   if (resumeCountNum.value <= 0) {
     estimateRemote.value = null;
+    estimateLoading.value = false;
     return;
   }
   const payload = buildEstimatePayload({
@@ -417,6 +424,7 @@ async function runEstimate() {
   });
   if (!payload) {
     estimateRemote.value = null; // 没有启用渠道
+    estimateLoading.value = false;
     return;
   }
   const seq = ++_estimateSeq;
@@ -447,28 +455,16 @@ watch(
 );
 
 /**
- * 本地兜底公式（接口失败 / 加载中显示用）：
- *   - 推荐 + 搜索 / 仅搜索：每份简历 ~5s
- *   - 仅推荐：每份简历 ~3s
- * 与 ihraisaas calculateEstimatedDuration 同口径，四舍五入到 0.1h，下限 0.1h
+ * 预估时长 / 开始 / 结束时间 —— **只展示接口（/search/task/estimate）返回值**。
+ *
+ * 不再用本地公式兜底：之前本地兜底会在输入瞬间先算出一个值（如 0.1h）显示出来，
+ * 等接口返回再被覆盖，体验上"先闪一个本地默认值再跳成接口值"很奇怪（用户反馈）。
+ * 现在接口结果没回来之前统一显示占位：
+ *   - 正在请求 / debounce 中 → "计算中…"
+ *   - 接口失败 / 无数据      → "--"
  */
-const estimatedDurationHLocal = computed(() => {
-  if (resumeCountNum.value <= 0) return 0;
-  const onlyRecommend = !selectedModules.value.search && selectedModules.value.recommend;
-  const perSec = onlyRecommend ? 3 : 5;
-  const hours = (resumeCountNum.value * perSec) / 3600;
-  return Math.max(0.1, Math.round(hours * 10) / 10);
-});
-
-/** 最终展示用的时长（小时数；接口命中优先，否则本地兜底） */
-const estimatedDurationH = computed(() => {
-  if (estimateRemote.value?.durationMin) {
-    return Math.round((estimateRemote.value.durationMin / 60) * 10) / 10;
-  }
-  return estimatedDurationHLocal.value;
-});
-
-const estimatedDurationDisplay = computed(() => `${estimatedDurationH.value}h`);
+const SCHEDULE_PENDING = "计算中…";
+const SCHEDULE_EMPTY = "--";
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -479,45 +475,35 @@ function formatMMddHHmm(date) {
   )}`;
 }
 
-const nowTick = ref(Date.now());
-let nowTimer = null;
-// 每分钟刷新一次"预计开始时间"，本地兜底场景下让时间随推移更新
-function startNowTimer() {
-  if (nowTimer) return;
-  nowTimer = setInterval(() => {
-    nowTick.value = Date.now();
-  }, 60_000);
-}
-function stopNowTimer() {
-  if (nowTimer) {
-    clearInterval(nowTimer);
-    nowTimer = null;
+/** 接口结果还没就绪时的占位文案：加载中显示"计算中…"，否则"--" */
+const schedulePlaceholder = computed(() =>
+  estimateLoading.value ? SCHEDULE_PENDING : SCHEDULE_EMPTY
+);
+
+const estimatedDurationDisplay = computed(() => {
+  if (estimateRemote.value?.durationMin) {
+    const h = Math.round((estimateRemote.value.durationMin / 60) * 10) / 10;
+    return `${h}h`;
   }
-}
+  return schedulePlaceholder.value;
+});
 
 const scheduledStartDisplay = computed(() => {
   if (estimateRemote.value?.startISO) {
     const d = new Date(estimateRemote.value.startISO);
     if (!Number.isNaN(d.getTime())) return formatMMddHHmm(d);
   }
-  // 兜底：现在
-  void nowTick.value;
-  return formatMMddHHmm(new Date());
+  return schedulePlaceholder.value;
 });
 const scheduledEndDisplay = computed(() => {
   if (estimateRemote.value?.endISO) {
     const d = new Date(estimateRemote.value.endISO);
     if (!Number.isNaN(d.getTime())) return formatMMddHHmm(d);
   }
-  // 兜底：现在 + 本地估算时长
-  void nowTick.value;
-  const ms = estimatedDurationH.value * 3600 * 1000;
-  return formatMMddHHmm(new Date(Date.now() + ms));
+  return schedulePlaceholder.value;
 });
 
-onMounted(() => startNowTimer());
 onBeforeUnmount(() => {
-  stopNowTimer();
   if (_estimateTimer) clearTimeout(_estimateTimer);
 });
 

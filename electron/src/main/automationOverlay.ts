@@ -235,7 +235,7 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
       <p class="message">${message}</p>
     </div>
   </div>
-  <div class="footer">CLIENT SIMULATION MODE • READ-ONLY INTERACTION</div>
+  <div class="footer">客户端模拟模式 · 仅供查看，请勿操作</div>
 </body>
 </html>`
   // base64 编码避免中文 / 特殊字符在 URL 里的转义问题
