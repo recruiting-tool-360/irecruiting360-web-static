@@ -28,7 +28,12 @@
   消费端（IndexPage）拿到 cardData 后调 /search/resultSet/query 拉任务级结果集渲染。
 -->
 <template>
-  <div ref="wrapRef" class="task-completion-card-wrap" @click="onActionClick" v-html="html"></div>
+  <div
+    ref="wrapRef"
+    :class="['task-completion-card-wrap', showRetryActions ? '' : 'hide-retry-actions']"
+    @click="onActionClick"
+    v-html="html"
+  ></div>
 </template>
 
 <script setup>
@@ -41,7 +46,15 @@ const props = defineProps({
    *   - chatHistory 拉回的历史消息 content
    *   - mock 测试时，用 util.renderTaskCompletionTemplate(cardData) 生成
    */
-  html: { type: String, default: "" }
+  html: { type: String, default: "" },
+  /**
+   * 是否显示"清空重新搜索 / 保留增量搜索"两个再发起按钮。
+   *
+   * 只有聊天里**最新**的那张完成卡才显示（=true）；历史完成卡只保留"查看结果"，
+   * 隐藏再发起按钮（避免用户对旧任务误触发重新搜索）。由 ChatCard 计算后传入。
+   * "查看结果"按钮不受影响（任何完成卡都能查看对应结果）。
+   */
+  showRetryActions: { type: Boolean, default: true }
 });
 
 const emit = defineEmits([
@@ -136,5 +149,14 @@ function onActionClick(event) {
 <style scoped>
 .task-completion-card-wrap {
   width: 100%;
+}
+
+/*
+ * 历史完成卡隐藏"清空重新搜索 / 保留增量搜索"两个再发起按钮（只保留"查看结果"）。
+ * HTML 由 v-html 注入，用 :deep() 才能命中卡片内部的 data-action 元素。
+ */
+.hide-retry-actions :deep([data-action="clear-and-restart"]),
+.hide-retry-actions :deep([data-action="keep-and-increment"]) {
+  display: none !important;
 }
 </style>

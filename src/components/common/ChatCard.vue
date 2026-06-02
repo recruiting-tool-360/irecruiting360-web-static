@@ -202,6 +202,7 @@
               <TaskCompletionCard
                 v-else-if="msg.type === 'task_completion_card'"
                 :html="msg.html || ''"
+                :show-retry-actions="msg.id === lastCompletionCardId"
                 @view-result="onTaskCardViewResult(msg, $event)"
                 @clear-and-restart="onTaskCardClearAndRestart(msg, $event)"
                 @keep-and-increment="onTaskCardKeepAndIncrement(msg, $event)"
@@ -725,6 +726,20 @@ const displayMessages = computed(() => {
     if (task.taskStatus === "WAITING") return false;
     return true;
   });
+});
+
+/**
+ * 最新一张 task_completion_card 的 msg.id。
+ *
+ * 只有它显示"清空重新搜索 / 保留增量搜索"再发起按钮；历史完成卡只保留"查看结果"
+ * （避免用户对旧任务误触发重新搜索）。基于 displayMessages 倒序找第一张完成卡。
+ */
+const lastCompletionCardId = computed(() => {
+  const list = displayMessages.value;
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i]?.type === "task_completion_card") return list[i].id;
+  }
+  return null;
 });
 
 // 定义组件属性
