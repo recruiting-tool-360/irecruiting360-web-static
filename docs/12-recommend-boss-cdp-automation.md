@@ -69,7 +69,7 @@ G. 中断 / 风控降级（hard stop + 安全退出）
         ▼
 [runTask] 解析 searchTaskConfig
   └─ relatedPositionValue → encryptJobId
-  └─ maxSearchCount       → targetCount
+  └─ maxResumeCount       → targetCount
         │
         ▼
 [runBossRecommend(jobId, targetCount, ...)]
@@ -267,7 +267,7 @@ const BOSS_SELECTORS = {
  * @param {object} args
  * @param {number}   args.tabId
  * @param {string}   args.encryptJobId
- * @param {number}   args.targetCount   目标条数（searchTaskConfig.maxSearchCount）
+ * @param {number}   args.targetCount   目标条数（searchTaskConfig.maxResumeCount）
  * @param {Function} args.onBatch       (freshBatch, accumulated) => void
  * @param {Function} [args.shouldAbort] () => boolean 外部取消信号
  * @returns {Promise<{ ok, geekList, totalSeen, loadMoreRounds, riskHit?, error? }>}
@@ -904,7 +904,7 @@ export async function slowScrollToBottom(opts) { ... }
 ```json
 {
   "relatedPositionValue": "<encryptJobId>",
-  "maxSearchCount": 30
+  "maxResumeCount": 30
 }
 ```
 
@@ -928,7 +928,7 @@ function parseChannelConfig(ch) {
 const recommendCh = task.channels.find(c => c.businessChannel === 'RECOMMEND' && c.channelSubType === 'BOSS');
 const cfg = parseChannelConfig(recommendCh);
 const matchedBossJobId = cfg.relatedPositionValue || null;
-const targetCount = Number(cfg.maxSearchCount) || 10;
+const targetCount = Number(cfg.maxResumeCount) || 10;
 
 await aggregateSearchExecutor({
   chatId: task.chatId,
@@ -1146,7 +1146,7 @@ while (...) {
 
 ### PR 5 — 任务集成（store + runTask）
 
-- [ ] `SearchTasks.runTask` 解析 `searchTaskConfig.relatedPositionValue` + `maxSearchCount`
+- [ ] `SearchTasks.runTask` 解析 `searchTaskConfig.relatedPositionValue` + `maxResumeCount`
 - [ ] `aggregateSearchExecutor` 调用时正确传 `matchedBossJobId` / `resumeCount`
 - [ ] `getActiveTaskChannelByDescAndBusiness` getter
 - [ ] `taskResumeBridge.postBatchResultsToTaskChannel` 接受 `businessChannel` 参数

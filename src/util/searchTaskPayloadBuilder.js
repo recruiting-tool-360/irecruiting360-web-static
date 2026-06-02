@@ -68,7 +68,7 @@ export function buildSearchTaskChannels({
       searchConditionId: String(condId),
       searchTaskConfig: JSON.stringify({
         relatedPositionValue: matchedBossJobId,
-        maxSearchCount: Number(resumeCount) > 0 ? Number(resumeCount) : 10
+        maxResumeCount: Number(resumeCount) > 0 ? Number(resumeCount) : 10
       })
     });
   }
