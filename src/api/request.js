@@ -98,7 +98,12 @@ const validateError=(responseData)=>{
               return;
             }
 
-            errorAlert("服务异常","请联系管理员");
+            // ★ 其它业务失败：把完整 envelope（含 errorCode/errorMessage）返回给调用方，
+            //   不再吞成 undefined。让业务侧按上下文给精准提示（如"任务创建失败：当前排队
+            //   任务已达 20 个…"），而不是泛泛的"服务异常/请联系管理员"。
+            //   （之前 return undefined → SearchTasks.create 拿不到 errorMessage →
+            //     只能 fallback 到"createSearchTask 返回缺少 taskId"）
+            return responseData;
         }
     }else{
         console.log("服务异常,请联系管理员")
