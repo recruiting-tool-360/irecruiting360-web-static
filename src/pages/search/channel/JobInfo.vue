@@ -17,7 +17,7 @@
       <resume-list
         :resumes="jobList"
         :loading="isLoadingMore"
-        :has-more-data="hasMoreData"
+        :has-more-data="hasMoreData && allowLoadMore"
         :total="channelDataTotal"
         :channel-str="channelConfig.name"
         :ai-sort="aiSortSwitch"
@@ -42,6 +42,7 @@ import { useQuasar } from "quasar";
 import ResumeList from 'src/components/resume/ResumeList.vue';
 import scoreUpdater from "src/utils/scoreAutoUpdater";
 import {setNotScore} from "src/api/jobList/JobListApi";
+import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 
 // 定义组件属性
 const props = defineProps({
@@ -101,6 +102,9 @@ const hasMoreData = computed(() => {
   // 如果jobList数量小于总数据量，说明还有更多数据可以加载
   return jobList.value.length < channelDataTotal.value;
 });
+// ★ 只有"刚结束的（最新）任务"或 runtime 搜索才允许加载更多；
+//   从历史完成卡"查看结果"进来的（viewingTaskId 非最新任务）不显示加载更多。
+const allowLoadMore = computed(() => !isHistoryTaskView(store, props.viewingTaskId));
 const currentPage = ref(1);
 const currentFilters = ref({});
 const currentSort = ref('score');

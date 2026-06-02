@@ -1018,6 +1018,43 @@ const actions = {
       console.warn("[SearchTasks/stopForChat] 停 scoreUpdater 失败（忽略）:", e?.message || e);
     }
 
+    // 4.5) 清空 AI 详情解析 / 评分提交 异步任务队列（detail / setNotScore 这些后台请求的来源）。
+    //   只停 scoreUpdater 轮询不够：AsyncTaskQueueManager 里还排着一堆"逐条 postTaskResumeDetail
+    //   触发 AI 评分"的任务，不清的话停止任务后 detail / setNotScore 仍会继续刷。
+    //   clearAllQueues 内部会 updateQueueStatus → pushAiTaskQueueStateToStore(false)，
+    //   让"AI 分析中"信号同步归零。
+    try {
+      const mod = await import("src/pluginSrc/util/AsyncTaskQueueManager");
+      const mgr = mod.asyncTaskQueueManager || mod.default;
+      if (mgr && typeof mgr.clearAllQueues === "function") {
+        const removed = mgr.clearAllQueues();
+        console.log("[SearchTasks/stopForChat] AsyncTaskQueueManager.clearAllQueues 已清", removed);
+      }
+    } catch (e) {
+      console.warn("[SearchTasks/stopForChat] 清 AsyncTaskQueue 失败（忽略）:", e?.message || e);
+    }
+
+    // 4.6) 兜底：直接把 store 的 AI 分析信号置 false（防止队列已空但 active 信号没归零的窗口）
+    try {
+      commit("setAiScoringState", { active: false, pending: 0, chatId: null }, { root: true });
+      commit("setAiTaskQueueState", { active: false, pending: 0, chatId: null }, { root: true });
+    } catch (e) {
+      console.warn("[SearchTasks/stopForChat] 重置 AI 分析信号失败（忽略）:", e?.message || e);
+    }
+
+    // 4.7) 把仍未评分的简历直接标「分析异常」（score=-2）。
+    //   双重作用：
+    //     a. UI 立刻显示"AI分析失败/渠道数据异常"，不再停在"AI分析中"转圈
+    //     b. -2 是 scoreAutoUpdater.collectResumesWithoutScore 的终态 → 即使评分器被
+    //        渠道组件 watch 重新 start，collect 后 pending=0 → startTimer 直接 return
+    //        → 不再轮询 queryTaskScoreList（修复"停止后仍轮询"）
+    try {
+      commit("markUnscoredAsFailed", null, { root: true });
+      console.log("[SearchTasks/stopForChat] 已把未评分简历标记为分析异常（score=-2）");
+    } catch (e) {
+      console.warn("[SearchTasks/stopForChat] markUnscoredAsFailed 失败（忽略）:", e?.message || e);
+    }
+
     // 5) 重新拉后端 queue，让 state.taskQueue.items 同步成最新（剔掉刚 finish 的任务）
     //    否则 LeftMenu 的 getAggregateStatus 看到 queueItem 还在 → 仍然显示"排队中"
     try {
@@ -1289,11 +1326,13 @@ const actions = {
         }
         taskApi
           .postExecuteChannel(ch.taskChannelId)
-          .then(() =>
+          .then(() => {
             console.log(
               `[SearchTasks] runTask: postExecuteChannel ok channel=${ch.channelSubType}-${ch.businessChannel} taskChannelId=${ch.taskChannelId}`
-            )
-          )
+            );
+            // execute 后立刻刷新一次后端队列，让排队/等待信息及时更新
+            dispatch("fetchTaskQueue").catch(() => {});
+          })
           .catch((e) =>
             console.warn(
               `[SearchTasks] runTask: postExecuteChannel failed channel=${ch.channelSubType}:`,
@@ -2499,7 +2538,7 @@ const actions = {
    *
    * 渠道剔除规则：
    *   - 后端返回的 channels 里如果有"当前 settings 未启用"的渠道，必须主动通知后端
-   *     `postCommandResult(status=FAILED)` 把它推进到 CHANNEL_FAILED，前端本地也剔除掉
+   *     `postFinishChannel(status=FAILED, errorCode=CHANNEL_DISABLED)` 把它推进到 CHANNEL_FAILED，前端本地也剔除掉
    *   - 剔除后启用渠道为 0 → 任务整体没法跑，给后端补发"全部 channel FAILED"
    *     让后端自然收敛到 TASK_FAILED；前端不入 store，不显示卡片
    *   - 剔除后还有启用渠道 → 写入 store + enqueue，让 attachSseAndRun 等 SSE 推 STEP_COMMAND
@@ -2562,30 +2601,24 @@ const actions = {
         status === TASK_STATUS.RESTING ||
         !status;
 
-      // ① 通知后端：被剔除的 channel → CHANNEL_FAILED（reason=CHANNEL_DISABLED）
+      // ① 通知后端：被剔除的 channel → 调 /finish 传异常（commandResult 接口已废弃）
+      //   渠道在客户端设置里被禁用 → finish(status=FAILED, errorCode=CHANNEL_DISABLED)，
+      //   后端据此把该 channel 推进到 CHANNEL_FAILED。
       for (const c of removedChannels) {
         if (!c.taskChannelId) continue;
         if (!isAlive(c.taskChannelStatus)) continue;
         try {
-          await taskApi.postCommandResult(c.taskChannelId, {
-            taskId: data.taskId,
-            searchConditionId: c.searchConditionId,
-            commandType: "STEP_COMMAND",
-            instructionId: null,
-            step: { stepCode: "channel.disabled", stepName: "渠道已禁用" },
+          await taskApi.postFinishChannel(c.taskChannelId, {
             status: "FAILED",
-            error: {
-              code: "CHANNEL_DISABLED",
-              message: "该渠道已在客户端设置中禁用",
-              retryable: false
-            }
+            errorCode: "CHANNEL_DISABLED",
+            errorMessage: "该渠道已在客户端设置中禁用"
           });
           console.log(
-            `[SearchTasks] resumeFromCurrent: 已剔除 ${c.channelSubType}-${c.businessChannel}（taskChannelId=${c.taskChannelId}），CHANNEL_FAILED 已通知后端`
+            `[SearchTasks] resumeFromCurrent: 已剔除 ${c.channelSubType}-${c.businessChannel}（taskChannelId=${c.taskChannelId}），finish(FAILED/CHANNEL_DISABLED) 已通知后端`
           );
         } catch (e) {
           console.warn(
-            `[SearchTasks] resumeFromCurrent: 通知 CHANNEL_FAILED 失败 (${c.channelSubType}):`,
+            `[SearchTasks] resumeFromCurrent: 通知 finish(CHANNEL_DISABLED) 失败 (${c.channelSubType}):`,
             e?.message || e
           );
         }
@@ -2593,7 +2626,7 @@ const actions = {
 
       // ② 剔除后没剩余启用渠道 → 旧任务整体失败 + 用前端启用渠道自动重建新任务
       //
-      //   - 所有 channel 已通过 ① postCommandResult(FAILED) 通知后端 CHANNEL_FAILED
+      //   - 所有 channel 已通过 ① postFinishChannel(FAILED) 通知后端 CHANNEL_FAILED
       //   - 后端 reduce 会收敛旧任务 taskStatus = FAILED
       //   - 前端同步入 store + 标 taskStatus=FAILED（让 UI 有失败记录可查）
       //   - 然后用当前 settings 启用的渠道 **重建一个新任务**，让用户的搜索流程不被卡断

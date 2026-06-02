@@ -77,8 +77,8 @@
                     <q-tooltip>刷新登录状态</q-tooltip>
                   </q-btn>)
                 </span>
-                <q-badge v-if="channel.dataSize > 0" color="red-5" floating>
-                  {{ channel.dataSize }}
+                <q-badge v-if="channelDisplayCount(channel) > 0" color="red-5" floating>
+                  {{ channelDisplayCount(channel) }}
                 </q-badge>
                 <q-tooltip
                     :ref="(el) => setTooltipRef(el, channel.key)"
@@ -134,8 +134,8 @@
                         </q-badge>
                       </div>
                     </q-item-section>
-                    <q-item-section side v-if="channel.dataSize > 0">
-                      <q-badge color="red-5">{{ channel.dataSize }}</q-badge>
+                    <q-item-section side v-if="channelDisplayCount(channel) > 0">
+                      <q-badge color="red-5">{{ channelDisplayCount(channel) }}</q-badge>
                     </q-item-section>
                     <q-item-section side v-if="!channel.login" class="text-grey-6">
                       <q-btn
@@ -374,6 +374,32 @@ const props = defineProps({
 
 const store = useStore();
 const $q = useQuasar();
+
+/**
+ * 渠道 tab 右上角红色 badge 显示的条数。
+ *
+ * 直接按"当前列表实际显示的数据"算，而不是单独维护的 channelConf[key].dataSize
+ * （dataSize 容易出现 loadMore 后没同步 → badge 跟列表不一致，比如列表 150 但 badge 还显示 50）。
+ *
+ * 数据源跟各 channel 组件 jobList **完全一致**：
+ *   - viewing 模式（有 viewingTaskId + bucket）→ ViewingResults.byTaskId[viewingTaskId].data
+ *   - runtime 模式 → ChannelConfig.ALL.data
+ *   再按 `item.channel === channel.desc` 过滤计数。
+ */
+function channelDisplayCount(channel) {
+  if (!channel) return 0;
+  const desc = channel.desc || channel.name;
+  let allData = null;
+  if (props.viewingTaskId) {
+    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
+    const cfg = typeof byTask === "function" ? byTask(props.viewingTaskId) : null;
+    if (cfg?.data) allData = cfg.data;
+  }
+  if (!allData) {
+    allData = store.getters.getChannelConfByAll?.data || [];
+  }
+  return allData.filter((item) => item && item.channel === desc).length;
+}
 
 //搜索条件
 const searchState = computed(() => props.searchState);

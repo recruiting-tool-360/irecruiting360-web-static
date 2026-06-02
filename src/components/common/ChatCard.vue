@@ -1394,10 +1394,16 @@ watch(
       // 延时 3 秒再切结果页：让用户能先看到完成卡片（该职位聚合搜索已全部完成！），
       // 再自动跳转到搜索结果列表，避免卡片一出现就立刻被覆盖
       setTimeout(() => {
+        // ★ 必须带 source='task_completion_card'：让 IndexPage.handleViewResults 走
+        //   完整数据加载链路 —— 把结果按 taskId 写进隔离的 ViewingResults bucket +
+        //   记 viewingTaskId。否则 handleViewResults 提前 return，只切视图不灌数据，
+        //   结果页只能依赖共享的 ChannelConfig.ALL.data；一旦 selectChat 清掉 ALL.data
+        //   就空白。自动跳转要和手动点完成卡"查看结果"完全同一套逻辑。
         emit("view-results", {
           chatId,
           taskId: newTask.taskId,
-          taskStatus: newTask.taskStatus
+          taskStatus: newTask.taskStatus,
+          source: "task_completion_card"
         });
       }, 3000);
     }

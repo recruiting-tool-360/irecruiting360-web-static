@@ -61,6 +61,37 @@ const mutations = {
   },
 
   /**
+   * 往某 taskId 的 viewing bucket 追加数据（loadMore 场景）。
+   *
+   * runtime 模式下 loadMore 把新页数据 push 进 ChannelConfig.ALL.data；
+   * 但 viewing 模式（"刚结束任务可加载更多"）下渲染层读的是本 store 的 bucket，
+   * 必须把新数据同样追加进 bucket.byChannel.ALL，否则列表 / tab badge 不会增长。
+   *
+   * @param {object} payload
+   * @param {string} payload.taskId
+   * @param {Array}  payload.value   新增的简历数据
+   */
+  appendViewingTaskResults(state, { taskId, value }) {
+    if (!taskId || !Array.isArray(value) || value.length === 0) return;
+    const bucket = state.byTaskId[taskId];
+    if (!bucket) {
+      state.byTaskId = {
+        ...state.byTaskId,
+        [taskId]: { byChannel: { ALL: [...value] }, fetchedAt: Date.now() }
+      };
+      return;
+    }
+    const prevAll = Array.isArray(bucket.byChannel?.ALL) ? bucket.byChannel.ALL : [];
+    state.byTaskId = {
+      ...state.byTaskId,
+      [taskId]: {
+        ...bucket,
+        byChannel: { ...bucket.byChannel, ALL: [...prevAll, ...value] }
+      }
+    };
+  },
+
+  /**
    * 标记某 chat 当前正在查看 taskId（开启 viewing 模式）
    * @param {object} payload
    * @param {string} payload.chatId
