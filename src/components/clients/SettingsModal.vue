@@ -183,19 +183,11 @@
                     </div>
                   </div>
 
-                  <!-- 包含周末及节假日（支持前端勾选，保存回传 allowHoliday/allowWeekend） -->
+                  <!-- 包含周末及节假日（后端硬编码 false，UI 只读） -->
                   <div class="sm-holidays">
                     <div
-                      :class="[
-                        'sm-holidays-row sm-holidays-row--clickable',
-                        hasRunningTask ? 'is-disabled' : ''
-                      ]"
-                      :title="
-                        hasRunningTask
-                          ? '当前有正在执行的任务，请等待任务结束后再修改'
-                          : '勾选后允许在周末及节假日执行任务'
-                      "
-                      @click="toggleHolidays"
+                      class="sm-holidays-row is-disabled"
+                      title="当前由系统统一管理，不支持前端修改"
                     >
                       <div class="sm-holidays-left">
                         <div
@@ -218,6 +210,7 @@
                         </div>
                         <span class="sm-holidays-label">包含周末及节假日</span>
                       </div>
+                      <span class="sm-holidays-hint">由系统统一管理</span>
                     </div>
                   </div>
 
@@ -274,10 +267,7 @@
  *   - GET：把后端 workPeriods → 反查 WORK_SLOTS → 设 selectedSlots
  *   - PUT：把 selectedSlots → 转回 workPeriods 数组提交
  *
- * allowWeekend / allowHoliday：合并成一个"包含周末及节假日"勾选框，支持前端修改。
- *   GET：allowHoliday || allowWeekend → includeHolidays
- *   PUT：includeHolidays → allowWeekend + allowHoliday（两者同值提交）
- *   有任务执行中时禁用（跟工作时段一致）
+ * allowWeekend / allowHoliday：后端硬编码 false 不接收前端修改，UI 显示但 disabled
  */
 
 import { ref, computed, watch, reactive } from "vue";
@@ -367,11 +357,6 @@ async function loadConfig() {
   }
 }
 
-function toggleHolidays() {
-  if (hasRunningTask.value) return;
-  includeHolidays.value = !includeHolidays.value;
-}
-
 function toggleSlot(id) {
   if (hasRunningTask.value) return;
   const idx = selectedSlots.indexOf(id);
@@ -436,11 +421,7 @@ async function handleSave() {
         .map((id) => WORK_SLOTS.find((s) => s.id === id))
         .filter(Boolean)
         .sort((a, b) => toMin(a.start) - toMin(b.start))
-        .map((s) => ({ startTime: s.start, endTime: s.end })),
-      // "包含周末及节假日" UI 是一个勾选框，对应后端 allowWeekend + allowHoliday 两个字段，
-      // 两者同步成同一个布尔值提交（GET 时是 allowHoliday || allowWeekend 反推回来的）
-      allowWeekend: includeHolidays.value,
-      allowHoliday: includeHolidays.value
+        .map((s) => ({ startTime: s.start, endTime: s.end }))
     };
     const res = await putRuntimePolicyConfig(payload);
     $q.notify({
@@ -777,22 +758,6 @@ function handleBackdropClick() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-
-  &.sm-holidays-row--clickable {
-    cursor: pointer;
-    user-select: none;
-    border-radius: 8px;
-    margin: -4px -8px;
-    padding: 4px 8px;
-    transition: background 0.15s;
-
-    &:hover:not(.is-disabled) {
-      background: #f5f5f5;
-    }
-    &:hover:not(.is-disabled) .sm-checkbox {
-      border-color: #15b8a6;
-    }
-  }
 
   &.is-disabled {
     opacity: 0.6;
