@@ -528,10 +528,16 @@ watch(
 );
 
 /**
- * 切换 chat 时，如果切回的 chat 处于"结果页"视图 AND ALL.data 为空（被 selectChat 清掉了）
- * AND 有记录的 taskId → 自动重新加载任务结果数据，避免空白。
+ * 切换 chat 时，如果切回的 chat 处于"结果页"视图 → 确保它能拿到按 taskId 隔离的结果数据，
+ * 避免空白。数据按 taskId 隔离在 ViewingResults.byTaskId，切别的职位互不影响。
  *
- * 复现路径：A 查看结果 → 选 B（ALL.data 被 selectChat 清空）→ 选 A → 结果页空白
+ * 复现路径（本次修复）：
+ *   职位 A 任务进行中 → 左边切到职位 B → A 任务跑完（数据只在共享 ALL.data 里，没按
+ *   taskId 隔离）→ 再切回 A：selectChat 已把 ALL.data 清掉，且 A 是 runtime 任务没点过
+ *   "查看结果"卡片 → 没有 savedTaskId → 之前直接 return → 结果页空白。
+ *
+ * 修复：savedTaskId fallback 到该 chat 的 latest task；优先复用 byTaskId 隔离 bucket，
+ * 没有就从 API 重载到 bucket，保证切职位结果互不串扰。
  *
  * ★ 同时清理离开的旧 chat 的 viewing 状态：避免之前的 viewing taskId 在 chat 切换后
  * 仍然挂在 currentViewingByChat 里干扰下一次进入。
@@ -557,18 +563,46 @@ watch(
     if (!embeddedMode.value) return;
     // 切回的 chat 是否处于结果视图
     if ((viewByChatId.value[newChatId] || "chat") !== "results") return;
-    // ALL.data 是否为空（已被清掉）
-    const existing = store.getters.getChannelConfByAll?.data;
-    if (Array.isArray(existing) && existing.length > 0) return;
-    // 有没有记录的 taskId
-    const savedTaskId = viewingTaskIdByChatId.value[newChatId];
+
+    // ===== 解析这个 chat 应该展示哪个 task 的结果 =====
+    //   1) 用户显式点过"查看结果" → viewingTaskIdByChatId[cid]
+    //   2) 否则用该 chat 最新的任务 —— 覆盖"runtime 搜索完没点卡片"的场景：
+    //      任务 A 跑完数据只在共享的 ChannelConfig.ALL.data 里（没按 taskId 隔离），
+    //      切到职位 B 再切回 A 时 selectChat 已把 ALL.data 清掉 → 之前没有 savedTaskId
+    //      就直接 return → 结果页空白。这里 fallback 到 latest task，让它能从 API 重载。
+    let savedTaskId = viewingTaskIdByChatId.value[newChatId];
+    if (!savedTaskId) {
+      const getLatest = store.getters["SearchTasks/getLatestTaskByChat"];
+      const latest = typeof getLatest === "function" ? getLatest(newChatId) : null;
+      if (latest && latest.taskId) savedTaskId = latest.taskId;
+    }
     if (!savedTaskId) return;
 
+    // 任务还在跑 → 数据在 runtime ALL 里持续写入，保持 runtime 视图，别拉静态快照
+    const runningTaskId = store.state?.SearchTasks?.runningTaskId;
+    if (savedTaskId === runningTaskId) return;
+
+    // ★ 数据是否还在按 taskId 隔离的 bucket 里（ViewingResults.byTaskId 按 taskId 隔离，
+    //   切别的职位不会互相影响）。有就直接复用：把 viewingTaskId 指过去即可，
+    //   子组件通过 prop 直读 bucket，无需重新打 API。
+    const bucket = store.state?.ViewingResults?.byTaskId?.[savedTaskId];
+    const bucketHasData =
+      bucket && Array.isArray(bucket.byChannel?.ALL) && bucket.byChannel.ALL.length > 0;
+    if (bucketHasData) {
+      if (viewingTaskIdByChatId.value[newChatId] !== savedTaskId) {
+        viewingTaskIdByChatId.value = {
+          ...viewingTaskIdByChatId.value,
+          [newChatId]: savedTaskId
+        };
+      }
+      return;
+    }
+
     console.log(
-      `[IndexPage] chatId 切到 ${newChatId}，结果页数据丢失，自动重载 taskId=${savedTaskId}`
+      `[IndexPage] chatId 切到 ${newChatId}，结果页无隔离数据，自动重载 taskId=${savedTaskId}`
     );
-    // 复用 handleViewResults 的加载逻辑（不带 source 就走数据加载，不做 view 切换判断）
-    // 直接构造一个带 taskId 的 payload 触发 API 加载
+    // 复用 handleViewResults 的加载逻辑：从 API 拉结果并写进按 taskId 隔离的 bucket，
+    // 切职位互不影响。source=task_completion_card 让它走完整数据加载 + 记 viewingTaskId。
     await handleViewResults({
       taskId: savedTaskId,
       source: "task_completion_card",
@@ -993,6 +1027,8 @@ async function doFetchRecommend(args) {
         console.log(
           `[IndexPage] postExecuteChannel ok RECOMMEND/BOSS taskChannelId=${recCh.taskChannelId}`
         );
+        // execute 后刷新一次后端队列，让排队/等待信息及时更新
+        store.dispatch("SearchTasks/fetchTaskQueue").catch(() => {});
       } catch (e) {
         console.warn(
           `[IndexPage] postExecuteChannel RECOMMEND/BOSS failed taskChannelId=${recCh.taskChannelId}:`,
@@ -2175,6 +2211,38 @@ async function handleViewResults(payload) {
         searchConditionId: item.searchConditionId || flat.searchConditionId
       };
     });
+
+    // ★ 该 task 已停止/失败（AI 评分不会再继续）→ 把未评分简历直接落终态「分析异常」(score=-2)。
+    //   解决"停止任务后返回，重新点查看结果，未评分的又显示 AI分析中 + 重启 scoreUpdater 轮询"：
+    //   后端 /results/query 拉回的未评分简历 score=null，若不处理就会重新进入分析中状态。
+    //   -2 是 ResumeCard 的终态（"AI分析失败/渠道数据异常"）+ scoreUpdater 的终态（不再 pending）。
+    try {
+      const getTaskByIdFn = store.getters["SearchTasks/getTaskById"];
+      const taskForView = typeof getTaskByIdFn === "function" ? getTaskByIdFn(taskId) : null;
+      const userStopped = store.state?.SearchTasks?.userStoppedTaskIds?.[taskId];
+      const isStoppedOrFailed =
+        !!userStopped ||
+        taskForView?.taskStatus === "STOPPED" ||
+        taskForView?.taskStatus === "FAILED";
+      if (isStoppedOrFailed) {
+        let marked = 0;
+        for (const r of normalized) {
+          const s = r.score;
+          if (s === null || s === undefined || (typeof s === "number" && s < 0 && s !== -2)) {
+            r.score = -2;
+            if (r.scoreStatus !== undefined) r.scoreStatus = "FAILED";
+            marked++;
+          }
+        }
+        if (marked > 0) {
+          console.log(
+            `[handleViewResults] task=${taskId} 已停止/失败，${marked} 条未评分简历标记为分析异常(score=-2)`
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("[handleViewResults] 标记未评分简历为分析异常失败（忽略）:", e?.message || e);
+    }
 
     // ★ 按 businessChannel 分流：
     //   - SEARCH (默认) → 灌进 ChannelConfig.ALL.data，搜索 tab 显示

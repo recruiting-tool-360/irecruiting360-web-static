@@ -1,4 +1,20 @@
-
+/**
+ * 从 ALL.data 重算各搜索渠道的 badge 数量（dataSize）。
+ *
+ * 渠道组件（BossJobInfo / ZHILIANJobInfo / ...）按 `item.channel === channelConf[ch].desc`
+ * 过滤 ALL.data 得到本渠道列表，tab 右上角红色 badge 也应按同口径计数。
+ * 之前 dataSize 只在 handleViewResults（重新进入结果页）时设，导致 loadMore 追加数据后
+ * badge 不刷新。append 到 ALL.data 时调用本函数即可让 badge 实时跟上。
+ */
+function recomputeChannelDataSizesFromAll(state) {
+  const all = state.channelConf?.ALL?.data || [];
+  for (const ch of ["BOSS", "ZHILIAN", "JOB51", "LIEPIN"]) {
+    const conf = state.channelConf?.[ch];
+    if (!conf) continue;
+    const desc = conf.desc;
+    conf.dataSize = all.filter((item) => item && item.channel === desc).length;
+  }
+}
 
 export default {
   state: () => ({
@@ -111,6 +127,32 @@ export default {
         changeChannelConfDataSize(state,{key,value}) {
             state.channelConf[key].dataSize=value;
         },
+        /**
+         * 把所有"还没评分"的简历直接标为「分析异常」（score=-2 → UI 显示"AI分析失败/渠道数据异常"）。
+         *
+         * 用途：用户手动停止任务后，残留的未评分简历不该一直停在"AI分析中"+ 触发 scoreAutoUpdater
+         * 无限轮询 queryTaskScoreList。标成 -2（终态）后：
+         *   - UI 立刻显示"分析异常"，不再转圈
+         *   - scoreAutoUpdater.collectResumesWithoutScore 视 -2 为终态 → 不再加入 pending → 轮询停
+         *
+         * "未评分"判定跟 scoreAutoUpdater.collectResumesWithoutScore 一致：
+         *   score 为 null/undefined，或 score<0 且 !==-2。
+         */
+        markUnscoredAsFailed(state) {
+            const isUnscored = (r) =>
+                r && (r.score === null || r.score === undefined ||
+                    (typeof r.score === 'number' && r.score < 0 && r.score !== -2));
+            for (const key of Object.keys(state.channelConf)) {
+                const arr = state.channelConf[key]?.data;
+                if (!Array.isArray(arr)) continue;
+                for (const r of arr) {
+                    if (isUnscored(r)) {
+                        r.score = -2;
+                        if (r.scoreStatus !== undefined) r.scoreStatus = 'FAILED';
+                    }
+                }
+            }
+        },
         changeChannelCardInfoRef(state,{key,value}) {
             state.channelConf[key].cardInfoRef=value;
         },
@@ -125,6 +167,12 @@ export default {
         },
         addChannelConfData(state,{key,value}) {
           state.channelConf[key].data.push(...value)
+          // ★ 追加到 ALL.data 后同步重算各渠道 tab 右上角 badge 数量（dataSize）。
+          //   渠道组件按 item.channel === channelConf[ch].desc 过滤 ALL.data，badge 同口径。
+          //   修复 loadMore 追加数据后 badge 不刷新（之前 dataSize 仅在 handleViewResults 重进时设）。
+          if (key === 'ALL') {
+            recomputeChannelDataSizesFromAll(state);
+          }
         },
         updateChannelConfIndex(state, {key,index,data}) {
           state.channelConf[key].data[index] = data;

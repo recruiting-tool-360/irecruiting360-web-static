@@ -30,7 +30,7 @@
       <resume-list
         :resumes="jobList"
         :loading="isLoadingMore"
-        :has-more-data="hasMoreData"
+        :has-more-data="hasMoreData && allowLoadMore"
         :total="searchChannelConfig.channelDataTotal"
         :channel-str="channelConfig.name"
         :ai-sort="aiSortSwitch"
@@ -56,6 +56,7 @@ import * as Job51InfoManager from 'src/pluginSrc/channels/Job51InfoManager';
 import notify from "src/util/notify";
 import {channelDataSave, channelDataSavePlus} from "src/pluginSrc/util/CannelManager";
 import ResumeList from '../../../components/resume/ResumeList.vue';
+import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 import {clearChannel as clearChannelApi} from "src/pluginSrc/util/AsyncTaskQueueManager";
 import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 import { openChannelLoginUrl } from "src/util/openChannelLoginUrl";
@@ -88,6 +89,8 @@ const store = useStore();
 const $q = useQuasar();
 const channelKey = "JOB51";
 const channelConfig = computed(() => store.getters.getChannelConfByChannel(channelKey));
+// ★ 只有"刚结束的（最新）任务"或 runtime 搜索才允许加载更多；历史完成卡"查看结果"进来的不显示
+const allowLoadMore = computed(() => !isHistoryTaskView(store, props.viewingTaskId));
 // ★ 按 props.viewingTaskId 直读 ViewingResults bucket；不依赖全局 viewing state
 const allDataConfig = computed(() => {
   if (props.viewingTaskId) {
@@ -217,7 +220,13 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
       }
       if(channelJobList){
           // store.commit('addChannelConfData', {key: channelKey, value: channelJobList});
-          store.commit('addChannelConfData', {key: 'ALL', value: channelJobList});
+          // viewing 模式（刚结束任务可加载更多）下渲染读 ViewingResults bucket，
+          // 必须把新页数据追加进 bucket，否则列表 / tab badge 停在首屏条数。
+          if (props.viewingTaskId) {
+            store.commit('appendViewingTaskResults', {taskId: props.viewingTaskId, value: channelJobList});
+          } else {
+            store.commit('addChannelConfData', {key: 'ALL', value: channelJobList});
+          }
           hasData.value = true;
 
           // 将搜索结果加入异步任务队列中处理
