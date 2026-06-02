@@ -1582,7 +1582,7 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
   const hasSearch = channels.some((c) => c.businessChannel === "SEARCH");
   const hasRecommend = channels.some((c) => c.businessChannel === "RECOMMEND");
 
-  // 推荐渠道（限 BOSS）的配置——抽 relatedPositionValue / maxSearchCount
+  // 推荐渠道（限 BOSS）的配置——抽 relatedPositionValue / maxResumeCount
   let matchedBossJobId = null;
   let resumeCount = null;
   const recommendCh = channels.find(
@@ -1592,8 +1592,8 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
     try {
       const cfg = JSON.parse(recommendCh.searchTaskConfig);
       matchedBossJobId = cfg?.relatedPositionValue || null;
-      if (Number.isFinite(Number(cfg?.maxSearchCount))) {
-        resumeCount = Number(cfg.maxSearchCount);
+      if (Number.isFinite(Number(cfg?.maxResumeCount))) {
+        resumeCount = Number(cfg.maxResumeCount);
       }
     } catch (_e) {
       // searchTaskConfig 不是合法 JSON：忽略，让 IndexPage 用 settings 兜底
@@ -1641,9 +1641,7 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   //   判定语义跟 handleAggregateSearch 入口的 canCreateForChat 完全一致（RUNNING/WAITING/RESTING/AI 评分中）
   const canCreate = store.getters["SearchTasks/canCreateForChat"];
   if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
-    console.warn(
-      `[ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`
-    );
+    console.warn(`[ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`);
     const latestTask = store.getters["SearchTasks/getLatestTaskByChat"]?.(chatIdForSearch);
     const isAiAnalyzingPhase =
       latestTask?.taskStatus === "COMPLETED" &&
@@ -1678,9 +1676,7 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
       selectedModules: params.selectedModules,
       matchedBossJobId: params.matchedBossJobId,
       initialResumeCount:
-        typeof params.resumeCount === "number" && params.resumeCount > 0
-          ? params.resumeCount
-          : 60, // 兜底跟 IndexPage 默认值一致
+        typeof params.resumeCount === "number" && params.resumeCount > 0 ? params.resumeCount : 60, // 兜底跟 IndexPage 默认值一致
       actionExecuted: false
     };
 
@@ -1780,7 +1776,11 @@ function onRetryConfigStart(msg, payload) {
   const taskType = cd.configType;
   const chatIdForSearch = cd.chatId;
 
-  console.log("[ChatCard] retry_config_card start", { taskType, resumeCount, originalTaskId: cd.originalTaskId });
+  console.log("[ChatCard] retry_config_card start", {
+    taskType,
+    resumeCount,
+    originalTaskId: cd.originalTaskId
+  });
 
   // 锁定卡片 UI（input disabled + 按钮变"聚合搜索已启动"）
   cd.actionExecuted = true;

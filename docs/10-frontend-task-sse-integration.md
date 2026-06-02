@@ -67,7 +67,7 @@ Content-Type: application/json
       "businessChannel": "RECOMMEND",
       "channelSubType": "BOSS",
       "searchConditionId": "187002",
-      "searchTaskConfig": "{\"relatedPositionValue\":\"boss-position-value\",\"maxSearchCount\":200}"
+      "searchTaskConfig": "{\"relatedPositionValue\":\"boss-position-value\",\"maxResumeCount\":200}"
     }
   ]
 }
@@ -75,17 +75,17 @@ Content-Type: application/json
 
 字段说明：
 
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `chatId` | 是 | 职位会话 ID。当前后端会校验必填。 |
-| `positionId` | 否 | IHR 职位 ID 快照。 |
-| `taskType` | 是 | `INITIAL / CONTINUE / RESTART`。 |
-| `triggerSource` | 否 | `FIRST_OPEN / CHAT / USER_CLICK / SYSTEM`。 |
-| `channels` | 是 | 本次任务要执行的渠道单元，至少 1 条。 |
-| `channels[].businessChannel` | 是 | `SEARCH / RECOMMEND`。 |
-| `channels[].channelSubType` | 是 | `BOSS / ZHILIAN / JOB51 / LIEPIN`。 |
-| `channels[].searchConditionId` | 是 | 该渠道实际执行条件。 |
-| `channels[].searchTaskConfig` | 否 | 渠道任务配置 JSON 文本，例如关联职位、最大搜索份数等；后端按文本存储并透传给前端。 |
+| 字段                           | 必填 | 说明                                                                               |
+| ------------------------------ | ---- | ---------------------------------------------------------------------------------- |
+| `chatId`                       | 是   | 职位会话 ID。当前后端会校验必填。                                                  |
+| `positionId`                   | 否   | IHR 职位 ID 快照。                                                                 |
+| `taskType`                     | 是   | `INITIAL / CONTINUE / RESTART`。                                                   |
+| `triggerSource`                | 否   | `FIRST_OPEN / CHAT / USER_CLICK / SYSTEM`。                                        |
+| `channels`                     | 是   | 本次任务要执行的渠道单元，至少 1 条。                                              |
+| `channels[].businessChannel`   | 是   | `SEARCH / RECOMMEND`。                                                             |
+| `channels[].channelSubType`    | 是   | `BOSS / ZHILIAN / JOB51 / LIEPIN`。                                                |
+| `channels[].searchConditionId` | 是   | 该渠道实际执行条件。                                                               |
+| `channels[].searchTaskConfig`  | 否   | 渠道任务配置 JSON 文本，例如关联职位、最大搜索份数等；后端按文本存储并透传给前端。 |
 
 返回体核心字段：
 
@@ -165,7 +165,9 @@ function connectTaskSse({ baseUrl, satoken, taskChannelId }) {
     taskEventSource.close();
   }
 
-  const url = `${baseUrl}/sseManager/task/connect?satoken=${encodeURIComponent(satoken)}&taskChannelId=${encodeURIComponent(taskChannelId)}`;
+  const url = `${baseUrl}/sseManager/task/connect?satoken=${encodeURIComponent(
+    satoken
+  )}&taskChannelId=${encodeURIComponent(taskChannelId)}`;
   taskEventSource = new EventSource(url);
 
   taskEventSource.addEventListener("MESSAGE", async (event) => {
@@ -210,35 +212,35 @@ function connectTaskSse({ baseUrl, satoken, taskChannelId }) {
 
 `scenario`：
 
-| 值 | 说明 |
-| --- | --- |
+| 值        | 说明                                                              |
+| --------- | ----------------------------------------------------------------- |
 | `AI_TASK` | AI 任务指令、任务状态和任务回传协调。前端任务模块只消费这个场景。 |
 
 `data.commandType`：
 
-| 值 | 前端动作 |
-| --- | --- |
-| `TASK_CONTEXT` | 记录任务上下文和渠道列表，初始化任务执行 UI 状态。 |
-| `CHANNEL_CONTEXT` | 记录当前渠道上下文，可展示当前执行渠道。 |
-| `STEP_COMMAND` | 执行 `actionList`，并通过 `commandResult` 回传结果。 |
-| `CHANNEL_DONE` | 标记当前渠道完成。 |
-| `CHANNEL_FAILED` | 标记当前渠道失败。 |
-| `TASK_DONE` | 标记整个任务完成，关闭任务 SSE。 |
-| `TASK_FAILED` | 标记整个任务失败，关闭或等待用户重试。 |
+| 值                | 前端动作                                             |
+| ----------------- | ---------------------------------------------------- |
+| `TASK_CONTEXT`    | 记录任务上下文和渠道列表，初始化任务执行 UI 状态。   |
+| `CHANNEL_CONTEXT` | 记录当前渠道上下文，可展示当前执行渠道。             |
+| `STEP_COMMAND`    | 执行 `actionList`，并通过 `commandResult` 回传结果。 |
+| `CHANNEL_DONE`    | 标记当前渠道完成。                                   |
+| `CHANNEL_FAILED`  | 标记当前渠道失败。                                   |
+| `TASK_DONE`       | 标记整个任务完成，关闭任务 SSE。                     |
+| `TASK_FAILED`     | 标记整个任务失败，关闭或等待用户重试。               |
 
 说明：当前代码已经定义上述 `commandType`，但完成态不一定都会额外推送 `CHANNEL_DONE / TASK_DONE`。前端应同时以 `/commandResult`、`/results` 返回的 `taskStatus / taskChannelStatus` 作为任务完成判断依据。
 
 `data.context` 是双方通信的共享上下文，前端后续回传必须以它为准：
 
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `companyId` | 是 | 公司 ID。 |
-| `searchConditionId` | 是 | 当前执行条件 ID。 |
-| `taskId` | 是 | 搜索任务 ID。 |
-| `taskChannelId` | 是 | 渠道任务 ID。 |
-| `businessChannel` | 是 | `SEARCH / RECOMMEND`。 |
-| `channelSubType` | 是 | `BOSS / ZHILIAN / JOB51 / LIEPIN`。 |
-| `searchTaskConfig` | 否 | 渠道任务配置 JSON 文本，透传给前端执行。 |
+| 字段                | 必填 | 说明                                     |
+| ------------------- | ---- | ---------------------------------------- |
+| `companyId`         | 是   | 公司 ID。                                |
+| `searchConditionId` | 是   | 当前执行条件 ID。                        |
+| `taskId`            | 是   | 搜索任务 ID。                            |
+| `taskChannelId`     | 是   | 渠道任务 ID。                            |
+| `businessChannel`   | 是   | `SEARCH / RECOMMEND`。                   |
+| `channelSubType`    | 是   | `BOSS / ZHILIAN / JOB51 / LIEPIN`。      |
+| `searchTaskConfig`  | 否   | 渠道任务配置 JSON 文本，透传给前端执行。 |
 
 约束：
 
@@ -265,7 +267,7 @@ function connectTaskSse({ baseUrl, satoken, taskChannelId }) {
       "taskChannelId": "81001",
       "businessChannel": "SEARCH",
       "channelSubType": "BOSS",
-      "searchTaskConfig": "{\"maxSearchCount\":200}"
+      "searchTaskConfig": "{\"maxResumeCount\":200}"
     },
     "step": {
       "stepNo": 1,
@@ -283,7 +285,7 @@ function connectTaskSse({ baseUrl, satoken, taskChannelId }) {
             "keyword": "Java",
             "city": "上海"
           },
-          "searchTaskConfig": "{\"maxSearchCount\":200}"
+          "searchTaskConfig": "{\"maxResumeCount\":200}"
         },
         "humanLike": {
           "enabled": true,
@@ -380,18 +382,18 @@ Content-Type: application/json
 
 字段规则：
 
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `taskId` | 是 | 从 `data.context.taskId` 取。 |
-| `searchConditionId` | 是 | 从 `data.context.searchConditionId` 取。 |
-| `commandType` | 是 | 对应 SSE 的 `data.commandType`。 |
-| `instructionId` | 否 | 优先用 `data.step.instructionId`。 |
-| `step` | 否 | 对应 SSE 的 `data.step`。 |
-| `status` | 是 | `RECEIVED / RUNNING / SUCCESS / FAILED / SKIPPED / TIMEOUT`。 |
-| `items` | 否 | 当前步骤采集到的候选人或推荐项。 |
-| `pageMeta` | 否 | 页码、是否还有更多、已加载数量等。 |
-| `snapshot` | 否 | 页面快照、URL、标题、DOM 摘要等调试信息。 |
-| `error` | 条件必填 | `FAILED / TIMEOUT` 时必须带。 |
+| 字段                | 必填     | 说明                                                          |
+| ------------------- | -------- | ------------------------------------------------------------- |
+| `taskId`            | 是       | 从 `data.context.taskId` 取。                                 |
+| `searchConditionId` | 是       | 从 `data.context.searchConditionId` 取。                      |
+| `commandType`       | 是       | 对应 SSE 的 `data.commandType`。                              |
+| `instructionId`     | 否       | 优先用 `data.step.instructionId`。                            |
+| `step`              | 否       | 对应 SSE 的 `data.step`。                                     |
+| `status`            | 是       | `RECEIVED / RUNNING / SUCCESS / FAILED / SKIPPED / TIMEOUT`。 |
+| `items`             | 否       | 当前步骤采集到的候选人或推荐项。                              |
+| `pageMeta`          | 否       | 页码、是否还有更多、已加载数量等。                            |
+| `snapshot`          | 否       | 页面快照、URL、标题、DOM 摘要等调试信息。                     |
+| `error`             | 条件必填 | `FAILED / TIMEOUT` 时必须带。                                 |
 
 返回体：
 
@@ -534,7 +536,8 @@ async function handleAiTaskMessage(message) {
 
 async function executeStepCommand(messageId, context, data) {
   const taskChannelId = context.taskChannelId;
-  const endpoint = data.resultPolicy?.resultEndpoint || `/search/taskChannel/${taskChannelId}/commandResult`;
+  const endpoint =
+    data.resultPolicy?.resultEndpoint || `/search/taskChannel/${taskChannelId}/commandResult`;
 
   try {
     await postJson(endpoint, {
