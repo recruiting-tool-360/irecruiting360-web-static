@@ -13,8 +13,15 @@
       <template v-if="channelError">
         <!-- 错误状态 -->
         <div class="csb-error">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round" class="csb-icon-md csb-color-red csb-pulse">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="csb-icon-md csb-color-red csb-pulse"
+          >
             <circle cx="12" cy="12" r="10" />
             <line x1="12" x2="12" y1="8" y2="12" />
             <line x1="12" x2="12.01" y1="16" y2="16" />
@@ -22,11 +29,7 @@
           <p class="csb-error-text">
             检测到「{{ channelError }}」账号异常/已下线，相关任务已自动停止。请重新登录后恢复。
           </p>
-          <button
-            class="csb-error-btn"
-            :disabled="rechecking"
-            @click="handleResume"
-          >
+          <button class="csb-error-btn" :disabled="rechecking" @click="handleResume">
             <svg
               v-if="!rechecking"
               viewBox="0 0 24 24"
@@ -60,9 +63,18 @@
       <template v-else>
         <!-- 盾牌图标（teal 50 背景 + 100 边框） -->
         <div class="csb-shield">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round" class="csb-icon-shield">
-            <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="csb-icon-shield"
+          >
+            <path
+              d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+            />
             <path d="M12 8v4" />
             <path d="M12 16h.01" />
           </svg>
@@ -71,17 +83,20 @@
         <!-- 提示文字 + 使用说明链接 -->
         <div class="csb-tip-row">
           <p class="csb-tip-text">
-            执行搜索任务请<span class="csb-tip-em">保持渠道登录/不要关机等</span>。系统模拟人工，请<span class="csb-tip-em">避开人工同时操作</span>。
+            执行搜索任务请<span class="csb-tip-em">保持渠道登录/不要关机等</span
+            >。系统模拟人工，请<span class="csb-tip-em">避开人工同时操作</span>。
           </p>
-          <a
-            :href="HELP_URL"
-            target="_blank"
-            rel="noreferrer"
-            class="csb-help"
-          >
+          <a :href="HELP_URL" target="_blank" rel="noreferrer" class="csb-help">
             <span>使用说明</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" class="csb-icon-xxs">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="csb-icon-xxs"
+            >
               <path d="M15 3h6v6" />
               <path d="M10 14 21 3" />
               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -97,17 +112,26 @@
         v-for="ch in displayChannels"
         :key="ch.id"
         :class="['csb-channel', `csb-channel--${ch.status}`]"
-        :title="ch.status === 'error'
-          ? `${ch.name} 异常，点击重新登录`
-          : ch.status === 'logged_in'
+        :title="
+          ch.status === 'error'
+            ? `${ch.name} 异常，点击重新登录`
+            : ch.status === 'logged_in'
             ? `${ch.name} 已登录，点击切换`
-            : `点击登录/切换 ${ch.name}`"
+            : `点击登录/切换 ${ch.name}`
+        "
         @click="handleOpenChannel(ch)"
       >
         <span :class="['csb-dot', `csb-dot--${ch.status}`]" />
         <span class="csb-channel-name">{{ ch.name }}</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" class="csb-icon-xxs csb-channel-ext">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="csb-icon-xxs csb-channel-ext"
+        >
           <path d="M15 3h6v6" />
           <path d="M10 14 21 3" />
           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -115,9 +139,18 @@
       </button>
 
       <button class="csb-settings" title="渠道选择与设置" @click="$emit('openSettings')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" class="csb-icon-md">
-          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="csb-icon-md"
+        >
+          <path
+            d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+          />
           <circle cx="12" cy="12" r="3" />
         </svg>
       </button>
@@ -138,22 +171,22 @@
  *   openSettings()  右侧齿轮（待绑定渠道设置弹窗）
  *   continue()      错误状态下点"恢复任务"
  */
-import { computed, ref } from 'vue';
-import { useStore } from 'vuex';
-import { useQuasar } from 'quasar';
-import { openChannelLoginUrl } from 'src/util/openChannelLoginUrl';
-import { pluginAllUrls } from 'src/pluginSrc/config/PluginRequestManager';
+import { computed, ref } from "vue";
+import { useStore } from "vuex";
+import { useQuasar } from "quasar";
+import { openChannelLoginUrl } from "src/util/openChannelLoginUrl";
+import { pluginAllUrls } from "src/pluginSrc/config/PluginRequestManager";
 import {
   CHANNEL_DISPLAY_NAME,
   checkChannelLogin,
   clearChannelExpired
-} from 'src/util/channelLoginGuard';
+} from "src/util/channelLoginGuard";
 
-defineEmits(['openSettings']);
+defineEmits(["openSettings"]);
 
 const store = useStore();
 const $q = useQuasar();
-const HELP_URL = 'https://www.yuque.com/help/ai-search';
+const HELP_URL = "https://ihr360.yuque.com/ihr/help/yy3i3o0vcy8k2o1a";
 
 /**
  * 当前异常渠道展示名（来源 vuex store.channelError），从 store 直接订阅，
@@ -187,17 +220,17 @@ async function handleResume() {
       clearChannelExpired(store);
       $q.notify({
         message: `${errName} 已重新登录，可以继续搜索`,
-        color: 'positive',
-        icon: 'check_circle',
-        position: 'top',
+        color: "positive",
+        icon: "check_circle",
+        position: "top",
         timeout: 2000
       });
     } else {
       $q.notify({
         message: `${errName} 仍未登录，请点击右上角「${errName}」按钮在客户端中重新登录`,
-        color: 'warning',
-        icon: 'warning',
-        position: 'top',
+        color: "warning",
+        icon: "warning",
+        position: "top",
         timeout: 3000
       });
     }
@@ -214,19 +247,19 @@ async function handleResume() {
 // channel 入参一律小写（'boss' / 'zhilian' / 'job51'），跟主进程 SITE_PARTITION 一致
 const DISPLAY_CHANNELS = [
   {
-    storeKey: 'BOSS',
-    channel: 'boss',
-    loginUrl: pluginAllUrls?.BOSS?.loginUrl || 'https://www.zhipin.com/web/user/'
+    storeKey: "BOSS",
+    channel: "boss",
+    loginUrl: pluginAllUrls?.BOSS?.loginUrl || "https://www.zhipin.com/web/user/"
   },
   {
-    storeKey: 'ZHILIAN',
-    channel: 'zhilian',
-    loginUrl: pluginAllUrls?.ZHILIAN?.baseUrl || 'https://rd6.zhaopin.com'
+    storeKey: "ZHILIAN",
+    channel: "zhilian",
+    loginUrl: pluginAllUrls?.ZHILIAN?.baseUrl || "https://rd6.zhaopin.com"
   },
   {
-    storeKey: 'JOB51',
-    channel: 'job51',
-    loginUrl: pluginAllUrls?.JOB51?.loginURL || 'https://ehire.51job.com/Revision/login'
+    storeKey: "JOB51",
+    channel: "job51",
+    loginUrl: pluginAllUrls?.JOB51?.loginURL || "https://ehire.51job.com/Revision/login"
   }
 ];
 
@@ -253,12 +286,7 @@ const displayChannels = computed(() =>
       channel: cfg.channel,
       name: conf.name || cfg.storeKey,
       url: cfg.loginUrl,
-      status:
-        channelError.value === conf.name
-          ? 'error'
-          : conf.login
-            ? 'logged_in'
-            : 'logged_out'
+      status: channelError.value === conf.name ? "error" : conf.login ? "logged_in" : "logged_out"
     };
   })
 );
@@ -315,9 +343,8 @@ $primary-500: $teal-500;
   justify-content: space-between;
   min-height: 40px;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Microsoft YaHei', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    sans-serif;
 }
 
 /* ============ Left ============ */
@@ -459,8 +486,12 @@ $primary-500: $teal-500;
   box-shadow: 0 1px 2px 0 rgba(252, 165, 165, 0.5);
   transition: background-color 0.18s, transform 0.12s;
 
-  &:hover { background: $red-600; }
-  &:active { transform: scale(0.95); }
+  &:hover {
+    background: $red-600;
+  }
+  &:active {
+    transform: scale(0.95);
+  }
 }
 
 /* ============ Right ============ */
@@ -485,8 +516,12 @@ $primary-500: $teal-500;
   cursor: pointer;
   transition: background-color 0.18s, transform 0.12s;
 
-  &:hover { background: $neutral-50; }
-  &:active { transform: scale(0.95); }
+  &:hover {
+    background: $neutral-50;
+  }
+  &:active {
+    transform: scale(0.95);
+  }
 
   &--logged_in {
     /* bg-green-50/20 border-green-200 text-green-700 */
@@ -525,13 +560,24 @@ $primary-500: $teal-500;
     background: $green-500;
     animation: csb-pulse-dot 1.5s ease-in-out infinite;
   }
-  &--error { background: $red-500; }
-  &--logged_out { background: $neutral-300; }
+  &--error {
+    background: $red-500;
+  }
+  &--logged_out {
+    background: $neutral-300;
+  }
 }
 
 @keyframes csb-pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.55; transform: scale(0.9); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
 }
 
 /* w-2.5 h-2.5 opacity-40 group-hover:opacity-100 */
@@ -577,18 +623,27 @@ $primary-500: $teal-500;
   height: 10px;
 }
 
-.csb-color-red { color: $red-500; }
+.csb-color-red {
+  color: $red-500;
+}
 .csb-pulse {
   animation: csb-pulse-icon 1.5s ease-in-out infinite;
 }
 @keyframes csb-pulse-icon {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 .csb-spin {
   animation: csb-spin-anim 1s linear infinite;
 }
 @keyframes csb-spin-anim {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

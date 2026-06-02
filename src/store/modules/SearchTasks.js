@@ -1094,10 +1094,15 @@ const actions = {
       (data?.channels || []).map((c) => `${c.channelSubType}-${c.businessChannel}`).join(",")
     );
     if (!data?.taskId) {
+      // 业务失败（success:'fail'）时 resp.data 为 null，errorCode/errorMessage 在外层 envelope（resp）上；
+      // 优先用后端返回的真实错误消息（如"active search task queue limit exceeded: 20"），
+      // 让 IndexPage notify 能把准确原因告诉用户，而不是泛泛的"返回缺少 taskId"。
+      const apiErrorCode = resp?.errorCode || data?.errorCode;
+      const apiErrorMessage = resp?.errorMessage || data?.errorMessage;
       return {
         ok: false,
-        errorCode: "BAD_RESPONSE",
-        message: "createSearchTask 返回缺少 taskId"
+        errorCode: apiErrorCode || "BAD_RESPONSE",
+        message: apiErrorMessage || "createSearchTask 返回缺少 taskId"
       };
     }
 

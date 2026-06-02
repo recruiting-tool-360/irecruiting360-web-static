@@ -2,7 +2,7 @@
   <q-toolbar>
     <!-- logo -->
     <div class="cursor-pointer" @click.stop="navigateToHomepage">
-      <img class="q-mt-none" :src="'/logo/logo.svg'">
+      <img class="q-mt-none" :src="'/logo/logo.svg'" />
     </div>
 
     <!-- 标题 -->
@@ -12,26 +12,29 @@
 
     <!--  右侧按钮列表  -->
     <!-- 下载插件（客户端模式下隐藏） -->
-    <q-btn v-if="!isClient" flat round :size="iconSize" icon="extension" @click="togglePluginDownloadDialog">
-      <q-tooltip>
-        下载插件
-      </q-tooltip>
+    <q-btn
+      v-if="!isClient"
+      flat
+      round
+      :size="iconSize"
+      icon="extension"
+      @click="togglePluginDownloadDialog"
+    >
+      <q-tooltip> 下载插件 </q-tooltip>
     </q-btn>
     <!-- 操作指南 -->
     <q-btn flat round :size="iconSize" icon="help_outline" @click="navigateToYuQue">
-      <q-tooltip>
-        操作指南
-      </q-tooltip>
+      <q-tooltip> 操作指南 </q-tooltip>
     </q-btn>
     <!-- 联系我们 -->
     <q-btn flat round :size="iconSize" icon="support_agent">
       <q-tooltip>联系我们</q-tooltip>
       <q-menu fit anchor="bottom middle" self="top middle" :offset="[0, 10]">
-          <q-card>
-            <q-avatar size="120px">
-              <img class="q-ml-sm" :src="'/index/header/top/vChat.png'" />
-            </q-avatar>
-          </q-card>
+        <q-card>
+          <q-avatar size="120px">
+            <img class="q-ml-sm" :src="'/index/header/top/vChat.png'" />
+          </q-avatar>
+        </q-card>
       </q-menu>
     </q-btn>
     <!-- 颜色选择器 -->
@@ -40,7 +43,7 @@
       <q-menu :offset="[0, 10]">
         <q-color @change="updateThemeColor" />
         <div class="q-pa-sm flex justify-center">
-          <q-btn flat label="还原默认颜色" style="color:#1F7CFFFF" @click="resetThemeColor" />
+          <q-btn flat label="还原默认颜色" style="color: #1f7cffff" @click="resetThemeColor" />
         </div>
       </q-menu>
     </q-btn>
@@ -60,11 +63,11 @@
           <q-separator />
           <div class="row items-center no-wrap bg-primary q-pa-md">
             <q-avatar size="32px" color="white" text-color="primary">
-              {{ userInfo?.username?.charAt(0)?.toUpperCase() || '?' }}
+              {{ userInfo?.username?.charAt(0)?.toUpperCase() || "?" }}
             </q-avatar>
             <div class="q-ml-md text-center">
-              <div class="text-weight-bold text-grey-11">{{ userInfo?.username || '未登录' }}</div>
-              <div class="text-grey-11 text-center">{{ userInfo?.role || '普通用户' }}</div>
+              <div class="text-weight-bold text-grey-11">{{ userInfo?.username || "未登录" }}</div>
+              <div class="text-grey-11 text-center">{{ userInfo?.role || "普通用户" }}</div>
             </div>
           </div>
         </q-card>
@@ -76,17 +79,17 @@
   </q-toolbar>
 </template>
 <script setup>
-import {computed, onMounted, ref} from 'vue'
-  // 引入Quasar提供的颜色API
-import { colors } from 'quasar'
-    // 需要从useQuasar引入$q对象
-import { useQuasar } from 'quasar'
-import {useStore} from "vuex";
+import { computed, onMounted, ref } from "vue";
+// 引入Quasar提供的颜色API
+import { colors } from "quasar";
+// 需要从useQuasar引入$q对象
+import { useQuasar } from "quasar";
+import { useStore } from "vuex";
 import Cookies from "js-cookie";
-import {hexToRgb} from "src/util/index";
-import {userlogout} from "src/api/user/UserApi";
+import { hexToRgb } from "src/util/index";
+import { userlogout } from "src/api/user/UserApi";
 import notify from "src/util/notify";
-import PluginDownloadDialog from 'src/components/plugins/PluginDownloadDialog.vue';
+import PluginDownloadDialog from "src/components/plugins/PluginDownloadDialog.vue";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { redirectToLogin } from "src/util/redirectToLogin";
 
@@ -96,69 +99,64 @@ const isClient = isElectronClient();
 const store = useStore();
 
 // 引入Quasar提供的颜色API
-const $q = useQuasar()
+const $q = useQuasar();
 // 图标大小
-const iconSize = ref("12px")
+const iconSize = ref("12px");
 //获取主题色
 const userBaseColor = ref(store.getters.getUserColor);
 //用户信息
-const userInfo = computed(() => store.getters.getUserInfo)
+const userInfo = computed(() => store.getters.getUserInfo);
 // 控制插件下载对话框显示
 const togglePluginDownloadDialog = () => {
-  store.commit('togglePluginDownloadDialog');
+  store.commit("togglePluginDownloadDialog");
 };
 
 // 跳转到语雀操作指南
 const navigateToYuQue = () => {
   const url = "https://ihr360.yuque.com/ihr360/tla84c/pb6p7077n9y6bngn";
-  window.open(url, '_blank');
-}
+  window.open(url, "_blank");
+};
 
 // 跳转到官网首页
 const navigateToHomepage = () => {
   const url = "https://ihire365.com/";
-  window.open(url, '_blank');
-}
+  window.open(url, "_blank");
+};
 
 // 更新主题色
 const updateThemeColor = (color) => {
-  store.commit('setUserColor', color)
-  document.documentElement.style.setProperty('--q-primary', color)
+  store.commit("setUserColor", color);
+  document.documentElement.style.setProperty("--q-primary", color);
   // 将HEX转换为RGB并更新CSS变量
   const rgb = hexToRgb(color);
   if (rgb) {
-    document.documentElement.style.setProperty(
-      '--q-primary-rgb',
-      `${rgb.r}, ${rgb.g}, ${rgb.b}`
-    );
+    document.documentElement.style.setProperty("--q-primary-rgb", `${rgb.r}, ${rgb.g}, ${rgb.b}`);
   }
-}
+};
 // 还原默认颜色
 const resetThemeColor = () => {
-  updateThemeColor('#1F7CFFFF')
-}
+  updateThemeColor("#1F7CFFFF");
+};
 
 const logout = async () => {
   try {
     await userlogout();
-    Cookies.remove('satoken', {path: '/'});
-    store.commit('changeUserInfo', null);
+    Cookies.remove("satoken", { path: "/" });
+    store.commit("changeUserInfo", null);
     // store.commit('clearSearchConditionId');
-    notify.success('退出登录成功');
+    notify.success("退出登录成功");
     // 客户端模式拦截跳转 → 弹 IhrAuthModal；浏览器模式照旧跳 /login
-    redirectToLogin({ reason: 'user_manual_logout_header' });
+    redirectToLogin({ reason: "user_manual_logout_header" });
   } catch (e) {
     console.log(e);
-    notify.error('退出登录失败，请重试');
+    notify.error("退出登录失败，请重试");
   }
-}
+};
 
 //页面设置主题颜色
 onMounted(() => {
-  updateThemeColor(userBaseColor.value)
-})
+  updateThemeColor(userBaseColor.value);
+});
 </script>
 
-<style scoped>
-
-</style>
+<style scoped></style>
