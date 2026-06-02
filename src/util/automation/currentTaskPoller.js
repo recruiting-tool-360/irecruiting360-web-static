@@ -8,9 +8,12 @@
  *   说明本客户端这次没轮到（可能在等工作时间窗 OUT_OF_WORK_PERIOD，或前面有别 client 在跑）。
  *   不开 poller 的话用户得手动刷新页面才能拿到新 task。
  *
- * 工作机制：每 10s 调 /search/task/current；
- *   - 拿到 task → dispatch('SearchTasks/resumeFromCurrent') → 内部 enqueue + processQueue 触发执行 → poller stop
- *   - 仍为空 → 继续等
+ * 工作机制：每 10s 一个 tick：
+ *   1. 先 dispatch('SearchTasks/fetchTaskQueue') 刷新后端排队信息（state.taskQueue），
+ *      让 LeftMenu 的"预计开始/结束时间"、队列位置等随轮询保持最新（不用等用户手动刷新）
+ *   2. 再调 /search/task/current：
+ *      - 拿到 task → dispatch('SearchTasks/resumeFromCurrent') → 内部 enqueue + processQueue 触发执行 → poller stop
+ *      - 仍为空 → 继续等
  *   - 检测到 state.runningTaskId / state.queue 已经有别的来源触发了任务 → 也 stop（避免冗余轮询）
  *   - 总轮询上限 maxTicks（默认 360 次 ≈ 60 分钟）兜底防止 forever loop
  *
@@ -145,6 +148,18 @@ class CurrentTaskPoller {
       }
     } catch (e) {
       console.warn("[CurrentTaskPoller] 读 state 异常（继续轮询）:", e?.message || e);
+    }
+
+    // 每 tick 顺带刷新后端排队信息（state.taskQueue）——让 LeftMenu 的"预计开始/结束时间"、
+    // 队列位置随轮询保持最新，不用等用户手动刷新页面。
+    // 注意：fetchTaskQueue 内部可能再调 poller.start()，但 start() 幂等（timer 已存在直接跳过），安全。
+    try {
+      await this._store.dispatch("SearchTasks/fetchTaskQueue");
+    } catch (e) {
+      console.warn(
+        "[CurrentTaskPoller] tick " + this.tickCount + " 刷新 queue 异常（继续轮询 current）:",
+        e?.message || e
+      );
     }
 
     // 主流程：调 current
