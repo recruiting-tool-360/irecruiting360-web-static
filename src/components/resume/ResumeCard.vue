@@ -927,14 +927,21 @@ const scheduleInterview = () => {
 
 //处理已读
 const handleIsReadData = async (resume) => {
+  // ★ 已读标记如果已是已读就不重复调；否则乐观置已读（直接改当前展示对象，
+  //   兼容 runtime(ALL.data) / viewing(ViewingResults bucket) 两种来源 —— 之前只改 ALL.data，
+  //   查看结果列表（viewing bucket）里点开后「已读标记」不显示）
+  if (resume && resume.isRead) return true;
   try {
-    let {data} = await markResumeBlindReadStatus([resume.id], true);
+    await markResumeBlindReadStatus([resume.id], true);
   } catch (error) {
     console.error('标记简历已读状态失败:', error);
     return false;
   }
 
-  // 更新渠道聚合中的对应数据
+  // 直接改当前展示的 resume 对象（无论它来自哪个 bucket，都是模板渲染的同一个对象）
+  if (resume) resume.isRead = 1;
+
+  // 同步更新渠道聚合 ALL.data 里的对应数据（保证切 tab / 重渲染仍是已读）
   if (allChannelStatus.value['ALL'] && allChannelStatus.value['ALL'].data) {
     const allDataIndex = allChannelStatus.value['ALL'].data.findIndex(item => item.id === resume.id);
     if (allDataIndex !== -1) {

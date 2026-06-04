@@ -667,6 +667,25 @@ async function tryFetchAccessToken() {
   }
 }
 
+/**
+ * 「打开客户端」统一入口：**先调 client/launch 预校验，成功才执行唤起（url scheme / deep link）**。
+ * 直接复用已有的 tryFetchAccessToken（它就是经父页代调 client/launch 换 accessToken），
+ * 不再单独写 request-client-launch（避免重复调 client/launch）。
+ *   - 拿到 token（client/launch 成功）→ 把 token 透传给 launchWithPayload 唤起（不二次调）
+ *   - 拿不到 token（失败 / 通道异常）→ 弹错误，不唤起（用户要求：失败不打开）
+ */
+async function openClient(payload) {
+  isLaunching.value = true;
+  errorMsg.value = "";
+  const tokenInfo = await tryFetchAccessToken();
+  if (!tokenInfo) {
+    isLaunching.value = false;
+    errorMsg.value = "客户端启动校验失败（client/launch 未成功），请稍后重试";
+    return;
+  }
+  await launchWithPayload(payload, tokenInfo);
+}
+
 // ============ 唤起逻辑（后台静默执行） ============
 
 /**
@@ -676,7 +695,7 @@ async function tryFetchAccessToken() {
  *   • 成功：客户端窗口拿到焦点，本页焦点切走，用户看不到
  *   • 失败：errorMsg 显示提示，按钮恢复
  */
-async function launchWithPayload(payload) {
+async function launchWithPayload(payload, prefetchedTokenInfo = null) {
   if (payload && !payload.ssoConfig) {
     state.value = "intro";
     errorMsg.value = "启动数据不完整（缺少 ssoConfig），请刷新工作台后重试。";
@@ -700,7 +719,9 @@ async function launchWithPayload(payload) {
   // 后续 ihrBridge 调用会得到 errorCode='NOT_LOGGED_IN' → 弹 IhrAuthModal 引导用户
   // 回到招聘工作台触发新一轮 client/launch。
   const manageOrigin = detectIhrManageOrigin();
-  const tokenInfo = await tryFetchAccessToken();
+  // 复用预校验（openClient）已经拿到的 token，避免再发一次 client/launch（重复调 + 多一次
+  // 异步往返会让后面的 deep link anchor.click() 失去用户手势 → Chrome 拦截协议唤起 → 点了不起）
+  const tokenInfo = prefetchedTokenInfo || (await tryFetchAccessToken());
 
   const dlPayload = payload
     ? {
@@ -756,9 +777,9 @@ async function launchWithPayload(payload) {
   }
 }
 
-// intro 状态下点"打开 i快招 客户端"
+// intro 状态下点"打开 i快招 客户端" —— 先 client/launch 预校验，通过才唤起
 async function handleManualOpen() {
-  await launchWithPayload(initPayload.value);
+  await openClient(initPayload.value);
 }
 
 /**
@@ -915,6 +936,9 @@ onMounted(() => {
       return Promise.resolve(false);
     }
     initPayload.value = data;
+    // 启动时由父页 init 自动唤起：**不做 client/launch 预校验**（launchWithPayload 内部已经
+    // 经父页换 token = 调过一次 client/launch；这里再 openClient 会重复调，且此刻消息通道可能还没就绪
+    // → "Connection is closed"）。预校验只在用户**手动点「打开客户端」**时走 openClient。
     void launchWithPayload(data);
     return Promise.resolve(true);
   });

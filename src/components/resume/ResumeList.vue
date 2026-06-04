@@ -496,6 +496,11 @@ const filteredResumes = computed(() => {
     result = result.filter((resume) => resume.isRead === readStatus);
   }
 
+  // ★ 顶部「未读」筛选（getUnreadCheckBoxV）：勾选时只显示未读（isRead 为假值）
+  if (store.getters.getUnreadCheckBoxV) {
+    result = result.filter((resume) => !resume.isRead);
+  }
+
   // 应用排序
   if (props.aiSort) {
     // 当aiSort为true时，优先使用score排序

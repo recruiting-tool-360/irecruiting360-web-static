@@ -753,7 +753,12 @@ const lastCompletionCardId = computed(() => {
  * 该 AI 职位画像卡（AI_SEARCH 消息）后面是否已经有"结果卡片"（任务状态 / 完成卡 / 重试配置 /
  * 执行日志）。有 → 说明这张画像卡已经发起过搜索，按钮应禁用，避免对旧画像卡重复发起。
  */
-const RESULT_CARD_TYPES = ["task_status", "task_completion_card", "retry_config_card", "execution_log"];
+const RESULT_CARD_TYPES = [
+  "task_status",
+  "task_completion_card",
+  "retry_config_card",
+  "execution_log"
+];
 function hasResultCardAfter(index) {
   const list = displayMessages.value;
   for (let i = index + 1; i < list.length; i++) {
@@ -1331,7 +1336,14 @@ function startContinueSearch() {
   }
   const latest = store.getters["SearchTasks/getLatestTaskByChat"]?.(chatIdForSearch);
   const originalTaskId = latest?.taskId || null;
-  const selectedModules = { search: true, recommend: false };
+  // ★ 按被增量的原任务渠道组成决定要插哪些状态卡：原任务有推荐渠道 → 也要插推荐状态卡
+  //   （否则 current 回来的 CONTINUE 任务带 RECOMMEND，但聊天里只有搜索卡、没有推荐卡）
+  const chans = Array.isArray(latest?.channels) ? latest.channels : [];
+  const selectedModules = {
+    search: chans.some((c) => c.businessChannel === "SEARCH"),
+    recommend: chans.some((c) => c.businessChannel === "RECOMMEND")
+  };
+  if (!selectedModules.search && !selectedModules.recommend) selectedModules.search = true;
   const placeholderMsgId = pushTaskStatusPlaceholdersByModules(chatIdForSearch, selectedModules);
   emit("aggregate-search", {
     chatId: chatIdForSearch,
@@ -1446,10 +1458,32 @@ function pushTaskStatusPlaceholder(chatId, kind = "all") {
 }
 
 /**
+ * 创建新任务前：移除该 chat 旧的**进度状态卡**（task_status / 旧 execution_log）。
+ * 用户要求：重新搜索 / 加载更多增量搜索时，旧的进度状态卡删掉、新状态卡插到最新位置。
+ * ⚠️ **保留** task_completion_card（结果/完成卡，带「查看结果」）和 retry_config_card —— 这些是
+ *    历史结果，之前误删了导致"最后一条结果卡片被干没了"。
+ */
+function _removeOldTaskCardsForChat(chatId) {
+  if (!chatId) return;
+  const TASK_CARD_TYPES = new Set(["task_status", "execution_log"]);
+  internalMessages.value = internalMessages.value.filter(
+    (m) => !(m && TASK_CARD_TYPES.has(m.type) && m.chatId === chatId)
+  );
+  // 旧占位已被移除 → 清掉该 chat 的占位绑定记录，避免悬挂
+  if (pendingTaskBindingsByChat.value[chatId]) {
+    const next = { ...pendingTaskBindingsByChat.value };
+    delete next[chatId];
+    pendingTaskBindingsByChat.value = next;
+  }
+}
+
+/**
  * 根据 selectedModules push 一条或两条 task_status 占位（让两个流程是独立的气泡）。
  * 返回最后一张占位的 msgId（向后兼容旧 callers 取一个 placeholderMsgId 的用法）。
  */
 function pushTaskStatusPlaceholdersByModules(chatId, selectedModules) {
+  // 先删旧任务卡，再 push 新占位 → 新状态卡始终在最新位置，历史卡不堆叠
+  _removeOldTaskCardsForChat(chatId);
   const sel = selectedModules || { search: true, recommend: false };
   let lastId = "";
   if (sel.search) lastId = pushTaskStatusPlaceholder(chatId, "search");
@@ -1697,11 +1731,6 @@ function ensureTaskStatusCardForCurrentChat() {
     );
   }
 
-  const alreadyExists = internalMessages.value.some(
-    (m) => m.type === "task_status" && String(m.taskId) === String(latestTask.taskId)
-  );
-  if (alreadyExists) return;
-
   // 按 task 实际的 channels 推 search / recommend 两张独立气泡（跟新建任务一致）
   const channels = Array.isArray(latestTask.channels) ? latestTask.channels : [];
   const hasSearch = channels.some((c) => c.businessChannel === "SEARCH");
@@ -1711,7 +1740,17 @@ function ensureTaskStatusCardForCurrentChat() {
   if (hasRecommend) kinds.push("recommend");
   if (kinds.length === 0) kinds.push("all");
 
+  let pushedAny = false;
   for (const kind of kinds) {
+    // ★ 按 kind 单独判重：只有同 taskId + 同 kind 的卡已存在才跳过。
+    //   修复"任务带搜索+推荐，但聊天里只有搜索卡时，推荐卡因整体判重被跳过、永远不出现"。
+    const exists = internalMessages.value.some(
+      (m) =>
+        m.type === "task_status" &&
+        String(m.taskId) === String(latestTask.taskId) &&
+        (m.kind || "all") === kind
+    );
+    if (exists) continue;
     internalMessages.value.push({
       id: "task-status-restored-" + latestTask.taskId + "-" + kind,
       type: "task_status",
@@ -1721,7 +1760,9 @@ function ensureTaskStatusCardForCurrentChat() {
       time: new Date().toTimeString().slice(0, 8),
       user: ""
     });
+    pushedAny = true;
   }
+  if (!pushedAny) return;
   nextTick(() => {
     try {
       scrollChatToBottom();
