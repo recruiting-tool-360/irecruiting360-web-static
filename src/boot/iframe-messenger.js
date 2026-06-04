@@ -156,8 +156,12 @@ export default boot(({ app }) => {
 
   // 挂载到全局
   app.config.globalProperties.$iframeMessenger = iframeMessenger;
-  // 页面卸载前清理
-  window.addEventListener("beforeunload", () => {
-    iframeMessenger.destroy();
-  });
+
+  // 注意：**不要**在 beforeunload 里 destroy()。
+  // 唤起客户端用的是 deep link（<a target=_self href="ikuaizhao://...">.click()），
+  // 这个协议跳转会触发页面的 beforeunload，但操作系统接管 scheme 后页面**并不会真的卸载**。
+  // 一旦此时 destroy()，会移除 window 'message' 监听 + 清空 handler + isConnected=false，
+  // messenger 就此报废：后续 request-launch-token 要么抛 "Connection is closed"，
+  // 要么（重连后）发得出去却收不到回包 → 15s 超时（父页还会打印 "No handler ... disconnect"）。
+  // 真正的页面卸载会整体销毁 JS 上下文，无需手动清理，所以这里直接不挂 beforeunload。
 });

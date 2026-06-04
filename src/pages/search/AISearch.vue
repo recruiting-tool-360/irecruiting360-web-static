@@ -1592,11 +1592,11 @@ const env = process.env.NODE_ENV;
 const showQueueMonitor = computed(() => store.getters.getShowQueueMonitor && !isElectronClient());
 
 // 处理未读状态变化
+// ★ 只做本地筛选：onlyShowUnread 的 v-model 已经把状态写进 store(getUnreadCheckBoxV)，
+//   ResumeList.filteredResumes 会按它实时过滤显示。**不再触发 executeSearch 重新搜索** ——
+//   否则在「查看结果」等无登录渠道场景会误报「没有可查询渠道」，而其实列表已筛选好。
 const handleUnreadChange = (value) => {
-  console.log("未读状态变更为:", value, store.getters.getUnreadCheckBoxV);
-  // store.commit('changeUnreadCheckBoxV', value);
-  // console.log(searchState.value)
-  executeSearch(searchState.value);
+  console.log("未读筛选切换:", value, "→ 仅本地过滤，不重新搜索");
 };
 
 // 添加强制更新渠道视图的辅助方法

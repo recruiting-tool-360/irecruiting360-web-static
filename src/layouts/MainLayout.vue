@@ -288,8 +288,27 @@ iframeMsg.on("ihrSuccessIds", async (data, context) => {
     if (success === "success") {
       update(params);
     }
+
+    // ★ 成功/失败提示（原来无任何反馈）。按"父页操作结果"统计：
+    //   successResumeIds=成功，failRepeat/failOther=失败。
+    const actionName = data?.type === "ASSIGN_POSITIONS" ? "分配职位" : "加入人才库";
+    const okCount = (data?.successResumeIds || []).length;
+    const failCount =
+      (data?.failRepeatResumeIds || []).length + (data?.failOtherResumeIds || []).length;
+    if (success !== "success") {
+      // 记录回写接口失败（如后端"批量插入简历导入记录失败"）
+      notify.error(`${actionName}失败，请稍后重试`);
+    } else if (okCount > 0 && failCount === 0) {
+      notify.success(`${actionName}成功`);
+    } else if (okCount > 0 && failCount > 0) {
+      notify.warning(`${actionName}部分成功：成功 ${okCount} 份，失败 ${failCount} 份`);
+    } else if (failCount > 0) {
+      notify.error(`${actionName}失败`);
+    }
   } catch (error) {
     console.error("更新简历状态失败:", error);
+    const actionName = data?.type === "ASSIGN_POSITIONS" ? "分配职位" : "加入人才库";
+    notify.error(`${actionName}失败，请稍后重试`);
   }
   return Promise.resolve(true);
 });

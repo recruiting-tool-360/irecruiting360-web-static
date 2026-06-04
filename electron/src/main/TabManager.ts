@@ -505,7 +505,12 @@ class TabManager {
       this.ensureBossMonitorTab()
       return
     }
-    if (this.isBossTabVisible()) return // 登录/推荐进行中 → 不打断
+    // 不打断正在使用 BOSS tab 的业务：
+    //   - 可见（active/background，登录/推荐切到前台）
+    //   - 被业务锁定（locked，推荐任务跑中 setLocked(true)）——即使 bgRenderId 被别的 tab 顶掉、
+    //     isBossTabVisible() 变 false，只要 locked 就说明推荐任务还在跑，绝不能 reload 回职位管理页
+    //     （否则推荐牛人任务被异常中断）
+    if (this.isBossTabVisible() || tab.locked) return
     void tab.view.webContents.loadURL(TabManager.BOSS_MONITOR_URL)
   }
 
