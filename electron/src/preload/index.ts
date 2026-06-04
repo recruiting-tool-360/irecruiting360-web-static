@@ -68,6 +68,60 @@ const recruitBridge = {
 }
 
 /**
+ * BOSS 常驻登录态监视：main 开一个常驻隐藏窗口加载 BOSS「我的职位列表」页，
+ * 用导航 URL 判定登录态，并在登录时静默抓职位列表数据。
+ *
+ * SPA（MainLayout）在客户端模式 + BOSS 渠道启用时调 start()，卸载/关闭渠道时 stop()。
+ */
+const bossWatcher = {
+  /** 启动常驻监视（幂等） */
+  start: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('boss:startLoginWatcher'),
+  /** 停止常驻监视 */
+  stop: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('boss:stopLoginWatcher'),
+
+  /**
+   * 监听 BOSS 登录态变化（失效→已登录 / 已登录→失效）。
+   * @returns 取消订阅函数
+   */
+  onLoginStatus: (callback: (data: { login: boolean; reason?: string }) => void): (() => void) => {
+    const handler = (_e: unknown, data: { login: boolean; reason?: string }): void => callback(data)
+    ipcRenderer.on('boss:loginStatusChanged', handler)
+    return () => ipcRenderer.removeListener('boss:loginStatusChanged', handler)
+  },
+
+  /**
+   * 监听常驻页抓到的「我的职位列表」数据更新。
+   * @returns 取消订阅函数
+   */
+  onJobList: (
+    callback: (data: { ok: boolean; status?: number; url?: string; body?: unknown }) => void
+  ): (() => void) => {
+    const handler = (
+      _e: unknown,
+      data: { ok: boolean; status?: number; url?: string; body?: unknown }
+    ): void => callback(data)
+    ipcRenderer.on('boss:jobListUpdated', handler)
+    return () => ipcRenderer.removeListener('boss:jobListUpdated', handler)
+  }
+}
+
+/**
+ * 客户端窗口级事件（区别于网页 window 事件）。
+ */
+const appWindow = {
+  /**
+   * 监听客户端主窗口获得焦点（app 回到前台）。
+   * 比网页 window 'focus' 更可靠：即使当前停在 BOSS tab，app 一聚焦也会触发。
+   * @returns 取消订阅函数
+   */
+  onFocus: (callback: () => void): (() => void) => {
+    const handler = (): void => callback()
+    ipcRenderer.on('app:window-focus', handler)
+    return () => ipcRenderer.removeListener('app:window-focus', handler)
+  }
+}
+
+/**
  * Deep link 接力（i 人事 → ikuaizhao://sso?d=xxx → 客户端唤起 → 取出 SSO payload 完成登录）
  *
  * SPA 端使用时机：
@@ -731,6 +785,8 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', {
       recruitBridge,
+      bossWatcher,
+      appWindow,
       handover,
       tabs,
       ihrBridge,
@@ -747,7 +803,17 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
   // @ts-ignore (define in dts)
-  window.api = { recruitBridge, handover, tabs, ihrBridge, browserBridge, automation, appUpdater }
+  window.api = {
+    recruitBridge,
+    bossWatcher,
+    appWindow,
+    handover,
+    tabs,
+    ihrBridge,
+    browserBridge,
+    automation,
+    appUpdater
+  }
   // @ts-ignore (define in dts)
   window.__IKUAIZHAO_NATIVE__ = native
 }

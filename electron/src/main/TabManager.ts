@@ -136,6 +136,36 @@ class TabManager {
    */
   private bgRenderId: string | null = null
 
+  /**
+   * 「是否存在可见 BOSS tab」变化的监听器（bossLoginWatcher 用）。
+   *
+   * BOSS 同账号只允许一个活跃会话上下文：登录 / 推荐牛人等会打开可见 BOSS tab 时，
+   * 常驻登录监视的隐藏窗口必须关掉；可见 BOSS tab 都关了再把隐藏窗口建回来继续监听。
+   * 这里只统计**可见**（非 hidden）BOSS tab —— tabFetcher 的瞬时 hidden 抓取 tab 不算。
+   */
+  private bossTabPresenceListener: ((hasVisibleBoss: boolean) => void) | null = null
+  private lastBossTabPresent = false
+
+  /**
+   * ★ BOSS 全局唯一 webContents（单例 tab）。
+   *
+   * BOSS 同账号只允许一个会话上下文：登录 / 推荐牛人 / 常驻登录监视都复用这同一个 tab（webContents）。
+   *   - 默认隐藏（不在 TabBar 显示），加载「职位管理」页做登录态监视；
+   *   - 登录 / 推荐牛人时把它切成可见（不新开 tab）；
+   *   - 用户关掉可见 BOSS tab → 不销毁，而是退回隐藏 + 回到职位管理页继续监视（park）；
+   *   - BOSS 渠道被禁用 → destroyBossTab() 真正销毁。
+   *
+   * 注意：tabFetcher 的瞬时 hidden 抓取 tab 不走单例（它要导航到 list-new 抓数据，会干扰监视 URL），
+   * 仍是独立的临时隐藏 tab。
+   */
+  private bossTabId: string | null = null
+
+  /** BOSS 单例 tab 的 URL 变化监听（bossLoginWatcher 用来判登录态） */
+  private bossUrlListener: ((url: string) => void) | null = null
+
+  /** BOSS 登录态监视的默认页（职位管理 shell 页） */
+  private static readonly BOSS_MONITOR_URL = 'https://www.zhipin.com/web/chat/job/list'
+
   // ----- 生命周期 -----
 
   setMainWindow(win: BrowserWindow): void {
@@ -210,11 +240,15 @@ class TabManager {
   ): string {
     if (!this.mainWindow) throw new Error('TabManager: mainWindow not set')
     const key = (channel || '').toLowerCase()
-    const partition = SITE_PARTITION[key] ?? `persist:ihr360-site-${key}`
-    const title = SITE_TITLE[key] ?? (channel || '新标签')
     const isHidden = !!opts?.hidden
     // background：tab 在 tab 栏可见 + 真实渲染（自动化能跑），但**不抢焦点**，active 仍停在 home
     const isBackground = !!opts?.background && !isHidden
+
+    // 0) ★ BOSS 单例：非隐藏的 BOSS 打开（登录 / 推荐牛人）一律复用同一个 webContents。
+    //    （隐藏抓取 tab 不走这里 —— 见 bossTabId 注释）
+    if (key === 'boss' && !isHidden) {
+      return this.openBossSingleton(url, isBackground ? 'background' : 'active')
+    }
 
     // 1) 已有 tab 的 URL 完全相同 → 复用，不新开
     //    hidden 模式不复用现有可见 tab（否则会把用户当前正在浏览的 tab 偷偷变成隐藏 tab）
@@ -258,6 +292,23 @@ class TabManager {
       }
     }
     // 2) URL 不同 → 新开 tab（即使同 channel 已经有其它 tab）
+    return this.spawnSiteTab(key, url, { hidden: isHidden, background: isBackground })
+  }
+
+  /**
+   * 新建一个招聘站点 tab（WebContentsView）。openOrActivateSiteTab 的"新开"分支 +
+   * BOSS 单例首建都复用本方法。返回 tabId。
+   */
+  private spawnSiteTab(
+    key: string,
+    url: string,
+    opts: { hidden: boolean; background: boolean }
+  ): string {
+    if (!this.mainWindow) throw new Error('TabManager: mainWindow not set')
+    const partition = SITE_PARTITION[key] ?? `persist:ihr360-site-${key}`
+    const title = SITE_TITLE[key] ?? key
+    const isHidden = opts.hidden
+    const isBackground = opts.background && !isHidden
 
     const siteSession = session.fromPartition(partition)
     const view = new WebContentsView({
@@ -330,6 +381,139 @@ class TabManager {
     return id
   }
 
+  // =============== BOSS 单例 tab ===============
+
+  /**
+   * 打开/复用 BOSS 单例 tab（登录 active / 推荐牛人 background）。
+   * 有单例就导航 + 切可见；没有就新建并记为单例。
+   */
+  private openBossSingleton(url: string, mode: 'active' | 'background'): string {
+    const existing = this.bossTabId ? this.tabs.get(this.bossTabId) : null
+    if (existing && !existing.view.webContents.isDestroyed()) {
+      if (url) void existing.view.webContents.loadURL(url)
+      this.setBossTabVisibility(mode)
+      console.log(`[TabManager] BOSS 单例复用 tab=${this.bossTabId} mode=${mode} url=${url}`)
+      return this.bossTabId as string
+    }
+    // 新建单例
+    const id = this.spawnSiteTab('boss', url, {
+      hidden: false,
+      background: mode === 'background'
+    })
+    this.bossTabId = id
+    console.log(`[TabManager] BOSS 单例新建 tab=${id} mode=${mode} url=${url}`)
+    return id
+  }
+
+  /**
+   * 确保 BOSS 监视用单例 tab 存在（隐藏 + 加载职位管理页）。bossLoginWatcher 启动时调。
+   * 已存在则不动（避免打断登录/推荐可见态）；仅当不存在时新建隐藏单例。
+   */
+  ensureBossMonitorTab(): string {
+    const existing = this.bossTabId ? this.tabs.get(this.bossTabId) : null
+    if (existing && !existing.view.webContents.isDestroyed()) return this.bossTabId as string
+    const id = this.spawnSiteTab('boss', TabManager.BOSS_MONITOR_URL, {
+      hidden: true,
+      background: false
+    })
+    this.bossTabId = id
+    console.log(`[TabManager] BOSS 监视单例新建 tab=${id}`)
+    return id
+  }
+
+  /** 设置 BOSS 单例 tab 可见性（active 抢焦点 / background 后台渲染 / hidden 隐藏） */
+  private setBossTabVisibility(mode: 'active' | 'background' | 'hidden'): void {
+    const tab = this.bossTabId ? this.tabs.get(this.bossTabId) : null
+    if (!tab) return
+    if (mode === 'active') {
+      tab.hidden = false
+      this.activate(tab.id)
+    } else if (mode === 'background') {
+      tab.hidden = false
+      this.bgRenderId = tab.id
+      this.updateBounds()
+      this.bringActiveToFront()
+      this.broadcastState()
+    } else {
+      tab.hidden = true
+      if (this.bgRenderId === tab.id) this.bgRenderId = null
+      if (this.activeId === tab.id && this.homeTabId) {
+        this.activate(this.homeTabId)
+      }
+      this.updateBounds()
+      this.broadcastState()
+    }
+  }
+
+  /**
+   * "park" BOSS 单例：退回隐藏 + 回到职位管理页继续监视（用户关掉可见 BOSS tab 时调，不销毁）。
+   */
+  private parkBossTab(): void {
+    const tab = this.bossTabId ? this.tabs.get(this.bossTabId) : null
+    if (!tab || tab.view.webContents.isDestroyed()) return
+    void tab.view.webContents.loadURL(TabManager.BOSS_MONITOR_URL)
+    this.setBossTabVisibility('hidden')
+    console.log('[TabManager] BOSS 单例 park → 隐藏 + 回职位管理页')
+  }
+
+  /** 真正销毁 BOSS 单例 tab（BOSS 渠道被禁用时调） */
+  destroyBossTab(): void {
+    if (!this.bossTabId) return
+    const id = this.bossTabId
+    this.bossTabId = null
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    if (this.bgRenderId === id) this.bgRenderId = null
+    const wasActive = this.activeId === id
+    try {
+      this.mainWindow?.contentView.removeChildView(tab.view)
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
+    } catch {
+      /* ignore */
+    }
+    this.tabs.delete(id)
+    this.order = this.order.filter((x) => x !== id)
+    if (wasActive) {
+      const next = this.homeTabId
+      if (next && this.tabs.has(next)) this.activate(next)
+    }
+    this.broadcastState()
+    console.log(`[TabManager] BOSS 单例已销毁 tab=${id}`)
+  }
+
+  /** 当前 BOSS 单例 tab 的 URL（无则空串） */
+  getBossTabUrl(): string {
+    const tab = this.bossTabId ? this.tabs.get(this.bossTabId) : null
+    if (!tab || tab.view.webContents.isDestroyed()) return ''
+    return tab.view.webContents.getURL()
+  }
+
+  /** BOSS 单例当前是否可见（active / background） —— 可见时不做监视 reload，避免打断登录/推荐 */
+  private isBossTabVisible(): boolean {
+    if (!this.bossTabId) return false
+    return this.activeId === this.bossTabId || this.bgRenderId === this.bossTabId
+  }
+
+  /** 监视用：隐藏且空闲时 reload 职位管理页（让站点重新鉴权 → 失效会跳登录页） */
+  reloadBossMonitor(): void {
+    const tab = this.bossTabId ? this.tabs.get(this.bossTabId) : null
+    if (!tab || tab.view.webContents.isDestroyed()) {
+      this.ensureBossMonitorTab()
+      return
+    }
+    if (this.isBossTabVisible()) return // 登录/推荐进行中 → 不打断
+    void tab.view.webContents.loadURL(TabManager.BOSS_MONITOR_URL)
+  }
+
+  /** 注册 BOSS 单例 URL 变化监听（bossLoginWatcher 判登录态） */
+  setBossUrlListener(cb: ((url: string) => void) | null): void {
+    this.bossUrlListener = cb
+  }
+
   /**
    * 把当前 active 视图重新挂到 contentView 子视图最末（= z-order 最上层），
    * 遮住以真实尺寸渲染的 background tab。
@@ -375,6 +559,13 @@ class TabManager {
     if (tab.locked) {
       console.log(`[TabManager] close 拒绝：tab=${id} 已 locked (业务侧未 setLocked(false))`)
       return false
+    }
+
+    // ★ BOSS 单例不真正销毁：退回隐藏 + 回职位管理页继续监视登录态（登录/推荐结束后用户关 tab）。
+    //   真正销毁只在 BOSS 渠道被禁用时走 destroyBossTab()。
+    if (id === this.bossTabId) {
+      this.parkBossTab()
+      return true
     }
 
     const idx = this.order.indexOf(id)
@@ -633,6 +824,32 @@ class TabManager {
   private broadcastState(): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return
     this.mainWindow.webContents.send('tabs:state', this.getTabs())
+    this.notifyBossTabPresence()
+  }
+
+  /** 注册「可见 BOSS tab 是否存在」变化监听（index.ts 接到 bossLoginWatcher） */
+  setBossTabPresenceListener(cb: (hasVisibleBoss: boolean) => void): void {
+    this.bossTabPresenceListener = cb
+  }
+
+  /** 当前是否存在可见（非 hidden）BOSS tab —— 登录 / 推荐牛人等用户可见的 BOSS 上下文 */
+  hasVisibleBossTab(): boolean {
+    for (const tab of this.tabs.values()) {
+      if (tab.channel === 'boss' && !tab.hidden) return true
+    }
+    return false
+  }
+
+  /** 可见 BOSS tab 存在性变化时通知监听器（只在布尔值翻转时触发） */
+  private notifyBossTabPresence(): void {
+    const has = this.hasVisibleBossTab()
+    if (has === this.lastBossTabPresent) return
+    this.lastBossTabPresent = has
+    try {
+      this.bossTabPresenceListener?.(has)
+    } catch (e) {
+      console.warn('[TabManager] bossTabPresenceListener error:', (e as Error)?.message || e)
+    }
   }
 
   // ----- 内部：listeners -----
@@ -643,6 +860,16 @@ class TabManager {
   private attachViewListeners(tab: InternalTab): void {
     const wc = tab.view.webContents
     const onChange = (): void => this.broadcastState()
+    // BOSS 单例 tab 的 URL 变化额外通知 bossLoginWatcher 判登录态
+    const onBossNav = (): void => {
+      if (tab.id === this.bossTabId && this.bossUrlListener) {
+        try {
+          this.bossUrlListener(wc.getURL())
+        } catch (e) {
+          console.warn('[TabManager] bossUrlListener error:', (e as Error)?.message || e)
+        }
+      }
+    }
     wc.on('page-title-updated', (_e, title) => {
       // 主页 tab 锁定标题（决策 D.a：写死"i快招"）
       if (!tab.pinned) tab.title = title
@@ -650,10 +877,35 @@ class TabManager {
     })
     wc.on('page-favicon-updated', onChange)
     wc.on('did-start-loading', onChange)
-    wc.on('did-stop-loading', onChange)
-    wc.on('did-navigate', onChange)
-    wc.on('did-navigate-in-page', onChange)
+    wc.on('did-stop-loading', () => {
+      onChange()
+      onBossNav()
+    })
+    wc.on('did-navigate', () => {
+      onChange()
+      onBossNav()
+    })
+    wc.on('did-navigate-in-page', () => {
+      onChange()
+      onBossNav()
+    })
     wc.on('did-finish-load', onChange)
+
+    // 招聘站点自动化 tab：屏蔽站点 JS 弹窗（alert/confirm/prompt）。
+    //   背景：BOSS 多 session 互斥保护会在"同账号多处进入"时弹原生 alert
+    //   「您的账号已经登录过了，请勿重复登录」。客户端重启时常驻登录监视 tab + recruitBridge
+    //   hydrate(/web/user) + 职位列表抓取 tab 会几乎同时进入 BOSS（同一账号），触发该弹窗，
+    //   阻塞后台监视/抓取与用户操作（其实 checkAuth 仍是已登录）。这里把站点 tab 的 JS 弹窗
+    //   静默化，避免阻塞。（home 主应用 tab 不屏蔽，保留正常对话框能力。）
+    if (tab.channel && tab.channel !== 'home') {
+      const suppressSiteDialogs = (): void => {
+        wc.executeJavaScript(
+          '(function(){try{window.alert=function(){};window.confirm=function(){return true;};window.prompt=function(){return null;};}catch(e){}})();'
+        ).catch(() => {})
+      }
+      wc.on('dom-ready', suppressSiteDialogs)
+      wc.on('did-navigate', suppressSiteDialogs)
+    }
     // 不监听 'destroyed' 自动清理：
     //   - 加了之后发现 BOSS 推荐 tab 创建过程中会误触发该事件（机制未明，
     //     疑似 Electron 30 的某条内部销毁路径，或与 WebContentsView 重建 wc 有关），

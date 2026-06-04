@@ -259,7 +259,7 @@ const DISPLAY_CHANNELS = [
   {
     storeKey: "JOB51",
     channel: "job51",
-    loginUrl: pluginAllUrls?.JOB51?.loginURL || "https://ehire.51job.com/Revision/login"
+    loginUrl: pluginAllUrls?.JOB51?.mainUrl || "https://ehire.51job.com/Revision/navigate/"
   }
 ];
 

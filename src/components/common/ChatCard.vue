@@ -143,13 +143,17 @@
                     :profile="parseAISearchJD(msg.content)"
                     @copy="handleCopy(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')"
                     @edit="handleEdit(msg)"
+                    @save="(p) => onAiProfileSkillsSave(msg, p)"
                   >
                     <template #action>
                       <AIProfileActionPanel
                         v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
                         :message="msg"
+                        :disabled="hasResultCardAfter(index)"
                         @change="(s) => handleActionPanelChange(msg, s)"
                         @aggregate="() => handleSearch(msg)"
+                        @clear-and-restart="(s) => onAiPanelRetry(msg, 'RESTART', s)"
+                        @keep-and-increment="(s) => onAiPanelRetry(msg, 'CONTINUE', s)"
                         @view-results="emit('view-results')"
                       />
                     </template>
@@ -164,8 +168,11 @@
                   <AIProfileActionPanel
                     v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
                     :message="msg"
+                    :disabled="hasResultCardAfter(index)"
                     @change="(s) => handleActionPanelChange(msg, s)"
                     @aggregate="() => handleSearch(msg)"
+                    @clear-and-restart="(s) => onAiPanelRetry(msg, 'RESTART', s)"
+                    @keep-and-increment="(s) => onAiPanelRetry(msg, 'CONTINUE', s)"
                     @view-results="emit('view-results')"
                   />
                 </div>
@@ -742,6 +749,19 @@ const lastCompletionCardId = computed(() => {
   return null;
 });
 
+/**
+ * 该 AI 职位画像卡（AI_SEARCH 消息）后面是否已经有"结果卡片"（任务状态 / 完成卡 / 重试配置 /
+ * 执行日志）。有 → 说明这张画像卡已经发起过搜索，按钮应禁用，避免对旧画像卡重复发起。
+ */
+const RESULT_CARD_TYPES = ["task_status", "task_completion_card", "retry_config_card", "execution_log"];
+function hasResultCardAfter(index) {
+  const list = displayMessages.value;
+  for (let i = index + 1; i < list.length; i++) {
+    if (RESULT_CARD_TYPES.includes(list[i]?.type)) return true;
+  }
+  return false;
+}
+
 // 定义组件属性
 const props = defineProps({
   visible: {
@@ -825,7 +845,8 @@ const emit = defineEmits([
   "add-message", // 添加新消息添加事件
   "message-added", // 添加新消息添加事件
   "chat-reset", // 添加聊天重置事件
-  "open-chat" // 添加打开聊天面板事件
+  "open-chat", // 添加打开聊天面板事件
+  "profile-skills-edit" // AI 职位画像卡「技能关键词」编辑保存 → 同步到搜索条件 searchState
 ]);
 
 // 聊天消息输入
@@ -1146,6 +1167,19 @@ const handleEdit = (msg) => {
   jobSearchFilterRef.value.refreshSearchCondition(currentChatId.value);
 };
 
+/**
+ * AI 职位画像卡「技能关键词」编辑保存：把新的专业技能同步到搜索条件（searchState.criteria
+ * .professional_skills），让后续 saveCondition / 搜索用编辑后的技能。
+ * 透传给 IndexPage 处理（searchState 在 IndexPage，v-model 到 AISearch / JobSearchFilter）。
+ */
+function onAiProfileSkillsSave(msg, payload) {
+  const skills = Array.isArray(payload?.skills) ? payload.skills : [];
+  emit("profile-skills-edit", {
+    chatId: msg?.chatId || props.chatId || currentChatId.value,
+    skills
+  });
+}
+
 // 聚合搜索
 const handleSearch = async (msg) => {
   if (props.embedded) {
@@ -1171,6 +1205,13 @@ const handleSearch = async (msg) => {
 
     // ★ 500ms 防抖：避免连点导致多次 dispatchTaskStore（详见 _isAggregateClickDebounced 注释）
     if (_isAggregateClickDebounced(chatIdForSearch, "INITIAL")) return;
+
+    // ★ 在途任务拦截：已有"占位未绑定 / create 在途"的任务 → 直接跳过，避免多张状态卡 + 多次 create
+    //   （只在真正 execute / 任务建出来时才有一张卡）
+    if (_hasInflightTaskForChat(chatIdForSearch)) {
+      console.log("[ChatCard] handleSearch 跳过：该 chat 已有在途任务（占位未绑定 / 创建中）");
+      return;
+    }
 
     // 提前拦截重复点击：同一职位已有 RUNNING/WAITING/RESTING 任务时直接返回，
     // 不 push 占位卡片，避免出现"正在初始化任务..."永远转圈的状态。
@@ -1215,6 +1256,93 @@ const handleSearch = async (msg) => {
   jobSearchFilterRef.value && jobSearchFilterRef.value.refreshAndSearchFN(currentChatId.value);
 };
 
+/**
+ * 搜索结果页顶部「搜索条件栏」点搜索 → 走任务流程（跟"清空重新搜索"一致：taskType=RESTART），
+ * 而不是旧的直接 executeSearch。由 IndexPage.searchJobList 切回聊天视图后调用。
+ *
+ * - 搜索关键字/条件：handleAggregateSearch → prepareConditionOnly 读 searchState 自动带入
+ *   （searchState 与顶部搜索栏 v-model 双绑，用户改的条件就在里面）。
+ * - 复用占位卡 + 在途去重 + canCreate 拦截，跟「启动聚合搜索 / 清空重新搜索」同一套。
+ * @returns {boolean} 是否成功发起
+ */
+function startSearchFromFilter() {
+  const chatIdForSearch = props.chatId || currentChatId.value;
+  if (!chatIdForSearch) {
+    console.warn("[ChatCard] startSearchFromFilter: 没拿到 chatId");
+    return false;
+  }
+  if (_isAggregateClickDebounced(chatIdForSearch, "RESTART")) return false;
+  if (_hasInflightTaskForChat(chatIdForSearch)) {
+    console.log("[ChatCard] startSearchFromFilter 跳过：该 chat 已有在途任务");
+    return false;
+  }
+  const canCreate = store.getters["SearchTasks/canCreateForChat"];
+  if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
+    $q.notify({
+      message: "该职位已有搜索任务在进行中，请等待完成后再搜索",
+      color: "warning",
+      icon: "warning",
+      position: "top",
+      timeout: 2500
+    });
+    return false;
+  }
+  const selectedModules = { search: true, recommend: false };
+  const placeholderMsgId = pushTaskStatusPlaceholdersByModules(chatIdForSearch, selectedModules);
+  emit("aggregate-search", {
+    chatId: chatIdForSearch,
+    taskType: "RESTART",
+    selectedModules,
+    placeholderMsgId
+  });
+  return true;
+}
+
+/**
+ * 搜索结果页「加载更多」→ 走任务流程的「保留增量搜索」（taskType=CONTINUE），
+ * 而不是旧的直接翻下一页。由各渠道/聚合列表的 loadMore（经 store.chatCardRef）调用。
+ *
+ * - originalTaskId 取本 chat 最新任务（CONTINUE 要挂在原 resultSet 上增量追加）。
+ * - 搜索条件由 handleAggregateSearch → prepareConditionOnly 读 searchState 带入。
+ * - 复用占位卡 + 在途去重 + canCreate 拦截。返回聊天视图由 IndexPage.handleAggregateSearch 统一切。
+ * @returns {boolean} 是否成功发起
+ */
+function startContinueSearch() {
+  const chatIdForSearch = props.chatId || currentChatId.value;
+  if (!chatIdForSearch) {
+    console.warn("[ChatCard] startContinueSearch: 没拿到 chatId");
+    return false;
+  }
+  if (_isAggregateClickDebounced(chatIdForSearch, "CONTINUE")) return false;
+  if (_hasInflightTaskForChat(chatIdForSearch)) {
+    console.log("[ChatCard] startContinueSearch 跳过：该 chat 已有在途任务");
+    return false;
+  }
+  const canCreate = store.getters["SearchTasks/canCreateForChat"];
+  if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
+    $q.notify({
+      message: "该职位已有搜索任务在进行中，请等待完成后再加载更多",
+      color: "warning",
+      icon: "warning",
+      position: "top",
+      timeout: 2500
+    });
+    return false;
+  }
+  const latest = store.getters["SearchTasks/getLatestTaskByChat"]?.(chatIdForSearch);
+  const originalTaskId = latest?.taskId || null;
+  const selectedModules = { search: true, recommend: false };
+  const placeholderMsgId = pushTaskStatusPlaceholdersByModules(chatIdForSearch, selectedModules);
+  emit("aggregate-search", {
+    chatId: chatIdForSearch,
+    taskType: "CONTINUE",
+    originalTaskId,
+    selectedModules,
+    placeholderMsgId
+  });
+  return true;
+}
+
 /* ===== 任务状态卡片：占位 push + watch 回填 + 终态切视图 =====
  * 老 mock pushAndAnimateExecutionLog / mockStartAggregateProgress 已废弃，仅留代码作为对照。
  */
@@ -1222,6 +1350,10 @@ const handleSearch = async (msg) => {
 // 待绑定 taskId 的占位消息（chatId → 占位消息 id）
 // 一个 chat 同时只允许有 1 个 pending 占位（handleSearch 出口已被 SearchTasks/refused 拦截重复点击）
 const pendingTaskBindingsByChat = ref({});
+
+// 「保留增量 / 清空重新」配置卡（RetryConfigCard）点了启动后会乐观锁定（actionExecuted=true）。
+// 记录 chatId → 该卡 msgId，若任务创建失败则把它解锁（恢复输入框 + 按钮），避免卡死在"聚合搜索已启动"。
+const pendingRetryCardByChat = ref({});
 // 已经触发过 view-results 的 taskId 集合，避免一个任务进入终态被多次切视图
 const viewResultsFiredTaskIds = ref(new Set());
 
@@ -1249,6 +1381,24 @@ const viewResultsFiredTaskIds = ref(new Set());
  *   刚刚点过按钮启动它——只有这一次配对成功才算"本会话主动启动"。
  */
 const sessionStartedTaskIds = ref(new Set());
+
+/**
+ * 该 chat 是否已有"在途任务"——已 push 但还没绑定 taskId 的占位，或 create 正在请求中。
+ *
+ * 用途：连续点击「启动聚合搜索 / 清空重新 / 保留增量」时，第一次点击会 push 占位卡 +
+ * 发起 create（→ queue → current → execute）。在这条任务真正建出来（占位被绑定 taskId、
+ * 或任务进 RUNNING 被 canCreateForChat 拦住）之前，后续点击都应**直接跳过**，
+ * 避免出现多张状态卡片 / 多次 create（实际后端只执行一次 execute）。
+ */
+function _hasInflightTaskForChat(chatId) {
+  if (!chatId) return false;
+  // 有未绑定 taskId 的占位（push 了但任务还没建出来）
+  if (pendingTaskBindingsByChat.value[chatId]) return true;
+  // create 接口在途
+  const isPending = store.getters["SearchTasks/isPendingCreate"];
+  if (typeof isPending === "function" && isPending(chatId)) return true;
+  return false;
+}
 
 /**
  * 立即 push 一条占位 task_status 消息，返回消息 id。
@@ -1373,6 +1523,12 @@ watch(
         const next = { ...pendingTaskBindingsByChat.value };
         delete next[chatId];
         pendingTaskBindingsByChat.value = next;
+        // 任务真正建出来 → RetryConfigCard 保持锁定（成功），清掉"待失败解锁"记录
+        if (pendingRetryCardByChat.value[chatId]) {
+          const nr = { ...pendingRetryCardByChat.value };
+          delete nr[chatId];
+          pendingRetryCardByChat.value = nr;
+        }
         // 配对成功 → 标记为"本会话主动启动"，COMPLETED 时才会触发自动切到 results 视图
         sessionStartedTaskIds.value.add(newTask.taskId);
       } else if (anySkipped) {
@@ -1428,19 +1584,52 @@ watch(
       // pendingCreate 从 true → false（create 流程结束）
       const chatId = currentChatId.value || props.chatId;
       if (!chatId) return;
+
+      // ★ 任务创建失败 → 解锁「保留增量 / 清空重新」配置卡：恢复输入框 + 按钮（接口请求完后恢复正常态）
+      //   判定：create 流程结束后，本 chat 没有"刚创建（createdAt 近 10s）"的任务 = 失败
+      const retryMsgId = pendingRetryCardByChat.value[chatId];
+      if (retryMsgId) {
+        const latest = store.getters["SearchTasks/getLatestTaskByChat"]?.(chatId);
+        const createdAt = Number(latest?.createdAt) || 0;
+        const createdFresh = createdAt > 0 && Date.now() - createdAt < 10000;
+        if (!createdFresh) {
+          const card = internalMessages.value.find((m) => m.id === retryMsgId);
+          if (card?.cardData?.actionExecuted) {
+            // 仅解锁配置卡（input 可编辑 + 按钮回"启动聚合搜索"）。
+            // 不弹 toast：创建失败的精确原因已由 IndexPage 用接口 errorMessage 提示过了。
+            card.cardData.actionExecuted = false;
+            console.log("[ChatCard] 任务创建失败 → 解锁 RetryConfigCard", retryMsgId);
+          }
+        }
+        const nr = { ...pendingRetryCardByChat.value };
+        delete nr[chatId];
+        pendingRetryCardByChat.value = nr;
+      }
+
       const pending = pendingTaskBindingsByChat.value[chatId];
       if (!pending) return; // 已经被正常绑定了，不需要处理
-      const msgId = typeof pending === "string" ? pending : pending.id;
-      const target = internalMessages.value.find((m) => m.id === msgId && !m.taskId);
-      if (target) {
-        // 占位还没绑上 taskId → 任务创建失败 → 标记为停止
-        console.log("[ChatCard] pendingCreate 结束但占位未绑定 → 标记失败", msgId);
-        target.isStopped = true;
-        // 清掉 pending 记录
-        const next = { ...pendingTaskBindingsByChat.value };
-        delete next[chatId];
-        pendingTaskBindingsByChat.value = next;
+      // 兼容三种结构：array（新，search+recommend 两张占位）/ object / string
+      const entries = Array.isArray(pending)
+        ? pending
+        : [typeof pending === "string" ? { id: pending } : pending];
+      // 任务创建失败 → **直接移除**未绑定的占位卡片，不在聊天记录里留"任务创建失败"状态卡。
+      const failedIds = new Set(
+        entries
+          .map((e) => e?.id)
+          .filter((id) => {
+            const m = internalMessages.value.find((x) => x.id === id);
+            return m && !m.taskId; // 还没绑定 taskId = 这次创建没成功
+          })
+      );
+      if (failedIds.size > 0) {
+        console.log("[ChatCard] pendingCreate 结束但占位未绑定 → 移除占位卡", [...failedIds]);
+        internalMessages.value = internalMessages.value.filter((m) => !failedIds.has(m.id));
       }
+      // ★ 一定要清掉本 chat 的 pending 记录：否则 _hasInflightTaskForChat 会一直为 true，
+      //   导致"报错后再点启动聚合搜索没反应"（被在途守卫拦掉）。
+      const next = { ...pendingTaskBindingsByChat.value };
+      delete next[chatId];
+      pendingTaskBindingsByChat.value = next;
     }
   }
 );
@@ -1759,11 +1948,17 @@ function _emitRetryAggregateSearch({
     ...(params || {})
   };
 
+  // ★ 在途任务拦截：已有"占位未绑定 / create 在途"的任务 → 直接跳过，避免连点出现多张状态卡 + 多次 create
+  if (_hasInflightTaskForChat(chatIdForSearch)) {
+    console.log(`[ChatCard] retry ${taskType} 跳过：该 chat 已有在途任务（占位未绑定 / 创建中）`);
+    return false;
+  }
+
   const canCreate = store.getters["SearchTasks/canCreateForChat"];
   if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
     console.warn(`[ChatCard] retry ${taskType} 拒绝：该 chat 已有进行中任务`);
     emit("aggregate-search", basePayload);
-    return;
+    return false;
   }
 
   const placeholderMsgId = pushTaskStatusPlaceholdersByModules(
@@ -1771,6 +1966,7 @@ function _emitRetryAggregateSearch({
     params?.selectedModules
   );
   emit("aggregate-search", { ...basePayload, placeholderMsgId });
+  return true;
 }
 
 function onTaskCardClearAndRestart(msg, payload) {
@@ -1783,6 +1979,46 @@ function onTaskCardKeepAndIncrement(msg, payload) {
 }
 function onTaskCardUnknownAction(msg, payload) {
   console.warn("[ChatCard] task_completion_card 未知 action", { msg, payload });
+}
+
+/**
+ * AI 职位画像卡片（AIProfileActionPanel）retryMode 下的「清空重新搜索 / 保留增量搜索」。
+ *
+ * 与「查看结果完成卡」的同名按钮功能一致（RESTART / CONTINUE），区别：
+ *   - originalTaskId 取自消息的 previousSearchTaskId（streamChat 新增字段）
+ *   - 搜索参数直接用卡片当前 getState（用户在卡片里填的 selectedModules / 简历份数 / BOSS 职位），
+ *     不再额外插 RetryConfigCard（卡片本身已是配置面板）
+ *
+ * @param {object} msg        AI_SEARCH 消息（带 previousSearchTaskId / searchConditionId）
+ * @param {'RESTART'|'CONTINUE'} taskType
+ * @param {object} panelState AIProfileActionPanel.getState() → { selectedModules, matchedBossJobId, resumeCount }
+ */
+function onAiPanelRetry(msg, taskType, panelState) {
+  const chatIdForSearch = msg?.chatId || props.chatId || currentChatId.value;
+  const originalTaskId = msg?.previousSearchTaskId;
+  if (!chatIdForSearch) {
+    console.warn(`[ChatCard] AIProfile retry ${taskType}: 没拿到 chatId，跳过`);
+    return;
+  }
+  console.log("[ChatCard] AIProfile retry", { taskType, originalTaskId, panelState });
+
+  if (props.embedded) {
+    if (_isAggregateClickDebounced(chatIdForSearch, taskType)) return;
+    _emitRetryAggregateSearch({
+      taskType,
+      chatIdForSearch,
+      originalTaskId,
+      params: {
+        selectedModules: panelState?.selectedModules || { search: true, recommend: false },
+        matchedBossJobId: panelState?.matchedBossJobId || null,
+        resumeCount: panelState?.resumeCount ?? null
+      },
+      msgContent: msg?.content
+    });
+    return;
+  }
+  // 非嵌入式（浮窗）模式：沿用普通搜索入口
+  handleSearch(msg);
 }
 
 /**
@@ -1807,7 +2043,7 @@ function onRetryConfigStart(msg, payload) {
   cd.actionExecuted = true;
   cd.initialResumeCount = resumeCount;
 
-  _emitRetryAggregateSearch({
+  const proceeded = _emitRetryAggregateSearch({
     taskType,
     chatIdForSearch,
     originalTaskId: cd.originalTaskId,
@@ -1818,6 +2054,19 @@ function onRetryConfigStart(msg, payload) {
     },
     msgContent: msg?.content
   });
+
+  // 同步就被拦下（在途 / 已有进行中任务）→ create 根本没发起 → 立刻解锁，别卡在"聚合搜索已启动"
+  if (!proceeded) {
+    cd.actionExecuted = false;
+    return;
+  }
+  // create 已发起：记录这张卡，若异步创建失败则在 pendingCreate 失败 watch 里解锁恢复
+  if (msg?.id && chatIdForSearch) {
+    pendingRetryCardByChat.value = {
+      ...pendingRetryCardByChat.value,
+      [chatIdForSearch]: msg.id
+    };
+  }
 }
 
 // 换行处理
@@ -2175,6 +2424,7 @@ function mapHistoryMessage(msg, chatIdToUse) {
     time: new Date(msg.timestamp).toLocaleTimeString(),
     chatId: chatIdToUse,
     searchConditionId: msg.searchConditionId,
+    previousSearchTaskId: msg.previousSearchTaskId,
     ...(isCompletionCard ? { html: msg.content } : {})
   };
 }
@@ -2385,6 +2635,13 @@ const setMsgContainer = (msg) => {
       console.log("找到现有消息，更新内容:", foundObject);
       // 更新已存在消息的内容
       foundObject.content = foundObject.content + content;
+      // 这两个字段可能在后续 chunk 才带过来（首个 chunk 没有）→ 补齐，保证卡片能切按钮
+      if (msg.searchConditionId && !foundObject.searchConditionId) {
+        foundObject.searchConditionId = msg.searchConditionId;
+      }
+      if (msg.previousSearchTaskId && !foundObject.previousSearchTaskId) {
+        foundObject.previousSearchTaskId = msg.previousSearchTaskId;
+      }
     } else {
       console.log("创建新消息");
       // 创建新消息
@@ -2393,6 +2650,8 @@ const setMsgContainer = (msg) => {
       chatTemplate.id = msg.id;
       chatTemplate.chatId = msg.chatId;
       chatTemplate.searchConditionId = msg.searchConditionId;
+      // 上一次搜索任务 id（streamChat 新增）：用于 AI 画像卡片切「清空重新/保留增量」按钮
+      chatTemplate.previousSearchTaskId = msg.previousSearchTaskId;
       chatTemplate.model = msg.model;
       chatTemplate.object = msg.object;
       chatTemplate.created = msg.created;
@@ -2815,7 +3074,9 @@ defineExpose({
   handleNewChat,
   clearCurrentChat,
   insertMessageToInput,
-  fillMessageToInput
+  fillMessageToInput,
+  startSearchFromFilter,
+  startContinueSearch
 });
 </script>
 

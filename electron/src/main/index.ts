@@ -35,6 +35,11 @@ import {
   type OverlayPayload
 } from './automationOverlay'
 import { dispatchClick as cdpDispatchClick } from './cdpInputDispatcher'
+import {
+  startBossLoginWatcher,
+  stopBossLoginWatcher,
+  setHomeWebContentsForBossWatcher
+} from './bossLoginWatcher'
 
 /**
  * ⚠️⚠️⚠️ 不要开 `--remote-debugging-port`！
@@ -452,6 +457,17 @@ function createMainWindow(): BrowserWindow {
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
+  // ★ 客户端窗口获得焦点 → 通知主页 SPA（LeftMenu 据此刷新职位列表，及时获取新增/隐藏的职位）。
+  //   这是"客户端聚焦"而非"网页聚焦"：即使当前停在 BOSS tab，app 一回到前台也会触发。
+  mainWindow.on('focus', () => {
+    try {
+      const wc = tabManager.getHomeWebContents()
+      if (wc && !wc.isDestroyed()) wc.send('app:window-focus')
+    } catch (e) {
+      console.warn('[main] send app:window-focus failed:', (e as Error)?.message || e)
+    }
+  })
+
   // 壳层基本不会调 window.open；保险起见，全部走系统浏览器
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
@@ -494,6 +510,7 @@ function createMainWindow(): BrowserWindow {
     if (homeWc) {
       setHomeWebContentsForBridge(homeWc)
       setHomeWebContentsForProbe(homeWc)
+      setHomeWebContentsForBossWatcher(homeWc)
     }
 
     // 主窗口创建之后再做 hydrate（让主页 SPA 先正常加载）
@@ -685,6 +702,21 @@ function registerIpc(): void {
     return { ok: true }
   })
   ipcMain.handle('automation:isOverlayVisible', async () => isOverlayVisible())
+
+  // ========== BOSS 常驻登录态监视 ==========
+  //
+  // SPA（MainLayout）在客户端模式 + BOSS 渠道启用时调 boss:startLoginWatcher：
+  // main 开一个常驻隐藏窗口加载 BOSS「我的职位列表」页，靠导航 URL 判定登录态、
+  // 并在登录时静默抓职位列表数据推回 SPA（boss:loginStatusChanged / boss:jobListUpdated）。
+  // 详见 bossLoginWatcher.ts 顶部注释。
+  ipcMain.handle('boss:startLoginWatcher', async () => {
+    startBossLoginWatcher()
+    return { ok: true }
+  })
+  ipcMain.handle('boss:stopLoginWatcher', async () => {
+    stopBossLoginWatcher()
+    return { ok: true }
+  })
 
   // ========== CDP Input dispatch：同进程 CDP 模拟点击 ==========
   //

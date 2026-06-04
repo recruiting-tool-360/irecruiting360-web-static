@@ -54,6 +54,8 @@ const store = createStore({
         // 避免每次新 AI 卡片都强制回到默认 { search:true, recommend:true } —— 用户可能
         // 习惯只勾搜索 / 只勾推荐，记住偏好下次自动应用。详见 AiSerachConfig.js state 注释。
         "AiSerachConfig.lastSelectedModules",
+        // 每个职位（chatId）上次填写的"简历份数"：跨会话保留，下次新 AI 卡片默认上次值。
+        "AiSerachConfig.lastResumeCountByChatId",
         "SimilarResumeConfig.cooldownStartTime",
         "SimilarResumeConfig.cooldownEndTime",
         // BOSS 我的职位列表（隐藏窗口静默抓取）：跨会话保留，避免每次进主页都等

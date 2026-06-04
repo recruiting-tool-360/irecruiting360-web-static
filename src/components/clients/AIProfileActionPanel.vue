@@ -162,7 +162,7 @@
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
               </svg>
-              <span class="row-label">本次期望最大搜索"简历数"</span>
+              <span class="row-label">本次期望最大推荐牛人"简历数"</span>
             </div>
             <div class="config-right">
               <input
@@ -196,10 +196,62 @@
       </div>
     </Transition>
 
-    <!-- 底部 CTA：基于深度画像准备搜索策略 + 查看结果（测试） + 启动聚合搜索 -->
+    <!-- 底部 CTA -->
     <div class="bottom-action">
       <p class="bottom-hint">基于深度画像准备搜索策略</p>
-      <div class="bottom-action-buttons">
+      <!--
+        retryMode（消息带 previousSearchTaskId + searchConditionId）：
+          隐藏「启动聚合搜索」，改显示「清空重新搜索 / 保留增量搜索」两个按钮，
+          功能与「查看结果完成卡」的同名按钮一致（RESTART / CONTINUE）。
+      -->
+      <div v-if="isRetryMode" class="bottom-action-buttons">
+        <button
+          type="button"
+          class="retry-btn restart"
+          :disabled="aggregateDisabled"
+          @click="$emit('clear-and-restart', getState())"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+            <path d="M3 3v5h5"></path>
+            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+            <path d="M16 16h5v5"></path>
+          </svg>
+          <span>清空重新搜索</span>
+        </button>
+        <button
+          type="button"
+          class="retry-btn increment"
+          :disabled="aggregateDisabled"
+          @click="$emit('keep-and-increment', getState())"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"
+            ></path>
+          </svg>
+          <span>保留增量搜索</span>
+        </button>
+      </div>
+      <div v-else class="bottom-action-buttons">
         <button
           type="button"
           class="aggregate-btn"
@@ -236,17 +288,42 @@ import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
 import { estimateSearchTask } from "src/api/searchTaskApi";
 import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
+import notify from "src/util/notify";
 
 const props = defineProps({
   message: {
     type: Object,
     required: true
+  },
+  /**
+   * 禁用所有操作按钮（启动聚合 / 清空重新 / 保留增量）。
+   * 由 ChatCard 在"这张画像卡后面已经有结果卡片"时传 true —— 该画像卡已发起过搜索，
+   * 不允许再次发起。
+   */
+  disabled: {
+    type: Boolean,
+    default: false
   }
 });
 
-const emit = defineEmits(["change", "aggregate", "view-results"]);
+const emit = defineEmits([
+  "change",
+  "aggregate",
+  "view-results",
+  "clear-and-restart",
+  "keep-and-increment"
+]);
 
 const store = useStore();
+
+/**
+ * retryMode：消息带 previousSearchTaskId + searchConditionId（streamChat 新增字段）时，
+ * 说明该职位已有上一次搜索任务 → 底部按钮从「启动聚合搜索」切成
+ * 「清空重新搜索 / 保留增量搜索」（功能对应 RESTART / CONTINUE）。
+ */
+const isRetryMode = computed(
+  () => !!(props.message?.previousSearchTaskId && props.message?.searchConditionId)
+);
 
 /**
  * 设置里"BOSS 渠道"是否启用 —— 决定整个推荐牛人 UI 是否可用。
@@ -357,11 +434,23 @@ watch(
   { immediate: true }
 );
 
+// 初始默认值：本 chatId 上次填写过的简历份数（持久化在 AiSerachConfig.lastResumeCountByChatId）
 const resumeCountInput = ref("");
+{
+  const lastCount = store.getters.getLastResumeCountForChat(store.getters.getLatestChatId || "");
+  if (lastCount) resumeCountInput.value = String(lastCount);
+}
 function onResumeCountInput(e) {
   // 限制只能输入数字
   const v = String(e.target.value || "").replace(/[^\d]/g, "");
   resumeCountInput.value = v;
+  // 持久化本 chatId 的简历份数（仅非空时写，避免临时清空把记忆抹掉）→ 下次新卡片默认上次值
+  if (v !== "") {
+    store.commit("setLastResumeCount", {
+      chatId: store.getters.getLatestChatId || "",
+      count: v
+    });
+  }
 }
 
 const resumeCountNum = computed(() => {
@@ -432,6 +521,13 @@ async function runEstimate() {
   try {
     const res = await estimateSearchTask(payload);
     if (seq !== _estimateSeq) return; // 已被新请求覆盖
+    // 接口业务失败（如"最大简历数请填写 0-100 之间的整数"）→ 显示后端 errorMessage + 清空预估
+    if (!res || res.success !== "success") {
+      const msg = res?.errorMessage || res?.message || "预估失败";
+      notify.warning(msg, { group: "estimate-error" });
+      estimateRemote.value = null;
+      return;
+    }
     const data = res?.data || {};
     estimateRemote.value = {
       durationMin: Number(data.estimatedDurationMinutes) || 0,
@@ -528,6 +624,8 @@ watch(getState, (val) => emit("change", val), { deep: true, immediate: true });
 
 /** 启动按钮禁用条件：两个模块都没勾 / 勾了推荐牛人但没填简历数 */
 const aggregateDisabled = computed(() => {
+  // 该画像卡后面已有结果卡片（已发起过搜索）→ 全部按钮禁用
+  if (props.disabled) return true;
   if (!selectedModules.value.search && !selectedModules.value.recommend) return true;
   if (selectedModules.value.recommend && resumeCountNum.value <= 0) return true;
   return false;
@@ -837,6 +935,49 @@ $accent-border: #ccfbf1;
 }
 .aggregate-icon {
   flex-shrink: 0;
+}
+
+/* retryMode：清空重新搜索 / 保留增量搜索（视觉对照 task-completion-card.html 90-104） */
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+}
+.retry-btn svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.retry-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.retry-btn:disabled {
+  opacity: 0.5;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+.retry-btn.restart {
+  background: #fff9f3;
+  color: #f59e0b;
+  border: 1px solid #fde68a;
+}
+.retry-btn.restart:hover:not(:disabled) {
+  background: #fff4e8;
+}
+.retry-btn.increment {
+  background: #f0fdf4;
+  color: #15b8a6;
+  border: 1px solid #ccfbf1;
+}
+.retry-btn.increment:hover:not(:disabled) {
+  background: #dcfce7;
 }
 
 /* schedule info sub-card（输入简历数后展开） */

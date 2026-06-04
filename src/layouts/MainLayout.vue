@@ -76,6 +76,9 @@ import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { useUpdateResumeStatus } from "src/hooks/useUpdateResumeStatus";
 import { importResumeCallbackPlus } from "src/api/jobList/JobListApi";
 import { ensureBossJobList, bindBossLoginListener } from "src/util/automation/bossJobListAutoFetch";
+import { startBossResidentWatcher } from "src/util/automation/bossResidentWatcher";
+import { initJob51LoginWatcher } from "src/util/automation/job51LoginWatcher";
+import { initZhilianLoginWatcher } from "src/util/automation/zhilianLoginWatcher";
 import notify from "src/util/notify";
 const store = useStore();
 const router = useRouter();
@@ -83,6 +86,12 @@ const router = useRouter();
 // 客户端模式：mount 时静默拉一次 BOSS 我的职位列表 + 监听 BOSS 登录成功后自动重拉
 // （隐藏 BrowserWindow + CDP，用户不可见；详见 src/util/automation/bossJobListAutoFetch.js）
 let unbindBossLogin = null;
+// BOSS 常驻登录态监视（main 常驻隐藏窗口加载职位列表页 → 检测登录失效 + 抓数据）的清理函数
+let unbindBossResident = null;
+// 51job 登录态轮询（10s）的清理函数
+let unbindJob51Watcher = null;
+// 智联 登录态轮询（10s）的清理函数
+let unbindZhilianWatcher = null;
 
 // 客户端模式：监听 deep link（用户在工作台再次点"打开 i 快招"或换职位推过来）
 let unbindDeepLink = null;
@@ -362,9 +371,22 @@ onMounted(() => {
     //   NOT_LOGGED_IN 把弹框设 true，但进主页后没人关它。
     void closeIhrAuthModalIfTokenValid("mainlayout_mounted");
 
+    // 职位数据：进主页拉一次 + 监听 BOSS 登录态 false→true 自动再取一次。
     void ensureBossJobList(store, { reason: "mainlayout_mounted" });
-    // 监听 BOSS 登录态从 false → true，自动再取一次
     unbindBossLogin = bindBossLoginListener(store);
+
+    // ★ BOSS 常驻登录态监视：开了 BOSS 渠道时，main 启动一个常驻隐藏窗口加载
+    //   BOSS「我的职位列表」页（不关闭），**只读导航 URL** 判定登录失效（不打接口，避免被风控发现），
+    //   登录恢复时弹通知 + 把 channelConf.BOSS.login 翻 true（顺带触发 bindBossLoginListener 拉数据）。
+    //   详见 src/util/automation/bossResidentWatcher.js
+    unbindBossResident = startBossResidentWatcher(store);
+
+    // ★ 51job 登录态轮询：启用了 51job 渠道就每 10s 探测登录态。
+    //   详见 src/util/automation/job51LoginWatcher.js
+    unbindJob51Watcher = initJob51LoginWatcher(store);
+
+    // ★ 智联 登录态轮询：启用了智联渠道就每 10s 探测登录态（同 51job 方式）。
+    unbindZhilianWatcher = initZhilianLoginWatcher(store);
 
     // 监听 deep link：用户在工作台再次"打开 i 快招"时，业务页面无感刷新（同用户）/
     // 走完整 SSO（不同用户）
@@ -383,6 +405,18 @@ onUnmounted(() => {
   if (unbindBossLogin) {
     unbindBossLogin();
     unbindBossLogin = null;
+  }
+  if (unbindBossResident) {
+    unbindBossResident();
+    unbindBossResident = null;
+  }
+  if (unbindJob51Watcher) {
+    unbindJob51Watcher();
+    unbindJob51Watcher = null;
+  }
+  if (unbindZhilianWatcher) {
+    unbindZhilianWatcher();
+    unbindZhilianWatcher = null;
   }
   if (unbindDeepLink) {
     try {

@@ -43,6 +43,7 @@ import ResumeList from 'src/components/resume/ResumeList.vue';
 import scoreUpdater from "src/utils/scoreAutoUpdater";
 import {setNotScore} from "src/api/jobList/JobListApi";
 import { isHistoryTaskView } from "src/util/viewingTaskMeta";
+import { triggerContinueSearchFromResults } from "src/util/triggerContinueSearch";
 
 // 定义组件属性
 const props = defineProps({
@@ -190,8 +191,11 @@ const startScoreUpdate = (resumeList) => {
     })();
     const ACTIVE_STATUSES = ['RUNNING', 'WAITING', 'RESTING'];
     const isTaskActive = latestTask && ACTIVE_STATUSES.includes(latestTask.taskStatus);
+    // 渠道重新登录后正在"重新分析"AI 分析异常的简历 → 即使任务已停止也别急着标 -2，
+    // 给重新提交的 detail 留出被后端打分的时间
+    const reAnalyzing = store.getters.getReAnalyzingActive === true;
 
-    if (!isTaskActive) {
+    if (!isTaskActive && !reAnalyzing) {
       console.warn(
         `[JobInfo.onWaiting] 当前 chat 无进行中任务（${latestTask?.taskStatus ?? '无任务'}），` +
         `${waitingItems.length} 条 WAITING 简历分析已中断 → 标记 score=-2，停止轮询`
@@ -268,71 +272,10 @@ onUnmounted(() => {
   stopScoreUpdate();
 });
 
-// 加载更多数据 - 调用各个渠道的loadMore方法
+// 加载更多 → 走任务流程的「保留增量搜索」（CONTINUE），而不是直接翻下一页。
+// 由 ChatCard.startContinueSearch 创建 CONTINUE 任务 + 返回聊天视图。
 const loadMore = async () => {
-  if (!hasMoreData.value) {
-    return;
-  }
-
-  // 设置加载状态
-  isLoadingMore.value = true;
-
-  try {
-    console.log('ALL渠道开始执行加载更多');
-
-    // 获取所有已登录的渠道
-    const loggedInChannels = allThirdPartyChannelConfig.value.filter(channel => channel.login && getChannelDisable(channel.key));
-    console.log(`找到${loggedInChannels.length}个已登录渠道`, loggedInChannels.map(c => c.key));
-
-    if (!loggedInChannels || loggedInChannels.length === 0) {
-      console.warn('没有渠道可以加载更多数据');
-      isLoadingMore.value = false;
-      return;
-    }
-
-    // 收集所有loadMore调用的Promise
-    const promises = [];
-
-    // 遍历已登录的渠道执行加载更多
-    for (const channel of loggedInChannels) {
-      try {
-        // 使用channel.cardInfoRef访问组件引用
-        if (channel.cardInfoRef && typeof channel.cardInfoRef.loadMore === 'function') {
-          console.log(`正在调用${channel.name}(${channel.key})的loadMore方法`);
-          promises.push(channel.cardInfoRef.loadMore());
-        } else {
-          console.warn(`${channel.name}(${channel.key})渠道组件不存在或loadMore方法未定义`);
-        }
-      } catch (err) {
-        console.error(`调用${channel.key}渠道的loadMore方法时出错:`, err);
-      }
-    }
-
-    // 如果有有效的promise，等待它们全部完成
-    if (promises.length > 0) {
-      try {
-        await Promise.all(promises);
-        console.log('所有渠道的loadMore方法执行完成');
-      } catch (error) {
-        console.error('执行渠道loadMore方法时发生错误:', error);
-        throw error; // 继续向上抛出错误
-      }
-    } else {
-      console.warn('没有找到可执行的渠道loadMore方法');
-    }
-  } catch (error) {
-    console.error('加载更多执行过程中发生错误:', error);
-    $q.notify({
-      message: '加载更多数据失败，请稍后重试',
-      color: 'negative',
-      icon: 'error',
-      position: 'top'
-    });
-  } finally {
-    // 无论成功失败都需要重置加载状态
-    isLoadingMore.value = false;
-    console.log('ALL渠道loadMore执行完成，当前数据量:', jobList.value.length);
-  }
+  triggerContinueSearchFromResults(store);
 };
 
 // 获取渠道搜索详情参数
@@ -356,14 +299,28 @@ const updateResumeScoreFN = async (scoreItem) => {
       console.error('更新分数参数无效:', scoreItem);
       return false;
     }
+    // 先在 ALL 里定位该简历（拿 channelSubType 判断渠道登录态）
+    const allArr = allChannelStatus.value?.['ALL']?.data || [];
+    const foundIdx = allArr.findIndex(item => item && item.id === scoreItem.id);
+    const foundResume = foundIdx >= 0 ? allArr[foundIdx] : null;
+    const DESC_TO_KEY = { 'boss直聘': 'BOSS', '智联招聘': 'ZHILIAN', '前程无忧': 'JOB51', '猎聘': 'LIEPIN' };
+    const subType = foundResume?.channelSubType || DESC_TO_KEY[foundResume?.channel];
+
     if(scoreItem.score ===-2){
-      try {
-        await setNotScore({
-          resumeBlindIds: [scoreItem.id],
-          searchId: searchConditionId.value
-        });
-      }catch (e){
-        console.log(e)
+      // ★ 该渠道未登录 → **不调 setNotScore**（避免后端把简历永久标"不可评分"），
+      //   本地仍标 -2 显示"分析失败"；等用户重新登录后由 reAnalyzeFailedResumes 重新分析。
+      const channelLoggedIn = subType ? allChannelStatus.value?.[subType]?.login === true : true;
+      if (channelLoggedIn) {
+        try {
+          await setNotScore({
+            resumeBlindIds: [scoreItem.id],
+            searchId: searchConditionId.value
+          });
+        }catch (e){
+          console.log(e)
+        }
+      } else {
+        console.log(`[JobInfo] 渠道 ${subType} 未登录，跳过 setNotScore（等重新登录后重新分析）`);
       }
     }
 
