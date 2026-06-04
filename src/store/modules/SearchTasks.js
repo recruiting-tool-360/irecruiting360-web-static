@@ -178,7 +178,14 @@ const initialState = () => ({
    * 写入：mutation `markTaskUserStopped` (action `stopForChat` 调)
    * 清理：mutation `clearTaskUserStopped`（任务完全 finalize 后调，避免内存累积）
    */
-  userStoppedTaskIds: {}
+  userStoppedTaskIds: {},
+
+  /**
+   * 「待 finish」的 channel —— 任务进行中登录失效时**不立即 finish**，先登记到这里，
+   * 等用户重新登录 + AI 分析重新跑完后再 `postFinishChannel(COMPLETED)`。
+   * 形态：`{ [taskChannelId]: { channelKey, chatId } }`
+   */
+  pendingFinishChannels: {}
 });
 
 const state = initialState();
@@ -435,6 +442,23 @@ const mutations = {
     state.userStoppedTaskIds = next;
   },
 
+  /** 登记一个「待 finish」channel（登录失效时不立即 finish，等重新登录+AI跑完再 finish） */
+  addPendingFinishChannel(state, { taskChannelId, channelKey, chatId }) {
+    if (!taskChannelId) return;
+    state.pendingFinishChannels = {
+      ...state.pendingFinishChannels,
+      [String(taskChannelId)]: { channelKey, chatId }
+    };
+  },
+  /** 清掉某个待 finish channel */
+  clearPendingFinishChannel(state, taskChannelId) {
+    const key = String(taskChannelId);
+    if (!state.pendingFinishChannels?.[key]) return;
+    const next = { ...state.pendingFinishChannels };
+    delete next[key];
+    state.pendingFinishChannels = next;
+  },
+
   /**
    * 业务侧 saveResumeDetailPlus 后，缓存一条 detail payload 等 runTask 末尾补发。
    * @param {{ chatId, channelSubType, payload }} entry  payload 形态见 postTaskResumeDetail 入参
@@ -467,6 +491,8 @@ const mutations = {
 const getters = {
   getTaskById: (state) => (taskId) => state.tasksById[taskId] || null,
   getResultsByTaskId: (state) => (taskId) => state.tasksById[taskId]?.results || [],
+  /** 待 finish 的 channel 映射（登录失效延迟 finish 用） */
+  getPendingFinishChannels: (state) => state.pendingFinishChannels || {},
 
   /** 拿某个 chat（职位）最新的任务 */
   getLatestTaskByChat: (state) => (chatId) => {
@@ -520,9 +546,29 @@ const getters = {
     const t = gtrs.getLatestTaskByChat(chatId);
     if (!t) return { status: UI_STATUS.IDLE, queuePosition: 0, task: null };
 
+    // ★ 渠道登录异常拦截：顶部 banner（channelError）若指向本任务的某个渠道，
+    //   则"进行中"不能再显示进行中，改显示"登录异常"（红色 stopped + loginError 标记）。
+    //   登录恢复后 channelError 被清掉 → 自动恢复进行中。
+    const channelErr = rootGetters?.getChannelError;
+    let loginErrAffectsTask = false;
+    if (channelErr) {
+      const KEY_TO_NAME = {
+        BOSS: "boss直聘",
+        ZHILIAN: "智联招聘",
+        JOB51: "前程无忧",
+        LIEPIN: "猎聘"
+      };
+      loginErrAffectsTask = (t.channels || []).some(
+        (ch) => (KEY_TO_NAME[ch.channelSubType] || ch.channelSubType) === channelErr
+      );
+    }
+    const PROCESSING_OR_LOGIN_ERR = loginErrAffectsTask
+      ? { status: UI_STATUS.STOPPED, queuePosition: 0, task: t, loginError: true }
+      : { status: UI_STATUS.PROCESSING, queuePosition: 0, task: t };
+
     // 1) 正在跑
     if (state.runningTaskId === t.taskId) {
-      return { status: UI_STATUS.PROCESSING, queuePosition: 0, task: t };
+      return PROCESSING_OR_LOGIN_ERR;
     }
     // 2) 在本地 runtime 队列里（本会话主动创建并 enqueue 的任务）
     const queueIdx = state.queue.indexOf(t.taskId);
@@ -554,7 +600,7 @@ const getters = {
     ) {
       // RUNNING 但不是本地 runningTaskId → 显示为 processing（其它 chat 看也合理）
       if (t.taskStatus === TASK_STATUS.RUNNING) {
-        return { status: UI_STATUS.PROCESSING, queuePosition: 0, task: t };
+        return PROCESSING_OR_LOGIN_ERR;
       }
       // RESTING → UI 上视为 resting（橙色 clock）
       if (t.taskStatus === TASK_STATUS.RESTING) {
@@ -577,11 +623,16 @@ const getters = {
       // ⚠️ 必须用 isAiAnalyzingForChat（带 latestChatId 护栏），不能直接读 getAiAnalyzingActive：
       // 否则其它已 COMPLETED 的 chat 也会被 AI 全局信号"误打"成"进行中"。
       if (gtrs.isAiAnalyzingForChat(chatId)) {
-        return { status: UI_STATUS.PROCESSING, queuePosition: 0, task: t };
+        return PROCESSING_OR_LOGIN_ERR;
       }
       return { status: UI_STATUS.COMPLETED, queuePosition: 0, task: t };
     }
     if (t.taskStatus === TASK_STATUS.FAILED) {
+      // 用户主动停止的任务：即使收敛成 FAILED（混合渠道态），UI 也不显示红色"异常停止"，
+      // 跟 STOPPED 一致回到 idle（纯展示判断，不影响任务/渠道实际状态）
+      if (t.isManualStopped || state.userStoppedTaskIds?.[String(t.taskId)]) {
+        return { status: UI_STATUS.IDLE, queuePosition: 0, task: t };
+      }
       return { status: UI_STATUS.STOPPED, queuePosition: 0, task: t };
     }
     if (t.taskStatus === TASK_STATUS.STOPPED) {
@@ -790,6 +841,42 @@ const actions = {
           ` items=${items.length} hydratedToTasksById=${hydrated}`
       );
 
+      // ★★ 接口数据为准：本地标记"活着"(WAITING/RESTING/RUNNING) 的任务，若后端 queue 里
+      //    已经没有了（current+running 任务都会在 queue items 里；空 = 后端已无此任务），
+      //    就收敛成 STOPPED，避免职位行残留"进行中"。
+      //    排除项（这些是"后端可能还没来得及索引/本会话正在驱动"的任务，不能误杀）：
+      //      - 本会话正在执行：state.runningTaskId
+      //      - 本会话 runtime 队列里：state.queue
+      //      - 刚创建 <30s（create → fetchTaskQueue 竞态，后端可能还没返回到 queue）
+      try {
+        const backendTaskIds = new Set(items.map((it) => String(it.taskId)));
+        const runtimeQueue = new Set((Array.isArray(state.queue) ? state.queue : []).map(String));
+        const RUNNING_LOCALLY = String(state.runningTaskId || "");
+        const FRESH_MS = 30 * 1000;
+        const now = Date.now();
+        for (const [tid, t] of Object.entries(state.tasksById || {})) {
+          if (!t) continue;
+          const alive =
+            t.taskStatus === TASK_STATUS.WAITING ||
+            t.taskStatus === TASK_STATUS.RESTING ||
+            t.taskStatus === TASK_STATUS.RUNNING;
+          if (!alive) continue;
+          if (backendTaskIds.has(String(tid))) continue; // 后端 queue 还在 → 保留
+          if (RUNNING_LOCALLY === String(tid)) continue; // 本会话正在跑 → 保留
+          if (runtimeQueue.has(String(tid))) continue; // 本会话排队 → 保留
+          if (t.createdAt && now - Number(t.createdAt) < FRESH_MS) continue; // 刚创建 → 给后端索引时间
+          commit("patchTask", { taskId: tid, patch: { taskStatus: TASK_STATUS.STOPPED } });
+          console.log(
+            `[SearchTasks] fetchTaskQueue: 本地任务 ${tid}(${t.taskStatus}) 后端 queue 已无 → 收敛 STOPPED（接口数据为准）`
+          );
+        }
+      } catch (reconcileErr) {
+        console.warn(
+          "[SearchTasks] fetchTaskQueue: 收敛本地僵尸任务失败（忽略）:",
+          reconcileErr?.message || reconcileErr
+        );
+      }
+
       // ★ 自动启停 CurrentTaskPoller（每次 fetchTaskQueue 完成都判断一次）。
       //
       // 为什么放这里：之前只在 IndexPage.onMounted 跑一次检查，
@@ -923,7 +1010,10 @@ const actions = {
    *
    * 返回：`{ ok, stoppedChannels, errors, message? }`
    */
-  async stopForChat({ state, commit, getters, dispatch }, chatId) {
+  async stopForChat({ state, commit, getters, dispatch }, payload) {
+    // 兼容两种入参：字符串 chatId（用户点停止）/ 对象 { chatId, skipFinish }（登录失效暂停，不 finish channel）
+    const chatId = typeof payload === "string" ? payload : payload?.chatId;
+    const skipFinish = typeof payload === "object" && payload ? !!payload.skipFinish : false;
     if (!chatId) return { ok: false, message: "chatId required" };
 
     const task = getters.getLatestTaskByChat(chatId);
@@ -976,7 +1066,8 @@ const actions = {
     const finalStatuses = ["COMPLETED", "FAILED", "STOPPED"];
     const stoppedSubTypes = new Set();
     const errors = [];
-    if (isTaskAlive) {
+    // skipFinish：登录失效暂停场景 —— 不 finish channel（等重新登录+AI跑完再延迟 finish）
+    if (isTaskAlive && !skipFinish) {
       for (const ch of channels) {
         if (!ch.taskChannelId) continue;
         if (finalStatuses.includes(ch.taskChannelStatus)) continue;
@@ -986,6 +1077,15 @@ const actions = {
             errorCode: "USER_STOPPED",
             errorMessage: "用户主动停止任务"
           });
+          // 本地 channel 也标 STOPPED 终态：让仍在跑的 runTask 收尾循环识别为终态、不再重复 finish
+          commit("patchChannel", {
+            taskId,
+            taskChannelId: ch.taskChannelId,
+            patch: { taskChannelStatus: "STOPPED", finishedAt: Date.now() }
+          });
+          // 清掉该 channel 的「待 finish」登记（若曾因登录失效登记过）：用户已主动停止 →
+          // 重新登录后不应再对它调 finish(COMPLETED)
+          commit("clearPendingFinishChannel", ch.taskChannelId);
           console.log(
             `[SearchTasks/stopForChat] finish STOPPED ok channel=${ch.channelSubType}-${ch.businessChannel} channelId=${ch.taskChannelId}`
           );
@@ -1093,6 +1193,162 @@ const actions = {
               errors.length ? `，${errors.length} 个失败` : ""
             }`
     };
+  },
+
+  /**
+   * 用户在「渠道设置」里禁用了某些渠道 → 停止所有进行中任务里这些渠道的 channel 任务。
+   *
+   * 场景：任务进行中时用户把某个渠道（如智联）关掉。该渠道的 channel record 还在跑（后端在抓、
+   *   前端轮询评分），需要：
+   *     1) 对所有「进行中」任务里 channelSubType ∈ 被禁用集合 且未终态的 channel，
+   *        调 postFinishChannel(STOPPED, errorCode=CHANNEL_DISABLED_BY_USER,
+   *        errorMessage='用户禁用渠道导致停止任务') 通知后端结束；
+   *     2) 本地 patchChannel 标 STOPPED（patchChannel 内部 reduceTaskStatus 会顺带把
+   *        「全部 channel 终态」的任务整体收敛成 STOPPED/COMPLETED）；
+   *     3) 若某任务因此所有 channel 都终态 → 视为整体停止：markTaskUserStopped（让前端
+   *        humanize/分页循环检测后 break）+ 从 runtime queue / runningTaskId 摘除；
+   *     4) 同步后端 queue。
+   *
+   * 只停被禁用渠道，未禁用的渠道继续跑（部分停止）。
+   *
+   * @param {object} payload
+   * @param {string[]} payload.disabledKeys  被禁用的渠道 key（channelSubType，如 ['ZHILIAN','JOB51']）
+   * @param {string}   [payload.chatId]      限定只处理某个 chat 的任务；不传则扫所有进行中任务
+   * @returns {Promise<{ ok: boolean, stoppedChannels: number, stoppedTasks: number, errors: Array }>}
+   */
+  async stopDisabledChannels({ state, commit, dispatch }, payload) {
+    const disabledSet = new Set(
+      (payload?.disabledKeys || []).map((k) => String(k).toUpperCase()).filter(Boolean)
+    );
+    if (disabledSet.size === 0) return { ok: true, stoppedChannels: 0, stoppedTasks: 0, errors: [] };
+
+    const chatId = payload?.chatId || null;
+    const aliveTaskStatuses = [TASK_STATUS.RUNNING, TASK_STATUS.WAITING, TASK_STATUS.RESTING];
+    const finalStatuses = [
+      TASK_STATUS.COMPLETED,
+      TASK_STATUS.FAILED,
+      TASK_STATUS.STOPPED,
+      "SKIPPED"
+    ];
+
+    const tasks = Object.values(state.tasksById || {}).filter(
+      (t) =>
+        t && aliveTaskStatuses.includes(t.taskStatus) && (!chatId || t.chatId === chatId)
+    );
+    if (tasks.length === 0) return { ok: true, stoppedChannels: 0, stoppedTasks: 0, errors: [] };
+
+    let stoppedChannels = 0;
+    let stoppedTasks = 0;
+    const errors = [];
+
+    for (const task of tasks) {
+      const channels = Array.isArray(task.channels) ? task.channels : [];
+      let touched = false;
+      for (const ch of channels) {
+        if (!ch.taskChannelId) continue;
+        if (finalStatuses.includes(ch.taskChannelStatus)) continue;
+        if (!disabledSet.has(String(ch.channelSubType).toUpperCase())) continue;
+
+        // 通知后端结束该 channel（标注：用户禁用渠道导致停止任务）
+        try {
+          await taskApi.postFinishChannel(ch.taskChannelId, {
+            status: "STOPPED",
+            errorCode: "CHANNEL_DISABLED_BY_USER",
+            errorMessage: "用户禁用渠道导致停止任务"
+          });
+          console.log(
+            `[SearchTasks/stopDisabledChannels] finish STOPPED ok channel=${ch.channelSubType}-${ch.businessChannel} channelId=${ch.taskChannelId}`
+          );
+        } catch (e) {
+          errors.push({ taskChannelId: ch.taskChannelId, message: e?.message || String(e) });
+          console.warn(
+            `[SearchTasks/stopDisabledChannels] finish STOPPED failed channelId=${ch.taskChannelId}:`,
+            e?.message || e
+          );
+        }
+
+        // 本地标 STOPPED（patchChannel 内部 reduceTaskStatus 顺带收敛任务级状态）
+        commit("patchChannel", {
+          taskId: task.taskId,
+          taskChannelId: ch.taskChannelId,
+          patch: {
+            taskChannelStatus: TASK_STATUS.STOPPED,
+            finishedAt: Date.now(),
+            errorCode: "CHANNEL_DISABLED_BY_USER",
+            errorMessage: "用户禁用渠道导致停止任务"
+          }
+        });
+        stoppedChannels++;
+        touched = true;
+      }
+
+      if (!touched) continue;
+
+      // 该任务是否所有 channel 都已终态 → 整体停止
+      const after = state.tasksById[task.taskId];
+      const allFinal =
+        Array.isArray(after?.channels) &&
+        after.channels.length > 0 &&
+        after.channels.every((c) => finalStatuses.includes(c.taskChannelStatus));
+      if (allFinal) {
+        commit("markTaskUserStopped", { taskId: task.taskId });
+        commit("dequeue", task.taskId);
+        if (state.runningTaskId === task.taskId) commit("setRunning", null);
+        stoppedTasks++;
+        console.log(
+          `[SearchTasks/stopDisabledChannels] 任务 ${task.taskId} 全部渠道因禁用停止 → 整体 STOPPED`
+        );
+      }
+    }
+
+    // 同步后端 queue（剔掉刚 finish 的）
+    if (stoppedChannels > 0) {
+      try {
+        await dispatch("fetchTaskQueue");
+      } catch (e) {
+        console.warn("[SearchTasks/stopDisabledChannels] fetchTaskQueue 失败（忽略）:", e?.message || e);
+      }
+    }
+
+    return { ok: errors.length === 0, stoppedChannels, stoppedTasks, errors };
+  },
+
+  /**
+   * 把某渠道「待 finish」的 channel 真正 finish 掉（重新登录 + AI 重新分析跑完后调）。
+   * 默认 COMPLETED（重新分析完成 = 任务正常收敛）。
+   *
+   * @param {object} payload
+   * @param {'BOSS'|'ZHILIAN'|'JOB51'|'LIEPIN'} payload.channelKey
+   * @param {string} [payload.status='COMPLETED']
+   */
+  async finishPendingChannelsForChannel({ state, commit, getters }, { channelKey, status = "COMPLETED" }) {
+    const entries = Object.entries(state.pendingFinishChannels || {});
+    for (const [taskChannelId, info] of entries) {
+      if (!info || info.channelKey !== channelKey) continue;
+      try {
+        const finishPayload = { status };
+        if (status !== "COMPLETED") finishPayload.errorCode = "LOGIN_EXPIRED";
+        await taskApi.postFinishChannel(taskChannelId, finishPayload);
+        console.log(
+          `[SearchTasks] 延迟 finish ${status} channel=${channelKey} channelId=${taskChannelId}（重新登录+AI分析完成后）`
+        );
+        // 本地 channel 也补成终态，让任务收敛（之前延迟 finish 时保持了非终态）
+        const task = info.chatId ? getters.getLatestTaskByChat(info.chatId) : null;
+        if (task) {
+          commit("patchChannel", {
+            taskId: task.taskId,
+            taskChannelId,
+            patch: {
+              taskChannelStatus: status === "COMPLETED" ? TASK_STATUS.COMPLETED : TASK_STATUS.FAILED,
+              finishedAt: Date.now()
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("[SearchTasks] 延迟 finish 失败:", e?.message || e);
+      }
+      commit("clearPendingFinishChannel", taskChannelId);
+    }
   },
 
   /**
@@ -1227,8 +1483,21 @@ const actions = {
     //   - 后端立即可执行：create → ~100ms 内开始执行（resumeFromCurrent 命中）
     //   - 后端排队中：create → UI 显示"排队中" → poller 10s 一次 → 命中后立刻执行
     //   - 完全由 current 接口决定何时执行，create 不再自作主张入队
-    void dispatch("fetchTaskQueue");
-    void dispatch("resumeFromCurrent");
+    // 创建完成后**马上**驱动一次「queue → current」（顺序执行，不等 10s 轮询定时器）：
+    //   先 fetchTaskQueue 同步后端最新队列 + 启动 poller，再 resumeFromCurrent 拉 current
+    //   命中就立刻 enqueue + runTask。两者串行（queue 先、current 后），避免 current 用到旧队列。
+    void (async () => {
+      try {
+        await dispatch("fetchTaskQueue");
+      } catch (e) {
+        console.warn("[SearchTasks] create: fetchTaskQueue 失败（忽略）:", e?.message || e);
+      }
+      try {
+        await dispatch("resumeFromCurrent");
+      } catch (e) {
+        console.warn("[SearchTasks] create: resumeFromCurrent 失败（忽略）:", e?.message || e);
+      }
+    })();
     return { ok: true, taskId: task.taskId };
   },
 
@@ -1273,6 +1542,42 @@ const actions = {
       return;
     }
     commit("dequeue", taskId);
+
+    // ★★ 任务开始前「总闸」：只要本任务任一未终态渠道未登录，就**整任务不启动**
+    //   （不 execute 任何渠道、不跑搜索、不 finish），弹顶部「渠道异常」banner，
+    //   清 runningTaskId + 刷队列让 current 轮询继续；等用户重新登录后下次 current 重新触发。
+    //   （之前只在 execute 循环里 per-channel 跳过未登录渠道，导致已登录渠道仍会 execute + 跑搜索）
+    const blockedChannels = (task.channels || []).filter(
+      (ch) =>
+        ch.taskChannelId &&
+        ch.taskChannelStatus !== TASK_STATUS.COMPLETED &&
+        ch.taskChannelStatus !== TASK_STATUS.FAILED &&
+        ch.taskChannelStatus !== "SKIPPED" &&
+        rootGetters?.getChannelConf?.[ch.channelSubType]?.login === false
+    );
+    if (blockedChannels.length > 0) {
+      const CH_NAME = {
+        BOSS: "boss直聘",
+        ZHILIAN: "智联招聘",
+        JOB51: "前程无忧",
+        LIEPIN: "猎聘"
+      };
+      blockedChannels.forEach((ch) =>
+        commit("setChannelError", CH_NAME[ch.channelSubType] || ch.channelSubType, {
+          root: true
+        })
+      );
+      console.warn(
+        `[SearchTasks] runTask: 渠道未登录 [${blockedChannels
+          .map((c) => c.channelSubType)
+          .join(",")}]，整任务不启动（不 execute/不跑搜索），等重新登录后 current 重新触发 taskId=${taskId}`
+      );
+      // 清 running（确保"本地无活跃任务"）+ 刷队列（fetchTaskQueue 会重启 CurrentTaskPoller）
+      commit("setRunning", null);
+      void dispatch("fetchTaskQueue");
+      return;
+    }
+
     commit("setRunning", taskId);
     commit("patchTask", { taskId, patch: { taskStatus: TASK_STATUS.RUNNING } });
     // 任务启动时拉一次队列（拿最新预计时间）—— fire and forget，不阻塞主流程
@@ -1321,6 +1626,25 @@ const actions = {
           console.log(
             `[SearchTasks] runTask: 跳过 RECOMMEND execute (推迟到 doFetchRecommend 启动时调)` +
               ` channel=${ch.channelSubType}-${ch.businessChannel} taskChannelId=${ch.taskChannelId}`
+          );
+          continue;
+        }
+        // ★ execute 前先判一下该渠道登录态（channelConf.login 由各渠道登录监视轮询维护，current 也在轮询）：
+        //   渠道未登录 → 弹顶部「渠道登录异常」banner + **跳过 execute**，等用户重新登录后再手动重跑搜索。
+        //   只在任务开始前判一次即可（运行时掉线另有 watcher → reportChannelOfflineIfTaskActive 兜底）。
+        const chLogin = rootGetters?.getChannelConf?.[ch.channelSubType]?.login;
+        if (chLogin === false) {
+          const CH_NAME = {
+            BOSS: "boss直聘",
+            ZHILIAN: "智联招聘",
+            JOB51: "前程无忧",
+            LIEPIN: "猎聘"
+          };
+          commit("setChannelError", CH_NAME[ch.channelSubType] || ch.channelSubType, {
+            root: true
+          });
+          console.warn(
+            `[SearchTasks] runTask: channel ${ch.channelSubType} 未登录，跳过 execute（已弹顶部 banner，等重新登录后重跑）`
           );
           continue;
         }
@@ -1643,14 +1967,19 @@ const actions = {
           );
           continue;
         }
-        // 已经是终态的不重复处理（比如 SKIPPED）
+        // 已经是终态的不重复处理（COMPLETED / FAILED / STOPPED / SKIPPED）
+        // ★ 用户主动停止：stopForChat 已对各 channel 调过 finish(STOPPED)，这里**不能再调** finish
+        //   （否则同一 taskChannelId 会被 finish 两次，第二次还误传 COMPLETED 覆盖 STOPPED）。
         if (
           ch.taskChannelStatus === TASK_STATUS.COMPLETED ||
           ch.taskChannelStatus === TASK_STATUS.FAILED ||
-          ch.taskChannelStatus === "SKIPPED"
+          ch.taskChannelStatus === TASK_STATUS.STOPPED ||
+          ch.taskChannelStatus === "SKIPPED" ||
+          state.userStoppedTaskIds?.[String(taskId)]
         ) {
           console.log(
-            `[SearchTasks] runTask: channel ${ch.channelSubType} 已终态 ${ch.taskChannelStatus}，跳过接口调用`
+            `[SearchTasks] runTask: channel ${ch.channelSubType} 已终态 ${ch.taskChannelStatus}` +
+              `${state.userStoppedTaskIds?.[String(taskId)] ? "（任务已被用户停止）" : ""}，跳过 finish`
           );
           continue;
         }
@@ -1709,6 +2038,22 @@ const actions = {
               errorCode: runError?.code || "UNKNOWN",
               errorMessage: runError?.message || "聚合搜索失败"
             };
+
+        // ★ 该渠道当前未登录 → **不立即 finish**：登记「待 finish」，等用户重新登录 +
+        //   AI 重新分析跑完后（reAnalyzeFailedResumes → finishPendingChannelsForChannel）再 finish。
+        //   避免登录失效时把 channel 提前收尾、丢掉重新分析的机会。本地 channel 保持非终态（任务仍"进行中"）。
+        const chLogin = rootGetters?.getChannelConf?.[ch.channelSubType]?.login;
+        if (chLogin === false) {
+          commit("addPendingFinishChannel", {
+            taskChannelId: ch.taskChannelId,
+            channelKey: ch.channelSubType,
+            chatId: task.chatId
+          });
+          console.log(
+            `[SearchTasks] runTask: channel ${ch.channelSubType} 未登录 → 延迟 finish（登记 pending，等重新登录+AI跑完再 finish）`
+          );
+          continue;
+        }
 
         // ★ 推荐通道独立保险：finish 推荐前**再等一次推荐 AI 评分完成**。
         //

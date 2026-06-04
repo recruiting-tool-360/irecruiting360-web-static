@@ -394,10 +394,7 @@
       - 手动弹起：点上方「立即更新 🚀」按钮
       - 主进程 setupAutoUpdater 已不再用 Electron 原生 dialog
     -->
-    <UpdateModal
-      v-model="updateModalOpen"
-      :new-version="newVersionAvailable"
-    />
+    <UpdateModal v-model="updateModalOpen" :new-version="newVersionAvailable" />
 
     <!-- 重命名对话框 -->
     <q-dialog v-model="renameDialogVisible">
@@ -580,6 +577,40 @@ const jobSearchFilterRef = computed(() => store.getters.getJobSearchFilterRefVal
 const chatCardRef = computed(() => store.getters.getChatCardRefValue);
 
 // 加载聊天列表
+/**
+ * 取 i 人事「在招职位」白名单：noauth/application/position 返回的职位 id 集合。
+ *
+ * 用途：左边职位列表数据仍来自 chatList，但用这个集合过滤 —— chatList 里 positionId
+ * 不在该集合中的（职位已关闭 / 移除）就隐藏。
+ *
+ * 关联键用 positionId（用户指定）；同时把 headcountId 也并进集合做兜底，
+ * 因为本项目部分链路把 headcountId 当 positionId 用（见 SSOLogin.rebuildPositionList），
+ * chatList.positionId 实际可能存的是 headcountId 值。
+ *
+ * 返回 null 表示「拿不到/接口失败」→ 调用方不过滤（不会误把全部职位隐藏）。
+ */
+async function getActiveApplicationPositionIdSet() {
+  try {
+    // 跟 noauth/addPools 一样直接调 i人事 noauth 接口（client 模式经 ihrBridge 自动拼 accessToken）。
+    const resp = await window?.api?.ihrBridge?.getApplicationPosition?.();
+    // 接口不可用（非客户端 / 旧 preload）→ 返回 null，不过滤
+    if (resp == null || resp.success === false) return null;
+    // 响应形态跟 SSOLogin.rebuildPositionList 一致：resp.data 直接是职位数组
+    const list = Array.isArray(resp.data) ? resp.data : [];
+    const set = new Set();
+    for (const p of list) {
+      if (!p) continue;
+      if (p.positionId != null && p.positionId !== "") set.add(String(p.positionId));
+      if (p.headcountId != null && p.headcountId !== "") set.add(String(p.headcountId));
+    }
+    console.log(`[LeftMenu] application/position 在招职位 id 集合 size=${set.size}`);
+    return set;
+  } catch (e) {
+    console.warn("[LeftMenu] getApplicationPosition 失败，跳过职位过滤:", e?.message || e);
+    return null;
+  }
+}
+
 const loadChatList = async () => {
   loading.value = true;
   console.log("开始加载聊天列表");
@@ -622,15 +653,31 @@ const loadChatList = async () => {
         isFromThirdMenu: isFromThirdMenu.value
       });
 
+      // ★ 用 noauth/application/position 做白名单过滤：chatList 里 positionId 不在
+      //   i人事在招职位列表中的（职位已关闭/移除）→ 隐藏。
+      //   接口不可用/失败 → activePositionIdSet 为 null → 不过滤（show all），避免误隐藏全部。
+      //   chat 没 positionId（理论上少见）→ 无从判定 → 保留。
+      const activePositionIdSet = await getActiveApplicationPositionIdSet();
+      const visibleChatList = activePositionIdSet
+        ? formattedChatList.filter(
+            (item) => !item.positionId || activePositionIdSet.has(String(item.positionId))
+          )
+        : formattedChatList;
+      if (activePositionIdSet) {
+        console.log(
+          `[LeftMenu] 职位列表过滤：${formattedChatList.length} → ${visibleChatList.length}（按 application/position 在招职位）`
+        );
+      }
+
       // 将格式化后的聊天列表保存到Vuex中
-      store.dispatch("updateChatList", formattedChatList);
+      store.dispatch("updateChatList", visibleChatList);
       console.log("聊天列表已保存到Vuex");
 
       // 客户端模式下：chatList 接口没返 jd 字段（注释 SSOLogin.vue L226），
       // 在后台异步批量调 ihrBridge.batchGetPositionDetailByIds 拉职位详情，
       // 用 generateJobPostingFromResume 算 JD 文本回填到 chatList。
       // 这步不阻塞 loadChatList 主流程，失败也不影响其它功能（jd 仍为空，自动发送 JD 这条路径会 skip）。
-      void hydrateJobDescriptionsFromIhr(formattedChatList);
+      void hydrateJobDescriptionsFromIhr(visibleChatList);
 
       // 在数据更新到Vuex后，使用nextTick确保DOM已更新
       // 然后再处理三方企业的选择逻辑
@@ -1178,6 +1225,17 @@ onMounted(() => {
 
   // Electron 自动更新接入（仅 client 模式有效）
   _setupAppUpdater();
+
+  // ★ 客户端窗口重新聚焦 → 重新拉一次职位列表，及时反映 i人事侧新增/关闭的职位
+  //   （按 application/position 白名单过滤）。节流 5s，避免频繁触发。
+  //   优先用「客户端窗口聚焦」(main 进程 BrowserWindow 'focus')，比网页 window 'focus' 可靠
+  //   —— 即使当前停在 BOSS tab，app 一回到前台也会触发；浏览器模式回退到网页 focus/visibility。
+  if (window?.api?.appWindow?.onFocus) {
+    _unbindAppFocus = window.api.appWindow.onFocus(_refreshChatListOnFocus);
+  } else {
+    window.addEventListener("focus", _refreshChatListOnFocus);
+    document.addEventListener("visibilitychange", _onVisibilityChange);
+  }
 });
 
 /**
@@ -1194,6 +1252,24 @@ watch(_chatListRefreshSignal, (nv, ov) => {
   loadChatList();
 });
 
+/**
+ * 窗口聚焦 / 页面变可见时重新拉职位列表（及时获取要隐藏 / 新增的职位）。
+ * 节流：两次刷新至少间隔 5s，避免频繁切焦点时狂刷。
+ */
+const FOCUS_REFRESH_THROTTLE_MS = 5000;
+let _lastFocusRefreshAt = 0;
+let _unbindAppFocus = null;
+function _refreshChatListOnFocus() {
+  const now = Date.now();
+  if (now - _lastFocusRefreshAt < FOCUS_REFRESH_THROTTLE_MS) return;
+  _lastFocusRefreshAt = now;
+  console.log("[LeftMenu] 窗口聚焦/可见 → 刷新职位列表");
+  loadChatList();
+}
+function _onVisibilityChange() {
+  if (document.visibilityState === "visible") _refreshChatListOnFocus();
+}
+
 onUnmounted(() => {
   _appUpdaterOffs.forEach((off) => {
     try {
@@ -1203,6 +1279,13 @@ onUnmounted(() => {
     }
   });
   _appUpdaterOffs.length = 0;
+  if (_unbindAppFocus) {
+    _unbindAppFocus();
+    _unbindAppFocus = null;
+  } else {
+    window.removeEventListener("focus", _refreshChatListOnFocus);
+    document.removeEventListener("visibilitychange", _onVisibilityChange);
+  }
 });
 
 // 处理招聘操作

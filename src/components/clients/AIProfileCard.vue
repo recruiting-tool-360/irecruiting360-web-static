@@ -44,7 +44,7 @@
           </svg>
           <span>复制</span>
         </button>
-        <button class="hdr-btn" type="button" @click="$emit('edit')">
+        <button class="hdr-btn" type="button" @click="startEdit">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
           </svg>
@@ -53,6 +53,29 @@
       </div>
     </div>
 
+    <!--
+      编辑模式（1:1 对照 ihraisaas AnalysisCard.tsx 87-121）：只编辑「技能关键词」，
+      textarea 以逗号分隔，取消 / 保存修改。保存后更新本卡「专业技能」展示。
+    -->
+    <div v-if="isEditing" class="edit-box">
+      <div class="edit-field">
+        <label class="edit-label">技能关键词</label>
+        <textarea v-model="editKeywords" class="edit-textarea" rows="2"></textarea>
+      </div>
+      <div class="edit-actions">
+        <button type="button" class="edit-cancel" @click="cancelEdit">取消</button>
+        <button type="button" class="edit-save" @click="saveEdit">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+            <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" />
+            <path d="M7 3v4a1 1 0 0 0 1 1h7" />
+          </svg>
+          <span>保存修改</span>
+        </button>
+      </div>
+    </div>
+
+    <template v-else>
     <!-- Basic Info Rows -->
     <div class="basic-info">
       <div class="bi-cell">
@@ -91,7 +114,7 @@
         </p>
         <div class="tag-list">
           <span
-            v-for="(s, i) in profile.skills || []"
+            v-for="(s, i) in displaySkills"
             :key="`sk-${i}`"
             class="tag-chip tag-chip-blue"
           >{{ s }}</span>
@@ -137,18 +160,55 @@
 
     <!-- ActionPanel slot：搜索牛人 / 推荐牛人 + 配置卡片 -->
     <slot name="action" />
+    </template>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { ref, watch } from "vue";
+
+const props = defineProps({
   /** parseAISearchJD 的返回值 */
   profile: {
     type: Object,
     required: true
   }
 });
-defineEmits(['copy', 'edit']);
+// edit → 保存修改后把新的技能关键词抛给父组件（可选持久化 / 同步搜索条件）
+const emit = defineEmits(["copy", "edit", "save"]);
+
+/* ===== 编辑「技能关键词」(= 专业技能) —— 1:1 对照 ihraisaas AnalysisCard 编辑态 ===== */
+// 专业技能展示用本地副本：未编辑时跟随 profile.skills（流式更新也能反映），保存后冻结成编辑值
+const displaySkills = ref([...(props.profile?.skills || [])]);
+const userEdited = ref(false);
+watch(
+  () => props.profile?.skills,
+  (next) => {
+    if (!userEdited.value) displaySkills.value = [...(next || [])];
+  },
+  { deep: true }
+);
+
+const isEditing = ref(false);
+const editKeywords = ref("");
+
+function startEdit() {
+  editKeywords.value = (displaySkills.value || []).join(", ");
+  isEditing.value = true;
+}
+function cancelEdit() {
+  isEditing.value = false;
+}
+function saveEdit() {
+  const skills = editKeywords.value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  displaySkills.value = skills;
+  userEdited.value = true;
+  isEditing.value = false;
+  emit("save", { skills });
+}
 </script>
 
 <style scoped lang="scss">
@@ -312,5 +372,86 @@ defineEmits(['copy', 'edit']);
   background: #fffbeb; /* amber-50 */
   border: 1px solid #fef3c7; /* amber-100 */
   color: #d97706; /* amber-600 */
+}
+
+/* ===== 编辑「技能关键词」（对照 ihraisaas AnalysisCard.tsx 88-121） ===== */
+.edit-box {
+  background: #fafafa; /* neutral-50 */
+  border: 1px solid #e5e5e5; /* neutral-200 */
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px; /* space-y-4 */
+}
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* space-y-2 */
+}
+.edit-label {
+  font-size: 10px; /* text-[10px] */
+  font-weight: 700; /* font-bold */
+  color: #737373; /* neutral-500 */
+  text-transform: uppercase;
+  letter-spacing: -0.025em;
+}
+.edit-textarea {
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e5e5e5; /* neutral-200 */
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px; /* text-xs */
+  color: #404040;
+  outline: none;
+  resize: vertical;
+  line-height: 1.5;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.edit-textarea:focus {
+  border-color: #99f6e4; /* primary-200 */
+  box-shadow: 0 0 0 2px #ccfbf1; /* ring-2 ring-primary-100 */
+}
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px; /* space-x-2 */
+  padding-top: 8px; /* pt-2 */
+}
+.edit-cancel {
+  padding: 4px 12px; /* px-3 py-1 */
+  border: 0;
+  background: transparent;
+  font-size: 10px; /* text-[10px] */
+  font-weight: 700;
+  color: #a3a3a3; /* neutral-400 */
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.edit-cancel:hover {
+  color: #525252; /* neutral-600 */
+}
+.edit-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px; /* px-3 py-1 */
+  border: 0;
+  border-radius: 8px;
+  background: #14b8a6; /* primary-500 */
+  color: #fff;
+  font-size: 10px; /* text-[10px] */
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); /* shadow-sm */
+  transition: background 0.15s;
+}
+.edit-save:hover {
+  background: #0d9488; /* primary-600 */
+}
+.edit-save svg {
+  flex-shrink: 0;
 }
 </style>

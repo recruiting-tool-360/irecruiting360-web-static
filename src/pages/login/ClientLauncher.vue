@@ -19,25 +19,48 @@
         <div class="cg-header-pattern" />
         <div class="cg-header-icons">
           <div class="cg-header-icon-frosted">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" class="cg-svg cg-svg--lg">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="cg-svg cg-svg--lg"
+            >
               <rect width="20" height="14" x="2" y="3" rx="2" />
               <line x1="8" x2="16" y1="21" y2="21" />
               <line x1="12" x2="12" y1="17" y2="21" />
             </svg>
           </div>
           <div class="cg-header-icon-globe">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" class="cg-svg cg-svg--sm">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="cg-svg cg-svg--sm"
+            >
               <circle cx="12" cy="12" r="10" />
               <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
               <path d="M2 12h20" />
             </svg>
           </div>
           <div class="cg-header-icon-white">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" class="cg-svg cg-svg--lg cg-svg--primary">
-              <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="cg-svg cg-svg--lg cg-svg--primary"
+            >
+              <path
+                d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"
+              />
             </svg>
           </div>
         </div>
@@ -52,16 +75,16 @@
               <SvgSpinner />
             </div>
             <h3 class="cg-title cg-title--sm">正在准备启动数据</h3>
-            <p class="cg-desc cg-desc--sm">
-              正在与父页面建立连接，请稍候…
-            </p>
+            <p class="cg-desc cg-desc--sm">正在与父页面建立连接，请稍候…</p>
           </div>
 
           <!-- ===== intro：默认下载引导页 ===== -->
           <div v-else-if="state === 'intro'" key="intro" class="cg-step-intro">
             <h2 class="cg-title">启用 AI 聚合搜索客户端</h2>
             <p class="cg-desc">
-              AI 招聘助理现已升级为独立客户端。为了保障全网各平台的实时深度聚合及安全算法推荐，请安装"AI 聚合搜索客户端"并在本地运行以打通数据通路。
+              AI
+              招聘助理现已升级为独立客户端。为了保障全网各平台的实时深度聚合及安全算法推荐，请安装"AI
+              聚合搜索客户端"并在本地运行以打通数据通路。
             </p>
 
             <div class="cg-channels">
@@ -75,9 +98,15 @@
 
             <div class="cg-download-grid">
               <button class="cg-btn-win" @click="handleStartDownload('win')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round"
-                     class="cg-svg cg-svg--md cg-svg--primary-light">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="cg-svg cg-svg--md cg-svg--primary-light"
+                >
                   <rect width="20" height="14" x="2" y="3" rx="2" />
                   <line x1="8" x2="16" y1="21" y2="21" />
                   <line x1="12" x2="12" y1="17" y2="21" />
@@ -94,7 +123,7 @@
                 <SvgApple class="cg-svg cg-svg--md" />
                 <span>下载 Mac 客户端</span>
                 <span class="cg-btn-subtext">
-                  {{ macAvailable ? '.dmg 磁盘映像' : '即将开放' }}
+                  {{ macAvailable ? ".dmg 磁盘映像" : "即将开放" }}
                 </span>
               </button>
             </div>
@@ -109,7 +138,9 @@
                 <SvgZap v-if="!isLaunching" />
                 <SvgSpinner v-else class="cg-svg cg-svg--xs cg-svg--primary cg-spinner" />
                 <template v-if="isLaunching">正在唤起客户端…</template>
-                <template v-else>{{ hasInitData ? '打开 i快招 客户端' : '打开已安装的 i快招 客户端' }}</template>
+                <template v-else>{{
+                  hasInitData ? "打开 i快招 客户端" : "打开已安装的 i快招 客户端"
+                }}</template>
               </button>
             </div>
 
@@ -126,8 +157,15 @@
             <!-- 探测到客户端在跑：真"已启动" -->
             <template v-if="clientDetected">
               <div class="cg-success-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round" class="cg-svg cg-svg--xxl cg-svg--green">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="cg-svg cg-svg--xxl cg-svg--green"
+                >
                   <path d="M21.801 10A10 10 0 1 1 17 3.335" />
                   <path d="m9 11 3 3L22 4" />
                 </svg>
@@ -137,7 +175,7 @@
               <button class="cg-btn-primary" :disabled="isLaunching" @click="handleManualOpen">
                 <SvgZap v-if="!isLaunching" />
                 <SvgSpinner v-else class="cg-svg cg-svg--xs cg-svg--primary cg-spinner" />
-                {{ isLaunching ? '切换中…' : '切换到客户端' }}
+                {{ isLaunching ? "切换中…" : "切换到客户端" }}
               </button>
               <!-- 次要：回到下载页（用户想换平台 / 重新下载时） -->
               <button type="button" class="cg-btn-link" @click="handleBackToIntro">
@@ -148,8 +186,15 @@
             <!-- 还没探测到客户端：等待用户手动安装 -->
             <template v-else>
               <div class="cg-pending-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round" class="cg-svg cg-svg--xxl cg-svg--amber">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="cg-svg cg-svg--xxl cg-svg--amber"
+                >
                   <path d="M12 2v4" />
                   <path d="m16.2 7.8 2.9-2.9" />
                   <path d="M18 12h4" />
@@ -162,12 +207,14 @@
               </div>
               <h3 class="cg-title cg-title--md">安装包已下载</h3>
               <p class="cg-desc cg-desc--md">
-                请打开下载目录，{{ installHint }}。安装完成后本页面会自动检测到客户端，也可点击下方按钮手动启动。
+                请打开下载目录，{{
+                  installHint
+                }}。安装完成后本页面会自动检测到客户端，也可点击下方按钮手动启动。
               </p>
               <button class="cg-btn-primary" :disabled="isLaunching" @click="handleManualOpen">
                 <SvgZap v-if="!isLaunching" />
                 <SvgSpinner v-else class="cg-svg cg-svg--xs cg-svg--primary cg-spinner" />
-                {{ isLaunching ? '正在尝试唤起客户端…' : '我已完成安装，立即启动' }}
+                {{ isLaunching ? "正在尝试唤起客户端…" : "我已完成安装，立即启动" }}
               </button>
               <!-- 次要：回到下载页（用户下错版本 / 想换平台 / 想重新下载时） -->
               <button type="button" class="cg-btn-link" @click="handleBackToIntro">
@@ -189,8 +236,15 @@
             <div class="cg-mac-backdrop" @click="isMacModalOpen = false" />
             <div class="cg-mac-modal">
               <button class="cg-mac-close" aria-label="关闭" @click="isMacModalOpen = false">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round" class="cg-svg cg-svg--md">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="cg-svg cg-svg--md"
+                >
                   <path d="M18 6 6 18" />
                   <path d="m6 6 12 12" />
                 </svg>
@@ -200,7 +254,8 @@
                 <div class="cg-mac-header">
                   <h2 class="cg-mac-title">选择适合你 Mac 的版本</h2>
                   <p class="cg-mac-desc">
-                    下载适合你 MAC 芯片的桌面版会让使用体验更加顺畅。如果不确定你的 Mac 使用哪个芯片类型，可直接下载
+                    下载适合你 MAC 芯片的桌面版会让使用体验更加顺畅。如果不确定你的 Mac
+                    使用哪个芯片类型，可直接下载
                     <span class="cg-mac-emph">Intel 芯片版</span>，确保正常使用。
                   </p>
                 </div>
@@ -220,12 +275,19 @@
                           <div class="cg-mac-line cg-mac-line--1of2" />
                         </div>
                       </div>
-                      <div class="cg-mac-step-tag">Step 1：点击左上角  图标</div>
+                      <div class="cg-mac-step-tag">Step 1：点击左上角 图标</div>
                     </div>
 
                     <div class="cg-mac-arrow">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                           stroke-linecap="round" stroke-linejoin="round" class="cg-svg cg-svg--md cg-svg--neutral-200">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="cg-svg cg-svg--md cg-svg--neutral-200"
+                      >
                         <path d="m9 18 6-6-6-6" />
                       </svg>
                     </div>
@@ -236,7 +298,9 @@
                       <div class="cg-mac-step-content cg-mac-step-content--chip">
                         <div class="cg-mac-os-name">macOS Monterey</div>
                         <div class="cg-mac-version cg-mac-version--intel"><span>12.1</span></div>
-                        <div class="cg-mac-chip-tag cg-mac-chip-tag--intel">处理器：Intel Core i5</div>
+                        <div class="cg-mac-chip-tag cg-mac-chip-tag--intel">
+                          处理器：Intel Core i5
+                        </div>
                       </div>
                       <div class="cg-mac-step-tag">Intel 芯片示例</div>
                     </div>
@@ -276,10 +340,16 @@
                 </div>
 
                 <div class="cg-mac-actions">
-                  <button class="cg-btn-primary cg-btn-primary--lg" @click="handleStartDownload('mac-intel')">
+                  <button
+                    class="cg-btn-primary cg-btn-primary--lg"
+                    @click="handleStartDownload('mac-intel')"
+                  >
                     下载 Intel 芯片版
                   </button>
-                  <button class="cg-btn-outline cg-btn-outline--lg" @click="handleStartDownload('mac-apple')">
+                  <button
+                    class="cg-btn-outline cg-btn-outline--lg"
+                    @click="handleStartDownload('mac-apple')"
+                  >
                     下载 Apple 芯片版
                   </button>
                 </div>
@@ -318,15 +388,11 @@
  *
  * 详见 docs/client-launcher-flow.md
  */
-import { onMounted, onUnmounted, ref, computed, getCurrentInstance, h } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
-import { useClientLauncher, probeClient } from 'src/hooks/useClientLauncher';
-import { isElectronClient } from 'src/util/openChannelLoginUrl';
-import {
-  detectOS,
-  osLabel as osLabelOf,
-  isInsideEmbeddedWebview
-} from 'src/util/clientPlatform';
+import { onMounted, onUnmounted, ref, computed, getCurrentInstance, h } from "vue";
+import { useRouter, useRoute } from "vue-router";
+import { useClientLauncher, probeClient } from "src/hooks/useClientLauncher";
+import { isElectronClient } from "src/util/openChannelLoginUrl";
+import { detectOS, osLabel as osLabelOf, isInsideEmbeddedWebview } from "src/util/clientPlatform";
 
 const router = useRouter();
 const route = useRoute();
@@ -337,9 +403,9 @@ const { tryLaunch } = useClientLauncher();
 // ============ 渠道展示用 ============
 
 const CHANNELS = [
-  { name: '智联招聘', color: '#3b82f6' },
-  { name: '前程无忧', color: '#f97316' },
-  { name: 'BOSS直聘', color: '#14b8a6' }
+  { name: "智联招聘", color: "#3b82f6" },
+  { name: "前程无忧", color: "#f97316" },
+  { name: "BOSS直聘", color: "#14b8a6" }
   // 猎聘暂未支持，后续接入：{ name: '猎聘', color: '#2563eb' }
 ];
 
@@ -359,34 +425,35 @@ const CHANNELS = [
 //      会被 vite 强制覆盖成 'production'，仅 dev 时此判定生效，让本地联调默认走 qa2 包）
 //   5. 'release'               —— 最终默认值
 function inferChannelFromEnv() {
-  const env = (process.env.VUE_APP_ENV || '').toLowerCase();
+  const env = (process.env.VUE_APP_ENV || "").toLowerCase();
   if (env) {
-    if (env === 'production' || env === 'prod' || env === 'release') return 'release';
+    if (env === "production" || env === "prod" || env === "release") return "release";
     // test / qa / qa2 / sit / staging / stg / dev / development → 非生产，走 qa2 包
-    return 'qa2';
+    return "qa2";
   }
-  const api = (process.env.VUE_APP_API_BASE_URL || '').toLowerCase();
-  if (/(test|qa|sit|stg|staging|dev)\.ihire365/.test(api)) return 'qa2';
+  const api = (process.env.VUE_APP_API_BASE_URL || "").toLowerCase();
+  if (/(test|qa|sit|stg|staging|dev)\.ihire365/.test(api)) return "qa2";
   // 本地 `quasar dev` 模式（vite production build 时 NODE_ENV 会被强制 'production'）
-  if (process.env.NODE_ENV === 'development') return 'qa2';
-  return 'release';
+  if (process.env.NODE_ENV === "development") return "qa2";
+  return "release";
 }
-const RELEASE_CHANNEL =
-  process.env.VUE_APP_RELEASE_CHANNEL || inferChannelFromEnv();
+const RELEASE_CHANNEL = process.env.VUE_APP_RELEASE_CHANNEL || inferChannelFromEnv();
 const CHANNEL_CONFIG = {
   release: {
-    base: 'http://download.ihr360.com/ikuaizhao',
-    productName: 'i快招'
+    base: "http://download.ihr360.com/ikuaizhao",
+    productName: "i快招"
   },
   qa2: {
-    base: 'http://download.ihr360.com/ikuaizhao-qa2',
-    productName: 'i快招 QA2'
+    base: "http://download.ihr360.com/ikuaizhao-qa2",
+    productName: "i快招 QA2"
   }
 };
 const _ch = CHANNEL_CONFIG[RELEASE_CHANNEL] || CHANNEL_CONFIG.release;
 const DOWNLOAD_BASE = _ch.base;
 const PRODUCT_NAME = _ch.productName;
-console.log(`[ClientLauncher] 当前发版渠道=${RELEASE_CHANNEL} | base=${DOWNLOAD_BASE} | productName=${PRODUCT_NAME}`);
+console.log(
+  `[ClientLauncher] 当前发版渠道=${RELEASE_CHANNEL} | base=${DOWNLOAD_BASE} | productName=${PRODUCT_NAME}`
+);
 
 // 下载链接是 ref，启动时去 CDN 拉 latest.yml / latest-mac.yml 提取真实 version。
 // 拉之前先用 fallback 1.0.0 兜底（保证用户即使 CDN 抽风也能看到一个可用链接）。
@@ -394,12 +461,12 @@ console.log(`[ClientLauncher] 当前发版渠道=${RELEASE_CHANNEL} | base=${DOW
 //
 // 文件名约定与 electron-builder.yml 的 dmg.artifactName / nsis.artifactName 对齐：
 //   ${productName}-${version}-${arch}.${ext}
-const FALLBACK_VERSION = '1.0.0';
+const FALLBACK_VERSION = "1.0.0";
 function buildDownloadUrls(version) {
   return {
     win: `${DOWNLOAD_BASE}/${PRODUCT_NAME}-${version}-setup.exe`,
-    'mac-intel': `${DOWNLOAD_BASE}/${PRODUCT_NAME}-${version}-x64.dmg`,
-    'mac-apple': `${DOWNLOAD_BASE}/${PRODUCT_NAME}-${version}-arm64.dmg`
+    "mac-intel": `${DOWNLOAD_BASE}/${PRODUCT_NAME}-${version}-x64.dmg`,
+    "mac-apple": `${DOWNLOAD_BASE}/${PRODUCT_NAME}-${version}-arm64.dmg`
   };
 }
 const DOWNLOAD_URLS = ref(buildDownloadUrls(FALLBACK_VERSION));
@@ -429,7 +496,7 @@ async function fetchLatestVersion() {
   const candidates = [`${DOWNLOAD_BASE}/latest-mac.yml`, `${DOWNLOAD_BASE}/latest.yml`];
   for (const url of candidates) {
     try {
-      const resp = await fetch(url, { cache: 'no-store' });
+      const resp = await fetch(url, { cache: "no-store" });
       if (!resp.ok) continue;
       const text = await resp.text();
       const m = text.match(/^version:\s*['"]?([^'"\s]+)['"]?\s*$/m);
@@ -445,14 +512,14 @@ async function fetchLatestVersion() {
 }
 
 function isMacAvailable() {
-  return !!(DOWNLOAD_URLS.value['mac-intel'] || DOWNLOAD_URLS.value['mac-apple']);
+  return !!(DOWNLOAD_URLS.value["mac-intel"] || DOWNLOAD_URLS.value["mac-apple"]);
 }
 
 // ============ 状态 ============
 
 /** @type {'waiting-init' | 'intro' | 'downloading' | 'completed'} */
-const state = ref('waiting-init');
-const errorMsg = ref('');
+const state = ref("waiting-init");
+const errorMsg = ref("");
 const initPayload = ref(null);
 
 // 是否正在后台唤起客户端（用于"打开客户端"按钮的 spinner+disabled 状态）
@@ -476,14 +543,14 @@ const isEmbedded = computed(() => isInsideEmbeddedWebview());
 const osLabel = computed(() => osLabelOf());
 const hasInitData = computed(() => !!initPayload.value);
 const canRelaunch = computed(() => !isEmbedded.value);
-const isMockMode = computed(() => route.query.mock === '1' || route.query.mock === 'true');
+const isMockMode = computed(() => route.query.mock === "1" || route.query.mock === "true");
 const macAvailable = computed(() => isMacAvailable());
 const installHint = computed(() => {
-  if (selectedPlatform.value === 'win') return '双击 .exe 安装程序按提示完成安装';
-  if (selectedPlatform.value?.startsWith('mac')) {
-    return '双击 .dmg 镜像，将 i 快招拖到「应用程序」即可';
+  if (selectedPlatform.value === "win") return "双击 .exe 安装程序按提示完成安装";
+  if (selectedPlatform.value?.startsWith("mac")) {
+    return "双击 .dmg 镜像，将 i 快招拖到「应用程序」即可";
   }
-  return '运行下载的安装包完成安装';
+  return "运行下载的安装包完成安装";
 });
 
 /**
@@ -494,8 +561,8 @@ const installHint = computed(() => {
  */
 const intent = computed(() => {
   const v = route.query.intent;
-  if (typeof v === 'string' && v) return v;
-  return 'sso';
+  if (typeof v === "string" && v) return v;
+  return "sso";
 });
 
 // ============ 探测 i 人事 manage 父页 origin ============
@@ -513,7 +580,7 @@ const intent = computed(() => {
  */
 function detectIhrManageOrigin() {
   try {
-    if (typeof window !== 'undefined' && window.location && window.location.ancestorOrigins) {
+    if (typeof window !== "undefined" && window.location && window.location.ancestorOrigins) {
       const ao = window.location.ancestorOrigins;
       if (ao && ao.length > 0) {
         return ao[0];
@@ -523,7 +590,7 @@ function detectIhrManageOrigin() {
     /* ignore */
   }
   try {
-    if (typeof document !== 'undefined' && document.referrer) {
+    if (typeof document !== "undefined" && document.referrer) {
       const u = new URL(document.referrer);
       return u.origin;
     }
@@ -567,21 +634,21 @@ function detectIhrManageOrigin() {
  * @returns {Promise<null | { accessToken: string, accessTokenExpireAt?: string, tokenParamName?: string }>}
  */
 async function tryFetchAccessToken() {
-  if (!iframeMsg || typeof iframeMsg.post !== 'function') {
-    console.warn('[ClientLauncher] iframeMsg.post unavailable, skip launch token');
+  if (!iframeMsg || typeof iframeMsg.post !== "function") {
+    console.warn("[ClientLauncher] iframeMsg.post unavailable, skip launch token");
     return null;
   }
   try {
-    const res = await iframeMsg.post('request-launch-token', {});
+    const res = await iframeMsg.post("request-launch-token", {});
     // IframeMessenger 把 handler 的 return 值包成 { data: <result> }
     const body = res?.data;
     if (body?.error) {
-      console.warn('[ClientLauncher] parent reported launch error:', body.error);
+      console.warn("[ClientLauncher] parent reported launch error:", body.error);
       return null;
     }
     if (!body || !body.accessToken) {
       console.warn(
-        '[ClientLauncher] request-launch-token returned empty token (父页 handler 未注册 / 未登录 / 接口失败)'
+        "[ClientLauncher] request-launch-token returned empty token (父页 handler 未注册 / 未登录 / 接口失败)"
       );
       return null;
     }
@@ -591,11 +658,11 @@ async function tryFetchAccessToken() {
     return {
       accessToken: body.accessToken,
       accessTokenExpireAt: body.accessTokenExpireAt,
-      tokenParamName: body.tokenParamName || 'accessToken'
+      tokenParamName: body.tokenParamName || "accessToken"
     };
   } catch (e) {
     // 常见原因：父页没注册 handler / 15s 超时 / 父页 fetch 失败
-    console.warn('[ClientLauncher] request-launch-token failed:', e?.message || e);
+    console.warn("[ClientLauncher] request-launch-token failed:", e?.message || e);
     return null;
   }
 }
@@ -611,18 +678,18 @@ async function tryFetchAccessToken() {
  */
 async function launchWithPayload(payload) {
   if (payload && !payload.ssoConfig) {
-    state.value = 'intro';
-    errorMsg.value = '启动数据不完整（缺少 ssoConfig），请刷新工作台后重试。';
+    state.value = "intro";
+    errorMsg.value = "启动数据不完整（缺少 ssoConfig），请刷新工作台后重试。";
     return;
   }
 
   // 切到 intro 状态显示下载页（如果当前还在 waiting-init），让用户立刻看到下载入口
   // 不切到 'launching' 状态（已废弃）；唤起进度由 isLaunching 标识
-  if (state.value === 'waiting-init') {
-    state.value = 'intro';
+  if (state.value === "waiting-init") {
+    state.value = "intro";
   }
   isLaunching.value = true;
-  errorMsg.value = '';
+  errorMsg.value = "";
 
   // 让 manage 父页代调 client/launch 换 accessToken（zero CORS）。
   // 决策：放弃 dumpClientSession + 客户端复用 SESSION cookie 的旧方案，
@@ -656,7 +723,7 @@ async function launchWithPayload(payload) {
           : {})
       }
     : {
-        intent: 'open',
+        intent: "open",
         ihrManageUrl: manageOrigin,
         ...(tokenInfo
           ? {
@@ -668,7 +735,7 @@ async function launchWithPayload(payload) {
       };
 
   try {
-    const handle = tryLaunch(dlPayload.intent || 'sso', dlPayload, {
+    const handle = tryLaunch(dlPayload.intent || "sso", dlPayload, {
       timeoutMs: LAUNCH_TIMEOUT_MS
     });
     currentLaunchHandle = handle;
@@ -677,15 +744,15 @@ async function launchWithPayload(payload) {
     isLaunching.value = false;
     if (!ok) {
       errorMsg.value = isEmbedded.value
-        ? '当前在内嵌浏览器中，无法唤起客户端，请用系统浏览器访问。'
-        : '未检测到 i 快招客户端，请确认已安装；如未安装请下载。';
+        ? "当前在内嵌浏览器中，无法唤起客户端，请用系统浏览器访问。"
+        : "未检测到 i 快招客户端，请确认已安装；如未安装请下载。";
     }
     // 成功时不显示任何提示——焦点已切到客户端窗口
   } catch (e) {
-    console.error('[ClientLauncher] tryLaunch failed:', e);
+    console.error("[ClientLauncher] tryLaunch failed:", e);
     currentLaunchHandle = null;
     isLaunching.value = false;
-    errorMsg.value = e?.message || '唤起客户端时发生错误';
+    errorMsg.value = e?.message || "唤起客户端时发生错误";
   }
 }
 
@@ -701,17 +768,17 @@ async function handleManualOpen() {
  * 不清 errorMsg —— 让用户看到为何被卡在 completed（如果之前有 launch 错误）。
  */
 function handleBackToIntro() {
-  state.value = 'intro';
+  state.value = "intro";
 }
 
 // ============ 下载流程（来自 ClientGuide UI） ============
 
 /** 触发浏览器原生下载 */
 function triggerNativeDownload(url, fileName) {
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
-  a.download = fileName || '';
-  a.rel = 'noopener';
+  a.download = fileName || "";
+  a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -752,16 +819,16 @@ function handleStartDownload(platform) {
 
   const url = DOWNLOAD_URLS.value[platform];
   if (!url) {
-    console.warn('[ClientLauncher] no download url for platform:', platform);
+    console.warn("[ClientLauncher] no download url for platform:", platform);
     return;
   }
 
-  const fileName = url.split('/').pop();
+  const fileName = url.split("/").pop();
   triggerNativeDownload(url, fileName);
 
   // 立即进 completed，启动客户端健康探测
-  errorMsg.value = '';
-  state.value = 'completed';
+  errorMsg.value = "";
+  state.value = "completed";
   startClientHealthProbe();
 }
 
@@ -770,28 +837,28 @@ function handleStartDownload(platform) {
 function buildMockPayload() {
   return {
     positionList: [
-      { positionId: 'mock-pos-001', name: 'Mock 高级前端工程师 (HC001)' },
-      { positionId: 'mock-pos-002', name: 'Mock 资深 Java 开发 (HC002)' }
+      { positionId: "mock-pos-001", name: "Mock 高级前端工程师 (HC001)" },
+      { positionId: "mock-pos-002", name: "Mock 资深 Java 开发 (HC002)" }
     ],
-    sysConfig: { color: '#1677ff' },
-    companyConfig: { companyId: 'mock-company-001' },
+    sysConfig: { color: "#1677ff" },
+    companyConfig: { companyId: "mock-company-001" },
     ssoConfig: {
-      locale: 'zh-CN',
+      locale: "zh-CN",
       userConfig: {
-        tenantCode: 'company_a',
-        apiKey: 'test_api_key_123',
-        signature: '94a8f1478929d191c56fb42e1007cdfe',
-        thirdPartyUserId: 'mock-user-001',
+        tenantCode: "company_a",
+        apiKey: "test_api_key_123",
+        signature: "94a8f1478929d191c56fb42e1007cdfe",
+        thirdPartyUserId: "mock-user-001",
         userData: {
-          username: 'mock-user',
-          nickname: 'Mock 用户',
-          email: 'mock@ihire365.com',
-          phone: '13800138000',
-          avatar: ''
+          username: "mock-user",
+          nickname: "Mock 用户",
+          email: "mock@ihire365.com",
+          phone: "13800138000",
+          avatar: ""
         },
         extendData: {
-          plan: 'PlanA',
-          from: 'recruit-assistant',
+          plan: "PlanA",
+          from: "recruit-assistant",
           assignPositionAuth: true,
           talentPoolAuth: true,
           sendJdAuth: true
@@ -806,7 +873,7 @@ function buildMockPayload() {
 onMounted(() => {
   // 已在 Electron 客户端里跑 → 直接走主页
   if (isElectronClient()) {
-    void router.replace('/');
+    void router.replace("/");
     return;
   }
 
@@ -825,7 +892,7 @@ onMounted(() => {
 
   // 开发期 mock：用测试 payload 直接唤起
   if (isMockMode.value) {
-    console.log('[ClientLauncher] mock mode — using test payload');
+    console.log("[ClientLauncher] mock mode — using test payload");
     const payload = buildMockPayload();
     initPayload.value = payload;
     void launchWithPayload(payload);
@@ -836,15 +903,15 @@ onMounted(() => {
   // 通过 referrer 简单判定：iframe 内访问会有非空且和当前 host 不同的 referrer
   const insideIframe = window.self !== window.top;
   if (!insideIframe) {
-    state.value = 'intro';
-    errorMsg.value = '';
+    state.value = "intro";
+    errorMsg.value = "";
     return;
   }
 
   // 注册 init 监听
-  iframeMsg?.on?.('init', (data, context) => {
-    if (context?.from && context.from !== 'ihr-recruit-assistant') {
-      console.warn('[ClientLauncher] ignore init from unknown source:', context.from);
+  iframeMsg?.on?.("init", (data, context) => {
+    if (context?.from && context.from !== "ihr-recruit-assistant") {
+      console.warn("[ClientLauncher] ignore init from unknown source:", context.from);
       return Promise.resolve(false);
     }
     initPayload.value = data;
@@ -854,9 +921,9 @@ onMounted(() => {
 
   // 30s 仍在 waiting-init → 视为父页面没推 init，降级到 intro
   waitingTimer = setTimeout(() => {
-    if (state.value === 'waiting-init') {
-      state.value = 'intro';
-      errorMsg.value = '未收到启动数据。若你是直接访问本页面，请下载客户端或从招聘工作台进入。';
+    if (state.value === "waiting-init") {
+      state.value = "intro";
+      errorMsg.value = "未收到启动数据。若你是直接访问本页面，请下载客户端或从招聘工作台进入。";
     }
   }, 30000);
 });
@@ -867,7 +934,7 @@ onUnmounted(() => {
     waitingTimer = null;
   }
   stopClientHealthProbe();
-  iframeMsg?.off?.('init');
+  iframeMsg?.off?.("init");
 });
 
 // ============ 子组件：复用 SVG（避免重复定义） ============
@@ -875,17 +942,17 @@ onUnmounted(() => {
 const SvgSpinner = {
   render() {
     return h(
-      'svg',
+      "svg",
       {
-        viewBox: '0 0 24 24',
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': 2,
-        'stroke-linecap': 'round',
-        'stroke-linejoin': 'round',
-        class: 'cg-svg cg-svg--xl cg-svg--primary cg-spinner'
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        "stroke-width": 2,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+        class: "cg-svg cg-svg--xl cg-svg--primary cg-spinner"
       },
-      [h('path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' })]
+      [h("path", { d: "M21 12a9 9 0 1 1-6.219-8.56" })]
     );
   }
 };
@@ -893,19 +960,19 @@ const SvgSpinner = {
 const SvgZap = {
   render() {
     return h(
-      'svg',
+      "svg",
       {
-        viewBox: '0 0 24 24',
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': 2,
-        'stroke-linecap': 'round',
-        'stroke-linejoin': 'round',
-        class: 'cg-svg cg-svg--xs'
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        "stroke-width": 2,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+        class: "cg-svg cg-svg--xs"
       },
       [
-        h('path', {
-          d: 'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z'
+        h("path", {
+          d: "M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"
         })
       ]
     );
@@ -915,21 +982,21 @@ const SvgZap = {
 const SvgApple = {
   render() {
     return h(
-      'svg',
+      "svg",
       {
-        viewBox: '0 0 24 24',
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': 2,
-        'stroke-linecap': 'round',
-        'stroke-linejoin': 'round',
-        class: this.$attrs.class || 'cg-svg cg-svg--md'
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        "stroke-width": 2,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+        class: this.$attrs.class || "cg-svg cg-svg--md"
       },
       [
-        h('path', {
-          d: 'M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z'
+        h("path", {
+          d: "M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"
         }),
-        h('path', { d: 'M10 2c1 .5 2 2 2 5' })
+        h("path", { d: "M10 2c1 .5 2 2 2 5" })
       ]
     );
   },
@@ -975,9 +1042,8 @@ $blue-200: #bfdbfe;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', PingFang SC,
-    Microsoft YaHei, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", PingFang SC, Microsoft YaHei,
+    sans-serif;
 }
 
 .cg-card {
@@ -989,6 +1055,8 @@ $blue-200: #bfdbfe;
   /* 铺满父容器（i 人事嵌入 iframe 时容器可能 1000+px 宽，不再限制 520px 居中）
      内部 .cg-body 里的内容仍然受 max-width 约束保证阅读体验 */
   width: 100%;
+  height: 100vh;
+  padding: 0;
   animation: cg-scale-in 280ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1019,7 +1087,7 @@ $blue-200: #bfdbfe;
   position: absolute;
   inset: 0;
   opacity: 0.1;
-  background-image: url('https://www.transparenttextures.com/patterns/carbon-fibre.png');
+  background-image: url("https://www.transparenttextures.com/patterns/carbon-fibre.png");
 }
 
 .cg-header-icons {
@@ -1060,8 +1128,13 @@ $blue-200: #bfdbfe;
 }
 
 @keyframes cg-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* ============ Body ============ */
@@ -1069,7 +1142,7 @@ $blue-200: #bfdbfe;
 .cg-body {
   /* card 铺满父容器，但内容限宽居中（避免大屏文字过宽难读） */
   padding: 40px 32px;
-  max-width: 520px;
+  max-width: 580px;
   margin: 0 auto;
   width: 100%;
 }
@@ -1080,8 +1153,12 @@ $blue-200: #bfdbfe;
   color: $neutral-800;
   margin: 0 0 8px;
   text-align: center;
-  &--sm { font-size: 18px; }
-  &--md { font-size: 20px; }
+  &--sm {
+    font-size: 18px;
+  }
+  &--md {
+    font-size: 20px;
+  }
 }
 
 .cg-desc {
@@ -1091,8 +1168,14 @@ $blue-200: #bfdbfe;
   line-height: 1.7;
   font-weight: 500;
   text-align: center;
-  &--sm { margin-bottom: 32px; color: $neutral-400; }
-  &--md { margin-bottom: 40px; font-weight: 500; }
+  &--sm {
+    margin-bottom: 32px;
+    color: $neutral-400;
+  }
+  &--md {
+    margin-bottom: 40px;
+    font-weight: 500;
+  }
 }
 
 /* ============ Status step（waiting-init） ============ */
@@ -1105,7 +1188,9 @@ $blue-200: #bfdbfe;
 
 .cg-step-status {
   padding: 8px 0 16px;
-  .cg-spinner-bg { margin: 0 auto 24px; }
+  .cg-spinner-bg {
+    margin: 0 auto 24px;
+  }
 }
 
 /* ============ Intro 渠道 ============ */
@@ -1165,30 +1250,42 @@ $blue-200: #bfdbfe;
   cursor: pointer;
   transition: all 200ms;
   border: 0;
-  &:active { transform: scale(0.98); }
-  .cg-svg { transition: transform 200ms; }
-  &:hover .cg-svg { transform: scale(1.1); }
+  &:active {
+    transform: scale(0.98);
+  }
+  .cg-svg {
+    transition: transform 200ms;
+  }
+  &:hover .cg-svg {
+    transform: scale(1.1);
+  }
 }
 
 .cg-btn-win {
   background: $neutral-900;
   color: #fff;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
-  &:hover { background: #000; }
+  &:hover {
+    background: #000;
+  }
 }
 
 .cg-btn-mac {
   background: #fff;
   border: 2px solid $neutral-900;
   color: $neutral-900;
-  &:hover:not(:disabled) { background: $neutral-50; }
+  &:hover:not(:disabled) {
+    background: $neutral-50;
+  }
   &:disabled {
     cursor: not-allowed;
     opacity: 0.4;
     border-color: $neutral-300;
     color: $neutral-400;
     box-shadow: none;
-    &:hover .cg-svg { transform: none; }
+    &:hover .cg-svg {
+      transform: none;
+    }
   }
 }
 
@@ -1196,7 +1293,9 @@ $blue-200: #bfdbfe;
   cursor: not-allowed;
   opacity: 0.4;
   box-shadow: none;
-  &:hover .cg-svg { transform: none; }
+  &:hover .cg-svg {
+    transform: none;
+  }
 }
 
 .cg-btn-subtext {
@@ -1231,8 +1330,12 @@ $blue-200: #bfdbfe;
   transition: all 200ms;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 
-  &:hover:not(:disabled) { background: $primary-50; }
-  &:active:not(:disabled) { transform: scale(0.98); }
+  &:hover:not(:disabled) {
+    background: $primary-50;
+  }
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+  }
   &:disabled {
     opacity: 0.4;
     cursor: not-allowed;
@@ -1271,16 +1374,24 @@ $blue-200: #bfdbfe;
   margin: 0 auto;
 }
 
-.cg-spinner { animation: cg-spin 1s linear infinite; }
+.cg-spinner {
+  animation: cg-spin 1s linear infinite;
+}
 
 @keyframes cg-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ============ Completed / Succeeded ============ */
 
-.cg-step-completed { padding: 40px 0; }
+.cg-step-completed {
+  padding: 40px 0;
+}
 
 .cg-success-icon,
 .cg-pending-icon {
@@ -1292,13 +1403,19 @@ $blue-200: #bfdbfe;
   justify-content: center;
   margin: 0 auto 24px;
 }
-.cg-success-icon { background: $green-50; }
+.cg-success-icon {
+  background: $green-50;
+}
 .cg-pending-icon {
-  background: #fffbeb;     // amber-50
-  .cg-svg { animation: cg-spin 8s linear infinite; }
+  background: #fffbeb; // amber-50
+  .cg-svg {
+    animation: cg-spin 8s linear infinite;
+  }
 }
 
-.cg-svg--amber { color: #f59e0b; }
+.cg-svg--amber {
+  color: #f59e0b;
+}
 
 .cg-probe-hint {
   margin-top: 24px;
@@ -1334,8 +1451,12 @@ $blue-200: #bfdbfe;
   cursor: pointer;
   transition: all 200ms;
   box-shadow: 0 10px 15px -3px rgba(20, 184, 166, 0.2);
-  &:hover { background: $primary-600; }
-  &:active { transform: scale(0.98); }
+  &:hover {
+    background: $primary-600;
+  }
+  &:active {
+    transform: scale(0.98);
+  }
   &--lg {
     width: auto;
     height: 56px;
@@ -1359,7 +1480,9 @@ $blue-200: #bfdbfe;
   text-decoration: underline;
   text-underline-offset: 2px;
   transition: color 200ms;
-  &:hover { color: $neutral-700; }
+  &:hover {
+    color: $neutral-700;
+  }
 }
 
 .cg-btn-outline {
@@ -1376,8 +1499,12 @@ $blue-200: #bfdbfe;
   justify-content: center;
   gap: 8px;
   padding: 12px 24px;
-  &:hover { background: $primary-50; }
-  &:active { transform: scale(0.98); }
+  &:hover {
+    background: $primary-50;
+  }
+  &:active {
+    transform: scale(0.98);
+  }
   &--lg {
     height: 56px;
     padding: 0 40px;
@@ -1391,17 +1518,45 @@ $blue-200: #bfdbfe;
   display: block;
   width: 24px;
   height: 24px;
-  &--xs { width: 16px; height: 16px; }
-  &--sm { width: 16px; height: 16px; }
-  &--md { width: 24px; height: 24px; }
-  &--lg { width: 32px; height: 32px; }
-  &--xl { width: 40px; height: 40px; }
-  &--xxl { width: 48px; height: 48px; }
-  &--primary { color: $primary-500; }
-  &--primary-light { color: $primary-400; }
-  &--green { color: $green-500; }
-  &--neutral-200 { color: $neutral-200; }
-  &--neutral-300 { color: $neutral-300; }
+  &--xs {
+    width: 16px;
+    height: 16px;
+  }
+  &--sm {
+    width: 16px;
+    height: 16px;
+  }
+  &--md {
+    width: 24px;
+    height: 24px;
+  }
+  &--lg {
+    width: 32px;
+    height: 32px;
+  }
+  &--xl {
+    width: 40px;
+    height: 40px;
+  }
+  &--xxl {
+    width: 48px;
+    height: 48px;
+  }
+  &--primary {
+    color: $primary-500;
+  }
+  &--primary-light {
+    color: $primary-400;
+  }
+  &--green {
+    color: $green-500;
+  }
+  &--neutral-200 {
+    color: $neutral-200;
+  }
+  &--neutral-300 {
+    color: $neutral-300;
+  }
 }
 
 /* ============ Step Transition ============ */
@@ -1461,10 +1616,14 @@ $blue-200: #bfdbfe;
   color: $neutral-400;
   cursor: pointer;
   transition: background 200ms;
-  &:hover { background: $neutral-100; }
+  &:hover {
+    background: $neutral-100;
+  }
 }
 
-.cg-mac-inner { padding: 48px; }
+.cg-mac-inner {
+  padding: 48px;
+}
 
 .cg-mac-header {
   text-align: center;
@@ -1493,7 +1652,9 @@ $blue-200: #bfdbfe;
   font-weight: 700;
 }
 
-.cg-mac-guide { margin-bottom: 48px; }
+.cg-mac-guide {
+  margin-bottom: 48px;
+}
 
 .cg-mac-guide-title {
   font-size: 18px;
@@ -1560,7 +1721,9 @@ $blue-200: #bfdbfe;
   display: flex;
   flex-direction: column;
   align-items: center;
-  &--chip { margin-top: 0; }
+  &--chip {
+    margin-top: 0;
+  }
 }
 
 .cg-mac-step-lines {
@@ -1575,9 +1738,18 @@ $blue-200: #bfdbfe;
   height: 6px;
   border-radius: 9999px;
 }
-.cg-mac-line--full { width: 100%; background: $neutral-100; }
-.cg-mac-line--3of4 { width: 75%; background: $neutral-100; }
-.cg-mac-line--1of2 { width: 50%; background: $primary-200; }
+.cg-mac-line--full {
+  width: 100%;
+  background: $neutral-100;
+}
+.cg-mac-line--3of4 {
+  width: 75%;
+  background: $neutral-100;
+}
+.cg-mac-line--1of2 {
+  width: 50%;
+  background: $primary-200;
+}
 
 .cg-mac-step-tag {
   position: absolute;
@@ -1589,7 +1761,9 @@ $blue-200: #bfdbfe;
 }
 
 .cg-mac-arrow,
-.cg-mac-or { flex-shrink: 0; }
+.cg-mac-or {
+  flex-shrink: 0;
+}
 
 .cg-mac-or {
   font-size: 12px;
@@ -1618,8 +1792,12 @@ $blue-200: #bfdbfe;
     font-weight: 700;
     color: $neutral-800;
   }
-  &--intel { background: linear-gradient(135deg, $purple-200, $pink-200); }
-  &--apple { background: linear-gradient(135deg, $indigo-200, $blue-200); }
+  &--intel {
+    background: linear-gradient(135deg, $purple-200, $pink-200);
+  }
+  &--apple {
+    background: linear-gradient(135deg, $indigo-200, $blue-200);
+  }
 }
 
 .cg-mac-chip-tag {
@@ -1691,7 +1869,9 @@ $blue-200: #bfdbfe;
 .cg-mac-modal-enter-active,
 .cg-mac-modal-leave-active {
   transition: opacity 200ms ease;
-  .cg-mac-modal { transition: transform 200ms ease, opacity 200ms ease; }
+  .cg-mac-modal {
+    transition: transform 200ms ease, opacity 200ms ease;
+  }
 }
 .cg-mac-modal-enter-from,
 .cg-mac-modal-leave-to {
@@ -1705,18 +1885,27 @@ $blue-200: #bfdbfe;
 /* ============ 响应式 ============ */
 
 @media (max-width: 768px) {
-  .cg-mac-inner { padding: 24px; }
-  .cg-mac-title { font-size: 22px; }
+  .cg-mac-inner {
+    padding: 24px;
+  }
+  .cg-mac-title {
+    font-size: 22px;
+  }
   .cg-mac-steps {
     flex-direction: column;
     gap: 16px;
   }
-  .cg-mac-step { width: 100%; }
+  .cg-mac-step {
+    width: 100%;
+  }
   .cg-mac-actions {
     flex-direction: column;
     gap: 12px;
     .cg-btn-primary--lg,
-    .cg-btn-outline--lg { width: 100%; padding: 0; }
+    .cg-btn-outline--lg {
+      width: 100%;
+      padding: 0;
+    }
   }
 }
 </style>

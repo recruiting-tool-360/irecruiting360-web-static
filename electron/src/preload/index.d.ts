@@ -44,6 +44,35 @@ export interface RecruitBridge {
   ): () => void
 }
 
+/**
+ * BOSS 常驻登录态监视 bridge（main 进程 bossLoginWatcher.ts）。
+ * 常驻隐藏窗口加载 BOSS「我的职位列表」页，用导航 URL 判定登录态 + 静默抓职位列表数据。
+ */
+export interface BossWatcherBridge {
+  /** 启动常驻监视（幂等） */
+  start(): Promise<{ ok: boolean }>
+  /** 停止常驻监视 */
+  stop(): Promise<{ ok: boolean }>
+  /**
+   * 监听 BOSS 登录态变化（失效→已登录 / 已登录→失效）
+   * @returns 取消订阅函数
+   */
+  onLoginStatus(callback: (data: { login: boolean; reason?: string }) => void): () => void
+  /**
+   * 监听常驻页抓到的「我的职位列表」数据更新（body 为接口原始 JSON）
+   * @returns 取消订阅函数
+   */
+  onJobList(
+    callback: (data: { ok: boolean; status?: number; url?: string; body?: unknown }) => void
+  ): () => void
+}
+
+/** 客户端窗口级事件（区别于网页 window 事件） */
+export interface AppWindowBridge {
+  /** 监听客户端主窗口获得焦点（app 回到前台）。返回取消订阅函数 */
+  onFocus(callback: () => void): () => void
+}
+
 export interface DeepLinkPayload {
   action: string
   version: number
@@ -567,6 +596,8 @@ declare global {
     electron: ElectronAPI
     api: {
       recruitBridge: RecruitBridge
+      bossWatcher: BossWatcherBridge
+      appWindow: AppWindowBridge
       handover: HandoverBridge
       tabs: TabsBridge
       ihrBridge: IhrBridge

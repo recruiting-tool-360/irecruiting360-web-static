@@ -35,7 +35,9 @@
         stroke-linecap="round"
         stroke-linejoin="round"
       >
-        <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+        <path
+          d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"
+        />
       </svg>
       <span class="rcc-title">{{ titleText }}</span>
     </div>
@@ -61,7 +63,7 @@
             <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
             <path d="M16 3.13a4 4 0 0 1 0 7.75" />
           </svg>
-          <label class="rcc-label">本次期望最大搜索"简历数"</label>
+          <label class="rcc-label">本次期望最大推荐牛人"简历数"</label>
         </div>
         <div class="rcc-input-cell">
           <input
@@ -85,27 +87,23 @@
       <div v-if="effectiveCount > 0" class="rcc-estimate-block">
         <div class="rcc-estimate-row">
           <span class="rcc-estimate-label">预计本次时长:</span>
-          <span class="rcc-estimate-value">{{ schedule.durationHours }}h</span>
+          <span class="rcc-estimate-value">{{ estimatedDurationDisplay }}</span>
         </div>
         <template v-if="!actionExecuted">
           <div class="rcc-estimate-row">
             <span class="rcc-estimate-label">预计开始时间:</span>
-            <span class="rcc-estimate-value">{{ formatScheduleTime(schedule.startTime) }}</span>
+            <span class="rcc-estimate-value">{{ scheduledStartDisplay }}</span>
           </div>
           <div class="rcc-estimate-row">
             <span class="rcc-estimate-label">预计结束时间:</span>
-            <span class="rcc-estimate-value">{{ formatScheduleTime(schedule.endTime) }}</span>
+            <span class="rcc-estimate-value">{{ scheduledEndDisplay }}</span>
           </div>
         </template>
       </div>
     </div>
 
     <!-- 主按钮 -->
-    <button
-      class="rcc-primary-btn"
-      :disabled="!canStart"
-      @click="handleStart"
-    >
+    <button class="rcc-primary-btn" :disabled="!canStart" @click="handleStart">
       <svg
         class="rcc-icon-play"
         viewBox="0 0 24 24"
@@ -124,9 +122,12 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
-import { predictSchedule, formatScheduleTime } from "src/util/scheduleEstimator";
+import { formatScheduleTime } from "src/util/scheduleEstimator";
+import { estimateSearchTask } from "src/api/searchTaskApi";
+import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
+import notify from "src/util/notify";
 
 const props = defineProps({
   cardData: {
@@ -141,9 +142,7 @@ const store = useStore();
 
 // 用户当前在 input 里编辑的份数（默认从 cardData.initialResumeCount 来）
 const resumeCount = ref(
-  typeof props.cardData?.initialResumeCount === "number"
-    ? props.cardData.initialResumeCount
-    : ""
+  typeof props.cardData?.initialResumeCount === "number" ? props.cardData.initialResumeCount : ""
 );
 
 // cardData 是 reactive prop —— 父端可能改 actionExecuted / initialResumeCount，
@@ -182,10 +181,10 @@ const canStart = computed(() => {
 });
 
 /* ===== 时间预估 =====
+ * 跟 AIProfileActionPanel 一致：**只调 POST /search/task/estimate 接口拿预估**，
+ * 不再用本地 predictSchedule 公式兜底（避免先闪一个本地默认值再被接口覆盖）。
+ *
  * effectiveCount: 已启动 → 用 cardData.initialResumeCount（锁定值）；未启动 → 用 input 实时值
- * existingQueueEndTime: 从 store.SearchTasks.taskQueue.items 找最后一个
- *   queued/processing 任务的 estimatedEndTime，让本次任务排在后面（跟 LeftMenu
- *   "预计 xx" 同数据源 —— 后端 /search/task/queue items[i].estimatedEndTime）
  */
 const effectiveCount = computed(() => {
   const val = actionExecuted.value ? props.cardData?.initialResumeCount : resumeCount.value;
@@ -193,34 +192,108 @@ const effectiveCount = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 });
 
-const isSearchOnly = computed(() => {
-  const mods = props.cardData?.selectedModules || {};
-  return !!mods.search && !mods.recommend;
-});
+const cfgList = computed(() => store.getters.getUserChannelConfig || []);
+const positionId = computed(() => store.getters.getLatestPositionId || "");
 
-const existingQueueEndTime = computed(() => {
-  const items = store?.state?.SearchTasks?.taskQueue?.items || [];
-  const candidates = items
-    .filter(
-      (it) =>
-        it &&
-        (it.taskStatus === "RUNNING" ||
-          it.taskStatus === "WAITING" ||
-          it.taskStatus === "RESTING") &&
-        it.estimatedEndTime
-    )
-    .map((it) => new Date(it.estimatedEndTime).getTime())
-    .filter((t) => Number.isFinite(t));
-  if (candidates.length === 0) return null;
-  return new Date(Math.max(...candidates));
-});
+/** estimate 用的 taskType：CONTINUE（保留增量）/ RESTART（清空重搜） */
+const estimateTaskType = computed(() =>
+  props.cardData?.configType === "RESTART" ? "RESTART" : "CONTINUE"
+);
 
-const schedule = computed(() =>
-  predictSchedule({
+/** 接口返回的预估结果 { durationMin, startISO, endISO } | null */
+const estimateRemote = ref(null);
+const estimateLoading = ref(false);
+
+let _estimateTimer = null;
+let _estimateSeq = 0; // 防 race：晚返回的旧请求丢弃
+function scheduleEstimate() {
+  if (_estimateTimer) clearTimeout(_estimateTimer);
+  // 立刻进入"计算中"态，debounce 窗口内也显示占位，避免先闪本地默认值
+  if (effectiveCount.value > 0) {
+    estimateRemote.value = null;
+    estimateLoading.value = true;
+  } else {
+    estimateRemote.value = null;
+    estimateLoading.value = false;
+  }
+  _estimateTimer = setTimeout(runEstimate, 300);
+}
+async function runEstimate() {
+  if (effectiveCount.value <= 0) {
+    estimateRemote.value = null;
+    estimateLoading.value = false;
+    return;
+  }
+  const payload = buildEstimatePayload({
+    chatId: props.cardData?.chatId || "",
+    positionId: positionId.value,
+    cfgList: cfgList.value,
+    selectedModules: props.cardData?.selectedModules || {},
+    matchedBossJobId: props.cardData?.matchedBossJobId || null,
     resumeCount: effectiveCount.value,
-    isSearchOnly: isSearchOnly.value,
-    existingQueueEndTime: existingQueueEndTime.value
-  })
+    taskType: estimateTaskType.value
+  });
+  if (!payload) {
+    estimateRemote.value = null; // 没有启用渠道
+    estimateLoading.value = false;
+    return;
+  }
+  const seq = ++_estimateSeq;
+  estimateLoading.value = true;
+  try {
+    const res = await estimateSearchTask(payload);
+    if (seq !== _estimateSeq) return; // 已被新请求覆盖
+    // 接口业务失败（如"最大简历数请填写 0-100 之间的整数"）→ 显示后端 errorMessage + 清空预估
+    if (!res || res.success !== "success") {
+      const msg = res?.errorMessage || res?.message || "预估失败";
+      notify.warning(msg, { group: "estimate-error" });
+      estimateRemote.value = null;
+      return;
+    }
+    const data = res?.data || {};
+    estimateRemote.value = {
+      durationMin: Number(data.estimatedDurationMinutes) || 0,
+      startISO: data.estimatedStartTime || null,
+      endISO: data.estimatedEndTime || null
+    };
+  } catch (e) {
+    if (seq !== _estimateSeq) return;
+    console.warn("[RetryConfigCard] estimate 接口失败:", e?.message || e);
+    estimateRemote.value = null;
+  } finally {
+    if (seq === _estimateSeq) estimateLoading.value = false;
+  }
+}
+
+// 份数 / 渠道配置变化都重新预估（debounce 300ms）
+watch([effectiveCount, cfgList], scheduleEstimate, { immediate: true, deep: true });
+
+onBeforeUnmount(() => {
+  if (_estimateTimer) clearTimeout(_estimateTimer);
+});
+
+/* 展示用：只用接口值，没就绪显示占位（计算中… / --） */
+const SCHEDULE_PENDING = "计算中…";
+const SCHEDULE_EMPTY = "--";
+const schedulePlaceholder = computed(() =>
+  estimateLoading.value ? SCHEDULE_PENDING : SCHEDULE_EMPTY
+);
+const estimatedDurationDisplay = computed(() => {
+  if (estimateRemote.value?.durationMin) {
+    const h = Math.round((estimateRemote.value.durationMin / 60) * 10) / 10;
+    return `${h}h`;
+  }
+  return schedulePlaceholder.value;
+});
+const scheduledStartDisplay = computed(() =>
+  estimateRemote.value?.startISO
+    ? formatScheduleTime(estimateRemote.value.startISO)
+    : schedulePlaceholder.value
+);
+const scheduledEndDisplay = computed(() =>
+  estimateRemote.value?.endISO
+    ? formatScheduleTime(estimateRemote.value.endISO)
+    : schedulePlaceholder.value
 );
 
 function onInput(e) {
@@ -264,9 +337,8 @@ $neutral-800: #262626;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    sans-serif;
 }
 
 /* ============ Header ============ */

@@ -211,18 +211,7 @@ const aiActiveForThisTask = computed(() => {
   // task 已经异常停止 → 不再认为 AI 在跑
   if (t.taskStatus === 'FAILED' || t.taskStatus === 'STOPPED') return false;
   const getter = store.getters['SearchTasks/isAiAnalyzingForChat'];
-  const result = typeof getter === 'function' ? !!getter(t.chatId) : false;
-  // debug log
-  console.log('[TaskStatusCard] aiActiveForThisTask计算:', {
-    taskId: t.taskId,
-    taskStatus: t.taskStatus,
-    taskChatId: t.chatId,
-    aiAnalyzingActive: store.getters.getAiAnalyzingActive,
-    aiAnalyzingChatId: store.getters.getAiAnalyzingChatId,
-    latestChatId: store.getters.getLatestChatId,
-    result
-  });
-  return result;
+  return typeof getter === 'function' ? !!getter(t.chatId) : false;
 });
 
 /**
@@ -245,6 +234,31 @@ const cardData = computed(() => ({
     task.value?.taskStatus === 'FAILED'
 }));
 
+/* ============== 搜索完成判定（与推荐解耦） ============== */
+
+/**
+ * ★ 搜索卡完成度**不能**等整任务收敛：同一个任务里搜索 + 推荐两个渠道，推荐还在跑会让
+ *   task.taskStatus 一直 RUNNING，导致"搜索其实做完了，搜索卡的汇总/AI评分/完毕却一直 pending"，
+ *   跟推荐流程相互"冲突"（用户反馈）。
+ *
+ *   判定独立信号：
+ *     - 整任务 COMPLETED → 搜索当然完成
+ *     - 任务里有推荐渠道、且推荐流程已经开始（recommendClientPhase >= OPENING）
+ *       → runRealAggregateSearch 是「先搜索 + 搜索 AI，再启动推荐」的串行流程，
+ *         推荐一旦开始就代表搜索（含搜索 AI 评分）已跑完 → 搜索卡可独立判完成。
+ */
+const searchDone = computed(() => {
+  const t = task.value;
+  if (!t) return false;
+  if (t.taskStatus === 'COMPLETED') return true;
+  if (!hasRecommend.value) return false; // 纯搜索任务：没收敛就是没完成
+  const rank = {
+    IDLE: 0, WAITING: 1, OPENING: 2, SELECTING: 3, SELECTED: 4,
+    FETCHING: 5, FETCHED: 6, SAVED: 7, SCORING: 8, DONE: 9
+  }[recommendClientPhase.value] || 0;
+  return rank >= 2; // 推荐已开始 = 搜索已跑完
+});
+
 /* ============== 搜索牛人流程卡 ============== */
 
 const searchCardContent = computed(() => {
@@ -253,11 +267,12 @@ const searchCardContent = computed(() => {
   // 标题文案优先看 task 整体状态，避免"全 FAILED 也被算成已完成"的误导
   if (t.taskStatus === 'FAILED') return '搜索牛人流程异常停止';
   if (t.taskStatus === 'STOPPED') return '搜索牛人流程已停止';
-  if (t.taskStatus === 'COMPLETED') {
-    // ⚠️ 用 aiActiveForThisTask（per-task），不用全局 aiScoringActive
-    // 否则别的 task 的 AI 评分会让本 task 误显示"评分中"
-    return aiActiveForThisTask.value ? '搜索完成，正在 AI 评分中...' : '搜索牛人流程已完成';
+  if (searchDone.value) {
+    // 搜索整体完成（含"推荐已开始 ⇒ 搜索 AI 已跑完"）→ 不再显示"评分中"
+    return '搜索牛人流程已完成';
   }
+  // 任务 RUNNING + 本任务搜索 AI 还在评分 → "评分中"
+  if (aiActiveForThisTask.value) return '搜索完成，正在 AI 评分中...';
   // RUNNING / WAITING / RESTING → 默认"进行中"文案
   return '搜索牛人数据获取流程';
 });
@@ -293,20 +308,22 @@ const searchCardSteps = computed(() => {
   //    阶段最长 10 分钟，channel 一直 RUNNING。用户已经感知到"完成卡片出来 + AI 评分中"，
   //    UI 还在显示"BOSS 数据抓取中..."——visualStatusForChannel 在 AI active 时把
   //    RUNNING 提前标 complete，对齐用户感知。
-  const channelSteps = channels.map((c) => ({
-    title: `正在并发检索 ${channelLabel(c.channelSubType)} 平台的实时人才数据...`,
-    status: visualStatusForChannel(c)
-  }));
-
-  // step[0] "分析关键词"：只要 task 已经创建（不管 channel 在哪个阶段）就视为完成
-  //   - saveCondition 入库时关键词已分析完毕，所以 task 存在 = 关键词分析完毕
-  //   - 不再要求 "channel 离开 WAITING"，避免 runTask 还没把 channel patch RUNNING 时
-  //     卡片显示"分析关键词 pending"的不合理状态
-  const anyStarted = true;
-
-  // 末尾几步用 task.taskStatus 判定（不要用"所有 channel done"——FAILED 也算 done 会误标已完成）
-  const isTaskSuccess = t.taskStatus === 'COMPLETED';
+  // 末尾几步：失败看整任务；成功看 searchDone（与推荐解耦，见 searchDone 注释）
   const isTaskFailed = t.taskStatus === 'FAILED' || t.taskStatus === 'STOPPED';
+  const done = searchDone.value;
+
+  // 每个参与的渠道一行。搜索整体已完成（done）→ 渠道行收尾为 complete（推荐还在跑也不影响搜索卡）。
+  const channelSteps = channels.map((c) => {
+    let st = visualStatusForChannel(c);
+    if (done && st !== 'skipped') st = 'complete';
+    return {
+      title: `正在并发检索 ${channelLabel(c.channelSubType)} 平台的实时人才数据...`,
+      status: st
+    };
+  });
+
+  // step[0] "分析关键词"：只要 task 已经创建就视为完成
+  const anyStarted = true;
 
   // 渠道（视觉上）是否全 done：包括"AI 活跃下的提前推进"。这决定了"汇总"步是否可以推进。
   const allChannelsVisuallyDone = channels.every((c) => {
@@ -315,13 +332,9 @@ const searchCardSteps = computed(() => {
   });
 
   // "汇总各渠道结果" / "已抓取全渠道 N..."
-  //   - task 成功 → 直接 complete + 真实总数
-  //   - task 失败 → skipped + "异常停止"
-  //   - 视觉所有 channel 已 done（含 AI 提前推进）→ complete + 真实总数（虽然 task 还没收敛）
-  //   - 否则 → pending + "正在汇总各渠道结果..."
   let summaryStatus = 'pending';
   let summaryTitle = '正在汇总各渠道结果...';
-  if (isTaskSuccess) {
+  if (done) {
     summaryStatus = 'complete';
     summaryTitle = `已抓取全渠道 ${totalResultsCount.value} 符合条件人才数据`;
   } else if (isTaskFailed) {
@@ -333,28 +346,20 @@ const searchCardSteps = computed(() => {
   }
 
   // "正在 AI 评分与画像匹配..."
-  //   - task 成功 + 评分仍在跑 → processing；评分已结束 → complete
-  //   - task 失败 → skipped
-  //   - task 还在 RUNNING **但本任务的** AI 已经在跑 → 视觉提前推进到 processing
-  //     （runTask 跑完搜索后会先等 AI 跑完才 patch COMPLETED，这段是用户最关心的阶段）
-  //   ⚠️ 统一用 aiActiveForThisTask（per-task），不用全局 aiScoringActive
-  //     避免别的 task 的 AI 评分让本卡片误显示"评分中"
+  //   - 搜索完成（含"推荐已开始 ⇒ 搜索 AI 已跑完"）→ complete
+  //   - 任务失败 → skipped
+  //   - 搜索 AI 还在跑（本任务）→ processing
   let aiScoreStatus = 'pending';
-  if (isTaskSuccess) {
-    aiScoreStatus = aiActiveForThisTask.value ? 'processing' : 'complete';
+  if (done) {
+    aiScoreStatus = 'complete';
   } else if (isTaskFailed) {
     aiScoreStatus = 'skipped';
   } else if (aiActiveForThisTask.value) {
     aiScoreStatus = 'processing';
   }
 
-  // "执行完毕"：task 真的成功 + 本 task 的 AI 真的结束才标 complete
-  const fullyDone = isTaskSuccess && !aiActiveForThisTask.value;
-  const finishStatus = fullyDone
-    ? 'complete'
-    : isTaskFailed
-      ? 'skipped'
-      : 'pending';
+  // "执行完毕"：搜索完成才 complete（与推荐无关）
+  const finishStatus = done ? 'complete' : isTaskFailed ? 'skipped' : 'pending';
 
   return [
     { title: '正在分析画像关键词...', status: anyStarted ? 'complete' : 'pending' },

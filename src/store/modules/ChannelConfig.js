@@ -113,6 +113,37 @@ export default {
      * 详见 src/util/channelLoginGuard.js
      */
     channelError: null,
+
+    /**
+     * BOSS 登录态是否由「常驻登录监视」(bossResidentWatcher / main 进程 bossLoginWatcher) 接管。
+     *
+     * 客户端模式下常驻隐藏窗口加载 BOSS 职位列表页，用导航/接口判定登录态，是最可靠的 BOSS
+     * 登录信号。开启后 AISearch 的 checkAuth 轮询（checkChannelLoginStatus / 静默 refreshChannelLogin）
+     * 不再覆盖 BOSS 登录态 —— 否则 checkAuth 偶发返回 Success 会把常驻监视判定的「已失效」又冲回
+     * 「已登录」，导致 header 不更新。
+     */
+    bossLoginWatcherActive: false,
+
+    /**
+     * 51job 登录态是否由「get_user_info 10s 轮询监视」(job51LoginWatcher) 接管。
+     * 开启后 AISearch 的 checkChannelLoginStatus / 静默 refreshChannelLogin 不再覆盖 JOB51 登录态，
+     * 避免老的 job51UserStatus（property/签名校验）偶发失败把轮询判定的"已登录"冲回"未登录"。
+     */
+    job51LoginWatcherActive: false,
+
+    /**
+     * 智联 登录态是否由「zhiLianUserStatus 10s 轮询监视」(zhilianLoginWatcher) 接管。
+     * 同 job51LoginWatcherActive：开启后 AISearch 的 checkChannelLoginStatus / 静默 refreshChannelLogin
+     * 不再覆盖 ZHILIAN 登录态。
+     */
+    zhilianLoginWatcherActive: false,
+
+    /**
+     * 是否正在"重新分析 AI 分析异常的简历"（渠道重新登录后触发）。
+     * 开启窗口内：JobInfo.onWaitingCallback 即使任务已停止也不要急着把 WAITING 简历标成 -2，
+     * 给重新提交的 detail 留出被后端打分的时间。由 reAnalyzeFailedResumes 设置 + 定时清除。
+     */
+    reAnalyzingActive: false,
   }),
     mutations: {
         changeChannelConfDisable(state,{key,value}) {
@@ -210,6 +241,18 @@ export default {
         clearChannelError(state) {
             state.channelError = null;
         },
+        setBossLoginWatcherActive(state, value) {
+            state.bossLoginWatcherActive = !!value;
+        },
+        setJob51LoginWatcherActive(state, value) {
+            state.job51LoginWatcherActive = !!value;
+        },
+        setZhilianLoginWatcherActive(state, value) {
+            state.zhilianLoginWatcherActive = !!value;
+        },
+        setReAnalyzingActive(state, value) {
+            state.reAnalyzingActive = !!value;
+        },
     },
     actions: {
       updateChannelConf(store, payload) { // 第一个参数是vuex固定的参数，不需要手动去传递
@@ -219,6 +262,18 @@ export default {
     getters: {
         getChannelConf(state) {
             return state.channelConf;
+        },
+        getBossLoginWatcherActive(state) {
+            return state.bossLoginWatcherActive === true;
+        },
+        getJob51LoginWatcherActive(state) {
+            return state.job51LoginWatcherActive === true;
+        },
+        getZhilianLoginWatcherActive(state) {
+            return state.zhilianLoginWatcherActive === true;
+        },
+        getReAnalyzingActive(state) {
+            return state.reAnalyzingActive === true;
         },
         getChannelConfByChannel: (state) => (key) => {
             return state.channelConf[key];

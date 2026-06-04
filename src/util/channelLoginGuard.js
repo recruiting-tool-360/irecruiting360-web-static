@@ -125,6 +125,88 @@ export function clearChannelExpired(store) {
 }
 
 /**
+ * 当前是否有"进行中 / 正在分析"的任务（决定渠道掉线要不要弹顶部 banner）。
+ */
+export function isAnyTaskActive(store) {
+  if (!store) return false;
+  try {
+    if (store.state?.SearchTasks?.runningTaskId) return true;
+    if (store.getters.getAiAnalyzingActive === true) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+/**
+ * 渠道登录监视检测到某渠道掉线时调：**仅当有进行中/正在分析的任务时**才弹顶部 banner
+ * （markChannelExpired）。没有任务时只更新渠道按钮登录态即可，不打扰用户。
+ *
+ * @param {object} store
+ * @param {'BOSS'|'ZHILIAN'|'JOB51'|'LIEPIN'} channelKey
+ */
+export function reportChannelOfflineIfTaskActive(store, channelKey) {
+  if (!store || !channelKey) return;
+  if (!isAnyTaskActive(store)) return;
+  markChannelExpired(store, channelKey);
+}
+
+/**
+ * 渠道恢复登录时调：如果顶部 banner 正是这个渠道引起的，就清掉。
+ */
+export function clearChannelErrorForKey(store, channelKey) {
+  if (!store || !channelKey) return;
+  const name = CHANNEL_DISPLAY_NAME[channelKey] || channelKey;
+  try {
+    if (store.getters.getChannelError === name) store.commit("clearChannelError");
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 渠道搜索接口**调用前**：实时探针检查该渠道登录态。
+ *   - 已登录 → 返回 true，调用方继续跑搜索
+ *   - 未登录 → 弹顶部 banner + 停当前任务（不 finish，等重新登录后 current 轮询重新触发），返回 false
+ *
+ * @param {object} store
+ * @param {'BOSS'|'ZHILIAN'|'JOB51'|'LIEPIN'} channelKey
+ * @param {string} chatId 当前 chat（停任务用）
+ * @returns {Promise<boolean>}
+ */
+export async function ensureChannelLoginBeforeSearch(store, channelKey, chatId) {
+  if (!store || !channelKey) return true;
+  const ok = await checkChannelLogin(store, channelKey);
+  if (!ok) {
+    console.warn(`[channelLoginGuard] ${channelKey} 搜索前检查未登录 → 弹 banner + 停任务`);
+    await handleChannelLoginExpired(store, { channelKey, chatId });
+  }
+  return ok;
+}
+
+/**
+ * 渠道搜索接口**调用失败**（含非网络的业务异常 / 返回空）后统一处理：
+ *   - 顶部弹「渠道异常」banner（仅当有进行中任务）
+ *   - 复核登录态：**确为未登录**才停当前任务（等重新登录后 current 轮询重新触发）；
+ *     若仍登录（纯网络抖动等）只弹 banner 不停任务
+ *
+ * @param {object} store
+ * @param {'BOSS'|'ZHILIAN'|'JOB51'|'LIEPIN'} channelKey
+ * @param {string} chatId
+ * @returns {Promise<boolean>} 复核后的登录态
+ */
+export async function handleChannelSearchFailure(store, channelKey, chatId) {
+  if (!store || !channelKey) return true;
+  reportChannelOfflineIfTaskActive(store, channelKey);
+  const ok = await checkChannelLogin(store, channelKey);
+  if (!ok) {
+    console.warn(`[channelLoginGuard] ${channelKey} 搜索失败且复核未登录 → 停任务`);
+    await handleChannelLoginExpired(store, { channelKey, chatId });
+  }
+  return ok;
+}
+
+/**
  * 综合处理"任务运行中检测到登录失效"事件。
  *
  * 三件事：
@@ -140,31 +222,25 @@ export function clearChannelExpired(store) {
  * @param {string} [opts.errorMessage]     给后端的错误描述
  */
 export async function handleChannelLoginExpired(store, opts) {
-  const { channelKey, chatId, taskChannelId, errorMessage } = opts || {};
+  const { channelKey, chatId, taskChannelId } = opts || {};
   if (!store || !channelKey) return;
 
   markChannelExpired(store, channelKey);
 
-  // 停止当前 chat 的进行中任务（含 scoreUpdater / 解锁 BOSS tab）
-  if (chatId) {
-    try {
-      await store.dispatch("SearchTasks/stopForChat", chatId);
-    } catch (e) {
-      console.warn("[channelLoginGuard] stopForChat 失败:", e?.message || e);
-    }
+  // ★ 任务进行中登录失效：**不立即 finish channel**。先把 channel 登记为「待 finish」，
+  //   等用户重新登录 + AI 分析重新跑完后，再由 reAnalyzeFailedResumes → finishPendingChannelsForChannel
+  //   调 postFinishChannel(COMPLETED)。避免把 channel 提前标 FAILED 丢掉数据。
+  if (taskChannelId) {
+    store.commit("SearchTasks/addPendingFinishChannel", { taskChannelId, channelKey, chatId });
   }
 
-  // 通知后端：当前 channel 任务因登录失效失败（让后端推 task 状态机到 FAILED）
-  if (taskChannelId) {
+  // 暂停当前 chat 的进行中任务（停 scoreUpdater / 清队列 / 标未评分简历 -2 供重新分析 / 解锁 BOSS tab），
+  // 但 **skipFinish**：不 finish channel（留到重新登录+AI跑完再 finish）。
+  if (chatId) {
     try {
-      const { postFinishChannel } = await import("src/api/searchTaskApi");
-      await postFinishChannel(taskChannelId, {
-        status: "FAILED",
-        errorCode: "LOGIN_EXPIRED",
-        errorMessage: errorMessage || `渠道「${CHANNEL_DISPLAY_NAME[channelKey] || channelKey}」登录失效`
-      });
+      await store.dispatch("SearchTasks/stopForChat", { chatId, skipFinish: true });
     } catch (e) {
-      console.warn("[channelLoginGuard] postFinishChannel 上报失败:", e?.message || e);
+      console.warn("[channelLoginGuard] stopForChat(skipFinish) 失败:", e?.message || e);
     }
   }
 }

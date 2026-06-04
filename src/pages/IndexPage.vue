@@ -38,6 +38,7 @@
             @aggregate="currentView = 'results'"
             @view-results="handleViewResults"
             @aggregate-search="handleAggregateSearch"
+            @profile-skills-edit="onProfileSkillsEdit"
           />
         </div>
 
@@ -123,6 +124,7 @@
             -->
             <div v-show="searchPaneVisible && activeResultTab === 'search'" class="result-tab-pane">
               <JobSearchFilter
+                v-show="showResultsSearchFilter"
                 ref="jobSearchFilterRef"
                 v-model:searchState="searchState"
                 @search="searchJobList"
@@ -212,6 +214,7 @@ import { ref, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
 import { useStore } from "vuex";
 import JobSearchFilter from "src/pages/search/JobSearchFilter.vue";
 import notify from "src/util/notify";
+import { Notify } from "quasar";
 import { createSearchState } from "src/pjo/dto/request/SearchStateConfig";
 import AISearch from "pages/search/AISearch.vue";
 import FloatingActionPanel from "src/components/common/FloatingActionPanel.vue";
@@ -224,13 +227,13 @@ import ClearChatConfirmModal from "src/components/clients/ClearChatConfirmModal.
 import { openChannelUrl, isElectronClient } from "src/util/openChannelLoginUrl";
 import {
   CHANNEL_DISPLAY_NAME,
-  checkChannelLogins,
   markChannelExpired,
   clearChannelExpired,
   handleChannelLoginExpired
 } from "src/util/channelLoginGuard";
 import { pluginAllUrls } from "src/pluginSrc/config/PluginRequestManager";
 import RecommendList from "src/components/clients/RecommendList.vue";
+import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 const store = useStore();
 
 /* ===== 客户端 / iHR 融合：嵌入式工作台模式 ===== */
@@ -281,6 +284,13 @@ const currentViewingTaskId = computed(() => {
   if (!cid) return null;
   return viewingTaskIdByChatId.value[cid] || null;
 });
+
+// 查看结果搜索列表：只有"当前（刚结束）搜索结果"（可加载更多）才显示顶部搜索条件栏；
+// 历史任务结果是静态快照（无加载更多）→ 隐藏顶部搜索栏。
+// 注意：用 v-show 不用 v-if —— JobSearchFilter 必须保持挂载（jobSearchFilterRef 给任务创建链路用）。
+const showResultsSearchFilter = computed(
+  () => !isHistoryTaskView(store, currentViewingTaskId.value)
+);
 
 /**
  * 记录"上次实际灌进 ChannelConfig.ALL.data 的 taskId"，给 handleViewResults 的
@@ -509,9 +519,7 @@ const searchPaneVisible = computed(() => {
  * 用 searchPaneVisible / recommendPaneVisible 而不是 hasXxxForCurrentChat，是为了
  * 跨电脑查看结果场景下也能正确显示切换器（本地没 task，但 ALL.data + BossRecommendData 都有数据）。
  */
-const showResultTabs = computed(
-  () => searchPaneVisible.value || recommendPaneVisible.value
-);
+const showResultTabs = computed(() => searchPaneVisible.value || recommendPaneVisible.value);
 
 // 把 activeResultTab 自动校正到唯一可见的那个 pane（只有一个时，避免选中态停在
 // 不可见的 pane 上导致空白）
@@ -1795,6 +1803,12 @@ async function handleAggregateSearch(payload) {
     return;
   }
 
+  // 任何"创建任务"入口（启动聚合 / 清空重新 / 保留增量 / 结果页搜索栏 / 加载更多）都回到聊天视图，
+  // 让用户在聊天记录里看到任务进度卡。嵌入式模式才有 chat/results 两个视图。
+  if (embeddedMode.value) {
+    currentView.value = "chat";
+  }
+
   // ★ 兜底防抖：上一次的 dispatch 还在跑，静默忽略（ChatCard 时间窗已挡，这里防御性二次防御）
   if (_dispatchingChats.has(chatIdToSearch)) {
     console.warn(
@@ -1887,21 +1901,21 @@ async function handleAggregateSearch(payload) {
       keysToCheck.push("BOSS"); // 推荐固定走 BOSS
     }
     if (keysToCheck.length > 0) {
-      try {
-        const r = await checkChannelLogins(store, keysToCheck);
-        if (!r.allLoggedIn) {
-          markChannelExpired(store, r.failedKeys[0]);
-          notify.warning(
-            `「${r.failedNames.join("、")}」未登录或登录已失效，请先在客户端中重新登录后再启动任务`
-          );
-          return;
-        }
-        // 都登录有效 → 清掉可能残留的旧 channelError
-        clearChannelExpired(store);
-      } catch (e) {
-        // 探针接口本身失败时不阻塞任务，仅 log；运行时仍会被 LOGIN_EXPIRED 路径兜底
-        console.warn("[IndexPage] checkChannelLogins 失败，跳过 recheck:", e?.message || e);
+      // ★ 直接信任 channelConf.login（由各渠道登录监视器实时维护：BOSS URL 监视 / 51job、智联
+      //   10s 轮询 userStatus）。账号异常的渠道 → 弹顶部 banner + 不启动任务；用户点「恢复任务」
+      //   recheck 正常后再点启动即可通过。比重新 probe 更可靠（BOSS checkAuth 偶发误报）。
+      const conf = store.getters.getChannelConf || {};
+      const failedKeys = keysToCheck.filter((k) => !(conf[k] && conf[k].login === true));
+      if (failedKeys.length > 0) {
+        markChannelExpired(store, failedKeys[0]);
+        const failedNames = failedKeys.map((k) => CHANNEL_DISPLAY_NAME[k] || k);
+        notify.warning(
+          `「${failedNames.join("、")}」未登录或登录已失效，请先在客户端中重新登录后再启动任务`
+        );
+        return;
       }
+      // 都登录有效 → 清掉可能残留的旧 channelError
+      clearChannelExpired(store);
     }
   }
 
@@ -1950,6 +1964,17 @@ async function handleAggregateSearch(payload) {
   //   期间 handleAggregateSearch 再被调用时本函数顶部的 _dispatchingChats.has 检查会拦下
   _dispatchingChats.add(chatIdToSearch);
 
+  // 顶部 loading 提示：创建任务期间（prepareConditionOnly + create）一直显示，成功/失败都关闭。
+  // timeout:0 = 不自动消失；返回的 dismiss 函数在下方 dispatchTaskStore.finally 里调用关闭。
+  const dismissCreateLoading = Notify.create({
+    group: false,
+    spinner: true,
+    message: "正在创建搜索任务…",
+    color: "primary",
+    position: "top",
+    timeout: 0
+  });
+
   let condIdForCreate = "";
   let searchRequestDataForExec = null;
   if (aiSearchRef.value && typeof aiSearchRef.value.prepareConditionOnly === "function") {
@@ -1990,7 +2015,9 @@ async function handleAggregateSearch(payload) {
     searchRequestData: searchRequestDataForExec
   })
     .then((res) => {
-      if (res && res.ok === false) {
+      if (res && res.ok) {
+        notify.success("任务创建成功，开始执行搜索");
+      } else if (res && res.ok === false) {
         const silentCodes = ["NO_ENABLED_CHANNEL", "ALREADY_RUNNING"];
         if (!silentCodes.includes(res.errorCode)) {
           notify.error(`任务创建失败：${res.message || res.errorCode || "未知错误"}`);
@@ -1999,6 +2026,12 @@ async function handleAggregateSearch(payload) {
     })
     .catch((e) => console.warn("[IndexPage] dispatchTaskStore unexpected:", e?.message || e))
     .finally(() => {
+      // 关闭顶部"正在创建搜索任务…"loading（无论成功/失败）
+      try {
+        dismissCreateLoading();
+      } catch (_e) {
+        /* ignore */
+      }
       // ★ release in-progress flag —— 此后该 chat 才能接受新一次的 aggregate-search
       _dispatchingChats.delete(chatIdToSearch);
     });
@@ -2455,17 +2488,40 @@ const handlePanelMounted = () => {
   }, 300);
 };
 
-// 搜索
+// 搜索结果页顶部「搜索条件栏」点搜索：
+//   不再直接 executeSearch（那是不建任务的即时搜索），改为**走任务流程**——
+//   跟"清空重新搜索"一致（taskType=RESTART）创建任务，并切回聊天记录展示任务状态卡。
+//   搜索关键字/条件由 handleAggregateSearch → prepareConditionOnly 读 searchState 自动带入。
 const searchJobList = () => {
-  console.log("searchJobList", searchState.value);
-  // 调用AISearch组件的搜索方法
-  if (aiSearchRef.value) {
-    if (!aiSearchRefVal.value) {
-      //初始化ref
-      store.commit("changeAiSearchRef", aiSearchRef.value);
+  console.log("searchJobList → 走任务流程(RESTART)", searchState.value);
+  // 浏览器/插件模式（非嵌入式）：没有聊天记录视图，沿用旧的即时搜索
+  if (!embeddedMode.value) {
+    if (aiSearchRef.value) {
+      if (!aiSearchRefVal.value) store.commit("changeAiSearchRef", aiSearchRef.value);
+      aiSearchRef.value.executeSearch(searchState.value);
     }
-    aiSearchRef.value.executeSearch(searchState.value);
+    return;
   }
+  const chatIdToSearch = chatId.value;
+  if (!chatIdToSearch) {
+    notify.warning("请先从左侧选择一个职位再搜索");
+    return;
+  }
+  // 切回聊天视图（返回聊天记录，展示任务进度卡）
+  currentView.value = "chat";
+  nextTick(() => {
+    const chatCard = embeddedChatRef.value;
+    if (chatCard && typeof chatCard.startSearchFromFilter === "function") {
+      chatCard.startSearchFromFilter();
+    } else {
+      // 兜底：直接走任务创建入口
+      handleAggregateSearch({
+        chatId: chatIdToSearch,
+        taskType: "RESTART",
+        selectedModules: { search: true, recommend: false }
+      });
+    }
+  });
 };
 
 // 重置搜索
@@ -2473,6 +2529,20 @@ const resetSearchConnect = () => {
   searchState.value = createSearchState();
   jobSearchFilterRef.value.resetCurrentWorkPlace();
   console.log("resetSearchConnect", searchState.value);
+};
+
+/**
+ * AI 职位画像卡「技能关键词」编辑保存 → 同步到 searchState.criteria.professional_skills，
+ * 让后续 prepareConditionOnly / saveCondition / 搜索用编辑后的专业技能（之前编辑只改了卡片展示，
+ * 搜索仍用旧 criteria）。searchState 与 JobSearchFilter / AISearch v-model 双绑，AITags 也会同步刷新。
+ */
+const onProfileSkillsEdit = (payload) => {
+  const skills = Array.isArray(payload?.skills) ? payload.skills : [];
+  const cur = searchState.value || {};
+  const criteria = { ...(cur.criteria || {}) };
+  criteria.professional_skills = skills;
+  searchState.value = { ...cur, criteria };
+  console.log("[IndexPage] 画像卡技能关键词已同步到 searchState.criteria.professional_skills", skills);
 };
 
 // 引用AISearch组件

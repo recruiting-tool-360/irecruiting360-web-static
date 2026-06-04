@@ -107,6 +107,13 @@ export default {
        * 永久持久化（vuex-persistedstate paths 配置在 store/index.js）。
        */
       lastSelectedModules: { search: true, recommend: false },
+      /**
+       * 每个 chatId 上次在 AIProfileActionPanel 填写的"简历份数"。
+       * 结构：{ [chatId]: number }。永久持久化（store/index.js paths）。
+       * 用途：同一职位（chatId）下次出现新的「AI 职位画像深度解析」卡片时，
+       *      简历份数默认上一次填写的值。
+       */
+      lastResumeCountByChatId: {},
     }),
     mutations: {
         changeLeftLoadingSwitch(state,payload) {
@@ -348,6 +355,20 @@ export default {
        *
        * @param {{search: boolean, recommend: boolean}} payload
        */
+      /**
+       * 记录某 chatId 上次填写的简历份数。count 传 null/0/非法 → 删除该 chatId 的记录。
+       */
+      setLastResumeCount(state, { chatId, count } = {}) {
+        if (!chatId) return;
+        const n = Number(count);
+        const next = { ...(state.lastResumeCountByChatId || {}) };
+        if (Number.isFinite(n) && n > 0) {
+          next[chatId] = n;
+        } else {
+          delete next[chatId];
+        }
+        state.lastResumeCountByChatId = next;
+      },
       setLastSelectedModules(state, payload) {
         state.lastSelectedModules = {
           search: !!payload?.search,
@@ -477,6 +498,12 @@ export default {
          */
         getLastSelectedModules(state) {
             return state.lastSelectedModules || { search: true, recommend: false };
+        },
+        /** 取某 chatId 上次填写的简历份数（没有则返回 null） */
+        getLastResumeCountForChat: (state) => (chatId) => {
+            if (!chatId) return null;
+            const v = state.lastResumeCountByChatId?.[chatId];
+            return Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null;
         },
         /** 职位列表静默刷新信号自增数（LeftMenu watch 它触发 loadChatList） */
         getChatListRefreshSignal(state) {

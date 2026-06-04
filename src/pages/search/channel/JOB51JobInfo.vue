@@ -60,6 +60,8 @@ import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 import {clearChannel as clearChannelApi} from "src/pluginSrc/util/AsyncTaskQueueManager";
 import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 import { openChannelLoginUrl } from "src/util/openChannelLoginUrl";
+import { handleChannelSearchFailure } from "src/util/channelLoginGuard";
+import { triggerContinueSearchFromResults } from "src/util/triggerContinueSearch";
 
 // 定义组件属性
 const props = defineProps({
@@ -154,29 +156,9 @@ const getChannelDisable = (key) => {
   return channelConfig.enableConfig;
 };
 
-// 加载更多数据
+// 加载更多 → 走任务流程的「保留增量搜索」（CONTINUE），不再直接翻下一页。
 const loadMore = async () => {
-  if (!hasMoreData.value) {
-    return;
-  }
-  const newChannelPage = searchChannelConfig.value.channelPage + 1;
-  if (newChannelPage > searchChannelConfig.value.totalPage) {
-    return;
-  }
-
-  isLoadingMore.value = true;
-  try {
-    await executeSearch(allSearchChannelConditionRequestData.value, newChannelPage);
-  } catch(error) {
-    console.error('加载更多数据失败:', error);
-    $q.notify({
-      message: '加载更多数据失败，请稍后重试',
-      color: 'negative',
-      icon: 'error'
-    });
-  } finally {
-    isLoadingMore.value = false;
-  }
+  triggerContinueSearchFromResults(store);
 }
 
 
@@ -200,6 +182,10 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
 
     if (!result) {
       console.error('前程无忧搜索结果为空');
+      // 渠道搜索接口调用失败（含非网络业务异常 / 返回空）→ 顶部弹渠道异常 + 复核登录态，未登录则停任务
+      if (isFirstPage && !props.viewingTaskId) {
+        await handleChannelSearchFailure(store, channelKey, chatId.value);
+      }
       if (isFirstPage) {
         hasData.value = false;
       }
@@ -263,6 +249,9 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
   } catch (error) {
     console.error('前程无忧搜索失败:', error);
     notify.error('前程无忧搜索失败，请稍后再试');
+    if (isFirstPage && !props.viewingTaskId) {
+      await handleChannelSearchFailure(store, channelKey, chatId.value);
+    }
 
     if (isFirstPage) {
       hasData.value = false;
