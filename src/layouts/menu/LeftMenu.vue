@@ -117,7 +117,11 @@
           -->
           <div class="job-item-status">
             <template
-              v-if="jobAggregateStatus(item.id).status === 'completed' && currentChatId !== item.id"
+              v-if="
+                jobAggregateStatus(item.id).status === 'completed' &&
+                currentChatId !== item.id &&
+                !acknowledgedCompletedIds.includes(item.id)
+              "
             >
               <!-- 已完成（非当前选中） -->
               <div class="status-completed-circle">
@@ -468,6 +472,9 @@ const chatList = computed(() => store.getters.getChatList); // 使用Vuex中的�
 
 /* ===== 置顶 & 排序（1:1 对照 ihraisaas JobList.tsx 第 24-29 行 sortedJobs） ===== */
 const pinnedJobIds = computed(() => store.getters.getPinnedJobIds || []);
+
+// 用户点击过的「已完成」职位 id —— 点过之后就不再显示"已完成"标记（点击即清除标记）。
+const acknowledgedCompletedIds = ref([]);
 
 /**
  * 给某个 chat（职位）行算任务聚合 UI 状态。结构：
@@ -884,6 +891,11 @@ const selectChat = (item) => {
   }
 
   console.log("选择聊天:", item);
+
+  // 点击「已完成」的职位即清除其已完成标记（之后切到别的职位再回来也不再显示）。
+  if (!acknowledgedCompletedIds.value.includes(item.id)) {
+    acknowledgedCompletedIds.value.push(item.id);
+  }
 
   try {
     // 刷新搜索条件（嵌入式模式下 JobSearchFilter 只在 results 视图渲染，

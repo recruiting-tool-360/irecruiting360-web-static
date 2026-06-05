@@ -36,19 +36,29 @@
         </p>
       </div>
 
-      <!-- 渠道列表 -->
+      <!-- 渠道列表（参考 ihraisaas LoginRequiredModal：可勾选启用/禁用 + 去登录） -->
       <div class="lrp-section">
-        <p class="lrp-section-label">登录招聘渠道</p>
+        <p class="lrp-section-label">选择并登录渠道</p>
         <div class="lrp-channels">
           <div
             v-for="ch in displayChannels"
             :key="ch.id"
-            :class="['lrp-channel', { 'lrp-channel--logged-in': ch.loggedIn }]"
+            :class="[
+              'lrp-channel',
+              ch.enabled
+                ? { 'lrp-channel--logged-in': ch.loggedIn }
+                : 'lrp-channel--disabled'
+            ]"
           >
-            <!-- 勾选/状态 圆形指示 -->
-            <div class="lrp-check">
+            <!-- 勾选框：点击切换「启用/禁用」（与渠道设置弹框同一数据源） -->
+            <div
+              :class="['lrp-check', { 'lrp-check--off': !ch.enabled }]"
+              role="checkbox"
+              :aria-checked="ch.enabled"
+              @click="toggleChannel(ch)"
+            >
               <svg
-                v-if="ch.loggedIn"
+                v-if="ch.enabled"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -65,9 +75,11 @@
             <!-- 中间：渠道名 + 状态 -->
             <div class="lrp-channel-body">
               <div class="lrp-channel-name-row">
-                <span class="lrp-channel-name">{{ ch.name }}</span>
+                <span :class="['lrp-channel-name', { 'lrp-channel-name--off': !ch.enabled }]">
+                  {{ ch.name }}
+                </span>
                 <svg
-                  v-if="ch.loggedIn"
+                  v-if="ch.enabled && ch.loggedIn"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -81,21 +93,19 @@
                 </svg>
               </div>
 
-              <!-- 右侧：去登录链接 / 已登录标签 -->
-              <button
-                v-if="!ch.loggedIn"
-                class="lrp-link"
-                @click="handleOpenChannel(ch)"
-              >
-                <span>去登录</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round" class="lrp-icon-link">
-                  <path d="M15 3h6v6" />
-                  <path d="M10 14 21 3" />
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                </svg>
-              </button>
-              <span v-else class="lrp-badge-logged">已登录</span>
+              <!-- 右侧：仅启用时显示 去登录链接 / 已登录标签 -->
+              <template v-if="ch.enabled">
+                <button v-if="!ch.loggedIn" class="lrp-link" @click="handleOpenChannel(ch)">
+                  <span>去登录</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" class="lrp-icon-link">
+                    <path d="M15 3h6v6" />
+                    <path d="M10 14 21 3" />
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  </svg>
+                </button>
+                <span v-else class="lrp-badge-logged">已登录</span>
+              </template>
             </div>
           </div>
         </div>
@@ -134,33 +144,37 @@ import { computed } from 'vue';
 import { useStore } from 'vuex';
 import { openChannelLoginUrl } from 'src/util/openChannelLoginUrl';
 import { pluginAllUrls } from 'src/pluginSrc/config/PluginRequestManager';
+import { applyChannelEnableConfig } from 'src/util/applyChannelEnable';
 
 const emit = defineEmits(['complete', 'dismiss']);
 
 const store = useStore();
 
-// 字段名跟 ClientHeader / 原 channel/*JobInfo.vue 保持一致
+// 字段名跟 ClientHeader / 原 channel/*JobInfo.vue 保持一致；name 跟「渠道设置弹框」默认值一致
 const CHANNEL_CONFIGS = [
   {
     storeKey: 'BOSS',
     channel: 'boss',
+    name: 'boss直聘',
     loginUrl: pluginAllUrls?.BOSS?.loginUrl || 'https://www.zhipin.com/web/user/'
   },
   {
     storeKey: 'ZHILIAN',
     channel: 'zhilian',
+    name: '智联招聘',
     loginUrl: pluginAllUrls?.ZHILIAN?.baseUrl || 'https://rd6.zhaopin.com'
   },
   {
     storeKey: 'JOB51',
     channel: 'job51',
+    name: '前程无忧',
     loginUrl: pluginAllUrls?.JOB51?.loginURL || 'https://ehire.51job.com/Revision/login'
   }
 ];
 
 const channelConf = computed(() => store.getters.getChannelConf || {});
 
-// 渠道启用配置（"渠道设置"里勾选的）
+// 渠道启用配置（"渠道设置"里勾选的）—— 与渠道设置弹框共用同一数据源
 const userChannelConfig = computed(() => store.getters.getUserChannelConfig || []);
 
 function isChannelEnabled(storeKey) {
@@ -170,22 +184,42 @@ function isChannelEnabled(storeKey) {
   return entry ? !!entry.enableConfig : true;
 }
 
+// 展示**全部**渠道（含禁用的，禁用置灰），每个渠道带启用态 + 登录态
 const displayChannels = computed(() =>
-  CHANNEL_CONFIGS.filter((cfg) => isChannelEnabled(cfg.storeKey)).map((cfg) => {
+  CHANNEL_CONFIGS.map((cfg) => {
     const conf = channelConf.value[cfg.storeKey] || {};
     return {
       id: cfg.channel,
       key: cfg.storeKey,
       channel: cfg.channel,
-      name: conf.name || cfg.storeKey,
+      name: conf.name || cfg.name || cfg.storeKey,
       url: cfg.loginUrl,
+      enabled: isChannelEnabled(cfg.storeKey),
       loggedIn: !!conf.login
     };
   })
 );
 
-/** 是否所有"已启用"的渠道都登录了（用于"开始搜索"按钮启用） */
-const isReady = computed(() => displayChannels.value.every((ch) => ch.loggedIn));
+/**
+ * 是否「可以开始搜索」：至少启用了一个渠道，且所有**已启用**渠道都已登录。
+ * （没启用任何渠道 → 不可开始，按钮 disabled，与 ihraisaas 一致）
+ */
+const isReady = computed(() => {
+  const enabled = displayChannels.value.filter((ch) => ch.enabled);
+  return enabled.length > 0 && enabled.every((ch) => ch.loggedIn);
+});
+
+/** 切换某渠道启用/禁用：构建全量配置 → applyChannelEnableConfig（同渠道设置弹框的数据源+副作用） */
+function toggleChannel(ch) {
+  if (!ch) return;
+  const nextConfig = CHANNEL_CONFIGS.map((cfg) => ({
+    key: cfg.storeKey,
+    name: channelConf.value[cfg.storeKey]?.name || cfg.name || cfg.storeKey,
+    enableConfig:
+      cfg.storeKey === ch.key ? !isChannelEnabled(cfg.storeKey) : isChannelEnabled(cfg.storeKey)
+  }));
+  applyChannelEnableConfig(store, nextConfig);
+}
 
 function handleOpenChannel(ch) {
   if (!ch?.url) return;
@@ -399,9 +433,17 @@ $green-600: #16a34a;
     background: rgba(240, 253, 244, 0.3);
     border-color: $green-200;
   }
+
+  /* 禁用渠道：置灰（对应 ihraisaas bg-neutral-50 border-neutral-100 grayscale opacity-60） */
+  &--disabled {
+    background: $neutral-50;
+    border-color: $neutral-100;
+    filter: grayscale(1);
+    opacity: 0.6;
+  }
 }
 
-/* w-5 h-5 rounded border border-primary-500 bg-primary-500 text-white */
+/* w-5 h-5 rounded border border-primary-500 bg-primary-500 text-white，可点击切换启用 */
 .lrp-check {
   width: 20px;
   height: 20px;
@@ -413,6 +455,20 @@ $green-600: #16a34a;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  cursor: pointer;
+  transition: background-color 0.18s, border-color 0.18s;
+
+  /* 未启用：空心框（border-neutral-300 bg-white） */
+  &--off {
+    border-color: $neutral-300;
+    background: #ffffff;
+    color: transparent;
+  }
+}
+
+/* 未启用渠道名：弱化为 neutral-400 */
+.lrp-channel-name--off {
+  color: $neutral-400 !important;
 }
 
 .lrp-icon-check {

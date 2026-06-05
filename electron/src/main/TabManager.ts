@@ -554,6 +554,41 @@ class TabManager {
   }
 
   /**
+   * 强制「聚焦主页 tab」并触发重绘 —— 等价于用户手动点一下「i快招」主页 tab。
+   *
+   * 背景：deep link 来回唤起客户端时，主页 tab 的 WebContentsView 偶发不重绘（黑屏），
+   *   必须手动点一下主页 tab 才显示。除了 activate（设 activeId + bounds）外，这里额外：
+   *     1) removeChildView + addChildView 把 home view 重新置顶 → 触发重新合成（修黑屏关键）
+   *     2) updateBounds 重设真实 bounds
+   *     3) webContents.focus() 聚焦内容区
+   *   由 handleDeepLink 在窗口 show/focus 之后调用。
+   */
+  focusHomeTab(): void {
+    if (!this.homeTabId || !this.tabs.has(this.homeTabId)) return
+    const tab = this.tabs.get(this.homeTabId)
+    if (!tab) return
+    this.activeId = this.homeTabId
+    if (this.bgRenderId === this.homeTabId) this.bgRenderId = null
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      try {
+        this.mainWindow.contentView.removeChildView(tab.view)
+        this.mainWindow.contentView.addChildView(tab.view)
+      } catch {
+        /* noop */
+      }
+    }
+    this.updateBounds()
+    setOverlayActiveChannel(tab.channel ?? null)
+    try {
+      const wc = tab.view.webContents
+      if (wc && !wc.isDestroyed()) wc.focus()
+    } catch {
+      /* noop */
+    }
+    this.broadcastState()
+  }
+
+  /**
    * 关闭 tab。home tab 强拒。
    * 关闭后切到相邻（优先右侧，无则左侧）。
    */

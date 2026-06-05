@@ -318,6 +318,19 @@ function handleDeepLink(url: string): void {
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   mainWindow.focus()
+
+  // ★ 来回唤起客户端后主页 tab 偶发黑屏（WebContentsView 不重绘）→ 无脑重新聚焦主页 tab 触发重绘，
+  //   等价于用户手动点一下「i快招」主页 tab。在窗口 show/focus 之后再做（立刻 + 下一帧各一次，
+  //   覆盖「show 还没真正出画就 focus」的竞态），focusHomeTab 幂等，重复调用无副作用。
+  const refocusHome = (): void => {
+    try {
+      tabManager.focusHomeTab()
+    } catch (e) {
+      console.warn('[main] focusHomeTab failed:', e)
+    }
+  }
+  refocusHome()
+  setTimeout(refocusHome, 80)
 }
 
 /**

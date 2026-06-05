@@ -457,10 +457,13 @@ const $q = useQuasar();
 
 // 用户主动关闭"请先登录"面板后这里置 true；后续 chatId 变化（切换会话）会重置
 const loginRequiredDismissed = ref(false);
+// 面板「打开」状态：一旦满足条件打开后保持，直到用户「稍后再说/开始搜索」或切换会话才关。
+// —— 不随渠道启用/登录态变化自动关，避免「点勾选框（启用/禁用）面板就自动消失」。
+const loginPanelOpen = ref(false);
 
-const showLoginRequiredPanel = computed(() => {
+// 是否「需要」登录面板（纯条件判定，不直接控制显隐，只用来决定何时打开）
+const loginRequiredCondition = computed(() => {
   if (!isElectronClient()) return false;
-  if (loginRequiredDismissed.value) return false;
   const conf = store.getters.getChannelConf || {};
   const userCfg = store.getters.getUserChannelConfig || [];
   const isEnabled = (k) => {
@@ -469,19 +472,49 @@ const showLoginRequiredPanel = computed(() => {
     return e ? !!e.enableConfig : true;
   };
   const keys = ["BOSS", "ZHILIAN", "JOB51"].filter(isEnabled);
-  if (keys.length === 0) return false; // 没启用任何渠道 → 不弹
-  // 任一已启用渠道未登录就展示
+  // 没启用任何渠道 → 也需要弹（面板里可勾选启用渠道 + 去登录，参考 ihraisaas 交互）
+  if (keys.length === 0) return true;
+  // 任一已启用渠道未登录就需要弹
   return keys.some((k) => !conf[k]?.login);
 });
 
+// 满足条件就打开面板（沾性：打开后不因 toggle/登录态变化自动关）
+watch(
+  loginRequiredCondition,
+  (need) => {
+    if (need && !loginRequiredDismissed.value) loginPanelOpen.value = true;
+  },
+  { immediate: true }
+);
+
+const showLoginRequiredPanel = computed(
+  () => loginPanelOpen.value && !loginRequiredDismissed.value
+);
+
 function handleLoginRequiredComplete() {
-  // 全部登录完了，用户点"开始搜索"——关掉面板（此时本来就不会再显示，因为所有渠道已登录）
+  // 全部登录完了，用户点"开始搜索"——关掉面板
   loginRequiredDismissed.value = true;
+  loginPanelOpen.value = false;
 }
 
 function handleLoginRequiredDismiss() {
   // 用户点"稍后再说"——暂时关掉，本会话内不再显示
   loginRequiredDismissed.value = true;
+  loginPanelOpen.value = false;
+}
+
+/**
+ * 外部强制打开「未检测到登录状态」面板（供 IndexPage 在「没启用任何渠道就点搜索」时调用，
+ * 直接弹这个面板让用户勾选启用渠道 + 去登录，替代原来的 toast 提示）。
+ */
+function forceShowLoginRequired() {
+  // ★ 清掉刚才「创建任务」流程已 push 的占位卡 + pending 绑定记录。
+  //   否则 IndexPage 因「没启用渠道」拒绝创建后，占位永远绑不上 →
+  //   _hasInflightTaskForChat 一直为 true → 再次点创建被「该 chat 已有在途任务」挡掉、不再弹面板。
+  const chatId = currentChatId.value || props.chatId;
+  if (chatId) _removeOldTaskCardsForChat(chatId);
+  loginRequiredDismissed.value = false;
+  loginPanelOpen.value = true;
 }
 // 注：每次切会话重置 dismissed 的 watch 放在下方 props 定义之后
 
@@ -832,6 +865,8 @@ const latestChatIdForLogin = computed(() => store.getters.getLatestChatId);
 watch(latestChatIdForLogin, (newId, oldId) => {
   if (newId !== oldId) {
     loginRequiredDismissed.value = false;
+    // 新会话重新按条件决定是否打开（上个会话点过"稍后再说"关掉的，这里恢复重判）
+    loginPanelOpen.value = loginRequiredCondition.value;
   }
 });
 
@@ -1531,6 +1566,16 @@ watch(
       : [];
     if (pendingEntries.length > 0) {
       const newTaskCreatedAt = Number(newTask.createdAt) || 0;
+      // 该 kind 在新任务里是否「没有未完成渠道」（缺这个渠道 或 渠道已终态）→ 应丢弃这张占位，
+      // 不绑定也不显示（已完成的渠道不插状态卡；占位 kind 是按原任务猜的，可能跟新任务对不上）。
+      const isTermStatus = (s) =>
+        s === "COMPLETED" || s === "FAILED" || s === "STOPPED" || s === "SKIPPED";
+      const shouldDropKind = (kind) => {
+        const biz = kind === "search" ? "SEARCH" : kind === "recommend" ? "RECOMMEND" : null;
+        if (!biz) return false; // 'all' 占位不判，正常绑定
+        const chans = Array.isArray(newTask.channels) ? newTask.channels : [];
+        return !chans.some((c) => c.businessChannel === biz && !isTermStatus(c.taskChannelStatus));
+      };
       let anyBound = false;
       let anySkipped = false;
       for (const entry of pendingEntries) {
@@ -1539,7 +1584,16 @@ watch(
         // 允许 200ms 时间漂移（client 时钟 vs server 时钟）
         const isFreshEnough = newTaskCreatedAt >= placeholderCreatedAt - 200;
         const target = internalMessages.value.find((m) => m.id === pendingMsgId);
-        if (target && !target.taskId && isFreshEnough) {
+        if (target && !target.taskId && isFreshEnough && shouldDropKind(entry.kind)) {
+          // 新任务里该渠道已完成 / 不存在 → 移除占位卡（不显示已完成渠道的状态卡）
+          internalMessages.value = internalMessages.value.filter((m) => m.id !== pendingMsgId);
+          anyBound = true; // 视为已处理，循环结束后清掉 pending 记录
+          console.log(
+            `[ChatCard] 占位卡片丢弃（新任务该渠道已完成/不存在）taskId=${newTask.taskId} kind=${
+              entry.kind || "all"
+            }`
+          );
+        } else if (target && !target.taskId && isFreshEnough) {
           target.taskId = newTask.taskId;
           anyBound = true;
         } else if (target && !target.taskId && !isFreshEnough) {
@@ -1569,6 +1623,13 @@ watch(
         // 全部跳过：不动 binding，等真正新任务出来
       }
     }
+
+    // (a.2) 占位 kind 对账：占位卡的 search/recommend 是按「原任务」渠道猜的，新任务的实际
+    //   渠道可能不同（典型：CONTINUE 出来是「推荐-only」，但原任务是搜索 → 只 push 了搜索占位，
+    //   推荐状态卡缺失）。这里按**新任务实际 channels** 补齐缺的那张卡（ensureTaskStatusCardForCurrentChat
+    //   内部按 taskId+kind 去重，已绑定的不会重复插）。
+    ensureTaskStatusCardForCurrentChat();
+
     // (b) 终态切视图：每个 taskId 只 fire 一次。COMPLETED 才切；FAILED/STOPPED 留在当前视图
     // 不强切，避免用户在搜索失败时被强制跳走
     //
@@ -1732,13 +1793,21 @@ function ensureTaskStatusCardForCurrentChat() {
   }
 
   // 按 task 实际的 channels 推 search / recommend 两张独立气泡（跟新建任务一致）
+  // ★ 只为「未完成」的渠道插卡：已终态（COMPLETED/FAILED/STOPPED/SKIPPED）的渠道说明这一路
+  //   本轮不会再跑（典型：CONTINUE 任务里推荐已完成、只补搜索），不再插它的状态卡。
+  const isChannelTerminal = (s) =>
+    s === "COMPLETED" || s === "FAILED" || s === "STOPPED" || s === "SKIPPED";
   const channels = Array.isArray(latestTask.channels) ? latestTask.channels : [];
-  const hasSearch = channels.some((c) => c.businessChannel === "SEARCH");
-  const hasRecommend = channels.some((c) => c.businessChannel === "RECOMMEND");
+  const hasSearch = channels.some(
+    (c) => c.businessChannel === "SEARCH" && !isChannelTerminal(c.taskChannelStatus)
+  );
+  const hasRecommend = channels.some(
+    (c) => c.businessChannel === "RECOMMEND" && !isChannelTerminal(c.taskChannelStatus)
+  );
   const kinds = [];
   if (hasSearch) kinds.push("search");
   if (hasRecommend) kinds.push("recommend");
-  if (kinds.length === 0) kinds.push("all");
+  // 注意：所有渠道都已终态时 kinds 为空 → 不插任何卡（不再兜底插 'all'）。
 
   let pushedAny = false;
   for (const kind of kinds) {
@@ -3117,7 +3186,8 @@ defineExpose({
   insertMessageToInput,
   fillMessageToInput,
   startSearchFromFilter,
-  startContinueSearch
+  startContinueSearch,
+  forceShowLoginRequired
 });
 </script>
 

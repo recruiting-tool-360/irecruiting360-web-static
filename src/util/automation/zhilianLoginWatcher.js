@@ -36,12 +36,19 @@ function isInElectronClient() {
   );
 }
 
-/** 智联是否在用户「渠道设置」中启用（与 bossResidentWatcher / ClientHeader 同口径） */
+/**
+ * 智联是否在用户「渠道设置」中**明确启用**。
+ *
+ * ⚠️ 严格口径：配置还没加载（list 为空）或配置里没有 ZHILIAN 条目 → 一律视为「未启用」、不启动检测。
+ *   原因：客户端启动时 initZhilianLoginWatcher 可能早于渠道配置加载，旧逻辑「没配置→全启用」会导致
+ *   只开了 BOSS 的情况下，启动阶段照样对智联发登录探测请求。配置加载后由 AISearch 的
+ *   setZhilianWatcherEnabled 再把真正启用的渠道拉起来。
+ */
 function isZhilianEnabled(store) {
   const list = store.getters.getUserChannelConfig;
-  if (!Array.isArray(list) || list.length === 0) return true; // 没配置 → 全启用
+  if (!Array.isArray(list) || list.length === 0) return false; // 配置未加载 → 先不启动
   const entry = list.find((c) => c && c.key === "ZHILIAN");
-  return entry ? !!entry.enableConfig : true;
+  return entry ? !!entry.enableConfig : false;
 }
 
 /** 更新 ZHILIAN 登录态：有变化才 commit（分发到 SPA / 更新 header） */

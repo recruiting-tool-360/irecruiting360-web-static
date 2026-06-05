@@ -707,8 +707,8 @@ const saveChannelEnable = (configData) => {
       store
         .dispatch("SearchTasks/stopDisabledChannels", { disabledKeys })
         .then((res) => {
-          if (res && res.stoppedChannels > 0) {
-            notify.warning(`已停止 ${res.stoppedChannels} 个被禁用渠道的进行中任务`);
+          if (res && res.stoppedTasks > 0) {
+            notify.warning(`已停止 ${res.stoppedTasks} 个进行中的任务（渠道被禁用）`);
           }
         })
         .catch((e) => console.warn("[AISearch] stopDisabledChannels 失败:", e?.message || e));
