@@ -1014,6 +1014,11 @@ const actions = {
     // 兼容两种入参：字符串 chatId（用户点停止）/ 对象 { chatId, skipFinish }（登录失效暂停，不 finish channel）
     const chatId = typeof payload === "string" ? payload : payload?.chatId;
     const skipFinish = typeof payload === "object" && payload ? !!payload.skipFinish : false;
+    // 停止原因标注（默认=用户主动停止；禁用渠道场景由调用方传 CHANNEL_DISABLED_BY_USER）
+    const stopErrorCode =
+      (typeof payload === "object" && payload && payload.errorCode) || "USER_STOPPED";
+    const stopErrorMessage =
+      (typeof payload === "object" && payload && payload.errorMessage) || "用户主动停止任务";
     if (!chatId) return { ok: false, message: "chatId required" };
 
     const task = getters.getLatestTaskByChat(chatId);
@@ -1074,8 +1079,8 @@ const actions = {
         try {
           await taskApi.postFinishChannel(ch.taskChannelId, {
             status: "STOPPED",
-            errorCode: "USER_STOPPED",
-            errorMessage: "用户主动停止任务"
+            errorCode: stopErrorCode,
+            errorMessage: stopErrorMessage
           });
           // 本地 channel 也标 STOPPED 终态：让仍在跑的 runTask 收尾循环识别为终态、不再重复 finish
           commit("patchChannel", {
@@ -1196,31 +1201,26 @@ const actions = {
   },
 
   /**
-   * 用户在「渠道设置」里禁用了某些渠道 → 停止所有进行中任务里这些渠道的 channel 任务。
+   * 用户在「渠道设置」里禁用了某些渠道 → **直接停止**包含这些渠道的进行中任务（整任务停，
+   * 不是只停被禁用的那个渠道）。
    *
-   * 场景：任务进行中时用户把某个渠道（如智联）关掉。该渠道的 channel record 还在跑（后端在抓、
-   *   前端轮询评分），需要：
-   *     1) 对所有「进行中」任务里 channelSubType ∈ 被禁用集合 且未终态的 channel，
-   *        调 postFinishChannel(STOPPED, errorCode=CHANNEL_DISABLED_BY_USER,
-   *        errorMessage='用户禁用渠道导致停止任务') 通知后端结束；
-   *     2) 本地 patchChannel 标 STOPPED（patchChannel 内部 reduceTaskStatus 会顺带把
-   *        「全部 channel 终态」的任务整体收敛成 STOPPED/COMPLETED）；
-   *     3) 若某任务因此所有 channel 都终态 → 视为整体停止：markTaskUserStopped（让前端
-   *        humanize/分页循环检测后 break）+ 从 runtime queue / runningTaskId 摘除；
-   *     4) 同步后端 queue。
-   *
-   * 只停被禁用渠道，未禁用的渠道继续跑（部分停止）。
+   * 场景：任务进行中时用户把某个渠道（如智联）关掉。只要某个「进行中」任务里存在
+   *   channelSubType ∈ 被禁用集合 且未终态的 channel，就视为该任务不该再继续 → 复用
+   *   stopForChat 走完整停止流程（finish 全部未终态 channel + 停 scoreUpdater + 清队列 +
+   *   同步后端 queue），停止原因标注 errorCode=CHANNEL_DISABLED_BY_USER /
+   *   errorMessage='用户禁用渠道导致停止任务'。
    *
    * @param {object} payload
    * @param {string[]} payload.disabledKeys  被禁用的渠道 key（channelSubType，如 ['ZHILIAN','JOB51']）
    * @param {string}   [payload.chatId]      限定只处理某个 chat 的任务；不传则扫所有进行中任务
    * @returns {Promise<{ ok: boolean, stoppedChannels: number, stoppedTasks: number, errors: Array }>}
    */
-  async stopDisabledChannels({ state, commit, dispatch }, payload) {
+  async stopDisabledChannels({ state, dispatch }, payload) {
     const disabledSet = new Set(
       (payload?.disabledKeys || []).map((k) => String(k).toUpperCase()).filter(Boolean)
     );
-    if (disabledSet.size === 0) return { ok: true, stoppedChannels: 0, stoppedTasks: 0, errors: [] };
+    if (disabledSet.size === 0)
+      return { ok: true, stoppedChannels: 0, stoppedTasks: 0, errors: [] };
 
     const chatId = payload?.chatId || null;
     const aliveTaskStatuses = [TASK_STATUS.RUNNING, TASK_STATUS.WAITING, TASK_STATUS.RESTING];
@@ -1232,8 +1232,7 @@ const actions = {
     ];
 
     const tasks = Object.values(state.tasksById || {}).filter(
-      (t) =>
-        t && aliveTaskStatuses.includes(t.taskStatus) && (!chatId || t.chatId === chatId)
+      (t) => t && aliveTaskStatuses.includes(t.taskStatus) && (!chatId || t.chatId === chatId)
     );
     if (tasks.length === 0) return { ok: true, stoppedChannels: 0, stoppedTasks: 0, errors: [] };
 
@@ -1243,70 +1242,40 @@ const actions = {
 
     for (const task of tasks) {
       const channels = Array.isArray(task.channels) ? task.channels : [];
-      let touched = false;
-      for (const ch of channels) {
-        if (!ch.taskChannelId) continue;
-        if (finalStatuses.includes(ch.taskChannelStatus)) continue;
-        if (!disabledSet.has(String(ch.channelSubType).toUpperCase())) continue;
+      // 该任务里是否有「被禁用渠道」仍在跑（未终态）
+      const hasDisabledRunning = channels.some(
+        (ch) =>
+          ch.taskChannelId &&
+          !finalStatuses.includes(ch.taskChannelStatus) &&
+          disabledSet.has(String(ch.channelSubType).toUpperCase())
+      );
+      if (!hasDisabledRunning) continue;
 
-        // 通知后端结束该 channel（标注：用户禁用渠道导致停止任务）
-        try {
-          await taskApi.postFinishChannel(ch.taskChannelId, {
-            status: "STOPPED",
-            errorCode: "CHANNEL_DISABLED_BY_USER",
-            errorMessage: "用户禁用渠道导致停止任务"
-          });
+      // ★ 只要任务里有一个渠道被用户禁用 → 直接停掉整个任务（不再只停被禁用的那个渠道）。
+      //   复用 stopForChat 走完整停止流程（finish 全部未终态 channel + 停 scoreUpdater + 清队列
+      //   + 同步后端 queue），只把停止原因标成「用户禁用渠道导致停止任务」。
+      try {
+        const res = await dispatch("stopForChat", {
+          chatId: task.chatId,
+          errorCode: "CHANNEL_DISABLED_BY_USER",
+          errorMessage: "用户禁用渠道导致停止任务"
+        });
+        if (res && res.ok !== false) {
+          stoppedTasks++;
+          stoppedChannels += res.stoppedChannels || 0;
           console.log(
-            `[SearchTasks/stopDisabledChannels] finish STOPPED ok channel=${ch.channelSubType}-${ch.businessChannel} channelId=${ch.taskChannelId}`
-          );
-        } catch (e) {
-          errors.push({ taskChannelId: ch.taskChannelId, message: e?.message || String(e) });
-          console.warn(
-            `[SearchTasks/stopDisabledChannels] finish STOPPED failed channelId=${ch.taskChannelId}:`,
-            e?.message || e
+            `[SearchTasks/stopDisabledChannels] 任务 ${task.taskId} 因渠道被禁用 → 整体停止`
           );
         }
-
-        // 本地标 STOPPED（patchChannel 内部 reduceTaskStatus 顺带收敛任务级状态）
-        commit("patchChannel", {
-          taskId: task.taskId,
-          taskChannelId: ch.taskChannelId,
-          patch: {
-            taskChannelStatus: TASK_STATUS.STOPPED,
-            finishedAt: Date.now(),
-            errorCode: "CHANNEL_DISABLED_BY_USER",
-            errorMessage: "用户禁用渠道导致停止任务"
-          }
-        });
-        stoppedChannels++;
-        touched = true;
-      }
-
-      if (!touched) continue;
-
-      // 该任务是否所有 channel 都已终态 → 整体停止
-      const after = state.tasksById[task.taskId];
-      const allFinal =
-        Array.isArray(after?.channels) &&
-        after.channels.length > 0 &&
-        after.channels.every((c) => finalStatuses.includes(c.taskChannelStatus));
-      if (allFinal) {
-        commit("markTaskUserStopped", { taskId: task.taskId });
-        commit("dequeue", task.taskId);
-        if (state.runningTaskId === task.taskId) commit("setRunning", null);
-        stoppedTasks++;
-        console.log(
-          `[SearchTasks/stopDisabledChannels] 任务 ${task.taskId} 全部渠道因禁用停止 → 整体 STOPPED`
-        );
-      }
-    }
-
-    // 同步后端 queue（剔掉刚 finish 的）
-    if (stoppedChannels > 0) {
-      try {
-        await dispatch("fetchTaskQueue");
+        if (res && Array.isArray(res.errors) && res.errors.length) {
+          errors.push(...res.errors);
+        }
       } catch (e) {
-        console.warn("[SearchTasks/stopDisabledChannels] fetchTaskQueue 失败（忽略）:", e?.message || e);
+        errors.push({ taskId: task.taskId, message: e?.message || String(e) });
+        console.warn(
+          `[SearchTasks/stopDisabledChannels] stopForChat 失败 taskId=${task.taskId}:`,
+          e?.message || e
+        );
       }
     }
 
@@ -1321,7 +1290,10 @@ const actions = {
    * @param {'BOSS'|'ZHILIAN'|'JOB51'|'LIEPIN'} payload.channelKey
    * @param {string} [payload.status='COMPLETED']
    */
-  async finishPendingChannelsForChannel({ state, commit, getters }, { channelKey, status = "COMPLETED" }) {
+  async finishPendingChannelsForChannel(
+    { state, commit, getters },
+    { channelKey, status = "COMPLETED" }
+  ) {
     const entries = Object.entries(state.pendingFinishChannels || {});
     for (const [taskChannelId, info] of entries) {
       if (!info || info.channelKey !== channelKey) continue;
@@ -1339,7 +1311,8 @@ const actions = {
             taskId: task.taskId,
             taskChannelId,
             patch: {
-              taskChannelStatus: status === "COMPLETED" ? TASK_STATUS.COMPLETED : TASK_STATUS.FAILED,
+              taskChannelStatus:
+                status === "COMPLETED" ? TASK_STATUS.COMPLETED : TASK_STATUS.FAILED,
               finishedAt: Date.now()
             }
           });
@@ -1570,7 +1543,9 @@ const actions = {
       console.warn(
         `[SearchTasks] runTask: 渠道未登录 [${blockedChannels
           .map((c) => c.channelSubType)
-          .join(",")}]，整任务不启动（不 execute/不跑搜索），等重新登录后 current 重新触发 taskId=${taskId}`
+          .join(
+            ","
+          )}]，整任务不启动（不 execute/不跑搜索），等重新登录后 current 重新触发 taskId=${taskId}`
       );
       // 清 running（确保"本地无活跃任务"）+ 刷队列（fetchTaskQueue 会重启 CurrentTaskPoller）
       commit("setRunning", null);
@@ -1687,8 +1662,21 @@ const actions = {
       let runError = null;
 
       // 提到 try 外面：catch 和 AI 等待块都要用 hasRecommend 来推 recommendClientPhase
-      const hasSearch = task.channels.some((c) => c.businessChannel === "SEARCH");
-      const hasRecommend = task.channels.some((c) => c.businessChannel === "RECOMMEND");
+      //
+      // ★ 只统计「还需要跑」的渠道：已终态（COMPLETED/FAILED/STOPPED/SKIPPED）的渠道不再重复执行。
+      //   否则 CONTINUE 任务里「搜索已完成、推荐待执行」（或反过来）时，会把已完成的那条也重新
+      //   execute / 重新跑一遍（比如对已 COMPLETED 的推荐渠道又调 execute/finish），流程错乱。
+      const isChannelTerminal = (s) =>
+        s === TASK_STATUS.COMPLETED ||
+        s === TASK_STATUS.FAILED ||
+        s === TASK_STATUS.STOPPED ||
+        s === "SKIPPED";
+      const hasSearch = task.channels.some(
+        (c) => c.businessChannel === "SEARCH" && !isChannelTerminal(c.taskChannelStatus)
+      );
+      const hasRecommend = task.channels.some(
+        (c) => c.businessChannel === "RECOMMEND" && !isChannelTerminal(c.taskChannelStatus)
+      );
 
       try {
         // 2) 直接调 aggregateSearchExecutor 跑真聚合搜索
@@ -1979,7 +1967,9 @@ const actions = {
         ) {
           console.log(
             `[SearchTasks] runTask: channel ${ch.channelSubType} 已终态 ${ch.taskChannelStatus}` +
-              `${state.userStoppedTaskIds?.[String(taskId)] ? "（任务已被用户停止）" : ""}，跳过 finish`
+              `${
+                state.userStoppedTaskIds?.[String(taskId)] ? "（任务已被用户停止）" : ""
+              }，跳过 finish`
           );
           continue;
         }

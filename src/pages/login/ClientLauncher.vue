@@ -266,15 +266,11 @@
                   <div class="cg-mac-steps">
                     <!-- step 1 -->
                     <div class="cg-mac-step">
-                      <div class="cg-mac-step-bar"><span /><span /><span /></div>
-                      <div class="cg-mac-step-content">
-                        <SvgApple class="cg-svg cg-svg--xxl cg-svg--neutral-300" />
-                        <div class="cg-mac-step-lines">
-                          <div class="cg-mac-line cg-mac-line--full" />
-                          <div class="cg-mac-line cg-mac-line--3of4" />
-                          <div class="cg-mac-line cg-mac-line--1of2" />
-                        </div>
-                      </div>
+                      <img
+                        class="cg-mac-step-img"
+                        src="/guide/yindao_1.png"
+                        alt="点击左上角图标，选择关于本机"
+                      />
                       <div class="cg-mac-step-tag">Step 1：点击左上角 图标</div>
                     </div>
 
@@ -294,14 +290,7 @@
 
                     <!-- step 2: intel -->
                     <div class="cg-mac-step">
-                      <div class="cg-mac-step-strip" />
-                      <div class="cg-mac-step-content cg-mac-step-content--chip">
-                        <div class="cg-mac-os-name">macOS Monterey</div>
-                        <div class="cg-mac-version cg-mac-version--intel"><span>12.1</span></div>
-                        <div class="cg-mac-chip-tag cg-mac-chip-tag--intel">
-                          处理器：Intel Core i5
-                        </div>
-                      </div>
+                      <img class="cg-mac-step-img" src="/guide/yindao_2.png" alt="Intel 芯片示例" />
                       <div class="cg-mac-step-tag">Intel 芯片示例</div>
                     </div>
 
@@ -309,12 +298,7 @@
 
                     <!-- step 3: apple -->
                     <div class="cg-mac-step">
-                      <div class="cg-mac-step-strip" />
-                      <div class="cg-mac-step-content cg-mac-step-content--chip">
-                        <div class="cg-mac-os-name">macOS Monterey</div>
-                        <div class="cg-mac-version cg-mac-version--apple"><span>12.2.1</span></div>
-                        <div class="cg-mac-chip-tag cg-mac-chip-tag--apple">芯片：Apple M1 Pro</div>
-                      </div>
+                      <img class="cg-mac-step-img" src="/guide/yindao_3.png" alt="Apple 芯片示例" />
                       <div class="cg-mac-step-tag">Apple 芯片示例</div>
                     </div>
                   </div>
@@ -1701,13 +1685,15 @@ $blue-200: #bfdbfe;
   flex: 1;
   background: #fff;
   border-radius: 16px;
-  padding: 24px;
+  padding: 12px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   border: 1px solid $neutral-100;
   height: 192px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   position: relative;
   overflow: hidden;
 }
@@ -1750,6 +1736,15 @@ $blue-200: #bfdbfe;
   }
 }
 
+.cg-mac-step-img {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
 .cg-mac-step-lines {
   display: flex;
   flex-direction: column;
@@ -1776,9 +1771,7 @@ $blue-200: #bfdbfe;
 }
 
 .cg-mac-step-tag {
-  position: absolute;
-  bottom: 16px;
-  left: 16px;
+  align-self: flex-start;
   font-size: 10px;
   font-weight: 900;
   color: $neutral-400;
@@ -1930,6 +1923,74 @@ $blue-200: #bfdbfe;
       width: 100%;
       padding: 0;
     }
+  }
+}
+
+/* ============ 矮屏（笔记本）适配：压缩纵向间距，保证一屏显示完、按钮不被截断 ============ */
+
+@media (max-height: 860px) {
+  .cg-mac-inner {
+    padding: 28px 40px;
+  }
+  .cg-mac-header {
+    margin-bottom: 20px;
+  }
+  .cg-mac-title {
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+  .cg-mac-guide {
+    margin-bottom: 20px;
+  }
+  .cg-mac-guide-title {
+    margin-bottom: 16px;
+  }
+  .cg-mac-step {
+    padding: 16px;
+  }
+  .cg-mac-instructions {
+    margin-top: 16px;
+  }
+}
+
+@media (max-height: 680px) {
+  .cg-mac-inner {
+    padding: 18px 32px;
+  }
+  .cg-mac-header {
+    margin-bottom: 12px;
+  }
+  .cg-mac-title {
+    font-size: 20px;
+    margin-bottom: 6px;
+  }
+  .cg-mac-desc {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .cg-mac-guide {
+    margin-bottom: 12px;
+  }
+  .cg-mac-guide-title {
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+  .cg-mac-steps {
+    gap: 12px;
+  }
+  .cg-mac-step {
+    height: 104px;
+    padding: 10px;
+  }
+  .cg-mac-instructions {
+    margin-top: 10px;
+    gap: 4px;
+  }
+  .cg-mac-instr-row {
+    font-size: 12px;
+  }
+  .cg-mac-actions {
+    gap: 16px;
   }
 }
 </style>

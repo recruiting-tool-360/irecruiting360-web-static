@@ -950,6 +950,28 @@ async function doFetchRecommend(args) {
     ? store.getters["SearchTasks/getLatestTaskByChat"](_cidForPhase)
     : null;
   const _taskIdForPhase = _taskForPhase?.taskId || "";
+
+  // ★ 若本任务的 RECOMMEND/BOSS 渠道已终态（COMPLETED/FAILED/SKIPPED），说明推荐这一路本轮
+  //   不需要再跑：不 execute、不开 tab、不 finish，直接返回。
+  //   常见于 CONTINUE 任务：推荐已完成、只补搜索；之前没判 taskChannelStatus 会对已 COMPLETED
+  //   的推荐渠道又调一次 execute（见线上 /taskChannel/{id}/execute 命中 COMPLETED 渠道）。
+  if (_taskForPhase && Array.isArray(_taskForPhase.channels)) {
+    const recChannel = _taskForPhase.channels.find(
+      (c) => c.businessChannel === "RECOMMEND" && c.channelSubType === "BOSS"
+    );
+    const recTerminal =
+      recChannel &&
+      (recChannel.taskChannelStatus === "COMPLETED" ||
+        recChannel.taskChannelStatus === "FAILED" ||
+        recChannel.taskChannelStatus === "SKIPPED");
+    if (recTerminal) {
+      console.log(
+        `[IndexPage] doFetchRecommend: RECOMMEND/BOSS 已终态 ${recChannel.taskChannelStatus}，跳过整个推荐流程（不 execute/不开 tab/不 finish）`
+      );
+      return;
+    }
+  }
+
   const setPhase = (phase) => {
     if (!_taskIdForPhase) return;
     store.commit("SearchTasks/setRecommendClientPhase", { taskId: _taskIdForPhase, phase });
@@ -1888,9 +1910,18 @@ async function handleAggregateSearch(payload) {
       if (userChannels.length > 0 && enabledKeys.length === 0) {
         if (!recommendChecked) {
           console.warn("[IndexPage] aggregate-search 被拒绝：用户禁用了所有渠道且未勾推荐");
-          notify.warning(
-            "当前没有启用任何招聘渠道，请先在右上角「设置」中启用至少一个渠道后再搜索"
-          );
+          // 没启用任何渠道 → 直接弹「未检测到登录状态」面板（可勾选启用渠道 + 去登录），替代原 toast
+          currentView.value = "chat";
+          nextTick(() => {
+            const chatCard = embeddedChatRef.value;
+            if (chatCard && typeof chatCard.forceShowLoginRequired === "function") {
+              chatCard.forceShowLoginRequired();
+            } else {
+              notify.warning(
+                "当前没有启用任何招聘渠道，请先在右上角「设置」中启用至少一个渠道后再搜索"
+              );
+            }
+          });
           return;
         }
       }
