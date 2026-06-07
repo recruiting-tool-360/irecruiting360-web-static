@@ -115,6 +115,51 @@ const mutations = {
   },
 
   /**
+   * 给「查看结果」bucket 里的简历回填第三方操作结果（加入人才库 / 分配职位）。
+   *
+   * 背景：results 视图渲染的是本 store 的 byChannel 数据，不是 ChannelConfig.ALL.data。
+   *   `useUpdateResumeStatus.update` 只 patch 了 ChannelConfig + BossRecommendData，
+   *   results 视图里按钮不会变「已加入人才库」。这里按 id/resumeBlindId 把所有 task bucket
+   *   的所有渠道列表对应简历的 resumeThirdPartyInfo 一并更新。
+   *
+   * @param {Object<string, {id,type,status,errorMsg}>} resumeInfoMap  以 id 为 key 的结果映射
+   */
+  patchViewingResumeThirdPartyInfo(state, resumeInfoMap) {
+    if (!resumeInfoMap || typeof resumeInfoMap !== "object") return;
+    const lookup = (item) =>
+      item &&
+      (resumeInfoMap[item.id] ||
+        resumeInfoMap[String(item.id)] ||
+        resumeInfoMap[item.resumeBlindId] ||
+        resumeInfoMap[String(item.resumeBlindId)]);
+    let anyChanged = false;
+    const nextByTaskId = {};
+    for (const [taskId, bucket] of Object.entries(state.byTaskId || {})) {
+      const byChannel = bucket?.byChannel || {};
+      const nextByChannel = {};
+      for (const [ch, list] of Object.entries(byChannel)) {
+        if (!Array.isArray(list)) {
+          nextByChannel[ch] = list;
+          continue;
+        }
+        let listChanged = false;
+        const nextList = list.map((item) => {
+          const info = lookup(item);
+          if (info) {
+            listChanged = true;
+            return { ...item, resumeThirdPartyInfo: info };
+          }
+          return item;
+        });
+        nextByChannel[ch] = listChanged ? nextList : list;
+        if (listChanged) anyChanged = true;
+      }
+      nextByTaskId[taskId] = { ...bucket, byChannel: nextByChannel };
+    }
+    if (anyChanged) state.byTaskId = nextByTaskId;
+  },
+
+  /**
    * 清掉某 taskId 的缓存（可选，主要用于内存清理）
    */
   clearViewingTaskResults(state, taskId) {

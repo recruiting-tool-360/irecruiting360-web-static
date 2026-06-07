@@ -51,6 +51,10 @@ export function useUpdateResumeStatus() {
     });
     store.commit('changeChannelConfData', {key: 'ALL', value: data});
 
+    // (1.5) 同时更新「查看结果」viewing bucket（results 视图渲染的是 ViewingResults 而非 ALL.data，
+    //       不 patch 这里的话，结果页里「加入人才库」按钮不会变「已加入人才库」）
+    store.commit('patchViewingResumeThirdPartyInfo', resumeInfoMap);
+
     // (2) 同时更新 BossRecommendData.byJobId[*].geekList（推荐通道）
     // 按 resumeBlindId 反查每个 bucket 里的 geek，找到就 patch resumeThirdPartyInfo
     const byJobId = store.state?.BossRecommendData?.byJobId || {};

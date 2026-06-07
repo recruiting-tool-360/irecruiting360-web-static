@@ -920,10 +920,12 @@ onMounted(() => {
       return Promise.resolve(false);
     }
     initPayload.value = data;
-    // 启动时由父页 init 自动唤起：**不做 client/launch 预校验**（launchWithPayload 内部已经
-    // 经父页换 token = 调过一次 client/launch；这里再 openClient 会重复调，且此刻消息通道可能还没就绪
-    // → "Connection is closed"）。预校验只在用户**手动点「打开客户端」**时走 openClient。
-    void launchWithPayload(data);
+    // 启动时由父页 init 自动唤起：走与「手动点打开客户端」**完全一致**的 openClient ——
+    //   先经父页换 token（= 调一次 client/launch 预校验），token 成功才唤起、并把 token 透传给
+    //   launchWithPayload（不二次调）；token 失败则只在下方 errorMsg 提示、**不打开客户端**。
+    //   （openClient 内部 tryFetchAccessToken 拿到 token 后透传，不会重复调 client/launch；
+    //    messenger 通道已不再被 beforeunload 销毁，不会出现 "Connection is closed"。）
+    void openClient(data);
     return Promise.resolve(true);
   });
 

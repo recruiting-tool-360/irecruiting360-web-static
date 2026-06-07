@@ -125,6 +125,22 @@ export function clearChannelExpired(store) {
 }
 
 /**
+ * 渠道是否在用户「渠道设置」里启用。
+ * 没配置（list 为空）→ 默认启用；有配置但没该渠道条目 → 视为未启用。
+ * 用于：禁用的渠道不应弹「账号异常」banner（典型：只开了前程无忧，却提示 boss 账号异常）。
+ */
+function isChannelEnabledInConfig(store, channelKey) {
+  try {
+    const list = store?.getters?.getUserChannelConfig;
+    if (!Array.isArray(list) || list.length === 0) return true;
+    const e = list.find((c) => c && c.key === channelKey);
+    return e ? !!e.enableConfig : false;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * 当前是否有"进行中 / 正在分析"的任务（决定渠道掉线要不要弹顶部 banner）。
  */
 export function isAnyTaskActive(store) {
@@ -147,6 +163,8 @@ export function isAnyTaskActive(store) {
  */
 export function reportChannelOfflineIfTaskActive(store, channelKey) {
   if (!store || !channelKey) return;
+  // ★ 渠道已禁用 → 不弹它的「账号异常」banner（如只开了前程无忧却提示 boss 账号异常）。
+  if (!isChannelEnabledInConfig(store, channelKey)) return;
   if (!isAnyTaskActive(store)) return;
   markChannelExpired(store, channelKey);
 }
@@ -224,6 +242,8 @@ export async function handleChannelSearchFailure(store, channelKey, chatId) {
 export async function handleChannelLoginExpired(store, opts) {
   const { channelKey, chatId, taskChannelId } = opts || {};
   if (!store || !channelKey) return;
+  // 渠道已禁用 → 不应因它弹 banner / 停任务（它本来就不参与搜索）
+  if (!isChannelEnabledInConfig(store, channelKey)) return;
 
   markChannelExpired(store, channelKey);
 

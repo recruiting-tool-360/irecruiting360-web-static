@@ -122,8 +122,16 @@ async function userInfoInit() {
     }
   } catch (ex) {
     store.commit('changeUserInfo', null)
-    notify.error('用户信息异常，请联系管理员')
     console.log(ex)
+    // ★ 网络层失败（超时 / 断网 / 请求被取消）不是登录态问题 → 只提示连接异常，**不弹登录授权框**。
+    //   判定：axios 这类失败没有 HTTP 响应（ex.response 为空）。真正的 token 失效是 200 响应里
+    //   success!=='success' 且含 'token'，已由 request.js 拦截并弹 IhrAuthModal；带 401/403 响应的
+    //   才在这里走 redirectToLogin。
+    if (!ex?.response) {
+      notify.error('网络连接异常，请检查网络后重试');
+      return;
+    }
+    notify.error('用户信息异常，请联系管理员')
     redirectToLogin({ reason: 'user_info_failed_exception' });
   }
 }

@@ -443,6 +443,8 @@ const automation = {
     title?: string
     message?: string
     channelName?: string
+    /** 只覆盖这些 channel 的 tab（如 ['boss']）；缺省覆盖所有招聘站 tab */
+    coverChannels?: string[]
   }): Promise<{ ok: boolean }> => ipcRenderer.invoke('automation:showOverlay', payload ?? {}),
   hideOverlay: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('automation:hideOverlay'),
   isOverlayVisible: (): Promise<boolean> => ipcRenderer.invoke('automation:isOverlayVisible'),
