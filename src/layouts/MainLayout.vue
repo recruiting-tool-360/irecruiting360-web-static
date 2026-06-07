@@ -58,7 +58,10 @@
     <IhrAuthModal />
 
     <!-- 客户端模式：渠道设置弹窗（齿轮按钮触发，配置启用哪些招聘渠道） -->
-    <ChannelSettingsDialog v-model:visible="channelSettingsVisible" />
+    <ChannelSettingsDialog
+      v-model:visible="channelSettingsVisible"
+      @save-channel-config="onSaveChannelConfig"
+    />
   </q-layout>
 </template>
 
@@ -79,9 +82,19 @@ import { ensureBossJobList, bindBossLoginListener } from "src/util/automation/bo
 import { startBossResidentWatcher } from "src/util/automation/bossResidentWatcher";
 import { initJob51LoginWatcher } from "src/util/automation/job51LoginWatcher";
 import { initZhilianLoginWatcher } from "src/util/automation/zhilianLoginWatcher";
+import { applyChannelEnableConfig } from "src/util/applyChannelEnable";
 import notify from "src/util/notify";
 const store = useStore();
 const router = useRouter();
+
+/**
+ * 渠道设置弹框保存：与 AISearch.saveChannelEnable 同一套副作用 ——
+ * commit setUserChannelConfig + 起停各渠道登录监视 + 停掉被禁用渠道进行中的任务。
+ * （之前 MainLayout 这个弹框没接 @save-channel-config，导致在这里禁用渠道不停止进行中任务。）
+ */
+const onSaveChannelConfig = (configData) => {
+  applyChannelEnableConfig(store, configData);
+};
 
 // 客户端模式：mount 时静默拉一次 BOSS 我的职位列表 + 监听 BOSS 登录成功后自动重拉
 // （隐藏 BrowserWindow + CDP，用户不可见；详见 src/util/automation/bossJobListAutoFetch.js）
@@ -283,6 +296,19 @@ iframeMsg.on("ihrSuccessIds", async (data, context) => {
       }))
     ];
     console.log(data, "data-ihrSuccessIds", params);
+
+    // ★ 全部失败（无成功项）且带 errorMsg（如全是「重复简历」）：不再调 importResume 回写接口，
+    //   直接弹 errorMsg 提示。避免对纯失败结果多调一次没意义的回写。
+    const actionName0 = data?.type === "ASSIGN_POSITIONS" ? "分配职位" : "加入人才库";
+    const successItems = params.filter((p) => p.status === "1");
+    const failItems = params.filter((p) => p.status === "0" && (p.errorMsg || "").length > 0);
+    if (successItems.length === 0 && failItems.length > 0) {
+      // 本地更新 UI 状态（让按钮/重复提示反映失败态），但不调后端回写接口
+      update(params);
+      const msgs = [...new Set(failItems.map((f) => f.errorMsg))];
+      notify.error(msgs.join("；") || `${actionName0}失败`);
+      return Promise.resolve(true);
+    }
 
     const { success } = await importResumeCallbackPlus(params);
     if (success === "success") {

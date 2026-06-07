@@ -400,6 +400,7 @@ export interface AutomationBridge {
     title?: string
     message?: string
     channelName?: string
+    coverChannels?: string[]
   }): Promise<{ ok: boolean }>
   hideOverlay(): Promise<{ ok: boolean }>
   isOverlayVisible(): Promise<boolean>

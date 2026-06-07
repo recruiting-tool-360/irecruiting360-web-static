@@ -175,7 +175,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary" 
-                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo"
+                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)"
                 @click.stop="assignJob(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
@@ -193,7 +193,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary"
-                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo" 
+                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)" 
                 @click.stop="addToTalentPool(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
@@ -1063,9 +1063,22 @@ const addToTalentPool = async (resume) => {
   }
 };
 
+// 任一第三方操作（加入人才库 / 分配职位）已成功 → 两个按钮都置灰。
+// 用户要求：加入人才库成功 或 分配职位成功后，分配职位和加入人才库都禁用。
+const isThirdPartyActionDone = (thirdPartyInfo) => thirdPartyInfo?.status == '1';
+
+// 分配职位是否已成功（决定「分配职位」按钮文案「已分配职位」）
+const isAssignJobDone = (thirdPartyInfo) =>
+  thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1';
+
+// 加入人才库是否已成功（加入人才库成功 或 分配职位成功都算 —— 分配职位隐含已入库）
+const isTalentPoolDone = (thirdPartyInfo) =>
+  (thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status == '1') ||
+  (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1');
+
 // 获取分配职位按钮文本
 const getAssignJobButtonText = (thirdPartyInfo) => {
-  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1') {
+  if (isAssignJobDone(thirdPartyInfo)) {
     return '已分配职位';
   }
   return '分配职位';
@@ -1073,10 +1086,7 @@ const getAssignJobButtonText = (thirdPartyInfo) => {
 
 // 获取加入人才库按钮文本
 const getTalentPoolButtonText = (thirdPartyInfo) => {
-  if (thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status == '1') {
-    return '已加入人才库';
-  }
-  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1') {
+  if (isTalentPoolDone(thirdPartyInfo)) {
     return '已加入人才库';
   }
   return '加入人才库';

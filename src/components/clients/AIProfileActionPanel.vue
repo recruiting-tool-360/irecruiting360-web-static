@@ -177,20 +177,24 @@
             </div>
           </div>
 
-          <!-- 行 3：输入简历数后展开 Schedule Info（参考 ihraisaas predictSchedule 简化版） -->
+          <!-- 行 3：输入简历数后展开 Schedule Info（参考 ihraisaas predictSchedule 简化版）
+               ★ 启动搜索后（disabled=true）只保留「预计本次时长」，隐藏「预计开始/结束时间」：
+                 开始/结束时间随排队动态变化，启动后再显示静态预估值会误导用户，仅在设置阶段展示。 -->
           <div v-if="resumeCountNum > 0" class="schedule-info">
             <div class="schedule-row">
               <span class="schedule-label">预计本次时长:</span>
               <span class="schedule-value">{{ estimatedDurationDisplay }}</span>
             </div>
-            <div class="schedule-row">
-              <span class="schedule-label">预计开始时间:</span>
-              <span class="schedule-value">{{ scheduledStartDisplay }}</span>
-            </div>
-            <div class="schedule-row">
-              <span class="schedule-label">预计结束时间:</span>
-              <span class="schedule-value">{{ scheduledEndDisplay }}</span>
-            </div>
+            <template v-if="!disabled">
+              <div class="schedule-row">
+                <span class="schedule-label">预计开始时间:</span>
+                <span class="schedule-value">{{ scheduledStartDisplay }}</span>
+              </div>
+              <div class="schedule-row">
+                <span class="schedule-label">预计结束时间:</span>
+                <span class="schedule-value">{{ scheduledEndDisplay }}</span>
+              </div>
+            </template>
           </div>
         </div>
       </div>

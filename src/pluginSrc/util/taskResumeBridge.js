@@ -40,6 +40,47 @@ async function loadDeps() {
 }
 
 /**
+ * 把「推荐通道」rawResume 的工作经历补成「搜索通道」一致的 geekCard.workList 结构。
+ *
+ * 后端确认（BossResumeRequestVO.geekInfo.getWorkList → ResumeServiceConverter）：workExp 只读
+ *   `geekCard.workList`。搜索接口该字段有值；BOSS 推荐接口 `geekCard.workList` 是空 []，工作经历
+ *   只在**顶层 works**（Thrift 结构 works[].company.value / works[].position.value）→ 后端读不到 →
+ *   查询回来 working_experience 为 null、UI 显示「暂无工作经历」。
+ *
+ * 这里在存 /results 前，当 geekCard.workList 为空但顶层 works 有值时，用 works 回填出与搜索**同结构**的
+ *   workList（name="公司·职位"）。字段集严格对齐搜索：{ name, dateRange, code, hlname, highlightList, intentList }。
+ *   推荐接口没有起止日期（startDate8/endDate8=0）→ dateRange 用 null（不要用 ""，之前 "" 触发后端
+ *   日期解析异常 → SYSTEM_005 no valid resultItems converted）。**不臆造 matchWork**（后端不读它）。
+ *
+ * 仅「有 geekCard 且 workList 为空、works 非空」时生效；搜索（已有 workList）与无 geekCard 的渠道原样跳过。
+ */
+function backfillRecommendWorkList(r) {
+  if (!r || typeof r !== "object") return r;
+  const c = r.geekCard;
+  if (!c || typeof c !== "object") return r;
+  if (Array.isArray(c.workList) && c.workList.length > 0) return r; // 搜索通道已有，不动
+  const works = Array.isArray(r.works) ? r.works : [];
+  if (works.length === 0) return r;
+
+  const pick = (v) => (v && typeof v === "object" ? v.value : v) || "";
+  c.workList = works
+    .map((w) => {
+      const name = [pick(w.company), pick(w.position)].filter(Boolean).join("·");
+      if (!name) return null;
+      return {
+        name,
+        dateRange: null,
+        code: null,
+        hlname: null,
+        highlightList: [],
+        intentList: null
+      };
+    })
+    .filter(Boolean);
+  return r;
+}
+
+/**
  * 业务侧 saveSearchPlus 之后调，把同一批 resumeList 落库到任务侧。
  *
  * 行为：
@@ -167,7 +208,9 @@ export async function postBatchResultsToTaskChannel(args) {
     serializeChannel: channelDesc,
     filterByRead: !!args.filterByRead,
     finished: !!args.finished,
-    resultItems: (args.resumeList || []).map((r) => ({ rawResume: r }))
+    resultItems: (args.resumeList || []).map((r) => ({
+      rawResume: backfillRecommendWorkList(r)
+    }))
   };
 
   // 诊断：如果 args.searchConditionId 跟 channel.searchConditionId 不一致，提示用户业务侧

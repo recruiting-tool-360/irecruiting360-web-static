@@ -1215,7 +1215,7 @@ const actions = {
    * @param {string}   [payload.chatId]      限定只处理某个 chat 的任务；不传则扫所有进行中任务
    * @returns {Promise<{ ok: boolean, stoppedChannels: number, stoppedTasks: number, errors: Array }>}
    */
-  async stopDisabledChannels({ state, dispatch }, payload) {
+  async stopDisabledChannels({ state, getters, dispatch }, payload) {
     const disabledSet = new Set(
       (payload?.disabledKeys || []).map((k) => String(k).toUpperCase()).filter(Boolean)
     );
@@ -1231,9 +1231,19 @@ const actions = {
       "SKIPPED"
     ];
 
-    const tasks = Object.values(state.tasksById || {}).filter(
-      (t) => t && aliveTaskStatuses.includes(t.taskStatus) && (!chatId || t.chatId === chatId)
-    );
+    // 该 chat 是否「AI 评分还在跑」（COMPLETED 但 UI 仍显示进行中的场景）
+    const isAiActiveFor = (cid) =>
+      typeof getters.isAiAnalyzingForChat === "function" &&
+      getters.isAiAnalyzingForChat(cid) === true;
+
+    // 「进行中」的任务：RUNNING/WAITING/RESTING；或 COMPLETED 但该 chat 的 AI 评分还在跑
+    //   （否则禁用渠道时，正处于「搜索完成、AI 分析中」的任务会被漏掉、不停止）
+    const tasks = Object.values(state.tasksById || {}).filter((t) => {
+      if (!t) return false;
+      if (chatId && t.chatId !== chatId) return false;
+      if (aliveTaskStatuses.includes(t.taskStatus)) return true;
+      return t.taskStatus === TASK_STATUS.COMPLETED && isAiActiveFor(t.chatId);
+    });
     if (tasks.length === 0) return { ok: true, stoppedChannels: 0, stoppedTasks: 0, errors: [] };
 
     let stoppedChannels = 0;
@@ -1242,13 +1252,15 @@ const actions = {
 
     for (const task of tasks) {
       const channels = Array.isArray(task.channels) ? task.channels : [];
-      // 该任务里是否有「被禁用渠道」仍在跑（未终态）
-      const hasDisabledRunning = channels.some(
-        (ch) =>
-          ch.taskChannelId &&
-          !finalStatuses.includes(ch.taskChannelStatus) &&
-          disabledSet.has(String(ch.channelSubType).toUpperCase())
-      );
+      const aiCase = task.taskStatus === TASK_STATUS.COMPLETED && isAiActiveFor(task.chatId);
+      // 该任务是否「用到了被禁用的渠道」：
+      //   - 渠道仍未终态（还在跑）→ 命中；
+      //   - 或任务处于 AI 评分中（COMPLETED+AI），渠道虽已终态但评分还在 → 也命中（要停评分）
+      const hasDisabledRunning = channels.some((ch) => {
+        if (!ch.taskChannelId) return false;
+        if (!disabledSet.has(String(ch.channelSubType).toUpperCase())) return false;
+        return aiCase || !finalStatuses.includes(ch.taskChannelStatus);
+      });
       if (!hasDisabledRunning) continue;
 
       // ★ 只要任务里有一个渠道被用户禁用 → 直接停掉整个任务（不再只停被禁用的那个渠道）。
@@ -1876,8 +1888,14 @@ const actions = {
       if (!runFailed) {
         const MAX_WAIT_AI_MS = 10 * 60 * 1000;
         const MIN_WAIT_AI_MS = 2000; // 给异步状态推送 settle 时间
+        // ★ 「等 AI 启动」窗口：AI 评分是 saveResumeDetailPlus 异步触发的（详情解析完才
+        //   启动 scoreUpdater 轮询），刚存完 results 时 pendingResumeIds 往往还是 0。
+        //   若不等它启动就因为「此刻不忙」直接 break，会在 AI 没跑前就 finish（finish 早于
+        //   queryTaskScoreList、分数全 null）。所以：没见过 AI 活跃前，最多等这个窗口让它起来。
+        const WAIT_FOR_AI_START_MS = 15000;
         const AI_POLL_INTERVAL = 1000;
         const startAiWait = Date.now();
+        let aiSeenActive = false; // 必须见过一次 active 再允许「歇了就退」，避免还没启动就过
 
         // lazy 拿单例，避免顶层循环依赖
         let queueManager = null;
@@ -1912,9 +1930,15 @@ const actions = {
             (recommendScoreUpdater?.pendingBlindIds?.size || 0) > 0;
           const aiStoreActive = rootGetters && rootGetters.getAiAnalyzingActive === true; // 兜底
           const stillAnalyzing = queueBusy || scoreBusy || recommendBusy || aiStoreActive;
+          if (stillAnalyzing) aiSeenActive = true;
           const elapsed = Date.now() - startAiWait;
 
-          if (!stillAnalyzing && elapsed >= MIN_WAIT_AI_MS) break;
+          if (!stillAnalyzing) {
+            // 已经见过 AI 活跃且现在歇了（过最小等待）→ 真跑完，退出 finalize
+            if (aiSeenActive && elapsed >= MIN_WAIT_AI_MS) break;
+            // 还没见过 AI 活跃：等够「启动窗口」仍没动 → 多半是 0 条简历/没触发分析，放行
+            if (!aiSeenActive && elapsed >= WAIT_FOR_AI_START_MS) break;
+          }
           await new Promise((r) => setTimeout(r, AI_POLL_INTERVAL));
         }
         const aiWaitMs = Date.now() - startAiWait;

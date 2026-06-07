@@ -1074,12 +1074,14 @@ async function doFetchRecommend(args) {
   store.commit("setBossRecommendFetching", { jobId, fetching: true });
   console.log("[IndexPage] runBossRecommend", args);
 
-  // 蒙层：聚合搜索期间锁住所有招聘站 tab，提示"客户端执行中，请勿同步操作"。
-  // 蒙层是主进程 WebContentsView，盖在 BOSS view 之上；用户切回主页 tab 不受影响。
+  // 蒙层：BOSS 推荐任务期间**只锁 BOSS 站 tab**，提示"客户端执行中，请勿同步操作"。
+  // 蒙层是主进程 WebContentsView，盖在 BOSS view 之上；用户切回主页 / 智联等其它 tab 不受影响。
+  // ⚠️ 必须传 coverChannels:['boss']，否则默认覆盖所有招聘站 tab → 切到智联也会显示蒙层。
   // 浏览器模式（非 Electron）下 window.api.automation 不存在，optional chain 兜底。
   try {
     await window?.api?.automation?.showOverlay?.({
-      channelName: "BOSS直聘"
+      channelName: "BOSS直聘",
+      coverChannels: ["boss"]
     });
   } catch (e) {
     console.warn("[IndexPage] showOverlay failed (browser mode?):", e?.message || e);
