@@ -11,7 +11,8 @@
       complete()  全部登录完成后用户点"开始搜索"
       dismiss()   用户点"稍后再说"暂时关掉（外部可决定是否记忆）
   -->
-  <div class="lrp-root">
+  <Teleport to="body">
+   <div class="lrp-root" :style="rootStyle">
     <div class="lrp-card">
       <!-- Header: 图标 + 标题 -->
       <div class="lrp-header">
@@ -136,11 +137,12 @@
         </button>
       </div>
     </div>
-  </div>
+   </div>
+  </Teleport>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { useStore } from 'vuex';
 import { openChannelLoginUrl } from 'src/util/openChannelLoginUrl';
 import { pluginAllUrls } from 'src/pluginSrc/config/PluginRequestManager';
@@ -149,6 +151,30 @@ import { applyChannelEnableConfig } from 'src/util/applyChannelEnable';
 const emit = defineEmits(['complete', 'dismiss']);
 
 const store = useStore();
+
+/**
+ * 遮罩从「全局顶部 header（ClientHeader / 普通 header）下方」开始铺满整个内容区
+ * （含左侧职位菜单）。Teleport 到 body 后用 fixed 定位，top 取实时测量的 header 高度。
+ */
+const headerOffset = ref(0);
+const rootStyle = computed(() => ({ top: `${headerOffset.value}px` }));
+function measureHeader() {
+  try {
+    const el = document.querySelector('.q-header');
+    headerOffset.value = el ? Math.round(el.getBoundingClientRect().height) : 0;
+  } catch {
+    headerOffset.value = 0;
+  }
+}
+onMounted(() => {
+  measureHeader();
+  // 头部高度可能在首帧后才稳定（banner 渲染 / 字体加载）→ 下一帧再量一次
+  nextTick(measureHeader);
+  window.addEventListener('resize', measureHeader);
+});
+onUnmounted(() => {
+  window.removeEventListener('resize', measureHeader);
+});
 
 // 字段名跟 ClientHeader / 原 channel/*JobInfo.vue 保持一致；name 跟「渠道设置弹框」默认值一致
 const CHANNEL_CONFIGS = [
@@ -262,14 +288,17 @@ $green-200: #bbf7d0;
 $green-500: #22c55e;
 $green-600: #16a34a;
 
-/* ============ Root：absolute 铺满父容器 + 半透黑 backdrop blur 遮罩 ============ */
-/* 对应 UI 项目 LoginRequiredModal.tsx 的：
-   absolute inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4
-   父容器为 q-card.chat-panel (position: fixed)，本组件相对它铺满整个聊天卡片 */
+/* ============ Root：Teleport 到 body + fixed 铺满「header 以下」整个内容区 ============ */
+/* 需求：遮罩覆盖全局顶部 header 以下的整个区域（含左侧职位菜单），做成大遮罩弹框。
+   top 由 JS 实时测量 header 高度后通过内联 style 设置；left/right/bottom 贴边。 */
 .lrp-root {
-  position: absolute;
-  inset: 0;
-  z-index: 1000;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 0; /* 实际值由内联 :style 的 header 高度覆盖 */
+  /* 高于 q-drawer(左侧菜单) / 内容；低于不需要，header 因 top 偏移本身不会被盖住 */
+  z-index: 3000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -280,8 +309,6 @@ $green-600: #16a34a;
   -webkit-backdrop-filter: blur(8px) saturate(120%);
   /* 创建独立的 stacking context，避免被祖先的 transform / filter 破坏 backdrop-filter */
   isolation: isolate;
-  /* 圆角跟随父 q-card */
-  border-radius: inherit;
   animation: lrp-fade-in 0.3s ease;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',

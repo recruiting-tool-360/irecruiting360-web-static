@@ -54,13 +54,43 @@
     </div>
 
     <!--
-      编辑模式（1:1 对照 ihraisaas AnalysisCard.tsx 87-121）：只编辑「技能关键词」，
-      textarea 以逗号分隔，取消 / 保存修改。保存后更新本卡「专业技能」展示。
+      编辑模式：可编辑**全部**字段 —— 基本信息（职位/工作地点/工作经验/学历要求/薪资范围）
+      + 三组标签（专业技能/软实力要求/相关经历，逗号分隔）。取消 / 保存修改。
     -->
     <div v-if="isEditing" class="edit-box">
+      <div class="edit-grid">
+        <div class="edit-field">
+          <label class="edit-label">职位</label>
+          <input v-model="editForm.position" class="edit-input" type="text" />
+        </div>
+        <div class="edit-field">
+          <label class="edit-label">工作地点</label>
+          <input v-model="editForm.location" class="edit-input" type="text" />
+        </div>
+        <div class="edit-field">
+          <label class="edit-label">工作经验</label>
+          <input v-model="editForm.experience" class="edit-input" type="text" />
+        </div>
+        <div class="edit-field">
+          <label class="edit-label">学历要求</label>
+          <input v-model="editForm.education" class="edit-input" type="text" />
+        </div>
+        <div class="edit-field edit-col-span-2">
+          <label class="edit-label">薪资范围</label>
+          <input v-model="editForm.salary" class="edit-input" type="text" />
+        </div>
+      </div>
       <div class="edit-field">
-        <label class="edit-label">技能关键词</label>
-        <textarea v-model="editKeywords" class="edit-textarea" rows="2"></textarea>
+        <label class="edit-label">专业技能（逗号分隔）</label>
+        <textarea v-model="editForm.skills" class="edit-textarea" rows="2"></textarea>
+      </div>
+      <div class="edit-field">
+        <label class="edit-label">软实力要求（逗号分隔）</label>
+        <textarea v-model="editForm.softSkills" class="edit-textarea" rows="2"></textarea>
+      </div>
+      <div class="edit-field">
+        <label class="edit-label">相关经历（逗号分隔）</label>
+        <textarea v-model="editForm.relatedExperience" class="edit-textarea" rows="2"></textarea>
       </div>
       <div class="edit-actions">
         <button type="button" class="edit-cancel" @click="cancelEdit">取消</button>
@@ -80,23 +110,23 @@
     <div class="basic-info">
       <div class="bi-cell">
         <p class="bi-label">职位：</p>
-        <p class="bi-value">{{ profile.position || '—' }}</p>
+        <p class="bi-value">{{ display.position || '—' }}</p>
       </div>
       <div class="bi-cell">
         <p class="bi-label">工作地点：</p>
-        <p class="bi-value">{{ profile.location || '—' }}</p>
+        <p class="bi-value">{{ display.location || '—' }}</p>
       </div>
       <div class="bi-cell">
         <p class="bi-label">工作经验：</p>
-        <p class="bi-value">{{ profile.experience || '—' }}</p>
+        <p class="bi-value">{{ display.experience || '—' }}</p>
       </div>
       <div class="bi-cell">
         <p class="bi-label">学历要求：</p>
-        <p class="bi-value">{{ profile.education || '—' }}</p>
+        <p class="bi-value">{{ display.education || '—' }}</p>
       </div>
       <div class="bi-cell bi-col-span-2">
         <p class="bi-label">薪资范围：</p>
-        <p class="bi-value bi-salary">{{ profile.salary || '—' }}</p>
+        <p class="bi-value bi-salary">{{ display.salary || '—' }}</p>
       </div>
     </div>
 
@@ -114,7 +144,7 @@
         </p>
         <div class="tag-list">
           <span
-            v-for="(s, i) in displaySkills"
+            v-for="(s, i) in display.skills"
             :key="`sk-${i}`"
             class="tag-chip tag-chip-blue"
           >{{ s }}</span>
@@ -132,7 +162,7 @@
         </p>
         <div class="tag-list">
           <span
-            v-for="(s, i) in profile.softSkills || []"
+            v-for="(s, i) in display.softSkills || []"
             :key="`ss-${i}`"
             class="tag-chip tag-chip-emerald"
           >{{ s }}</span>
@@ -150,7 +180,7 @@
         </p>
         <div class="tag-list">
           <span
-            v-for="(s, i) in profile.relatedExperience || []"
+            v-for="(s, i) in display.relatedExperience || []"
             :key="`re-${i}`"
             class="tag-chip tag-chip-amber"
           >{{ s }}</span>
@@ -165,7 +195,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from "vue";
+import { ref, reactive, watch } from "vue";
 
 const props = defineProps({
   /** parseAISearchJD 的返回值 */
@@ -174,40 +204,89 @@ const props = defineProps({
     required: true
   }
 });
-// edit → 保存修改后把新的技能关键词抛给父组件（可选持久化 / 同步搜索条件）
+// edit → 保存修改后把**整份编辑后的画像**抛给父组件（持久化 / 同步搜索条件）
 const emit = defineEmits(["copy", "edit", "save"]);
 
-/* ===== 编辑「技能关键词」(= 专业技能) —— 1:1 对照 ihraisaas AnalysisCard 编辑态 ===== */
-// 专业技能展示用本地副本：未编辑时跟随 profile.skills（流式更新也能反映），保存后冻结成编辑值
-const displaySkills = ref([...(props.profile?.skills || [])]);
+/* ===== 编辑全部字段 ===== */
+// 把 profile 拷成本地展示副本：未编辑时跟随 props.profile（流式更新也能反映），保存后冻结成编辑值
+function cloneProfile(p) {
+  return {
+    position: p?.position || "",
+    location: p?.location || "",
+    experience: p?.experience || "",
+    education: p?.education || "",
+    salary: p?.salary || "",
+    skills: [...(p?.skills || [])],
+    softSkills: [...(p?.softSkills || [])],
+    relatedExperience: [...(p?.relatedExperience || [])]
+  };
+}
+const display = ref(cloneProfile(props.profile));
 const userEdited = ref(false);
 watch(
-  () => props.profile?.skills,
+  () => props.profile,
   (next) => {
-    if (!userEdited.value) displaySkills.value = [...(next || [])];
+    if (!userEdited.value) display.value = cloneProfile(next);
   },
   { deep: true }
 );
 
 const isEditing = ref(false);
-const editKeywords = ref("");
+const editForm = reactive({
+  position: "",
+  location: "",
+  experience: "",
+  education: "",
+  salary: "",
+  skills: "",
+  softSkills: "",
+  relatedExperience: ""
+});
+
+// 逗号（中英文）分隔 → 去空 chip 数组
+function splitChips(s) {
+  return String(s || "")
+    .split(/[,，]/)
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+}
 
 function startEdit() {
-  editKeywords.value = (displaySkills.value || []).join(", ");
+  const d = display.value;
+  editForm.position = d.position;
+  editForm.location = d.location;
+  editForm.experience = d.experience;
+  editForm.education = d.education;
+  editForm.salary = d.salary;
+  editForm.skills = (d.skills || []).join(", ");
+  editForm.softSkills = (d.softSkills || []).join(", ");
+  editForm.relatedExperience = (d.relatedExperience || []).join(", ");
   isEditing.value = true;
 }
 function cancelEdit() {
   isEditing.value = false;
 }
 function saveEdit() {
-  const skills = editKeywords.value
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  displaySkills.value = skills;
+  const next = {
+    position: editForm.position.trim(),
+    location: editForm.location.trim(),
+    experience: editForm.experience.trim(),
+    education: editForm.education.trim(),
+    salary: editForm.salary.trim(),
+    skills: splitChips(editForm.skills),
+    softSkills: splitChips(editForm.softSkills),
+    relatedExperience: splitChips(editForm.relatedExperience)
+  };
+  display.value = next;
   userEdited.value = true;
   isEditing.value = false;
-  emit("save", { skills });
+  // 带上整份画像 + 三组标签数组（父组件据此同步搜索条件 criteria + 关键词）
+  emit("save", {
+    profile: { ...next },
+    skills: next.skills,
+    softSkills: next.softSkills,
+    relatedExperience: next.relatedExperience
+  });
 }
 </script>
 
@@ -384,10 +463,35 @@ function saveEdit() {
   flex-direction: column;
   gap: 16px; /* space-y-4 */
 }
+.edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.edit-col-span-2 {
+  grid-column: span 2;
+}
 .edit-field {
   display: flex;
   flex-direction: column;
   gap: 8px; /* space-y-2 */
+}
+.edit-input {
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e5e5e5; /* neutral-200 */
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+  color: #404040;
+  outline: none;
+  line-height: 1.5;
+  box-sizing: border-box;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.edit-input:focus {
+  border-color: #99f6e4; /* primary-200 */
+  box-shadow: 0 0 0 2px #ccfbf1; /* ring-2 ring-primary-100 */
 }
 .edit-label {
   font-size: 10px; /* text-[10px] */

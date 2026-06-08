@@ -98,6 +98,13 @@ function extractCardDataFromDom() {
     taskId: pick(ds.taskId),
     taskChannelId: pick(ds.taskChannelId),
     taskChannelIds: pick(ds.taskChannelIds),
+    // 搜索 / 推荐 渠道 taskChannelId（后端按 businessChannel 拆开填）。
+    // 用于「清空重新搜索 / 保留增量搜索」复原原任务的渠道构成（有搜索才搜、有推荐才推荐），
+    // 不依赖前端 SearchTasks store（历史卡 / 刷新后 store 里可能查不到原任务）。
+    searchTaskChannelId: pick(ds.searchTaskChannelId),
+    searchTaskChannelIds: pick(ds.searchTaskChannelIds),
+    recommendTaskChannelId: pick(ds.recommendTaskChannelId),
+    recommendTaskChannelIds: pick(ds.recommendTaskChannelIds),
     searchConditionId: pick(ds.searchConditionId),
     searchConditionIds: pick(ds.searchConditionIds),
     chatId: pick(ds.chatId),

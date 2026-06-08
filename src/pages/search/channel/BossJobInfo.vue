@@ -63,6 +63,7 @@ import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 import { openChannelLoginUrl } from "src/util/openChannelLoginUrl";
 import { handleChannelSearchFailure } from "src/util/channelLoginGuard";
 import { triggerContinueSearchFromResults } from "src/util/triggerContinueSearch";
+import { runChannelSearchWithDedup } from "src/util/searchChannelDedup";
 
 // 定义组件属性
 const props = defineProps({
@@ -193,8 +194,17 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
   }
 
   try {
-    // 调用 BossJobInfoManager 中的方法执行搜索
-    const result = await BossJobInfoManager.channelSearchList(searchRequestData, page);
+    // 调用 BossJobInfoManager 搜索；保留增量搜索(CONTINUE)时：去重已入库简历 + 不足一页(15)自动延时5s翻下一页
+    const result = await runChannelSearchWithDedup({
+      store,
+      chatId: chatId.value,
+      channelSubType: channelKey,
+      searchRequestData,
+      startPage: page,
+      channelSearchList: BossJobInfoManager.channelSearchList,
+      onPageConfig: (cfg) =>
+        store.commit('setSearchChannelConditionConfigData', { key: channelKey, config: cfg })
+    });
 
     if (!result) {
       console.error('BOSS直聘搜索结果为空');
@@ -208,9 +218,7 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
       return;
     }
 
-    store.commit('setSearchChannelConditionConfigData', {key:channelKey, config:result});
-
-    // 处理搜索结果
+    // 处理搜索结果（result.dataList：增量搜索时已是去重后的「未入库新人」，普通搜索为原始一页）
     if (result.dataList && result.dataList.length > 0) {
       //保存数据并返回结果
       let channelJobList;

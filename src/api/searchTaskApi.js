@@ -77,6 +77,29 @@ export function estimateSearchTask(payload) {
 }
 
 /**
+ * 从一个招聘平台职位列表中，选出与当前 i人事职位最匹配的职位。
+ * 用于「推荐牛人」配置：开启推荐后，自动把 BOSS 等平台职位匹配到当前招聘职位。
+ * 若候选与当前职位明显无关 → 返回 matched=false（前端不自动选中任何职位）。
+ *
+ * @param {object} payload
+ * @param {string} [payload.positionId]  i人事职位 ID（优先；后端据此从 conversation_history.name 取当前职位名）
+ * @param {string} [payload.chatId]      职位会话 ID（positionId 未传/未查到职位名时兜底）。与 positionId 至少传一个
+ * @param {Array<{positionId?:string, positionName?:string, positionDesc?:string, salary?:string, city?:string}>} payload.positions
+ *        候选招聘平台职位列表（不能为空）；其它字段允许透传，匹配成功随 matchedPosition 原样返回
+ * @param {number} [payload.minScore=60]  最低匹配分（0-100）
+ * @returns {Promise<{ success:string, data:{
+ *   matched: boolean,
+ *   score: number,
+ *   matchedIndex: number,            // -1 表示无匹配
+ *   matchedPosition: object|null,
+ *   reason: string
+ * } }>}
+ */
+export function matchBestPosition(payload) {
+  return service.post("/search/matchBestPosition", payload);
+}
+
+/**
  * 拉当前活跃任务（启动 / SSE 断线恢复 / 用户切回主页时用）。
  *
  * 返回规则：
@@ -127,6 +150,19 @@ export function getTaskQueue() {
  */
 export function postExecuteChannel(taskChannelId) {
   return service.post(`/search/taskChannel/${encodeURIComponent(taskChannelId)}/execute`);
+}
+
+/**
+ * 查询某渠道任务已保存的简历 ID（用于前端结果去重 / 推荐列表过滤已入库的人）。
+ * 详见 search_task_api_doc.md §3.1。
+ *
+ * 返回 data.taskResumes[]：{ channelResumeId(=outId=渠道侧ID), outId, taskResumeId, resumeBlindId, searchConditionId }
+ *   - BOSS 搜索：outId = uniqSign；BOSS 推荐：按约定 outId = geekId。
+ *
+ * @param {string|number} taskChannelId
+ */
+export function getTaskChannelResumeIds(taskChannelId) {
+  return service.get(`/search/taskChannel/${encodeURIComponent(taskChannelId)}/resumeIds`);
 }
 
 /**

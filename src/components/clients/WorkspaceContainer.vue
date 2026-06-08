@@ -53,7 +53,9 @@
                 v-if="showClearChat"
                 type="button"
                 class="tb-icon-btn"
-                title="清空当前对话"
+                :class="{ 'tb-icon-btn--disabled': clearChatDisabled }"
+                :disabled="clearChatDisabled"
+                :title="clearChatDisabled ? '任务进行中，暂不能清空记录' : '清空当前对话'"
                 @click="$emit('clear-chat')"
               >
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -88,6 +90,8 @@ defineProps({
   showFailButton: { type: Boolean, default: false },
   /** 是否显示"清空对话"按钮（一般 view='chat' 且有消息时显示） */
   showClearChat: { type: Boolean, default: false },
+  /** 任务进行中 → 禁用"清空对话"按钮（不允许中途清空记录） */
+  clearChatDisabled: { type: Boolean, default: false },
   /** 触发失败按钮的激活状态 */
   simulateFail: { type: Boolean, default: false }
 });
@@ -245,6 +249,17 @@ defineEmits(['clear-chat', 'toggle-simulate-fail']);
 .tb-icon-btn:hover {
   background: #f3f4f6; /* bg-neutral-100 */
   color: #ef4444; /* text-red-500 */
+}
+/* 任务进行中：禁用态（置灰 + 不可点 + hover 不变色） */
+.tb-icon-btn--disabled,
+.tb-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tb-icon-btn--disabled:hover,
+.tb-icon-btn:disabled:hover {
+  background: transparent;
+  color: #9ca3af;
 }
 
 /* ===== 主体 ===== */

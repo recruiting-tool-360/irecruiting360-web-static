@@ -516,6 +516,19 @@ function forceShowLoginRequired() {
   loginRequiredDismissed.value = false;
   loginPanelOpen.value = true;
 }
+
+/**
+ * 外部清掉某 chat 的「在途任务」占位 + pending 绑定（不弹任何面板）。
+ *
+ * 用于：IndexPage 在 handleAggregateSearch 里因「渠道未登录 / canCreate 被拒」**中止创建**时调用。
+ *   否则 ChatCard 在 emit aggregate-search 前已 push 的占位卡永远绑不上 taskId →
+ *   `_hasInflightTaskForChat` 一直为 true → 用户重新登录后再点「清空重新 / 保留增量」会被
+ *   「该 chat 已有在途任务（占位未绑定 / 创建中）」直接跳过、点了没反应。
+ */
+function clearInflightTaskForChat(chatId) {
+  const cid = chatId || currentChatId.value || props.chatId;
+  if (cid) _removeOldTaskCardsForChat(cid);
+}
 // 注：每次切会话重置 dismissed 的 watch 放在下方 props 定义之后
 
 /* ============ AI 职位画像 action 面板状态：搜索/推荐 模块 + Boss 职位 + 简历数 ============ */
@@ -1213,10 +1226,12 @@ const handleEdit = (msg) => {
  * 透传给 IndexPage 处理（searchState 在 IndexPage，v-model 到 AISearch / JobSearchFilter）。
  */
 function onAiProfileSkillsSave(msg, payload) {
-  const skills = Array.isArray(payload?.skills) ? payload.skills : [];
   emit("profile-skills-edit", {
     chatId: msg?.chatId || props.chatId || currentChatId.value,
-    skills
+    skills: Array.isArray(payload?.skills) ? payload.skills : [],
+    softSkills: Array.isArray(payload?.softSkills) ? payload.softSkills : [],
+    relatedExperience: Array.isArray(payload?.relatedExperience) ? payload.relatedExperience : [],
+    profile: payload?.profile || null
   });
 }
 
@@ -1753,9 +1768,14 @@ watch(
  *   - internalMessages 里已经有同 taskId 的 task_status 卡片（避免重复）
  *   - 不满足上述"还活着"的判定
  */
-function ensureTaskStatusCardForCurrentChat() {
+function ensureTaskStatusCardForCurrentChat(force = false) {
   const chatId = currentChatId.value || props.chatId;
   if (!chatId) return;
+  // ★ 历史加载中（loadHistory 已清空 internalMessages、正 await getChatHistory）时，
+  //   SearchTasks store 的 watch 可能因任务进度变化触发本函数，把状态卡插进**空列表**（index 0），
+  //   之后历史消息再 append 到后面 → 状态卡跑到聊天最上面。
+  //   所以加载期间跳过 watch 触发的插卡；由 loadHistory 末尾 force 调用统一把卡插到最底部。
+  if (loading.value && !force) return;
   const getter = store.getters["SearchTasks/getLatestTaskByChat"];
   if (typeof getter !== "function") return;
   const latestTask = getter(chatId);
@@ -1978,8 +1998,34 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
     return;
   }
 
-  // 从原任务复原 selectedModules / matchedBossJobId / resumeCount
-  const params = _extractRetrySearchParamsFromOriginalTask(cardData.taskId);
+  // 从原任务复原 matchedBossJobId / resumeCount（store 里查得到的话）
+  const params = _extractRetrySearchParamsFromOriginalTask(cardData.taskId) || {};
+
+  // ★ selectedModules 以完成卡的渠道属性为权威来源（data-search-task-channel-id /
+  //   data-recommend-task-channel-id）：有搜索渠道才搜、有推荐渠道才推荐。
+  //   这样历史卡 / 刷新后 store 查不到原任务时也能正确复原任务构成，
+  //   避免「只有推荐」的任务被默认当成「只搜索」重启（modules 缺省时 search 会默认 true）。
+  const cardHasSearch = !!(cardData.searchTaskChannelId || cardData.searchTaskChannelIds);
+  const cardHasRecommend = !!(cardData.recommendTaskChannelId || cardData.recommendTaskChannelIds);
+  if (cardHasSearch || cardHasRecommend) {
+    params.selectedModules = { search: cardHasSearch, recommend: cardHasRecommend };
+  } else if (!params.selectedModules) {
+    // 老卡片没有渠道属性、store 也查不到 → 兜底纯搜索（保持旧行为）
+    params.selectedModules = { search: true, recommend: false };
+  }
+
+  // ★ 推荐渠道需要 BOSS 职位 id：store 查不到原任务时 matchedBossJobId 为空，
+  //   用当前 chat 绑定的 BOSS「招聘中」职位兜底（跟 AIProfileActionPanel 默认值同源同规则：
+  //   第一个 jobStatus===0 的 encryptJobId）。否则 buildSearchTaskChannels 会因没有 jobId
+  //   而不下发推荐渠道，导致「只有推荐」的任务重启后什么都不做。
+  if (params.selectedModules.recommend && !params.matchedBossJobId) {
+    const bossJobs = store.getters.getBossJobList || [];
+    const openJob = bossJobs.find((j) => Number(j?.jobStatus) === 0) || bossJobs[0];
+    if (openJob) {
+      params.matchedBossJobId =
+        openJob.encryptJobId || openJob.encryptId || String(openJob.jobId || "") || null;
+    }
+  }
 
   // ★ 路径 A：含推荐 → 插 RetryConfigCard 中间卡，等用户确认份数
   //
@@ -2581,7 +2627,9 @@ const loadHistory = async () => {
     // 加载完真实历史后，如果当前 chat 还有进行中 / 排队中 / 刚结束的任务，
     // 自动在末尾补一张 task_status 卡片（taskId 已绑定）
     // —— 解决用户切走再切回时看不到搜索状态的问题
-    ensureTaskStatusCardForCurrentChat();
+    // force=true：此刻 loading 仍为 true（finally 还没跑），必须绕过上面的 loading 守卫，
+    //   保证状态卡插在历史消息**之后**（聊天最底部）。
+    ensureTaskStatusCardForCurrentChat(true);
 
     // 触发历史加载完成事件
     emit("load-history-complete", data);
@@ -3187,7 +3235,8 @@ defineExpose({
   fillMessageToInput,
   startSearchFromFilter,
   startContinueSearch,
-  forceShowLoginRequired
+  forceShowLoginRequired,
+  clearInflightTaskForChat
 });
 </script>
 

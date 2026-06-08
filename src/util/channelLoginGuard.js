@@ -204,9 +204,13 @@ export async function ensureChannelLoginBeforeSearch(store, channelKey, chatId) 
 
 /**
  * 渠道搜索接口**调用失败**（含非网络的业务异常 / 返回空）后统一处理：
- *   - 顶部弹「渠道异常」banner（仅当有进行中任务）
- *   - 复核登录态：**确为未登录**才停当前任务（等重新登录后 current 轮询重新触发）；
- *     若仍登录（纯网络抖动等）只弹 banner 不停任务
+ *   - **先复核登录态**，只有「确为未登录」才弹顶部「渠道异常 / 恢复任务」banner + 停当前任务。
+ *   - 仍登录（如 BOSS「发布职位后才能搜索牛人」这类业务异常 / 纯网络抖动 / 返回空）→
+ *     **不弹 banner、不停任务**：header 异常态只反映登录状态，不被其它业务异常污染。
+ *
+ * ⚠️ 早期版本会在复核前先 `reportChannelOfflineIfTaskActive` 弹 banner，导致「发布职位后才能
+ *    搜索牛人」等业务错误也弹出顶部「恢复任务」红条，误导用户以为登录异常。现已改为仅在
+ *    确认未登录时才弹。
  *
  * @param {object} store
  * @param {'BOSS'|'ZHILIAN'|'JOB51'|'LIEPIN'} channelKey
@@ -215,11 +219,15 @@ export async function ensureChannelLoginBeforeSearch(store, channelKey, chatId) 
  */
 export async function handleChannelSearchFailure(store, channelKey, chatId) {
   if (!store || !channelKey) return true;
-  reportChannelOfflineIfTaskActive(store, channelKey);
   const ok = await checkChannelLogin(store, channelKey);
   if (!ok) {
-    console.warn(`[channelLoginGuard] ${channelKey} 搜索失败且复核未登录 → 停任务`);
+    console.warn(`[channelLoginGuard] ${channelKey} 搜索失败且复核未登录 → 弹 banner + 停任务`);
+    // handleChannelLoginExpired 内部会 markChannelExpired（弹 banner）+ 停任务
     await handleChannelLoginExpired(store, { channelKey, chatId });
+  } else {
+    console.log(
+      `[channelLoginGuard] ${channelKey} 搜索失败但仍登录（业务异常/网络抖动，非登录问题）→ 不弹 header banner`
+    );
   }
   return ok;
 }

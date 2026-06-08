@@ -506,6 +506,12 @@ export async function runBossRecommend(args) {
     targetCount = 10,
     onProgress,
     humanizeOpts = {},
+    /**
+     * 推荐渠道的 taskChannelId。传了就先拉「该渠道已保存简历 outId(=geekId)」集合，
+     * 用于把**已入库**的牛人从目标条数里排除（不计入、不 humanize、只滚过），
+     * 直到累计「未入库新人」达到 targetCount 或 BOSS 推荐列表没有更多数据。
+     */
+    recommendTaskChannelId,
     firstDwellMs,
     /**
      * ★ 主动 CDP 点选职位（默认开启）。
@@ -805,15 +811,46 @@ export async function runBossRecommend(args) {
     };
   }
 
-  const firstList = (first.data && first.data.geekList) || [];
-  const seen = new Set();
-  const merged = [];
-  for (const g of firstList) {
-    const id = String(g.encryptGeekId || g.geekId || "");
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    merged.push(g);
+  // ★ 拉「该推荐渠道已保存的简历 outId(=geekId)」集合：已入库的牛人**不计入目标、不 humanize、只滚过**。
+  //   out_id 口径：BOSS 推荐按约定 = geekId（见 search_task_api_doc.md §3.1 渠道 ID 口径）。
+  const savedOutIdSet = new Set();
+  if (recommendTaskChannelId) {
+    try {
+      const { getTaskChannelResumeIds } = await import("src/api/searchTaskApi");
+      const resp = await getTaskChannelResumeIds(recommendTaskChannelId);
+      const respData = resp?.data || resp;
+      const taskResumes = Array.isArray(respData?.taskResumes) ? respData.taskResumes : [];
+      for (const tr of taskResumes) {
+        const oid = tr?.channelResumeId ?? tr?.outId;
+        if (oid !== undefined && oid !== null && oid !== "") savedOutIdSet.add(String(oid));
+      }
+      console.log(
+        `[bossRecommend] 已保存简历过滤：taskChannelId=${recommendTaskChannelId} 已保存 outId 数=${savedOutIdSet.size}`,
+        [...savedOutIdSet].slice(0, 30)
+      );
+    } catch (e) {
+      console.warn(
+        `[bossRecommend] 拉已保存 resumeIds 失败（忽略，按不过滤处理）:`,
+        e?.message || e
+      );
+    }
+  } else {
+    console.log("[bossRecommend] 未传 recommendTaskChannelId，跳过已保存过滤");
   }
+
+  const firstList = (first.data && first.data.geekList) || [];
+  const seen = new Set(); // 全局 session 去重：encryptGeekId||geekId（含已保存被跳过的）
+  const merged = []; // 只放「未入库的新人」（计入 targetCount + 进 humanize）
+  let skippedSavedCount = 0; // 累计被「已保存」过滤掉的人数（仅日志）
+
+  const firstConsume = mergeNewGeeks(firstList);
+  // BOSS 列表「是否还有下一页」：以最近一次 /rec/geek/list 响应的 zpData.hasMore 为准。
+  //   终止条件 = 「未入库新人达到 targetCount」或「hasMore=false（BOSS 没有更多数据）」。
+  let lastHasMore = !!(first.data && first.data.hasMore);
+  console.log(
+    `[bossRecommend] 首屏 geek=${firstList.length} 新人(未入库)=${firstConsume.mergedAdded} ` +
+      `已保存跳过=${skippedSavedCount} accumulated=${merged.length}/${targetCount} hasMore=${lastHasMore}`
+  );
 
   // ⚠️ 注意：这里**不再**有 "firstPage 已够 → 跳过 humanize" 的早返回。
   // 原因：用户明确要求"拟人化操作"是流程的一部分（防风控关键），即使首屏已经够数也
@@ -846,24 +883,57 @@ export async function runBossRecommend(args) {
   let humanizeError = null;
   const humanizePerRoundResults = [];
   const processedGeekIds = new Set();
-  const MAX_HUMANIZE_ROUNDS = 8;
+  // 去重已保存后，可能需要多翻几页才凑够 targetCount（纯重复页很快，不 humanize）
+  const MAX_HUMANIZE_ROUNDS = 20;
   let rounds = 0;
 
   const { humanizeBrowseGeeks, smoothScrollToBottom } = await import(
     "src/util/automation/bossHumanizeBrowse"
   );
 
-  // helper：把 BOSS rec/geek/list 响应里的 geek 合进 merged（dedup），返回实际新增数
+  // helper：geek 用于跟「已保存 outId(geekId)」匹配的候选 ID（容错多字段）
+  function geekCandidateIds(g) {
+    const out = [];
+    const push = (v) => {
+      if (v !== undefined && v !== null && v !== "" && v !== 0) out.push(String(v));
+    };
+    push(g?.geekId);
+    push(g?.encryptGeekId);
+    push(g?.geekCard?.geekId);
+    push(g?.geekCard?.encryptGeekId);
+    push(g?.uniqSign);
+    return out;
+  }
+  function isSavedGeek(g) {
+    if (savedOutIdSet.size === 0) return false;
+    return geekCandidateIds(g).some((id) => savedOutIdSet.has(id));
+  }
+
+  // helper：把 BOSS rec/geek/list 响应里的 geek 合进 merged（去重 + 过滤已保存）。
+  //   返回 { sessionNew, mergedAdded }：
+  //     - sessionNew  = 本次「之前没见过」的 geek 数（含已保存被跳过的）→ 用来判断 BOSS 是否真返回了新内容
+  //     - mergedAdded = 真正进 merged 的「未入库新人」数 → 计入 targetCount
+  //   已保存的人：只 markSeen（避免重复处理）+ 计 skippedSavedCount，不进 merged（不计目标、不 humanize、只滚过）。
   function mergeNewGeeks(geeks) {
-    let added = 0;
+    let sessionNew = 0;
+    let mergedAdded = 0;
     for (const g of geeks) {
       const id = String(g.encryptGeekId || g.geekId || "");
       if (!id || seen.has(id)) continue;
       seen.add(id);
+      sessionNew++;
+      if (isSavedGeek(g)) {
+        skippedSavedCount++;
+        console.log(
+          `[bossRecommend] 跳过已保存 geek（不计入目标，只滚过）dedupId=${id} ` +
+            `候选outId=[${geekCandidateIds(g).join(",")}]`
+        );
+        continue;
+      }
       merged.push(g);
-      added++;
+      mergedAdded++;
     }
-    return added;
+    return { sessionNew, mergedAdded };
   }
 
   // helper：扫 siteNetwork 缓存里 BOSS 在 sinceTs 之后发的 /rec/geek/list 响应，
@@ -880,14 +950,17 @@ export async function runBossRecommend(args) {
           c.receivedAt > sinceTs
       );
       const geeks = [];
+      let hasMore = null; // 取最后一条响应的 hasMore（BOSS 是否还有下一页）
       for (const r of newResps) {
-        const list = r.bodyJson?.zpData?.geekList || [];
+        const zp = r.bodyJson?.zpData;
+        const list = zp?.geekList || [];
         if (Array.isArray(list)) geeks.push(...list);
+        if (zp && typeof zp.hasMore === "boolean") hasMore = zp.hasMore;
       }
-      return { responses: newResps.length, geeks };
+      return { responses: newResps.length, geeks, hasMore };
     } catch (e) {
       console.warn(`[bossRecommend] listCache 失败:`, e?.message || e);
-      return { responses: 0, geeks: [] };
+      return { responses: 0, geeks: [], hasMore: null };
     }
   }
 
@@ -925,50 +998,54 @@ export async function runBossRecommend(args) {
       break;
     }
 
-    // ① 选当前 batch
+    // ① 选当前 batch（只对「未入库新人」做 humanize；已保存的不在 merged 里，自然不会被 humanize）
     const batchGeekIds = merged
       .map((g) => String(g.encryptGeekId || g.geekId || ""))
       .filter((id) => id && !processedGeekIds.has(id));
 
-    if (batchGeekIds.length === 0) {
-      console.log(`[bossRecommend][humanize][round ${rounds}] 无未处理 batch，结束循环`);
-      break;
-    }
-    console.log(
-      `[bossRecommend][humanize][round ${rounds}] batch=${batchGeekIds.length} ` +
-        `accumulated=${merged.length}/${targetCount}`
-    );
-
-    // ② 跑 humanize（记录开始时间用于过滤本轮 lazy load 响应）
+    // ② 跑 humanize（记录开始时间用于过滤本轮 lazy load 响应）。
+    //   ★ batch 为空（典型：当前页全是已保存的人）→ **不结束**，跳过点击/停留，直接走滚动加载更多，
+    //     直到滚到未入库的新人或 BOSS 没有更多数据为止（用户要求：重复的只滚动，不点击/等待）。
     const humanizeStartTs = Date.now();
-    try {
-      const hRes = await humanizeBrowseGeeks(first.tabId, batchGeekIds, {
-        config: humanizeOpts?.config || undefined,
-        onProgress: (stage, payload) => {
-          if (typeof onProgress === "function") {
-            onProgress(`humanize.${stage}`, { ...payload, round: rounds });
+    if (batchGeekIds.length === 0) {
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] 无未处理新人 batch（当前页可能全是已保存），` +
+          `跳过 humanize，直接滚动加载更多 accumulated=${merged.length}/${targetCount}`
+      );
+    } else {
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] batch=${batchGeekIds.length} ` +
+          `accumulated=${merged.length}/${targetCount}`
+      );
+      try {
+        const hRes = await humanizeBrowseGeeks(first.tabId, batchGeekIds, {
+          config: humanizeOpts?.config || undefined,
+          onProgress: (stage, payload) => {
+            if (typeof onProgress === "function") {
+              onProgress(`humanize.${stage}`, { ...payload, round: rounds });
+            }
           }
-        }
-      });
-      humanizePerRoundResults.push(hRes);
-      batchGeekIds.forEach((id) => processedGeekIds.add(id));
+        });
+        humanizePerRoundResults.push(hRes);
+        batchGeekIds.forEach((id) => processedGeekIds.add(id));
 
-      if (!hRes?.ok) {
-        humanizeError = { code: hRes?.errorCode || "UNKNOWN", message: hRes?.message || "" };
-        console.warn(
-          `[bossRecommend][humanize][round ${rounds}] humanizeBrowseGeeks failed:`,
-          humanizeError
+        if (!hRes?.ok) {
+          humanizeError = { code: hRes?.errorCode || "UNKNOWN", message: hRes?.message || "" };
+          console.warn(
+            `[bossRecommend][humanize][round ${rounds}] humanizeBrowseGeeks failed:`,
+            humanizeError
+          );
+          break;
+        }
+        console.log(
+          `[bossRecommend][humanize][round ${rounds}] humanize ok: plan=${hRes.plan.length} ` +
+            `executed=${hRes.executed.length} errors=${hRes.errors.length}`
         );
+      } catch (e) {
+        humanizeError = { code: "EXCEPTION", message: e?.message || String(e) };
+        console.warn(`[bossRecommend][humanize][round ${rounds}] humanize 异常:`, humanizeError);
         break;
       }
-      console.log(
-        `[bossRecommend][humanize][round ${rounds}] humanize ok: plan=${hRes.plan.length} ` +
-          `executed=${hRes.executed.length} errors=${hRes.errors.length}`
-      );
-    } catch (e) {
-      humanizeError = { code: "EXCEPTION", message: e?.message || String(e) };
-      console.warn(`[bossRecommend][humanize][round ${rounds}] humanize 异常:`, humanizeError);
-      break;
     }
 
     // ③ 检查 humanize 期间 BOSS 自家有没有 lazy load
@@ -979,6 +1056,9 @@ export async function runBossRecommend(args) {
     );
 
     let newGeeksThisRound = lazyAutoLoad.geeks;
+    if (lazyAutoLoad.responses > 0 && typeof lazyAutoLoad.hasMore === "boolean") {
+      lastHasMore = lazyAutoLoad.hasMore;
+    }
 
     // ④ 没自动触发 → 主动滚到底强制触发
     if (newGeeksThisRound.length === 0) {
@@ -1011,7 +1091,9 @@ export async function runBossRecommend(args) {
         );
         break;
       }
-      const geeks = next.data?.bodyJson?.zpData?.geekList || [];
+      const nextZp = next.data?.bodyJson?.zpData;
+      const geeks = nextZp?.geekList || [];
+      if (typeof nextZp?.hasMore === "boolean") lastHasMore = nextZp.hasMore;
       if (geeks.length === 0) {
         console.log(
           `[bossRecommend][humanize][round ${rounds}] BOSS 返回空 geekList，结束循环（无更多数据）`
@@ -1024,25 +1106,37 @@ export async function runBossRecommend(args) {
       newGeeksThisRound = geeks;
     }
 
-    // ⑤ 合并到 merged，检查是否够了
-    const added = mergeNewGeeks(newGeeksThisRound);
+    // ⑤ 合并到 merged（过滤已保存），检查是否够了
+    const consume = mergeNewGeeks(newGeeksThisRound);
     console.log(
-      `[bossRecommend][humanize][round ${rounds}] dedup 后新增 ${added} 个，` +
-        `accumulated=${merged.length}/${targetCount}`
+      `[bossRecommend][humanize][round ${rounds}] BOSS返回${newGeeksThisRound.length}个，` +
+        `本轮新出现=${consume.sessionNew}（其中未入库新人=${consume.mergedAdded}、已保存跳过=${consume.sessionNew - consume.mergedAdded}），` +
+        `accumulated=${merged.length}/${targetCount} 累计已保存跳过=${skippedSavedCount} hasMore=${lastHasMore}`
     );
 
-    if (added === 0) {
+    // ★ 终止条件（严格按用户要求）：
+    //   1) 未入库新人凑够 targetCount → 结束（拿够了）
+    //   2) BOSS hasMore=false → 结束（接口明确没有更多数据）
+    //   其它情况（哪怕本轮全是已保存/重复、sessionNew=0）只要 hasMore!==false 就继续翻页，
+    //   重复的人不计入 targetCount，靠 MAX_HUMANIZE_ROUNDS 兜底防死循环。
+    if (merged.length >= targetCount) {
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] 全部 duplicate（BOSS 返回的都跟已有重复），跳出避免死循环`
+        `[bossRecommend][humanize][round ${rounds}] 未入库新人已达 targetCount=${targetCount}，结束循环`
       );
       break;
     }
 
-    if (merged.length >= targetCount) {
+    if (lastHasMore === false) {
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] 已达到 targetCount=${targetCount}，结束循环`
+        `[bossRecommend][humanize][round ${rounds}] BOSS hasMore=false 没有更多数据，结束循环（已拿 ${merged.length}/${targetCount}）`
       );
       break;
+    }
+
+    if (consume.sessionNew === 0) {
+      console.log(
+        `[bossRecommend][humanize][round ${rounds}] 本轮无新出现的 geek 但 hasMore=${lastHasMore}，继续滚动翻下一页找未入库新人`
+      );
     }
   }
 

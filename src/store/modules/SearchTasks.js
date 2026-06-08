@@ -38,6 +38,9 @@ export const TASK_STATUS = {
   FAILED: "FAILED"
 };
 
+// 「一个会话只允许一个活跃任务」去重：记录已自动停止过的重复任务 taskId，避免每个 queue tick 重复发 finish
+const _dedupHandledTaskIds = new Set();
+
 /** UI 聚合状态（对照 ihraisaas JobList.aggregateStatus） */
 export const UI_STATUS = {
   IDLE: "idle",
@@ -656,18 +659,28 @@ const getters = {
    * 直接读 rootGetters.getAiAnalyzingActive 会让"chat A 评分中"误拒"chat B 创建任务"。
    */
   canCreateForChat: (state, gtrs) => (chatId) => {
-    const t = gtrs.getLatestTaskByChat(chatId);
-    if (!t) return true;
-    if (
-      t.taskStatus === TASK_STATUS.RUNNING ||
-      t.taskStatus === TASK_STATUS.WAITING ||
-      t.taskStatus === TASK_STATUS.RESTING
-    ) {
-      return false;
+    if (!chatId) return true;
+    // ★ 检查该 chat 的**所有**任务（不只 latest）：只要有任一活跃任务（WAITING/RUNNING/RESTING）
+    //   就不允许再创建——一个会话只允许一个任务。这样即便"去重保留的是较旧的 RUNNING、较新的被停"，
+    //   也不会因为 latest 已 STOPPED 而误判可创建。
+    const ids = state.chatTaskIdx[chatId] || [];
+    for (const id of ids) {
+      const t = state.tasksById[id];
+      if (!t) continue;
+      if (
+        t.taskStatus === TASK_STATUS.RUNNING ||
+        t.taskStatus === TASK_STATUS.WAITING ||
+        t.taskStatus === TASK_STATUS.RESTING
+      ) {
+        return false;
+      }
     }
     // 任务收敛 COMPLETED 了，但**本 chat 的** AI 分析（评分 + 任务队列）还在跑 → 也算"未真正完成"
-    if (t.taskStatus === TASK_STATUS.COMPLETED && gtrs.isAiAnalyzingForChat(chatId)) {
-      return false;
+    if (gtrs.isAiAnalyzingForChat(chatId)) {
+      const hasCompleted = ids.some(
+        (id) => state.tasksById[id]?.taskStatus === TASK_STATUS.COMPLETED
+      );
+      if (hasCompleted) return false;
     }
     return true;
   },
@@ -840,6 +853,69 @@ const actions = {
         `[SearchTasks] fetchTaskQueue ok: totalCount=${data?.totalCount} queueFull=${data?.queueFull}` +
           ` items=${items.length} hydratedToTasksById=${hydrated}`
       );
+
+      // ★★ 一个会话只允许一个活跃任务（WAITING/RESTING/RUNNING）。后端 queue 同一 chat 返回多个活跃任务
+      //    （历史重复创建 / 多端创建）→ 保留"最该保留"的一个（RUNNING>RESTING>WAITING，同级取最新 taskId），
+      //    其余 finish(STOPPED/DUPLICATE_TASK) 通知后端 + 本地标 STOPPED，避免"一个进行中 + 一个等待中"卡住。
+      try {
+        const ACTIVE_STATUS = new Set([
+          TASK_STATUS.WAITING,
+          TASK_STATUS.RESTING,
+          TASK_STATUS.RUNNING
+        ]);
+        const RANK = { WAITING: 0, RESTING: 1, RUNNING: 2 };
+        const TERMINAL = [
+          TASK_STATUS.COMPLETED,
+          TASK_STATUS.FAILED,
+          TASK_STATUS.STOPPED,
+          "SKIPPED"
+        ];
+        const activeByChat = {};
+        for (const it of items) {
+          if (!it?.taskId || !it?.chatId) continue;
+          if (!ACTIVE_STATUS.has(it.taskStatus)) continue;
+          (activeByChat[it.chatId] = activeByChat[it.chatId] || []).push(it);
+        }
+        for (const [cid, list] of Object.entries(activeByChat)) {
+          if (list.length <= 1) continue;
+          list.sort(
+            (a, b) =>
+              (RANK[b.taskStatus] ?? -1) - (RANK[a.taskStatus] ?? -1) ||
+              Number(b.taskId) - Number(a.taskId)
+          );
+          const keep = list[0];
+          for (const dup of list.slice(1)) {
+            // 本地始终标 STOPPED（即便已处理过，兜底纠正 hydrate 又把它写回活跃）
+            commit("patchTask", { taskId: dup.taskId, patch: { taskStatus: TASK_STATUS.STOPPED } });
+            if (_dedupHandledTaskIds.has(String(dup.taskId))) continue;
+            _dedupHandledTaskIds.add(String(dup.taskId));
+            console.warn(
+              `[SearchTasks] fetchTaskQueue: chat ${cid} 有多个活跃任务 → 保留 ${keep.taskId}(${keep.taskStatus})，停止重复任务 ${dup.taskId}(${dup.taskStatus})`
+            );
+            for (const ch of Array.isArray(dup.channels) ? dup.channels : []) {
+              if (!ch?.taskChannelId) continue;
+              if (TERMINAL.includes(ch.taskChannelStatus)) continue;
+              taskApi
+                .postFinishChannel(ch.taskChannelId, {
+                  status: "STOPPED",
+                  errorCode: "DUPLICATE_TASK",
+                  errorMessage: "同一职位仅允许一个任务，已自动停止重复任务"
+                })
+                .catch((e) =>
+                  console.warn(
+                    `[SearchTasks] fetchTaskQueue: 停止重复任务 channel 失败 (${ch.channelSubType}):`,
+                    e?.message || e
+                  )
+                );
+            }
+          }
+        }
+      } catch (dupErr) {
+        console.warn(
+          "[SearchTasks] fetchTaskQueue: 会话多任务去重失败（忽略）:",
+          dupErr?.message || dupErr
+        );
+      }
 
       // ★★ 接口数据为准：本地标记"活着"(WAITING/RESTING/RUNNING) 的任务，若后端 queue 里
       //    已经没有了（current+running 任务都会在 queue items 里；空 = 后端已无此任务），
@@ -1215,7 +1291,7 @@ const actions = {
    * @param {string}   [payload.chatId]      限定只处理某个 chat 的任务；不传则扫所有进行中任务
    * @returns {Promise<{ ok: boolean, stoppedChannels: number, stoppedTasks: number, errors: Array }>}
    */
-  async stopDisabledChannels({ state, getters, dispatch }, payload) {
+  async stopDisabledChannels({ state, commit, dispatch }, payload) {
     const disabledSet = new Set(
       (payload?.disabledKeys || []).map((k) => String(k).toUpperCase()).filter(Boolean)
     );
@@ -1231,18 +1307,11 @@ const actions = {
       "SKIPPED"
     ];
 
-    // 该 chat 是否「AI 评分还在跑」（COMPLETED 但 UI 仍显示进行中的场景）
-    const isAiActiveFor = (cid) =>
-      typeof getters.isAiAnalyzingForChat === "function" &&
-      getters.isAiAnalyzingForChat(cid) === true;
-
-    // 「进行中」的任务：RUNNING/WAITING/RESTING；或 COMPLETED 但该 chat 的 AI 评分还在跑
-    //   （否则禁用渠道时，正处于「搜索完成、AI 分析中」的任务会被漏掉、不停止）
+    // 「进行中」的任务：RUNNING/WAITING/RESTING
     const tasks = Object.values(state.tasksById || {}).filter((t) => {
       if (!t) return false;
       if (chatId && t.chatId !== chatId) return false;
-      if (aliveTaskStatuses.includes(t.taskStatus)) return true;
-      return t.taskStatus === TASK_STATUS.COMPLETED && isAiActiveFor(t.chatId);
+      return aliveTaskStatuses.includes(t.taskStatus);
     });
     if (tasks.length === 0) return { ok: true, stoppedChannels: 0, stoppedTasks: 0, errors: [] };
 
@@ -1252,43 +1321,55 @@ const actions = {
 
     for (const task of tasks) {
       const channels = Array.isArray(task.channels) ? task.channels : [];
-      const aiCase = task.taskStatus === TASK_STATUS.COMPLETED && isAiActiveFor(task.chatId);
-      // 该任务是否「用到了被禁用的渠道」：
-      //   - 渠道仍未终态（还在跑）→ 命中；
-      //   - 或任务处于 AI 评分中（COMPLETED+AI），渠道虽已终态但评分还在 → 也命中（要停评分）
-      const hasDisabledRunning = channels.some((ch) => {
-        if (!ch.taskChannelId) return false;
-        if (!disabledSet.has(String(ch.channelSubType).toUpperCase())) return false;
-        return aiCase || !finalStatuses.includes(ch.taskChannelStatus);
-      });
-      if (!hasDisabledRunning) continue;
+      // ★ 只 finish「被禁用且未终态」的那几个渠道，**不停整个任务**：
+      //   其它没被禁用的渠道继续跑。finish(status=FAILED, errorCode=CHANNEL_DISABLED) 通知后端，
+      //   本地 patchChannel 标 FAILED → reduceTaskStatus 自动收敛（仍有在跑渠道则任务保持进行中；
+      //   若被禁用的恰好是最后一个未终态渠道，任务会自然收敛到终态）。
+      const disabledChannels = channels.filter(
+        (ch) =>
+          ch.taskChannelId &&
+          disabledSet.has(String(ch.channelSubType).toUpperCase()) &&
+          !finalStatuses.includes(ch.taskChannelStatus)
+      );
+      if (disabledChannels.length === 0) continue;
 
-      // ★ 只要任务里有一个渠道被用户禁用 → 直接停掉整个任务（不再只停被禁用的那个渠道）。
-      //   复用 stopForChat 走完整停止流程（finish 全部未终态 channel + 停 scoreUpdater + 清队列
-      //   + 同步后端 queue），只把停止原因标成「用户禁用渠道导致停止任务」。
-      try {
-        const res = await dispatch("stopForChat", {
-          chatId: task.chatId,
-          errorCode: "CHANNEL_DISABLED_BY_USER",
-          errorMessage: "用户禁用渠道导致停止任务"
-        });
-        if (res && res.ok !== false) {
-          stoppedTasks++;
-          stoppedChannels += res.stoppedChannels || 0;
+      for (const ch of disabledChannels) {
+        try {
+          await taskApi.postFinishChannel(ch.taskChannelId, {
+            status: "FAILED",
+            errorCode: "CHANNEL_DISABLED",
+            errorMessage: "该渠道已在客户端设置中禁用"
+          });
+          commit("patchChannel", {
+            taskId: task.taskId,
+            taskChannelId: ch.taskChannelId,
+            patch: { taskChannelStatus: TASK_STATUS.FAILED, finishedAt: Date.now() }
+          });
+          stoppedChannels++;
           console.log(
-            `[SearchTasks/stopDisabledChannels] 任务 ${task.taskId} 因渠道被禁用 → 整体停止`
+            `[SearchTasks/stopDisabledChannels] 已 finish 被禁用渠道 ${ch.channelSubType}-${ch.businessChannel}（taskChannelId=${ch.taskChannelId}），其它渠道继续`
+          );
+        } catch (e) {
+          errors.push({ taskId: task.taskId, channel: ch.channelSubType, message: e?.message || String(e) });
+          console.warn(
+            `[SearchTasks/stopDisabledChannels] finish 被禁用渠道失败 ${ch.channelSubType}:`,
+            e?.message || e
           );
         }
-        if (res && Array.isArray(res.errors) && res.errors.length) {
-          errors.push(...res.errors);
-        }
-      } catch (e) {
-        errors.push({ taskId: task.taskId, message: e?.message || String(e) });
-        console.warn(
-          `[SearchTasks/stopDisabledChannels] stopForChat 失败 taskId=${task.taskId}:`,
-          e?.message || e
-        );
       }
+      // 若该任务被禁用渠道收尾后已整体终态（runningTaskId 命中）→ 释放 running
+      const after = state.tasksById?.[task.taskId];
+      if (after && finalStatuses.includes(after.taskStatus)) {
+        stoppedTasks++;
+        if (state.runningTaskId === task.taskId) commit("setRunning", null);
+      }
+    }
+
+    // 同步一次后端队列（排队/进行中信息刷新）
+    try {
+      await dispatch("fetchTaskQueue");
+    } catch (e) {
+      console.warn("[SearchTasks/stopDisabledChannels] fetchTaskQueue 失败（忽略）:", e?.message || e);
     }
 
     return { ok: errors.length === 0, stoppedChannels, stoppedTasks, errors };
@@ -1346,7 +1427,15 @@ const actions = {
     if (!chatId) {
       return { ok: false, errorCode: "BAD_REQUEST", message: "chatId required" };
     }
-    // 拒绝重复点击：该 chat 已有进行 / 排队中任务时不创建新任务
+    // ★ 创建前先以**后端为准**刷新一次队列，把"别的会话 / 上次会话创建、本地 store 还没 hydrate"
+    //   的活跃任务同步进来，避免本地状态落后导致误判"可创建" → 同一会话出现两个任务（进行中+等待中）。
+    //   （fetchTaskQueue 内部也会对同一会话的多个活跃任务去重，双保险。）
+    try {
+      await dispatch("fetchTaskQueue");
+    } catch (e) {
+      console.warn("[SearchTasks] create: 创建前 fetchTaskQueue 失败（忽略）:", e?.message || e);
+    }
+    // 拒绝重复点击 / 重复创建：该 chat 已有进行 / 排队中任务时不创建新任务（一个会话只允许一个任务）
     if (!getters.canCreateForChat(chatId)) {
       return {
         ok: false,
@@ -1532,12 +1621,25 @@ const actions = {
     //   （不 execute 任何渠道、不跑搜索、不 finish），弹顶部「渠道异常」banner，
     //   清 runningTaskId + 刷队列让 current 轮询继续；等用户重新登录后下次 current 重新触发。
     //   （之前只在 execute 循环里 per-channel 跳过未登录渠道，导致已登录渠道仍会 execute + 跑搜索）
+    // 渠道是否在「渠道设置」里启用（未 hydrate→全启用，避免误判）。
+    //   ★ 被禁用的渠道不参与「未登录拦截」：它会由 resumeFromCurrent finish(CHANNEL_DISABLED)，
+    //     不应因为它未登录而把整任务卡住（用户禁用了就跳过它继续）。
+    const _cfgList = (rootGetters && rootGetters.getUserChannelConfig) || [];
+    const _enabledSet = new Set(
+      Array.isArray(_cfgList)
+        ? _cfgList.filter((c) => c?.key && c.key !== "LIEPIN" && !!c.enableConfig).map((c) => c.key)
+        : []
+    );
+    const _settingsHydrated = _enabledSet.size > 0;
+    const isChannelEnabledForRun = (sub) => !_settingsHydrated || _enabledSet.has(sub);
+
     const blockedChannels = (task.channels || []).filter(
       (ch) =>
         ch.taskChannelId &&
         ch.taskChannelStatus !== TASK_STATUS.COMPLETED &&
         ch.taskChannelStatus !== TASK_STATUS.FAILED &&
         ch.taskChannelStatus !== "SKIPPED" &&
+        isChannelEnabledForRun(ch.channelSubType) && // 禁用渠道不拦截
         rootGetters?.getChannelConf?.[ch.channelSubType]?.login === false
     );
     if (blockedChannels.length > 0) {
@@ -1620,7 +1722,8 @@ const actions = {
         //   渠道未登录 → 弹顶部「渠道登录异常」banner + **跳过 execute**，等用户重新登录后再手动重跑搜索。
         //   只在任务开始前判一次即可（运行时掉线另有 watcher → reportChannelOfflineIfTaskActive 兜底）。
         const chLogin = rootGetters?.getChannelConf?.[ch.channelSubType]?.login;
-        if (chLogin === false) {
+        // 禁用渠道不因未登录弹 banner / 跳过（交给 resumeFromCurrent finish(CHANNEL_DISABLED)）
+        if (chLogin === false && isChannelEnabledForRun(ch.channelSubType)) {
           const CH_NAME = {
             BOSS: "boss直聘",
             ZHILIAN: "智联招聘",

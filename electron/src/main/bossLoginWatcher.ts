@@ -44,9 +44,27 @@ function sendToHome(channel: string, payload: unknown): void {
   }
 }
 
-/** URL 含 /web/chat = 登录有效；否则（登录页/首页）= 失效 */
+/**
+ * 登录态判定（按 URL path）：
+ *   - 登录有效：认证后的应用页 —— path 以 `/web/` 开头（职位管理 /web/chat、推荐 /web/frame/recommend 等），
+ *     且不是登录页。
+ *   - 失效：BOSS 首页 `/`（被挤下线/未登录会重定向到首页）或登录页 `/web/user`。
+ *
+ * ⚠️ 之前只认 `/web/chat` → 推荐任务期间单例 tab 停在 `/web/frame/recommend/`（不含 /web/chat）会被
+ *   误判成「已下线」，把 loginState 卡成 false；之后真被挤下线（跳首页）时因 loginState 已是 false
+ *   不再 emit → 头部 boss直聘 不变红。改成「/web/ 应用页都算登录」即可避免这个误判。
+ */
 function isLoggedInUrl(url: string): boolean {
-  return !!url && url.indexOf('/web/chat') >= 0
+  if (!url || url === 'about:blank') return false
+  let path = '/'
+  try {
+    path = new URL(url).pathname || '/'
+  } catch {
+    // URL 解析失败 → 退回旧口径（含 /web/chat 算登录）
+    return url.indexOf('/web/chat') >= 0
+  }
+  if (path.startsWith('/web/user')) return false // BOSS 登录页 → 失效
+  return path.startsWith('/web/') // 认证后应用页 → 有效；首页 '/' 等 → 失效
 }
 
 /** 更新登录态：有变化才推 SPA */

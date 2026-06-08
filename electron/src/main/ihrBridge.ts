@@ -524,6 +524,15 @@ async function getApplicationPosition(): Promise<IhrApiResult<unknown>> {
   return noauthFetch<unknown>('application/position', { method: 'GET' })
 }
 
+/**
+ * 是否有 i 快招使用权限。
+ *   GET /candidate/AiManager/client/noauth/hasAuthority （不需要业务入参，accessToken 由 noauthFetch 自动拼）
+ * 渲染端在「客户端聚焦 / 创建任务 / 选择职位」时调用；无权限则清登录态并弹登录框。
+ */
+async function hasAuthority(): Promise<IhrApiResult<unknown>> {
+  return noauthFetch<unknown>('hasAuthority', { method: 'GET' })
+}
+
 async function batchGetPositionDetailByIds(ids: string[]): Promise<IhrApiResult<unknown>> {
   return noauthFetch<unknown>('headcount/v2/batch/getDetailByIds', {
     method: 'POST',
@@ -648,6 +657,7 @@ export function registerIhrBridgeIpc(): void {
   console.log(`[ihrBridge] init: manage URL = ${manageUrl()}`)
 
   ipcMain.handle('ihrBridge:getApplicationPosition', () => getApplicationPosition())
+  ipcMain.handle('ihrBridge:hasAuthority', () => hasAuthority())
   ipcMain.handle('ihrBridge:getSharedCandidateResume', () => getSharedCandidateResume())
   ipcMain.handle('ihrBridge:sharedCandidateResumeInit', () => sharedCandidateResumeInit())
   ipcMain.handle('ihrBridge:batchGetPositionDetailByIds', (_e, ids: string[]) =>

@@ -424,10 +424,18 @@
 import { ref, onMounted, onUnmounted, computed, nextTick, watch } from "vue";
 import { useQuasar } from "quasar";
 import { useStore } from "vuex";
-import { getChatList, deleteChat, renameChat, getChatHistory } from "src/api/chat/ChatApi";
+import {
+  getChatList,
+  deleteChat,
+  renameChat,
+  getChatHistory,
+  createChat
+} from "src/api/chat/ChatApi";
+import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { generateJobPostingFromResume } from "src/util/jobPostingGenerator";
 import { isFromMenu, isVisibleThirdA, usePlanVisibility } from "src/hooks/usePlanVisibility";
 import notify from "src/util/notify";
+import { ensureClientAuthority } from "src/util/checkClientAuthority";
 import SettingsModal from "src/components/clients/SettingsModal.vue";
 import UpdateModal from "src/components/clients/UpdateModal.vue";
 
@@ -492,6 +500,18 @@ function jobAggregateStatus(chatId) {
   }
   return getter(chatId);
 }
+
+// ★ 一旦某职位「离开已完成态」（开始了新一轮任务 / 变 idle 等）→ 清掉它的「已读」标记。
+//   这样该职位下次任务完成（且未被选中）时能重新显示「已完成」标记，而不是被上一次的已读永久压住。
+watch(
+  () => (chatList.value || []).map((c) => `${c.id}:${jobAggregateStatus(c.id).status}`).join(","),
+  () => {
+    const acked = acknowledgedCompletedIds.value;
+    if (!acked.length) return;
+    const next = acked.filter((id) => jobAggregateStatus(id).status === "completed");
+    if (next.length !== acked.length) acknowledgedCompletedIds.value = next;
+  }
+);
 
 /**
  * 格式化预计开始时间（来自后端 /search/task/queue items[i].estimatedStartTime）。
@@ -596,29 +616,97 @@ const chatCardRef = computed(() => store.getters.getChatCardRefValue);
  *
  * 返回 null 表示「拿不到/接口失败」→ 调用方不过滤（不会误把全部职位隐藏）。
  */
-async function getActiveApplicationPositionIdSet() {
+async function getActiveApplicationPositions() {
   try {
     // 跟 noauth/addPools 一样直接调 i人事 noauth 接口（client 模式经 ihrBridge 自动拼 accessToken）。
     const resp = await window?.api?.ihrBridge?.getApplicationPosition?.();
     // 接口不可用（非客户端 / 旧 preload）→ 返回 null，不过滤
     if (resp == null || resp.success === false) return null;
     // 响应形态跟 SSOLogin.rebuildPositionList 一致：resp.data 直接是职位数组
-    const list = Array.isArray(resp.data) ? resp.data : [];
-    const set = new Set();
-    for (const p of list) {
-      if (!p) continue;
-      if (p.positionId != null && p.positionId !== "") set.add(String(p.positionId));
-      if (p.headcountId != null && p.headcountId !== "") set.add(String(p.headcountId));
-    }
-    console.log(`[LeftMenu] application/position 在招职位 id 集合 size=${set.size}`);
-    return set;
+    return Array.isArray(resp.data) ? resp.data : [];
   } catch (e) {
-    console.warn("[LeftMenu] getApplicationPosition 失败，跳过职位过滤:", e?.message || e);
+    console.warn("[LeftMenu] getApplicationPosition 失败，跳过职位过滤/同步:", e?.message || e);
     return null;
   }
 }
 
-const loadChatList = async () => {
+/** 由 application/position 原始列表构造「在招职位 id 集合」（positionId + headcountId 兜底）。 */
+function buildActivePositionIdSet(positions) {
+  if (!Array.isArray(positions)) return null;
+  const set = new Set();
+  for (const p of positions) {
+    if (!p) continue;
+    if (p.positionId != null && p.positionId !== "") set.add(String(p.positionId));
+    if (p.headcountId != null && p.headcountId !== "") set.add(String(p.headcountId));
+  }
+  console.log(`[LeftMenu] application/position 在招职位 id 集合 size=${set.size}`);
+  return set;
+}
+
+/**
+ * 同步缺失的 chat：application/position 在招职位里，chatList 中**没有对应 chat** 的职位 → 创建。
+ * 仅客户端模式生效（依赖 ihrBridge 的 noauth 接口）。
+ *
+ * ⚠️ 关键：`createChatPlus` **不是单条追加，而是「同步当前用户的完整职位列表」**——
+ *   按 positionId 对比：新传的新增、已存在的更新 name/jd/order、**库里有但这次没传的会被删除**。
+ *   所以必须把「现有 chatList + 新增职位」**完整数组**一起传过去，否则会把老的会话清空。
+ *
+ * 匹配口径跟职位过滤一致：chat.positionId 对应 application 的 headcountId（客户端 positionId=headcountId，
+ * 见 SSOLogin.rebuildPositionList）。
+ *
+ * @param {Array} applicationPositions  getActiveApplicationPositions() 返回的原始数组
+ * @param {Array} currentChatList       本次格式化后的 chatList（含 positionId / name / jd）
+ * @returns {Promise<boolean>}  true=有新建（调用方应重新拉一次 chatList）
+ */
+async function createMissingChatsForApplicationPositions(applicationPositions, currentChatList) {
+  if (!isElectronClient()) return false;
+  if (!Array.isArray(applicationPositions) || applicationPositions.length === 0) return false;
+
+  // chatList 已有的职位 id 集合
+  const existing = new Set(
+    (currentChatList || [])
+      .map((c) => (c?.positionId != null ? String(c.positionId) : ""))
+      .filter(Boolean)
+  );
+
+  // 在招职位里 chatList 没有对应 chat 的 → 需要创建
+  const missing = applicationPositions.filter((p) => {
+    const pid = p?.headcountId ?? p?.positionId;
+    return pid != null && pid !== "" && !existing.has(String(pid));
+  });
+  if (missing.length === 0) return false;
+
+  // ★ 组装「完整数组」= 现有 chatList（原样保留，避免被 createChatPlus 当成"已删除"清掉）
+  //   + 新增的在招职位。
+  const existingPayload = (currentChatList || []).map((c) => ({
+    positionId: c.positionId,
+    name: c.name,
+    jd: c.jd || ""
+  }));
+  const newPayload = missing.map((item) => ({
+    ...item,
+    positionId: item.headcountId ?? item.positionId,
+    name: `${item.positionName ?? ""} (${item.headcountCode ?? ""})`,
+    jd: item.jd || ""
+  }));
+  const chatData = [...existingPayload, ...newPayload];
+
+  console.log(
+    `[LeftMenu] 检测到 ${missing.length} 个在招职位无对应 chat，整表(现有${existingPayload.length}+新增${newPayload.length})调 createChat:`,
+    { missing: missing.map((m) => m?.headcountId ?? m?.positionId), total: chatData.length }
+  );
+  try {
+    const resp = await createChat(chatData);
+    if (resp?.success === "success") return true;
+    console.warn("[LeftMenu] createChat 缺失职位失败:", resp?.errorMessage || resp);
+    return false;
+  } catch (e) {
+    console.warn("[LeftMenu] createChat 缺失职位异常:", e?.message || e);
+    return false;
+  }
+}
+
+const loadChatList = async (opts = {}) => {
   loading.value = true;
   console.log("开始加载聊天列表");
 
@@ -660,11 +748,27 @@ const loadChatList = async () => {
         isFromThirdMenu: isFromThirdMenu.value
       });
 
+      // ★ 拉一次 i人事在招职位（application/position），既用于白名单过滤，也用于"缺失 chat 同步"。
+      const applicationPositions = await getActiveApplicationPositions();
+
+      // ★ 缺失 chat 同步：在招职位里 chatList 没有对应 chat 的 → createChat 创建，然后**重新拉一次 chatList**
+      //   （拿到含新建 chat 的完整列表再渲染）。skipPositionSync 防止无限递归。
+      if (!opts.skipPositionSync) {
+        const created = await createMissingChatsForApplicationPositions(
+          applicationPositions,
+          formattedChatList
+        );
+        if (created) {
+          console.log("[LeftMenu] 已为缺失在招职位创建 chat，重新拉取 chatList");
+          return loadChatList({ skipPositionSync: true });
+        }
+      }
+
       // ★ 用 noauth/application/position 做白名单过滤：chatList 里 positionId 不在
       //   i人事在招职位列表中的（职位已关闭/移除）→ 隐藏。
       //   接口不可用/失败 → activePositionIdSet 为 null → 不过滤（show all），避免误隐藏全部。
       //   chat 没 positionId（理论上少见）→ 无从判定 → 保留。
-      const activePositionIdSet = await getActiveApplicationPositionIdSet();
+      const activePositionIdSet = buildActivePositionIdSet(applicationPositions);
       const visibleChatList = activePositionIdSet
         ? formattedChatList.filter(
             (item) => !item.positionId || activePositionIdSet.has(String(item.positionId))
@@ -757,7 +861,8 @@ const handleOpenSettings = () => {
 const currentVersionDisplay = ref("v1.0.0");
 const newVersionAvailable = ref(""); // 空串 → 显示"最新版本"；有值 → 显示"立即更新 🚀"
 const updateModalOpen = ref(false);
-let _hasAutoPoppedUpdate = false;
+// 记录"已自动弹过"的版本号：同一个新版本只主动弹一次，避免后台 4h 周期 check 反复弹打扰用户。
+let _autoPoppedVersion = "";
 const _appUpdaterOffs = [];
 
 function _stripVPrefix(v) {
@@ -772,12 +877,22 @@ function handleOpenUpdateModal() {
   updateModalOpen.value = true;
 }
 
+// 只要左下角出现"立即更新"提示（newVersionAvailable 非空）→ 主动弹一次更新框。
+// 每个版本只弹一次（_autoPoppedVersion 去重）；已经开着则不重复触发。
 function _maybeAutoPopUpdateModal() {
-  if (_hasAutoPoppedUpdate) return;
-  if (!newVersionAvailable.value) return;
-  _hasAutoPoppedUpdate = true;
+  const ver = newVersionAvailable.value;
+  if (!ver) return; // 左下角是"最新版本" → 不弹
+  if (updateModalOpen.value) return; // 已打开，别重复
+  if (_autoPoppedVersion === ver) return; // 同版本已弹过，不再打扰
+  _autoPoppedVersion = ver;
   updateModalOpen.value = true;
 }
+
+// 兜底：任何路径（事件 / checkUpdate / hydrate）把 newVersionAvailable 从空变为有值，
+// 都自动弹一次更新框——保证"左下角有更新提示时主动弹框"这条需求恒成立。
+watch(newVersionAvailable, (ver) => {
+  if (ver) _maybeAutoPopUpdateModal();
+});
 
 /**
  * 启动序列（清晰的两步）：
@@ -819,7 +934,7 @@ async function _setupAppUpdater() {
     updater.on("downloaded", (p) => {
       console.log("[LeftMenu] event downloaded:", p);
       if (p?.version) newVersionAvailable.value = _formatVersion(p.version);
-      _hasAutoPoppedUpdate = false; // downloaded 必弹一次让用户确认重启
+      _autoPoppedVersion = ""; // 下载完成必弹一次让用户确认重启（清掉去重标记）
       _maybeAutoPopUpdateModal();
     })
   );
@@ -892,8 +1007,16 @@ const selectChat = (item) => {
 
   console.log("选择聊天:", item);
 
-  // 点击「已完成」的职位即清除其已完成标记（之后切到别的职位再回来也不再显示）。
-  if (!acknowledgedCompletedIds.value.includes(item.id)) {
+  // 选择职位 → 校验使用权限（无权限会清登录态 + 弹登录框）。不阻塞选择本身，弹框会盖在上层。
+  ensureClientAuthority(store, { reason: "select_job" });
+
+  // 点击「已完成」的职位 → 清除其已完成标记（之后切到别的职位再回来也不再显示）。
+  // ★ 只在该职位**当前确为已完成态**时才记录已读：避免选中一个待运行/进行中的职位也被
+  //   误标已读，导致它之后真正完成（且未选中）时不显示「已完成」标记。
+  if (
+    jobAggregateStatus(item.id).status === "completed" &&
+    !acknowledgedCompletedIds.value.includes(item.id)
+  ) {
     acknowledgedCompletedIds.value.push(item.id);
   }
 
@@ -1275,7 +1398,9 @@ function _refreshChatListOnFocus() {
   const now = Date.now();
   if (now - _lastFocusRefreshAt < FOCUS_REFRESH_THROTTLE_MS) return;
   _lastFocusRefreshAt = now;
-  console.log("[LeftMenu] 窗口聚焦/可见 → 刷新职位列表");
+  console.log("[LeftMenu] 窗口聚焦/可见 → 刷新职位列表 + 校验使用权限");
+  // 客户端聚焦 → 校验使用权限（无权限会清登录态 + 弹登录框）
+  ensureClientAuthority(store, { reason: "window_focus" });
   loadChatList();
 }
 function _onVisibilityChange() {
