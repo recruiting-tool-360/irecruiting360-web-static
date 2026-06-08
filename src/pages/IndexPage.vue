@@ -358,7 +358,13 @@ function getActiveScrollContainer() {
   // results view：可能同时存在 search/recommend 两个 .result-tab-pane（都 v-show 挂载着），
   // 选当前 active 的那个：用 offsetParent 判可见性（v-show 隐藏时 display:none → offsetParent=null）
   const panes = Array.from(document.querySelectorAll(".workspace-card .result-tab-pane"));
-  return panes.find((el) => el.offsetParent !== null) || null;
+  const pane = panes.find((el) => el.offsetParent !== null) || null;
+  if (!pane) return null;
+  // ★ 推荐牛人列表（RecommendList）真正的滚动容器是内部 .rl-resume-list（flex:1; overflow-y:auto），
+  //   pane 本身不滚 → 绑 pane 时 scrollTop 恒为 0、按钮不显示。有内部滚动容器就用它。
+  const innerScroller = pane.querySelector(".rl-resume-list");
+  if (innerScroller) return innerScroller;
+  return pane;
 }
 
 function rebindScrollContainer() {
@@ -2782,9 +2788,12 @@ onMounted(() => {
   // nextTick 等 DOM 渲染完，且容器视图切换 / tab 切换时重新绑（容器变化）
   if (embeddedMode.value) {
     nextTick(() => rebindScrollContainer());
-    watch([currentView, activeResultTab], () => nextTick(() => rebindScrollContainer()), {
-      flush: "post"
-    });
+    // 切视图 / 切 tab / 推荐列表从空变有数据（.rl-resume-list 此时才渲染出来）都重新绑定滚动容器
+    watch(
+      [currentView, activeResultTab, () => currentRecommendBucket.value?.geekList?.length || 0],
+      () => nextTick(() => rebindScrollContainer()),
+      { flush: "post" }
+    );
   }
 });
 
