@@ -25,6 +25,7 @@
         :code="currentJobCode"
         :auto-search-completed="autoSearchCompleted"
         :show-clear-chat="currentView === 'chat'"
+        :clear-chat-disabled="clearChatDisabled"
         @clear-chat="handleClearChat"
       >
         <!-- chat 视图 -->
@@ -231,6 +232,7 @@ import {
   clearChannelExpired,
   handleChannelLoginExpired
 } from "src/util/channelLoginGuard";
+import { ensureClientAuthority } from "src/util/checkClientAuthority";
 import { pluginAllUrls } from "src/pluginSrc/config/PluginRequestManager";
 import RecommendList from "src/components/clients/RecommendList.vue";
 import { isHistoryTaskView } from "src/util/viewingTaskMeta";
@@ -747,6 +749,29 @@ function mapBossRecommendGeekToSearchRaw(geek) {
     setIsCurrent: true,
     setPositionCode: false
   }));
+  // ★ workList：后端 BossResumeRequestVO.getWorkList() 读这个解析 workExp（必须跟搜索同款结构）。
+  //   推荐 list 接口的 geekWorks 带**真实起止日期**（startDate "2024.09" / endDate "2026.05"），
+  //   转成搜索同款 dateRange "yyyy-yyyy"（在职/无结束 → "yyyy-至今"）。
+  //   之前 workList 给空 / dateRange 给 null|"" 都会让后端转换抛错 → SYSTEM_005，所以这里必须带日期。
+  const pickYear = (s) => (String(s || "").match(/\d{4}/) || [""])[0];
+  const workListForSearch = geekWorks
+    .map((w) => {
+      const company = w.company || "";
+      const position = w.positionName || w.positionCategory || "";
+      const name = [company, position].filter(Boolean).join("·");
+      if (!name) return null;
+      const startY = pickYear(w.startDate);
+      const endY = w.current || !w.endDate ? "至今" : pickYear(w.endDate);
+      return {
+        name,
+        dateRange: startY ? `${startY}-${endY}` : "",
+        code: null,
+        hlname: null,
+        highlightList: [],
+        intentList: null
+      };
+    })
+    .filter(Boolean);
   const matches = Array.isArray(c.matches) ? c.matches : [];
   return {
     geekCard: {
@@ -861,7 +886,7 @@ function mapBossRecommendGeekToSearchRaw(geek) {
             intentList: null
           }
         : null,
-      workList: [],
+      workList: workListForSearch,
       matchWork: null,
       feedbackCodeConfigList: [],
       feedbackTitle: g.feedbackTitle || "",
@@ -1148,6 +1173,14 @@ async function doFetchRecommend(args) {
     }
   }
 
+  // 推荐渠道 taskChannelId：传给 runBossRecommend 拉「已保存简历」过滤已入库的人（不计入目标）
+  const recommendTaskChannelId =
+    _taskForPhase &&
+    Array.isArray(_taskForPhase.channels) &&
+    _taskForPhase.channels.find(
+      (c) => c.businessChannel === "RECOMMEND" && c.channelSubType === "BOSS"
+    )?.taskChannelId;
+
   let res;
   try {
     res = await runBossRecommend({
@@ -1155,6 +1188,7 @@ async function doFetchRecommend(args) {
       targetCount: args?.targetCount || 10,
       humanizeOpts: args?.humanizeOpts || {},
       onProgress,
+      recommendTaskChannelId: recommendTaskChannelId || null,
       stopAfter: args?.stopAfter
     });
   } finally {
@@ -1490,7 +1524,23 @@ watch(
  *       后端调用走"本地优先 + 后端异步"策略：本地立即清 → await 后端 → 失败仅日志不阻塞 UI。
  */
 const clearChatConfirmVisible = ref(false);
+/**
+ * 当前职位是否有「进行中」任务（RUNNING/WAITING/RESTING 或 AI 评分中）→ 禁用清空记录。
+ * 复用 canCreateForChat（与创建任务的拦截口径一致）：不能创建 = 有任务在跑。
+ */
+const clearChatDisabled = computed(() => {
+  const cid = store.getters.getLatestChatId;
+  if (!cid) return false;
+  const canCreate = store.getters["SearchTasks/canCreateForChat"];
+  return typeof canCreate === "function" ? !canCreate(cid) : false;
+});
+
 function handleClearChat() {
+  // 任务进行中不允许清空记录（按钮已 disabled，这里再兜一层防御）
+  if (clearChatDisabled.value) {
+    notify.warning("任务正在进行中，暂不能清空记录，请等待任务完成后再操作");
+    return;
+  }
   clearChatConfirmVisible.value = true;
 }
 async function confirmClearChat() {
@@ -1841,6 +1891,13 @@ async function handleAggregateSearch(payload) {
     return;
   }
 
+  // ★ 创建任务前校验使用权限：无权限 → 清登录态 + 弹登录框，并清掉 ChatCard 已 push 的在途占位卡
+  if (!(await ensureClientAuthority(store, { reason: "create_task" }))) {
+    console.warn("[IndexPage] aggregate-search 被拒绝：当前用户无使用权限");
+    embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
+    return;
+  }
+
   // taskType: INITIAL（默认） | RESTART（清空并重新搜索） | CONTINUE（保留并增量搜索）
   // 由 ChatCard 在 TaskCompletionCard 按钮触发时显式带过来；普通"启动聚合搜索"按钮不传 → 走 INITIAL
   // 三者数据来源都灌到 ChannelConfig store，AISearch 统一渲染；后端基于 taskType
@@ -1874,6 +1931,8 @@ async function handleAggregateSearch(payload) {
       console.warn("[IndexPage] aggregate-search 被拒绝：该职位已有任务在进行中");
       notify.warning("该职位已有搜索任务在进行中，请等待完成后再启动");
     }
+    // 拒绝创建 → 清掉 ChatCard 已 push 的在途占位卡，避免 _hasInflightTaskForChat 卡死
+    embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
     return;
   }
 
@@ -1885,6 +1944,7 @@ async function handleAggregateSearch(payload) {
   if (!searchChecked && !recommendChecked) {
     console.warn("[IndexPage] aggregate-search 被拒绝：未选择任何搜索模块");
     notify.warning("请至少选择一个搜索模块（搜索牛人 / 推荐牛人）");
+    embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
     return;
   }
 
@@ -1945,6 +2005,9 @@ async function handleAggregateSearch(payload) {
         notify.warning(
           `「${failedNames.join("、")}」未登录或登录已失效，请先在客户端中重新登录后再启动任务`
         );
+        // ★ 任务被「未登录」拦截中止 → 清掉 ChatCard 刚 push 的在途占位卡，否则
+        //   _hasInflightTaskForChat 永远为 true，用户重新登录后再点「清空重新/保留增量」会被跳过。
+        embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
         return;
       }
       // 都登录有效 → 清掉可能残留的旧 channelError
@@ -2570,12 +2633,22 @@ const resetSearchConnect = () => {
  * 搜索仍用旧 criteria）。searchState 与 JobSearchFilter / AISearch v-model 双绑，AITags 也会同步刷新。
  */
 const onProfileSkillsEdit = (payload) => {
-  const skills = Array.isArray(payload?.skills) ? payload.skills : [];
   const cur = searchState.value || {};
   const criteria = { ...(cur.criteria || {}) };
-  criteria.professional_skills = skills;
-  searchState.value = { ...cur, criteria };
-  console.log("[IndexPage] 画像卡技能关键词已同步到 searchState.criteria.professional_skills", skills);
+  // 三组标签 → criteria（专业技能 / 软实力 / 相关经历）
+  if (Array.isArray(payload?.skills)) criteria.professional_skills = payload.skills;
+  if (Array.isArray(payload?.softSkills)) criteria.soft_skills = payload.softSkills;
+  if (Array.isArray(payload?.relatedExperience)) criteria.work_experience = payload.relatedExperience;
+
+  const next = { ...cur, criteria };
+  // 基本信息：职位名同步到关键词输入（其它如地点/经验/薪资是结构化筛选，画像卡里是自由文本，
+  // 仅卡片展示，不强行回填 slider/城市选择，避免解析歧义）
+  const prof = payload?.profile || {};
+  if (typeof prof.position === "string" && prof.position.trim()) {
+    next.positionInpValue = prof.position.trim();
+  }
+  searchState.value = next;
+  console.log("[IndexPage] 画像卡编辑已同步到 searchState.criteria", criteria);
 };
 
 // 引用AISearch组件

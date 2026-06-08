@@ -1046,7 +1046,11 @@ $blue-200: #bfdbfe;
 
 .cg-shell {
   width: 100%;
-  min-height: 100vh;
+  /* 固定一屏高（含 padding 一起算，border-box）+ overflow hidden：
+     避免「card 100vh + shell padding」溢出导致**整页多一条外层滚动条**。 */
+  height: 100vh;
+  box-sizing: border-box;
+  overflow: hidden;
   background: $neutral-50;
   display: flex;
   align-items: center;
@@ -1061,13 +1065,117 @@ $blue-200: #bfdbfe;
   border-radius: 16px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
   border: 1px solid $neutral-100;
-  overflow: hidden;
+  /* 横向裁掉（保留圆角），纵向内容超出时可滚动 —— 小屏 / 矮屏下底部「打开客户端」
+     按钮不会被裁掉，能滚动到。 */
+  overflow: hidden auto;
   /* 铺满父容器（i 人事嵌入 iframe 时容器可能 1000+px 宽，不再限制 520px 居中）
      内部 .cg-body 里的内容仍然受 max-width 约束保证阅读体验 */
   width: 100%;
-  height: 100vh;
+  /* 填满 shell 内容区（= 视口高 - shell padding），不再写死 100vh，
+     否则 + shell padding 会溢出产生外层滚动 */
+  height: 100%;
+  box-sizing: border-box;
   padding: 0;
   animation: cg-scale-in 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 矮屏（笔记本 / 缩放）适配：压缩头部高度 + body 内边距，给下载/打开按钮腾出空间，
+   配合 .cg-card 的纵向滚动，保证底部「打开客户端」按钮始终可见/可达。 */
+/* ===== 矮屏适配：不靠滚动，靠压缩各「大区块」间距/尺寸让内容一屏直接显示 ===== */
+@media (max-height: 760px) {
+  .cg-header {
+    height: 84px;
+  }
+  .cg-header-icon-frosted,
+  .cg-header-icon-white {
+    width: 48px;
+    height: 48px;
+  }
+  .cg-header-icons {
+    gap: 16px;
+  }
+  .cg-body {
+    padding: 14px 28px 16px;
+  }
+  .cg-step-intro .cg-title {
+    margin-bottom: 4px;
+  }
+  .cg-title {
+    font-size: 20px;
+  }
+  .cg-desc {
+    margin-bottom: 14px;
+  }
+  .cg-channels {
+    gap: 22px;
+    margin-bottom: 16px;
+  }
+  .cg-channel-icon {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 6px;
+  }
+  .cg-download-grid {
+    margin-bottom: 14px;
+  }
+  .cg-btn-win,
+  .cg-btn-mac {
+    padding: 12px;
+  }
+  .cg-divider {
+    padding-top: 14px;
+  }
+  .cg-btn-launch {
+    padding: 12px;
+  }
+}
+
+@media (max-height: 620px) {
+  .cg-header {
+    height: 60px;
+  }
+  .cg-header-icon-frosted,
+  .cg-header-icon-white {
+    width: 40px;
+    height: 40px;
+  }
+  .cg-body {
+    padding: 8px 24px 12px;
+  }
+  .cg-title {
+    font-size: 18px;
+    margin-bottom: 4px;
+  }
+  .cg-desc {
+    margin-bottom: 10px;
+    font-size: 13px;
+  }
+  .cg-channels {
+    gap: 18px;
+    margin-bottom: 12px;
+  }
+  .cg-channel-icon {
+    width: 34px;
+    height: 34px;
+    margin-bottom: 4px;
+  }
+  .cg-download-grid {
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .cg-btn-win,
+  .cg-btn-mac {
+    padding: 10px;
+  }
+  .cg-divider {
+    padding-top: 10px;
+  }
+  .cg-btn-launch {
+    padding: 10px;
+  }
+  .cg-platform-tip {
+    margin-top: 8px;
+  }
 }
 
 @keyframes cg-scale-in {

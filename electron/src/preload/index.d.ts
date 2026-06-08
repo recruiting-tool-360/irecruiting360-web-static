@@ -161,6 +161,8 @@ export interface IhrAccessTokenStatus {
 
 export interface IhrBridge {
   getApplicationPosition(): Promise<IhrApiResult>
+  /** 是否有 i 快招使用权限（GET client/noauth/hasAuthority，无入参） */
+  hasAuthority(): Promise<IhrApiResult>
   getSharedCandidateResume(): Promise<IhrApiResult>
   sharedCandidateResumeInit(): Promise<IhrApiResult>
   batchGetPositionDetailByIds(ids: string[]): Promise<IhrApiResult>

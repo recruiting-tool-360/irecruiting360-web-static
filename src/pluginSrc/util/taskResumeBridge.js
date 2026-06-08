@@ -40,43 +40,21 @@ async function loadDeps() {
 }
 
 /**
- * 把「推荐通道」rawResume 的工作经历补成「搜索通道」一致的 geekCard.workList 结构。
+ * （已撤销）「推荐通道」工作经历回填到 geekCard.workList。
  *
- * 后端确认（BossResumeRequestVO.geekInfo.getWorkList → ResumeServiceConverter）：workExp 只读
- *   `geekCard.workList`。搜索接口该字段有值；BOSS 推荐接口 `geekCard.workList` 是空 []，工作经历
- *   只在**顶层 works**（Thrift 结构 works[].company.value / works[].position.value）→ 后端读不到 →
- *   查询回来 working_experience 为 null、UI 显示「暂无工作经历」。
+ * 背景：BOSS 推荐接口的 work 没有起止日期（startDate8/endDate8=0）也没有职位码，回填出来的
+ *   workList 项 dateRange/code 只能是 null/""。但后端 BossResumeRequestVO 转换 workList 时对
+ *   dateRange/code 做了非空解析（搜索的 workList dateRange 形如 "2018-2023"、code 形如 "170625"），
+ *   null/"" 都会让整条 resume 转换抛错 → SYSTEM_005「no valid resultItems converted」，
+ *   推荐 results 直接保存失败。
  *
- * 这里在存 /results 前，当 geekCard.workList 为空但顶层 works 有值时，用 works 回填出与搜索**同结构**的
- *   workList（name="公司·职位"）。字段集严格对齐搜索：{ name, dateRange, code, hlname, highlightList, intentList }。
- *   推荐接口没有起止日期（startDate8/endDate8=0）→ dateRange 用 null（不要用 ""，之前 "" 触发后端
- *   日期解析异常 → SYSTEM_005 no valid resultItems converted）。**不臆造 matchWork**（后端不读它）。
- *
- * 仅「有 geekCard 且 workList 为空、works 非空」时生效；搜索（已有 workList）与无 geekCard 的渠道原样跳过。
+ * 结论：前端无法为推荐伪造合法的 dateRange/code，故**不再回填**——保持 geekCard.workList 为空
+ *   （后端能正常保存，只是 workExp 为空）。推荐的工作经历需要后端支持：
+ *     方案A 转换 workList 时兼容 dateRange/code 为空；
+ *     方案B 直接读顶层 works（works[].company.value / position.value，无日期）。
  */
 function backfillRecommendWorkList(r) {
-  if (!r || typeof r !== "object") return r;
-  const c = r.geekCard;
-  if (!c || typeof c !== "object") return r;
-  if (Array.isArray(c.workList) && c.workList.length > 0) return r; // 搜索通道已有，不动
-  const works = Array.isArray(r.works) ? r.works : [];
-  if (works.length === 0) return r;
-
-  const pick = (v) => (v && typeof v === "object" ? v.value : v) || "";
-  c.workList = works
-    .map((w) => {
-      const name = [pick(w.company), pick(w.position)].filter(Boolean).join("·");
-      if (!name) return null;
-      return {
-        name,
-        dateRange: null,
-        code: null,
-        hlname: null,
-        highlightList: [],
-        intentList: null
-      };
-    })
-    .filter(Boolean);
+  // no-op：见上方注释。保留函数占位，避免调用方改动；后端支持后再启用回填。
   return r;
 }
 

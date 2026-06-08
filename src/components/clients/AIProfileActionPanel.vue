@@ -120,9 +120,15 @@
               <select
                 v-model="matchedBossJobId"
                 class="native-select"
+                :class="{ 'native-select--unset': matchedBossJobId === null }"
                 :disabled="bossJobOptions.length === 0"
+                @change="onBossJobManualChange"
               >
                 <option v-if="bossJobOptions.length === 0" :value="null">暂无 BOSS 我的职位</option>
+                <!-- 占位项：未匹配/未选中时显示，避免原生 select 默认显示成第一项（看起来像已选中） -->
+                <option v-else-if="matchedBossJobId === null" :value="null" disabled>
+                  {{ bossMatchState === "matching" ? "正在匹配职位…" : "请选择匹配的 BOSS 职位" }}
+                </option>
                 <option v-for="opt in bossJobOptions" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
                 </option>
@@ -141,6 +147,29 @@
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
             </div>
+          </div>
+
+          <!-- 无匹配提示：当前招聘职位在 BOSS「我的职位」里没有合适的对应职位，
+               不自动选中，提示用户手动选择（或去 BOSS 完善职位）。 -->
+          <div v-if="bossMatchState === 'no-match'" class="boss-match-hint">
+            <svg
+              class="boss-match-hint-icon"
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span class="boss-match-hint-text">
+              未找到与当前招聘职位匹配的 BOSS 职位{{ bossMatchReason ? `（${bossMatchReason}）` : "" }}，请手动选择，或在 BOSS 直聘完善对应职位后重试。
+            </span>
           </div>
 
           <!-- 行 2：本次期望最大搜索"简历数" -->
@@ -290,7 +319,7 @@
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
-import { estimateSearchTask } from "src/api/searchTaskApi";
+import { estimateSearchTask, matchBestPosition } from "src/api/searchTaskApi";
 import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
 import notify from "src/util/notify";
 
@@ -422,21 +451,21 @@ const bossJobOptions = computed(() =>
     }))
 );
 
+// 推荐牛人匹配到的 BOSS 职位 encryptJobId。
+//   - 自动匹配：勾选推荐时调 /search/matchBestPosition 把当前 i人事职位匹配到最合适的 BOSS 职位；
+//     未命中 → null（不自动选中任何职位）。
+//   - 手动覆盖：用户在下拉里选过后 _userPickedBoss=true，不再被自动匹配覆盖（换职位会话时重置）。
+//   （自动匹配逻辑 autoMatchBossPosition 定义在 latestChatId/latestPositionId 之后）
 const matchedBossJobId = ref(null);
-watch(
-  bossJobOptions,
-  (opts) => {
-    if (!opts.length) {
-      matchedBossJobId.value = null;
-      return;
-    }
-    // 当前选中的 id 已不在选项里 → 重置成第一个
-    if (!opts.some((o) => o.value === matchedBossJobId.value)) {
-      matchedBossJobId.value = opts[0].value;
-    }
-  },
-  { immediate: true }
-);
+let _userPickedBoss = false;
+// BOSS 职位匹配状态：'idle' 未匹配 / 'matching' 匹配中 / 'matched' 已命中 / 'no-match' 无匹配
+const bossMatchState = ref("idle");
+const bossMatchReason = ref(""); // 无匹配时后端给的原因，用于提示
+function onBossJobManualChange() {
+  _userPickedBoss = true;
+  // 用户手动选了 → 视为已选定，清掉"无匹配"提示
+  bossMatchState.value = "matched";
+}
 
 // 初始默认值：本 chatId 上次填写过的简历份数（持久化在 AiSerachConfig.lastResumeCountByChatId）
 const resumeCountInput = ref("");
@@ -481,6 +510,97 @@ const resumeCountNum = computed(() => {
 const cfgList = computed(() => store.getters.getUserChannelConfig || []);
 const latestChatId = computed(() => store.getters.getLatestChatId || "");
 const latestPositionId = computed(() => store.getters.getLatestPositionId || "");
+
+/* ===========================================================================
+ * 推荐牛人：自动把「当前 i人事 职位」匹配到 BOSS「我的职位」里最合适的一个
+ *   接口：POST /search/matchBestPosition（后端按当前登录用户 + positionId/chatId 取当前职位名，
+ *        与候选 BOSS 职位列表做语义匹配）。命中 → 选中；明显无关（matched=false）→ 不自动选中。
+ * 触发：勾选推荐 / BOSS 职位列表就绪 / 切换职位会话。用户手动选过后不再自动覆盖。
+ * ========================================================================== */
+let _matchSeq = 0; // 防 race：晚返回的旧匹配请求丢弃
+async function autoMatchBossPosition() {
+  if (_userPickedBoss) return; // 用户手动选过 → 尊重用户选择
+  const opts = bossJobOptions.value;
+  if (!opts.length) {
+    matchedBossJobId.value = null;
+    bossMatchState.value = "idle";
+    return;
+  }
+  // 至少要有 positionId 或 chatId 才能让后端取到"当前职位名"
+  if (!latestPositionId.value && !latestChatId.value) return;
+
+  const positions = opts.map((o) => ({
+    positionId: o.value,
+    positionName: o.raw?.jobName || o.raw?.positionName || "",
+    positionDesc: o.raw?.jobDesc || o.raw?.positionDesc || "",
+    salary: o.raw?.salaryDesc || o.raw?.salary || "",
+    city: o.raw?.cityName || o.raw?.city || ""
+  }));
+
+  const seq = ++_matchSeq;
+  bossMatchState.value = "matching";
+  bossMatchReason.value = "";
+  try {
+    const res = await matchBestPosition({
+      positionId: latestPositionId.value || undefined,
+      chatId: latestChatId.value || undefined,
+      positions,
+      minScore: 60
+    });
+    if (seq !== _matchSeq || _userPickedBoss) return; // 已被新匹配覆盖 / 用户手动选了
+    const data = res?.data;
+    if (res?.success === "success" && data?.matched && data.matchedPosition) {
+      const id = data.matchedPosition.positionId;
+      if (opts.some((o) => o.value === id)) {
+        matchedBossJobId.value = id; // 命中且在当前选项里 → 选中
+        bossMatchState.value = "matched";
+        console.log(
+          `[AIProfileActionPanel] matchBestPosition 命中：${id} score=${data.score} reason=${data.reason}`
+        );
+        return;
+      }
+    }
+    // 未命中 / 命中项不在当前列表 → 不自动选中任何职位（用户需手动选），并提示
+    matchedBossJobId.value = null;
+    bossMatchState.value = "no-match";
+    bossMatchReason.value = data?.reason || "";
+    console.log(
+      `[AIProfileActionPanel] matchBestPosition 无匹配 → 不自动选中（score=${data?.score} reason=${data?.reason}）`
+    );
+  } catch (e) {
+    if (seq !== _matchSeq) return;
+    // 接口异常：保持现状不强行选中，避免误选不相关职位
+    bossMatchState.value = "idle";
+    console.warn("[AIProfileActionPanel] matchBestPosition 失败:", e?.message || e);
+  }
+}
+
+// 切换职位会话 → 允许重新自动匹配（清掉手动覆盖标记）
+watch(latestChatId, () => {
+  _userPickedBoss = false;
+});
+
+// 勾选推荐 / BOSS 职位列表就绪 / 职位上下文变化 → 触发自动匹配
+watch(
+  [bossJobOptions, () => selectedModules.value.recommend, latestChatId, latestPositionId],
+  ([opts, recommend]) => {
+    if (!recommend) {
+      bossMatchState.value = "idle"; // 取消推荐 → 清掉匹配提示
+      return;
+    }
+    if (!opts.length) {
+      matchedBossJobId.value = null;
+      bossMatchState.value = "idle";
+      return;
+    }
+    // 当前选中已不在选项里 → 先清掉，交给 autoMatch 重选
+    if (!_userPickedBoss && !opts.some((o) => o.value === matchedBossJobId.value)) {
+      matchedBossJobId.value = null;
+    }
+    autoMatchBossPosition();
+  },
+  { immediate: true }
+);
 
 /** 接口返回的预估结果（命中时优先于本地兜底） */
 const estimateRemote = ref(null); // { durationMin, startISO, endISO } | null
@@ -834,11 +954,38 @@ $accent-border: #ccfbf1;
     cursor: not-allowed;
   }
 }
+/* 未选中/未匹配：占位项用灰色文字（区别于已选中的深色），且边框给个浅警示色 */
+.native-select--unset {
+  color: #a1a1aa;
+  border-color: #fcd34d; /* amber-300：提示尚未选定 */
+}
 .select-caret {
   position: absolute;
   right: 8px;
   pointer-events: none;
   color: #71717a;
+}
+
+/* 无匹配提示行（amber 警示色，与 LoginRequiredPanel 警示风格一致） */
+.boss-match-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0 6px;
+  padding: 8px 10px;
+  background: #fffbeb; /* amber-50 */
+  border: 1px solid #fde68a; /* amber-200 */
+  border-radius: 6px;
+}
+.boss-match-hint-icon {
+  flex: none;
+  margin-top: 1px;
+  color: #d97706; /* amber-600 */
+}
+.boss-match-hint-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b45309; /* amber-700 */
 }
 
 /* input */

@@ -213,6 +213,26 @@ async function handleResume() {
     return;
   }
 
+  // ★ 该异常渠道已被用户禁用 → 不再要求它登录：直接清 banner + 触发 resumeFromCurrent。
+  //   resumeFromCurrent 会对「已禁用」的渠道 finish(status=FAILED, errorCode=CHANNEL_DISABLED)，
+  //   并用剩余「已启用」渠道继续/重建任务，任务正常进行下去（不被这个未登录渠道卡住）。
+  if (!isChannelEnabled(key)) {
+    clearChannelExpired(store);
+    $q.notify({
+      message: `已禁用「${errName}」，任务将跳过该渠道继续`,
+      color: "positive",
+      icon: "check_circle",
+      position: "top",
+      timeout: 2000
+    });
+    try {
+      await store.dispatch("SearchTasks/resumeFromCurrent");
+    } catch (e) {
+      console.warn("[ClientHeader] handleResume: resumeFromCurrent 失败:", e?.message || e);
+    }
+    return;
+  }
+
   rechecking.value = true;
   try {
     const ok = await checkChannelLogin(store, key);

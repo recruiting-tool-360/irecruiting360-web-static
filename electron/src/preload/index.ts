@@ -170,6 +170,9 @@ const ihrBridge = {
   getApplicationPosition: (): Promise<IhrApiResult> =>
     ipcRenderer.invoke('ihrBridge:getApplicationPosition'),
 
+  /** 是否有 i 快招使用权限（GET client/noauth/hasAuthority，无入参） */
+  hasAuthority: (): Promise<IhrApiResult> => ipcRenderer.invoke('ihrBridge:hasAuthority'),
+
   getSharedCandidateResume: (): Promise<IhrApiResult> =>
     ipcRenderer.invoke('ihrBridge:getSharedCandidateResume'),
 
