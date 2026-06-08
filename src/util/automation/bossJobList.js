@@ -1,24 +1,21 @@
 /**
- * BOSS 我的职位列表 - 抓取（新开 tab 方案）
+ * BOSS 我的职位列表 - 抓取（方案A：复用 BOSS 单例会话，不再另开 tab）
  *
- * 实现方式：
- *   - 通过 `window.api.automation.captureViaNewTab`
- *   - main 进程在 TabManager 上新开一个 BOSS site tab（用户可在 TabBar 上看到，但焦点立刻切回原 tab）
- *   - 加载 BOSS list-new 页面 → did-finish-load 后 webContents.executeJavaScript 在 tab 上下文里 fetch 接口
- *   - 拿到 JSON 数据后立即关闭 tab
+ * ⚠️ 历史问题：早期用 `captureViaNewTab` **另开一个 BOSS tab** 加载 list-new 页再 fetch。
+ *   但客户端已有「常驻登录监视单例 tab」一直挂着 BOSS 会话，再开第二个 BOSS 应用页 →
+ *   BOSS 服务端「多 session 互斥」判定为重复登录 → 弹「您的账号已经登录过了，请勿重复登录」
+ *   并可能把其中一个会话挤下线 → header BOSS 登录态掉。
  *
- * 为什么不是隐藏窗口：之前 `captureFromHiddenView` 的 BrowserWindow 在某些
- * Electron / macOS 版本下 webContents 会被立刻 release，导致 attach debugger 后立刻
- * "target closed while handling command"。新开 tab 走 TabManager 的标准生命周期，
- * 稳定靠谱，唯一代价是用户会在 TabBar 上看到 tab 一闪而过。
- *
- * 登录态：复用 `persist:ihr360-boss` partition 的 cookie，
- * 用户在主 BOSS tab 已登录则新 tab 自动已登录。
+ * 现方案：走 `window.api.recruitBridge.universalRequest`（跟 BOSS 推荐取数同机制）：
+ *   - 传 tabUrl=zhipin → main 优先在 **BOSS 站点单例 webContents** 里 `fetch`（只发一个 XHR，
+ *     不导航、不新建 tab，复用同一个已登录会话）；拿不到单例则兜底用 partition session 的 ses.fetch
+ *     （仍带 `persist:ihr360-boss` cookie）。
+ *   - 全程**只有一个 BOSS 会话**，不触发「重复登录」；也**不打断正在跑的推荐牛人任务**
+ *     （只是在该 tab 页面上下文里并行发了一个接口请求，不影响 CDP 点击/滚动自动化）。
  */
 
 const LIST_NEW_PAGE = 'https://www.zhipin.com/web/frame/job/list-new'
 const LIST_API_BASE = 'https://www.zhipin.com/wapi/zpjob/job/data/list'
-const BOSS_CHANNEL = 'boss'
 
 // 注意：曾经尝试给 LIST_NEW_PAGE 拼 `?_t=Date.now()` 强制 BOSS SPA 完整重启，
 // 但 BOSS 服务端的"多 session 互斥"保护会把这种"全新 URL 进入"识别为新登录会话，
@@ -82,81 +79,67 @@ export async function fetchBossJobList(params = {}) {
     Object.fromEntries(Object.entries(query).map(([k, v]) => [k, String(v)]))
   ).toString()}`
 
-  const result = await window.api.automation.captureViaNewTab({
-    channel: BOSS_CHANNEL,
-    pageUrl: LIST_NEW_PAGE,
-    apiUrl,
+  // 方案A：用 universalRequest 复用 BOSS 单例会话取数（不新建 tab）。
+  //   tabUrl 传 zhipin 页 → main 优先在 BOSS 站点单例 webContents 里 fetch（同源、不导航），
+  //   没有单例则兜底走 partition session 的 ses.fetch（带 BOSS cookie）。
+  const result = await window.api.recruitBridge.universalRequest({
+    url: apiUrl,
     method: 'GET',
     headers: {
       Accept: 'application/json, text/plain, */*'
     },
-    keepTab: !!params.keepTab,
-    // 默认 hidden 模式：抓取 tab 不出现在 TabBar，用户全程无感知；
-    // 调试时可传 visible=true 让 tab 显示出来观察加载过程
-    visible: !!params.visible,
-    navTimeoutMs: params.navTimeoutMs == null ? 15000 : Number(params.navTimeoutMs),
-    fetchTimeoutMs: params.fetchTimeoutMs == null ? 10000 : Number(params.fetchTimeoutMs)
+    tabUrl: LIST_NEW_PAGE
   })
 
   return normalize(result)
 }
 
 /**
- * 判断当前是否运行在 Electron 客户端里（preload 注入了 `window.api.automation.captureViaNewTab`）。
+ * 判断当前是否运行在 Electron 客户端里（preload 注入了 `window.api.recruitBridge.universalRequest`）。
  */
 export function isInElectronClient() {
   return Boolean(
     typeof window !== 'undefined' &&
       window.api &&
-      window.api.automation &&
-      typeof window.api.automation.captureViaNewTab === 'function'
+      window.api.recruitBridge &&
+      typeof window.api.recruitBridge.universalRequest === 'function'
   )
 }
 
 /**
- * 把 main 进程返回的通用 tab-fetch 结果归一化成业务结果（含 BOSS 业务错误码）。
- * @param {{ ok: boolean; data?: any; error?: any; logs?: string[] }} raw
+ * 把 universalRequest 返回（{ success, status, data }）归一化成业务结果（含 BOSS 业务错误码）。
+ * data 已是解析后的 BOSS envelope（{ code, message, zpData }）或字符串（非 json，如被跳登录页）。
+ * @param {{ success: boolean; status?: number; data?: any; message?: string }} resp
  * @returns {FetchBossJobListResult}
  */
-function normalize(raw) {
-  if (!raw) {
+function normalize(resp) {
+  if (!resp) {
     return { ok: false, errorCode: 'RAW', message: 'no result from main' }
   }
 
-  if (!raw.ok) {
+  // 请求层失败（网络 / ses.fetch 抛错 / 非 2xx）
+  if (!resp.success) {
+    const status = resp.status
+    const msg = resp.message || (status ? `http ${status}` : 'request failed')
+    const looksLikeLogin = status === 401 || status === 403 || /未登录|登录|login/i.test(String(msg))
     return {
       ok: false,
-      errorCode: raw.error && raw.error.code ? raw.error.code : 'RAW',
-      message: raw.error && raw.error.message ? raw.error.message : 'capture failed',
-      logs: raw.logs
+      errorCode: looksLikeLogin ? 'LOGIN_EXPIRED' : status >= 400 ? 'HTTP_ERROR' : 'API_ERROR',
+      message: msg,
+      httpStatus: status
     }
   }
 
-  const data = raw.data || {}
-  const body = data.bodyJson
+  const body = resp.data
 
+  // 非 json（典型：被站点跳到登录页返回 HTML）→ 当登录失效/空体
   if (!body || typeof body !== 'object') {
+    const isLoginHtml = typeof body === 'string' && /未登录|登录|login/i.test(body)
     return {
       ok: false,
-      errorCode: 'EMPTY_BODY',
-      message: `interface returned empty/non-json body (status=${data.status})`,
-      httpStatus: data.status,
-      requestUrl: data.url,
-      durationMs: data.durationMs,
-      logs: raw.logs
-    }
-  }
-
-  // HTTP 非 2xx 直接当业务失败
-  if (data.status >= 400) {
-    return {
-      ok: false,
-      errorCode: data.status === 401 || data.status === 403 ? 'LOGIN_EXPIRED' : 'HTTP_ERROR',
-      message: `http ${data.status}`,
-      httpStatus: data.status,
-      requestUrl: data.url,
-      durationMs: data.durationMs,
-      logs: raw.logs
+      errorCode: isLoginHtml ? 'LOGIN_EXPIRED' : 'EMPTY_BODY',
+      message: `interface returned empty/non-json body (status=${resp.status})`,
+      httpStatus: resp.status
     }
   }
 
@@ -168,20 +151,14 @@ function normalize(raw) {
       ok: false,
       errorCode: looksLikeLogin ? 'LOGIN_EXPIRED' : 'API_ERROR',
       message: `api code=${apiCode}, ${msg}`,
-      httpStatus: data.status,
-      requestUrl: data.url,
-      durationMs: data.durationMs,
-      logs: raw.logs
+      httpStatus: resp.status
     }
   }
 
   return {
     ok: true,
     zpData: body.zpData,
-    httpStatus: data.status,
-    requestUrl: data.url,
-    durationMs: data.durationMs,
-    logs: raw.logs
+    httpStatus: resp.status
   }
 }
 

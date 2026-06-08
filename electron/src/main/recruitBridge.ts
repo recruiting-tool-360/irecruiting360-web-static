@@ -364,6 +364,17 @@ const hydratedChannels = new Set<string>()
 export async function hydrateLoggedInSites(): Promise<void> {
   for (const [channelKey, partition] of Object.entries(SITE_PARTITION)) {
     if (hydratedChannels.has(channelKey)) continue
+    // ★ BOSS 不走隐藏 BrowserWindow hydrate：BOSS 已有「常驻登录监视单例 tab」(TabManager bossTabId)
+    //   会加载 BOSS 页面，webRequest 拦截器从该 tab 的请求里就能抓到 zp_token 等 header；
+    //   再开一个隐藏窗口加载 BOSS = 同账号两个并发会话 → BOSS 多 session 互斥弹
+    //   「您的账号已经登录过了，请勿重复登录」并把其中一个会话挤下线（登录态掉）。
+    //   （BOSS 禁用时没有单例 tab，也不需要 BOSS header，同样无需 hydrate。）
+    if (channelKey === 'boss') {
+      console.log(
+        '[recruitBridge] hydrate skip boss：由 BOSS 常驻监视单例 tab 负责加载 + 抓 header，避免双会话「重复登录」'
+      )
+      continue
+    }
     void hydrateOneSite(channelKey, partition)
   }
 }
