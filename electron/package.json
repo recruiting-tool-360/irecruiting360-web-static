@@ -1,6 +1,6 @@
 {
   "name": "electron",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "i快招智能招聘助手 - 桌面客户端 (dev 包名保持 electron 不动以避免 userData 路径漂移；生产 .app 名由 electron-builder.yml 的 productName 决定)",
   "main": "./out/main/index.js",
   "author": "ihire365.com",
@@ -27,7 +27,8 @@
     "build:mac:release": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --config.mac.notarize=true",
     "build:mac:release:arm64": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --arm64 --config.mac.notarize=true",
     "build:mac:release:x64": "node ./scripts/check-release-env.js mac && bash ./scripts/verify-p12.sh && electron-vite build && electron-builder --mac --x64 --config.mac.notarize=true",
-    "build:win:release": "node ./scripts/check-release-env.js win && npm run build && electron-builder --win",
+    "build:win:release": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false WIN_CSC_LINK= npm run build && electron-builder --win",
+    "build:win:release:sign": "node ./scripts/check-release-env.js win && npm run build && electron-builder --win",
     "bump:patch": "node ./scripts/bump-version.js",
     "bump:minor": "node ./scripts/bump-version.js --minor",
     "bump:major": "node ./scripts/bump-version.js --major",

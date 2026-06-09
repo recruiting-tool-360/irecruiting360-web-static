@@ -1167,6 +1167,19 @@ const clearCurrentChat = async () => {
   internalMessages.value = [];
   store.commit("clearChatMessage");
 
+  // 1.5) 重置历史分页 + 作废在途历史请求。
+  //   ① hasNext=false：清空后 .chat-content 缩到顶部（scrollTop≈0），不让 scroll 监听
+  //      命中「scrollTop≤50 && hasNext」再触发 loadMoreHistory 把刚清掉的历史拉回来。
+  //   ② invalidateHistoryRequests()：清空**前**可能已经有一次 loadMoreHistory(pageNo=2) 在途，
+  //      它返回后会 prepend 旧消息。自增版本号让那次回包识别为过期 → 丢弃。
+  invalidateHistoryRequests();
+  historyPagination.value = {
+    pageNo: 1,
+    pageSize: historyPagination.value.pageSize,
+    hasNext: false,
+    total: 0
+  };
+
   // 2) 清搜索条件 ID（避免之前的搜索条件残留影响下次启动）
   store.commit("clearSearchConditionId");
 
@@ -2035,14 +2048,22 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   // 跟 ihraisaas useChatLogic.handleRestartSearch/handleContinueSearch 同语义。
   if (params?.selectedModules?.recommend) {
     const newContent = taskType === "CONTINUE" ? "保留增量搜索配置" : "清空重新搜索配置";
+    // 简历份数默认值优先级：① 本 chat 上次输入框记住的份数（跟 AIProfileActionPanel 同源，
+    //   用户改过就记住）→ ② 原任务的 maxResumeCount → ③ 兜底 60。
+    const _lastResume = store.getters.getLastResumeCountForChat?.(chatIdForSearch);
+    const _initialResume =
+      typeof _lastResume === "number" && _lastResume > 0
+        ? _lastResume
+        : typeof params.resumeCount === "number" && params.resumeCount > 0
+        ? params.resumeCount
+        : 20;
     const newCardData = {
       configType: taskType, // 'CONTINUE' | 'RESTART'
       chatId: chatIdForSearch,
       originalTaskId: cardData.taskId,
       selectedModules: params.selectedModules,
       matchedBossJobId: params.matchedBossJobId,
-      initialResumeCount:
-        typeof params.resumeCount === "number" && params.resumeCount > 0 ? params.resumeCount : 60, // 兜底跟 IndexPage 默认值一致
+      initialResumeCount: _initialResume,
       actionExecuted: false
     };
 
@@ -2198,6 +2219,11 @@ function onRetryConfigStart(msg, payload) {
   // 锁定卡片 UI（input disabled + 按钮变"聚合搜索已启动"）
   cd.actionExecuted = true;
   cd.initialResumeCount = resumeCount;
+
+  // 记住本 chat 这次输入的份数 → 下次保留增量/画像卡默认用它（跟 AIProfileActionPanel 同源）
+  if (chatIdForSearch && Number(resumeCount) > 0) {
+    store.commit("setLastResumeCount", { chatId: chatIdForSearch, count: Number(resumeCount) });
+  }
 
   const proceeded = _emitRetryAggregateSearch({
     taskType,
@@ -2552,6 +2578,14 @@ const historyPagination = ref({
 });
 const historyLoadingMore = ref(false);
 
+// 历史请求「版本号」：每次清空对话 / 重新 loadHistory / 切会话都自增，
+// 让**已经在途**的 getChatHistory 请求返回后能识别自己已过期 → 直接丢弃，
+// 避免「清空 / 切走的瞬间，上一页 loadMore 请求回来又把旧消息 prepend 回来」。
+const historyReqVersion = ref(0);
+function invalidateHistoryRequests() {
+  historyReqVersion.value++;
+}
+
 /**
  * 把后端返回的单条 chatHistory 转成内部消息对象。
  *
@@ -2599,6 +2633,8 @@ const loadHistory = async () => {
     hasNext: false,
     total: 0
   };
+  // 新一轮首屏加载 → 自增版本，作废之前在途的 loadMore/loadHistory 回包
+  const reqVer = ++historyReqVersion.value;
 
   loading.value = true;
   try {
@@ -2606,6 +2642,12 @@ const loadHistory = async () => {
       pageNo: 1,
       pageSize: HISTORY_PAGE_SIZE
     });
+
+    // 期间又清空 / 切会话 / 重新 loadHistory → 本次已过期，丢弃（别把旧 chat 历史灌进来）
+    if (reqVer !== historyReqVersion.value) {
+      console.log("[ChatCard] loadHistory 回包已过期，丢弃");
+      return;
+    }
 
     if (data?.chatHistory?.length) {
       data.chatHistory.forEach((msg) => {
@@ -2680,12 +2722,20 @@ const loadMoreHistory = async () => {
   const prevScrollHeight = el?.scrollHeight || 0;
   const prevScrollTop = el?.scrollTop || 0;
 
+  const reqVer = historyReqVersion.value;
   historyLoadingMore.value = true;
   try {
     const { data } = await getChatHistory(chatIdToUse, userInfo.value?.id, {
       pageNo: nextPage,
       pageSize: historyPagination.value.pageSize
     });
+
+    // 在途期间被清空对话 / 切会话 / 重新 loadHistory → 本次回包已过期，丢弃：
+    //   不 prepend 旧消息、不更新分页（否则会把刚清掉/已切走的历史又拉回来）
+    if (reqVer !== historyReqVersion.value) {
+      console.log("[ChatCard] loadMoreHistory 回包已过期，丢弃");
+      return;
+    }
 
     if (data?.chatHistory?.length) {
       // 走 mapHistoryMessage 过滤掉 TASK_CHANNEL_PROGRESS_CARD 等不应渲染的消息

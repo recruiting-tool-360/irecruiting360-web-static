@@ -1187,6 +1187,29 @@ async function doFetchRecommend(args) {
       (c) => c.businessChannel === "RECOMMEND" && c.channelSubType === "BOSS"
     )?.taskChannelId;
 
+  // ★ 该会话**所有**推荐(BOSS)渠道 taskChannelId（含历史任务）：保留增量(CONTINUE)时当前渠道是新建空的，
+  //   只用它去重会漏掉之前几次推荐已入库的人 → 采集时不跳过 → 最终新增少几个。合并全部渠道一起去重。
+  const recommendTaskChannelIds = [];
+  try {
+    const stx = store.state?.SearchTasks || {};
+    const ids = stx.chatTaskIdx?.[_cidForPhase] || [];
+    for (const tid of ids) {
+      const t = stx.tasksById?.[tid];
+      if (!t || !Array.isArray(t.channels)) continue;
+      for (const c of t.channels) {
+        if (
+          c.businessChannel === "RECOMMEND" &&
+          c.channelSubType === "BOSS" &&
+          c.taskChannelId
+        ) {
+          recommendTaskChannelIds.push(c.taskChannelId);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[IndexPage] 收集推荐渠道 id 失败（忽略）:", e?.message || e);
+  }
+
   let res;
   try {
     res = await runBossRecommend({
@@ -1195,6 +1218,7 @@ async function doFetchRecommend(args) {
       humanizeOpts: args?.humanizeOpts || {},
       onProgress,
       recommendTaskChannelId: recommendTaskChannelId || null,
+      recommendTaskChannelIds,
       stopAfter: args?.stopAfter
     });
   } finally {
