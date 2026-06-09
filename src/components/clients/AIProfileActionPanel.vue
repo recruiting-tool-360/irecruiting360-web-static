@@ -712,8 +712,9 @@ const schedulePlaceholder = computed(() =>
 
 const estimatedDurationDisplay = computed(() => {
   if (estimateRemote.value?.durationMin) {
-    const h = Math.round((estimateRemote.value.durationMin / 60) * 10) / 10;
-    return `${h}h`;
+    // 按分钟展示（向上取整，至少 1 分钟）
+    const min = Math.max(1, Math.ceil(estimateRemote.value.durationMin));
+    return `${min}分钟`;
   }
   return schedulePlaceholder.value;
 });
