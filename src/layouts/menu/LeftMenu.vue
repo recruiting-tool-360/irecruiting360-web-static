@@ -433,6 +433,7 @@ import {
 } from "src/api/chat/ChatApi";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { generateJobPostingFromResume } from "src/util/jobPostingGenerator";
+import { fetchJdMapForPositions } from "src/util/positionJdFetcher";
 import { isFromMenu, isVisibleThirdA, usePlanVisibility } from "src/hooks/usePlanVisibility";
 import notify from "src/util/notify";
 import { ensureClientAuthority } from "src/util/checkClientAuthority";
@@ -683,12 +684,20 @@ async function createMissingChatsForApplicationPositions(applicationPositions, c
     name: c.name,
     jd: c.jd || ""
   }));
-  const newPayload = missing.map((item) => ({
-    ...item,
-    positionId: item.headcountId ?? item.positionId,
-    name: `${item.positionName ?? ""} (${item.headcountCode ?? ""})`,
-    jd: item.jd || ""
-  }));
+  // ★ 只给「新增职位」预拉 JD（application/position 不带 jd），让 createChatPlus 同步时就带上 JD，
+  //   不再写空串。老数据（existingPayload）不动。拉不到 → 回退 item.jd || ""（原行为）。
+  const missingIds = missing.map((item) => item.headcountId ?? item.positionId);
+  const jdMap = await fetchJdMapForPositions(missingIds);
+
+  const newPayload = missing.map((item) => {
+    const pid = item.headcountId ?? item.positionId;
+    return {
+      ...item,
+      positionId: pid,
+      name: `${item.positionName ?? ""} (${item.headcountCode ?? ""})`,
+      jd: jdMap[String(pid)] || item.jd || ""
+    };
+  });
   const chatData = [...existingPayload, ...newPayload];
 
   console.log(
