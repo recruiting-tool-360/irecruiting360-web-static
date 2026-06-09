@@ -44,6 +44,7 @@ import { onMounted, ref, onUnmounted, getCurrentInstance } from 'vue';
 import { useRouter } from 'vue-router';
 import { generateSsoToken, ssoLogin, getUserInfo } from 'src/api/user/UserApi';
 import { createChat } from 'src/api/chat/ChatApi';
+import { fetchJdMapForPositions } from 'src/util/positionJdFetcher';
 import { useStore } from 'vuex';
 import notify from 'src/util/notify';
 import Cookies from 'js-cookie';
@@ -164,7 +165,24 @@ const doSSOLogin = async (iframeMessage) => {
         }
 
         try {
-          const chatResponse = await createChat(positionList ?? []);
+          // ★ 兜底：同步进后端前补 JD。positionList 可能来自 deep link/rebuild，部分项没带 jd
+          //   （application/position 不返 jd）。客户端模式批量拉详情补齐，让 createChatPlus 不写空串。
+          //   非客户端 / 已有 jd → fetchJdMapForPositions 自然 no-op，不影响浏览器模式（父页已带 jd）。
+          let chatPositionList = Array.isArray(positionList) ? positionList : [];
+          const missingJdIds = chatPositionList
+            .filter((p) => p && p.positionId != null && (!p.jd || String(p.jd).trim() === ''))
+            .map((p) => p.positionId);
+          if (missingJdIds.length > 0) {
+            const jdMap = await fetchJdMapForPositions(missingJdIds);
+            if (jdMap && Object.keys(jdMap).length > 0) {
+              chatPositionList = chatPositionList.map((p) =>
+                p && (!p.jd || String(p.jd).trim() === '') && jdMap[String(p.positionId)]
+                  ? { ...p, jd: jdMap[String(p.positionId)] }
+                  : p
+              );
+            }
+          }
+          const chatResponse = await createChat(chatPositionList);
 
           if (chatResponse.success === 'success') {
             if (chatResponse.data && chatResponse.data.chatId) {
@@ -223,16 +241,17 @@ async function rebuildPositionList(positionIds) {
     const res = await ihrBridge.getApplicationPosition();
     const all = res?.success && Array.isArray(res?.data) ? res.data : [];
     const idSet = new Set(positionIds);
-    return all
-      .filter((item) => idSet.has(item.headcountId))
-      .map((item) => ({
-        ...item,
-        positionId: item.headcountId,
-        name: `${item.positionName ?? ''} (${item.headcountCode ?? ''})`,
-        // jd 暂留空，由 ihrBridge.batchGetPositionDetailByIds 接入后补；
-        // mock 阶段也是空的，对原流程兼容
-        jd: ''
-      }));
+    const filtered = all.filter((item) => idSet.has(item.headcountId));
+    // ★ application/position 不带 jd → 在这里批量拉职位详情算出 JD，
+    //   让后面 createChat(positionList) 同步进后端时就带上 JD，不再写空串。
+    //   拉不到 → 回退空串（不影响原流程）。
+    const jdMap = await fetchJdMapForPositions(filtered.map((item) => item.headcountId));
+    return filtered.map((item) => ({
+      ...item,
+      positionId: item.headcountId,
+      name: `${item.positionName ?? ''} (${item.headcountCode ?? ''})`,
+      jd: jdMap[String(item.headcountId)] || ''
+    }));
   } catch (e) {
     console.error('[SSOLogin] rebuildPositionList failed:', e);
     return [];
