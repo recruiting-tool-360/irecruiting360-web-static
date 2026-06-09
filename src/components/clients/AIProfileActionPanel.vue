@@ -242,7 +242,7 @@
           type="button"
           class="retry-btn restart"
           :disabled="aggregateDisabled"
-          @click="$emit('clear-and-restart', getState())"
+          @click="lockMatchAndEmit('clear-and-restart')"
         >
           <svg
             viewBox="0 0 24 24"
@@ -265,7 +265,7 @@
           type="button"
           class="retry-btn increment"
           :disabled="aggregateDisabled"
-          @click="$emit('keep-and-increment', getState())"
+          @click="lockMatchAndEmit('keep-and-increment')"
         >
           <svg
             viewBox="0 0 24 24"
@@ -289,7 +289,7 @@
           type="button"
           class="aggregate-btn"
           :disabled="aggregateDisabled"
-          @click="$emit('aggregate', getState())"
+          @click="lockMatchAndEmit('aggregate')"
         >
           <svg
             class="aggregate-icon"
@@ -458,6 +458,8 @@ const bossJobOptions = computed(() =>
 //   （自动匹配逻辑 autoMatchBossPosition 定义在 latestChatId/latestPositionId 之后）
 const matchedBossJobId = ref(null);
 let _userPickedBoss = false;
+// 本卡片是否已发起过搜索（用户点过启动/重搜/增量）→ 锁定匹配职位，不再自动匹配
+const searchLocked = ref(false);
 // BOSS 职位匹配状态：'idle' 未匹配 / 'matching' 匹配中 / 'matched' 已命中 / 'no-match' 无匹配
 const bossMatchState = ref("idle");
 const bossMatchReason = ref(""); // 无匹配时后端给的原因，用于提示
@@ -519,6 +521,10 @@ const latestPositionId = computed(() => store.getters.getLatestPositionId || "")
  * ========================================================================== */
 let _matchSeq = 0; // 防 race：晚返回的旧匹配请求丢弃
 async function autoMatchBossPosition() {
+  // ★ 搜索已启动（点过启动/重搜/增量，或卡片 disabled）→ 配置已锁定提交给后端，绝不再调匹配接口/改动选中职位。
+  //   否则任务执行期间 latestChatId/latestPositionId/bossJobOptions 变化会重新匹配，
+  //   匹配不中时把已选中的 BOSS 职位重置成 null（用户反馈：搜索后匹配职位丢失）。
+  if (props.disabled || searchLocked.value) return;
   if (_userPickedBoss) return; // 用户手动选过 → 尊重用户选择
   const opts = bossJobOptions.value;
   if (!opts.length) {
@@ -575,8 +581,10 @@ async function autoMatchBossPosition() {
   }
 }
 
-// 切换职位会话 → 允许重新自动匹配（清掉手动覆盖标记）
+// 切换职位会话 → 允许重新自动匹配（清掉手动覆盖标记）。
+//   ★ 搜索已启动（disabled）时不重置：此卡片配置已锁定，不该再被自动匹配影响。
 watch(latestChatId, () => {
+  if (props.disabled || searchLocked.value) return;
   _userPickedBoss = false;
 });
 
@@ -584,6 +592,8 @@ watch(latestChatId, () => {
 watch(
   [bossJobOptions, () => selectedModules.value.recommend, latestChatId, latestPositionId],
   ([opts, recommend]) => {
+    // ★ 搜索已启动 → 卡片只读，保持已选匹配职位不动（不清空、不重新匹配）
+    if (props.disabled || searchLocked.value) return;
     if (!recommend) {
       bossMatchState.value = "idle"; // 取消推荐 → 清掉匹配提示
       return;
@@ -733,6 +743,17 @@ function getState() {
     matchedBossJobId: matchedBossJobId.value,
     resumeCount: resumeCountInput.value === "" ? null : Number(resumeCountInput.value)
   };
+}
+
+/**
+ * 用户点击「启动聚合搜索 / 清空重新搜索 / 保留增量搜索」→ 锁定本卡片的匹配职位。
+ * 之后哪怕 latestChatId/latestPositionId/bossJobOptions 再变（任务执行期间切会话、
+ * 重新拉 BOSS 职位列表等）都不再调匹配接口、不动已选中的 BOSS 职位。
+ * （用户反馈：匹配过职位、点搜索后又被重新匹配，匹配不中就把已选职位丢了）
+ */
+function lockMatchAndEmit(eventName) {
+  searchLocked.value = true;
+  emit(eventName, getState());
 }
 
 /**

@@ -1667,6 +1667,25 @@ const actions = {
       return;
     }
 
+    // ★★ 执行前把「当前选中会话」(getLatestChatId) 切到本任务的会话（关键修复）。
+    //   整条搜索 / 落库管线都以 getLatestChatId 为锚：
+    //     - 渠道组件（BossJobInfo / ZHILIANJobInfo / JOB51JobInfo）调 channelDataSavePlus →
+    //       postBatchResultsToTaskChannel 用 getLatestChatId 反查 taskChannel
+    //     - ChatCard 用 getLatestChatId 决定状态卡片插到哪个会话
+    //   客户端重启后 poller 驱动「非当前查看会话」的排队任务、或创建后用户切走了会话时，若不切：
+    //     - /results 会落到「当前查看会话」的 taskChannel（执行的是 1400，结果却 POST 给了 1401，数据串台）
+    //     - 聊天记录里插不出状态卡片
+    //   所以在 execute / 跑搜索之前先把 active chat 切到任务会话，让整条管线锚定正确会话。
+    if (task.chatId && String(rootGetters.getLatestChatId || "") !== String(task.chatId)) {
+      console.log(
+        `[SearchTasks] runTask: 切换 active chat ${rootGetters.getLatestChatId} → ${task.chatId}（执行前锚定任务会话，避免结果串台 / 状态卡片插错会话）`
+      );
+      commit("SET_LATEST_CHAT_ID", task.chatId, { root: true });
+      if (task.positionId != null && task.positionId !== "") {
+        commit("SET_LATEST_POSITION_ID", task.positionId, { root: true });
+      }
+    }
+
     commit("setRunning", taskId);
     commit("patchTask", { taskId, patch: { taskStatus: TASK_STATUS.RUNNING } });
     // 任务启动时拉一次队列（拿最新预计时间）—— fire and forget，不阻塞主流程
