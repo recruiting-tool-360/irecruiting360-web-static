@@ -49,8 +49,6 @@
  * 不会命中 .operate-side（右侧打招呼按钮）。CDP 用元素中心坐标点击，安全。
  */
 
-import notify from "src/util/notify";
-
 // ============================================================================
 // CONFIG —— 所有"几个 / 多久"的常量，**业务方直接改这里**
 // ============================================================================
@@ -824,9 +822,9 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
   onProgress("done", { executed: executed.length, errors: errors.length });
 
   if (errors.length > 0 && errors.length === plan.length) {
-    // 全部失败给个 warn 通知，便于发现 selector 失效之类问题
-    notify.warning?.(
-      `BOSS 拟人浏览 ${plan.length} 项全部失败，可能 DOM selector 失效（CONFIG.ITEM_SELECTOR_TEMPLATE / CLOSE_BUTTON_CANDIDATES）`
+    // 全部失败：只打控制台日志，便于排查 selector 失效（不弹 UI 通知打扰用户）
+    console.warn(
+      `[humanizeBrowse] ${plan.length} 项全部失败，可能 DOM selector 失效（CONFIG.ITEM_SELECTOR_TEMPLATE / CLOSE_BUTTON_CANDIDATES）`
     );
   }
 
