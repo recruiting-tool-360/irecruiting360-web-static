@@ -72,9 +72,9 @@ const CONFIG = {
   BROWSE_DWELL_MS_RANGE: [1500, 4500],
 
   /** "点击" 类型：点开详情后停留多久（模拟看完整简历）。
-   *  15-60s 是用户明确要求 —— 真人看完整简历 + 思考决策的时间窗，
-   *  比早期 3-8s 更接近真人。代价：单个 click item 总耗时拉到 17-75s。 */
-  CLICK_DETAIL_DWELL_MS_RANGE: [15000, 60000],
+   *  15-120s 是用户明确要求 —— 真人看完整简历 + 思考决策的时间窗，
+   *  比早期 3-8s 更接近真人。代价：单个 click item 总耗时拉到 17-150s。 */
+  CLICK_DETAIL_DWELL_MS_RANGE: [15000, 120000],
   /** 关闭详情后到下一个动作之间的停顿（模拟"看完合上"的过渡） */
   CLOSE_AFTER_DWELL_MS_RANGE: [600, 1500],
 
@@ -262,7 +262,9 @@ function buildSmoothScrollScript(selector, scrollContainerCandidates, stepsRange
   }
 
   var found = findEl(${JSON.stringify(selector)});
-  if (!found) return { ok: false, error: 'ELEMENT_NOT_FOUND', selector: ${JSON.stringify(selector)} };
+  if (!found) return { ok: false, error: 'ELEMENT_NOT_FOUND', selector: ${JSON.stringify(
+    selector
+  )} };
 
   // ★ 关键修复：用浏览器原生 scrollIntoView 让浏览器自己递归滚所有需要滚的祖先
   // container，保证 element 在 viewport 内 visible。比我们手算 container.scrollTo
@@ -461,7 +463,12 @@ async function smoothScrollToGeek(tabId, geekId, config) {
  * 用途：触发 BOSS 自家 SPA 的 lazy load 监听 → 自动发下一页 /rec/geek/list 请求。
  * 因为是浏览器实际滚动产生的 scroll 事件 isTrusted=true，BOSS 看到跟真人滚到底完全一样。
  */
-function buildSmoothScrollToBottomScript(scrollContainerCandidates, stepsRange, intervalRange, itemSelectorTemplate) {
+function buildSmoothScrollToBottomScript(
+  scrollContainerCandidates,
+  stepsRange,
+  intervalRange,
+  itemSelectorTemplate
+) {
   return `
 (async function smoothScrollToBottom() {
   function easeInOutCubic(t) {
@@ -503,7 +510,9 @@ function buildSmoothScrollToBottomScript(scrollContainerCandidates, stepsRange, 
 
   var results = [];
   var candidates = ${JSON.stringify(scrollContainerCandidates)};
-  var itemSelector = ${JSON.stringify(itemSelectorTemplate.replace('{geekId}', '*').replace('="*"', ''))};
+  var itemSelector = ${JSON.stringify(
+    itemSelectorTemplate.replace("{geekId}", "*").replace('="*"', "")
+  )};
   // itemSelector 去掉 {geekId} 后是 'li[data-geekid]' 或类似的形态，能 querySelectorAll 拿所有 li
 
   // 1) 主 frame 滚到底
@@ -606,7 +615,7 @@ export async function smoothScrollToBottom(tabId, opts = {}) {
     } else if (a.scrolled !== undefined) {
       console.log(
         `  [${a.label}] scrolled=${a.scrolled} steps=${a.steps || 0} ` +
-          `H=${a.scrollHeight}/${a.clientHeight} ${a.alreadyAtBottom ? '(已在底部)' : ''}`
+          `H=${a.scrollHeight}/${a.clientHeight} ${a.alreadyAtBottom ? "(已在底部)" : ""}`
       );
     } else if (a.lastItemIndex !== undefined) {
       console.log(
@@ -656,7 +665,9 @@ async function closeDetailPopup(tabId, config) {
   }
   const closeSelector = findRes.result.selector;
   console.log(
-    `[humanizeBrowse] close button found: rawSel=${findRes.result.rawSelector} score=${findRes.result.score?.toFixed(3)} ` +
+    `[humanizeBrowse] close button found: rawSel=${
+      findRes.result.rawSelector
+    } score=${findRes.result.score?.toFixed(3)} ` +
       `rect=${JSON.stringify(findRes.result.rect)} hitCount=${findRes.result.hitCount} ` +
       `in ${findRes.result.foundIn} → uniqueSel=${closeSelector}`
   );
@@ -772,9 +783,7 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
         await cdpClickGeekItem(tabId, item.geekId, config);
 
         // 2c) dwell 看简历
-        const detailDwell = Math.floor(
-          randomBetween(...config.CLICK_DETAIL_DWELL_MS_RANGE)
-        );
+        const detailDwell = Math.floor(randomBetween(...config.CLICK_DETAIL_DWELL_MS_RANGE));
         console.log(`${tag} 看详情 ${detailDwell}ms`);
         await sleep(detailDwell);
 

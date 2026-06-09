@@ -512,6 +512,14 @@ export async function runBossRecommend(args) {
      * 直到累计「未入库新人」达到 targetCount 或 BOSS 推荐列表没有更多数据。
      */
     recommendTaskChannelId,
+    /**
+     * ★ 该会话**所有**推荐渠道的 taskChannelId 数组（含历史任务）。
+     *   保留增量(CONTINUE)时，当前任务的 recommendTaskChannelId 是新建的、还没保存任何简历，
+     *   只用它去重会漏掉「之前几次推荐已入库」的人 → 采集时不跳过 → 凑够 targetCount 后端再去重
+     *   → 最终新增少了几个（设 20 实得 17/18）。传全部渠道 id，合并它们已保存的 outId 一起去重，
+     *   采集时就跳过所有历史已入库的人，继续翻页直到凑够 targetCount 个**真·未入库**新人。
+     */
+    recommendTaskChannelIds,
     firstDwellMs,
     /**
      * ★ 主动 CDP 点选职位（默认开启）。
@@ -814,18 +822,30 @@ export async function runBossRecommend(args) {
   // ★ 拉「该推荐渠道已保存的简历 outId(=geekId)」集合：已入库的牛人**不计入目标、不 humanize、只滚过**。
   //   out_id 口径：BOSS 推荐按约定 = geekId（见 search_task_api_doc.md §3.1 渠道 ID 口径）。
   const savedOutIdSet = new Set();
-  if (recommendTaskChannelId) {
+  // 合并「当前 + 历史」所有推荐渠道 id 去重拉已保存简历
+  const dedupChannelIds = [
+    ...new Set(
+      [...(Array.isArray(recommendTaskChannelIds) ? recommendTaskChannelIds : []), recommendTaskChannelId]
+        .filter((x) => x !== undefined && x !== null && x !== "")
+        .map(String)
+    )
+  ];
+  if (dedupChannelIds.length > 0) {
     try {
       const { getTaskChannelResumeIds } = await import("src/api/searchTaskApi");
-      const resp = await getTaskChannelResumeIds(recommendTaskChannelId);
-      const respData = resp?.data || resp;
-      const taskResumes = Array.isArray(respData?.taskResumes) ? respData.taskResumes : [];
-      for (const tr of taskResumes) {
-        const oid = tr?.channelResumeId ?? tr?.outId;
-        if (oid !== undefined && oid !== null && oid !== "") savedOutIdSet.add(String(oid));
+      const resps = await Promise.all(
+        dedupChannelIds.map((id) => getTaskChannelResumeIds(id).catch(() => null))
+      );
+      for (const resp of resps) {
+        const respData = resp?.data || resp;
+        const taskResumes = Array.isArray(respData?.taskResumes) ? respData.taskResumes : [];
+        for (const tr of taskResumes) {
+          const oid = tr?.channelResumeId ?? tr?.outId;
+          if (oid !== undefined && oid !== null && oid !== "") savedOutIdSet.add(String(oid));
+        }
       }
       console.log(
-        `[bossRecommend] 已保存简历过滤：taskChannelId=${recommendTaskChannelId} 已保存 outId 数=${savedOutIdSet.size}`,
+        `[bossRecommend] 已保存简历过滤：渠道数=${dedupChannelIds.length} 已保存 outId 数=${savedOutIdSet.size}`,
         [...savedOutIdSet].slice(0, 30)
       );
     } catch (e) {
@@ -835,7 +855,7 @@ export async function runBossRecommend(args) {
       );
     }
   } else {
-    console.log("[bossRecommend] 未传 recommendTaskChannelId，跳过已保存过滤");
+    console.log("[bossRecommend] 未传 recommendTaskChannelId(s)，跳过已保存过滤");
   }
 
   const firstList = (first.data && first.data.geekList) || [];

@@ -138,7 +138,13 @@
         </svg>
       </button>
 
-      <button class="csb-settings" title="渠道选择与设置" @click="$emit('openSettings')">
+      <button
+        class="csb-settings"
+        :class="{ 'csb-settings--disabled': anyTaskActive }"
+        :disabled="anyTaskActive"
+        :title="anyTaskActive ? '任务进行中，暂不能修改渠道设置' : '渠道选择与设置'"
+        @click="$emit('openSettings')"
+      >
         <svg
           viewBox="0 0 24 24"
           fill="none"
@@ -194,6 +200,20 @@ const HELP_URL = "https://ihr360.yuque.com/ihr/help/yy3i3o0vcy8k2o1a";
  * 调 `commit('setChannelError', name)` 都会自动反映到这里。
  */
 const channelError = computed(() => store.getters.getChannelError);
+
+/**
+ * 是否有任务正在进行（RUNNING 或 AI 评分中）→ 禁用「渠道选择与设置」齿轮：
+ * 任务跑中途改渠道启用/禁用会打断/扰乱正在进行的任务，所以进行中不允许操作渠道设置。
+ */
+const anyTaskActive = computed(() => {
+  try {
+    if (store.state?.SearchTasks?.runningTaskId) return true;
+    if (store.getters.getAiAnalyzingActive === true) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+});
 
 /**
  * "恢复任务"按钮：recheck 异常渠道的登录态：
@@ -626,6 +646,18 @@ $primary-500: $teal-500;
   &:hover {
     color: $primary-500;
     background: $primary-50;
+  }
+
+  /* 任务进行中：禁用态（置灰 + 不可点 + hover 不变色） */
+  &.csb-settings--disabled,
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  &.csb-settings--disabled:hover,
+  &:disabled:hover {
+    color: $neutral-400;
+    background: transparent;
   }
 }
 

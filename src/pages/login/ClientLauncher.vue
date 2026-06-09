@@ -424,11 +424,13 @@ function inferChannelFromEnv() {
 const RELEASE_CHANNEL = process.env.VUE_APP_RELEASE_CHANNEL || inferChannelFromEnv();
 const CHANNEL_CONFIG = {
   release: {
-    base: "http://download.ihr360.com/ikuaizhao",
+    // ★ 必须 https：页面跑在 https（如 qa2-vip.ihr360.com），下载 / 拉 yml 用 http 会被浏览器
+    //   按「混合内容(mixed content)」拦截（Safari 直接 blocked；Chrome 也会拦不安全下载）。
+    base: "https://download.ihr360.com/ikuaizhao",
     productName: "i快招"
   },
   qa2: {
-    base: "http://download.ihr360.com/ikuaizhao-qa2",
+    base: "https://download.ihr360.com/ikuaizhao-qa2",
     productName: "i快招 QA2"
   }
 };
@@ -783,6 +785,10 @@ function triggerNativeDownload(url, fileName) {
   const a = document.createElement("a");
   a.href = url;
   a.download = fileName || "";
+  // ★ 跨域下载（download.ihr360.com ≠ 当前页域）时 Safari 会**忽略 download 属性**，
+  //   若不开新标签会把 launcher 页本身导航到 .dmg。用 target=_blank 在新上下文里触发下载，
+  //   不影响当前页（同域时 download 属性仍生效，target 对下载无副作用）。
+  a.target = "_blank";
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();

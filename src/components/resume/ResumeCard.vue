@@ -1071,10 +1071,12 @@ const isThirdPartyActionDone = (thirdPartyInfo) => thirdPartyInfo?.status == '1'
 const isAssignJobDone = (thirdPartyInfo) =>
   thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1';
 
-// 加入人才库是否已成功（加入人才库成功 或 分配职位成功都算 —— 分配职位隐含已入库）
+// 加入人才库是否已成功：**只认 JOIN_POOLS**（按后端 type 区分文案）。
+//   之前把 ASSIGN_POSITIONS 也算「已加入人才库」→ 用户只点了「分配职位」，刷新后却显示
+//   「已加入人才库」。现按真实操作 type 区分：分配职位只显示「已分配职位」，加入人才库才显示
+//   「已加入人才库」。（两个按钮在任一操作成功后仍都禁用，由 isThirdPartyActionDone 控制。）
 const isTalentPoolDone = (thirdPartyInfo) =>
-  (thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status == '1') ||
-  (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1');
+  thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status == '1';
 
 // 获取分配职位按钮文本
 const getAssignJobButtonText = (thirdPartyInfo) => {
