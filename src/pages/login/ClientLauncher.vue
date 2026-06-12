@@ -82,19 +82,8 @@
           <div v-else-if="state === 'intro'" key="intro" class="cg-step-intro">
             <h2 class="cg-title">启用 AI 聚合搜索客户端</h2>
             <p class="cg-desc">
-              AI
-              招聘助理现已升级为独立客户端。为了保障全网各平台的实时深度聚合及安全算法推荐，请安装"AI
-              聚合搜索客户端"并在本地运行以打通数据通路。
+              请安装第三方"AI 聚合搜索客户端"并在本地运行
             </p>
-
-            <div class="cg-channels">
-              <div v-for="ch in CHANNELS" :key="ch.name" class="cg-channel">
-                <div class="cg-channel-icon" :style="{ background: ch.color }">
-                  {{ ch.name.substring(0, 1) }}
-                </div>
-                <span class="cg-channel-label">{{ ch.name }}</span>
-              </div>
-            </div>
 
             <div class="cg-download-grid">
               <button class="cg-btn-win" @click="handleStartDownload('win')">
@@ -383,15 +372,6 @@ const route = useRoute();
 const { proxy } = getCurrentInstance();
 const iframeMsg = proxy.$iframeMessenger;
 const { tryLaunch } = useClientLauncher();
-
-// ============ 渠道展示用 ============
-
-const CHANNELS = [
-  { name: "智联招聘", color: "#3b82f6" },
-  { name: "前程无忧", color: "#f97316" },
-  { name: "BOSS直聘", color: "#14b8a6" }
-  // 猎聘暂未支持，后续接入：{ name: '猎聘', color: '#2563eb' }
-];
 
 // ============ 下载链接 ============
 

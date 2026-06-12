@@ -192,7 +192,8 @@ defineEmits(["openSettings"]);
 
 const store = useStore();
 const $q = useQuasar();
-const HELP_URL = "https://ihr360.yuque.com/ihr/help/yy3i3o0vcy8k2o1a";
+const HELP_URL =
+  "https://wxvsfhdklsi.feishu.cn/docx/DmgmdkHqto1QbcxPmIGcfZKcnLd?from=from_copylink";
 
 /**
  * 当前异常渠道展示名（来源 vuex store.channelError），从 store 直接订阅，
