@@ -15,6 +15,7 @@
  */
 
 import { runOnTab } from "src/util/automation/runScript";
+import { safeImport } from "src/util/safeDynamicImport";
 
 /**
  * 模块级 state：记录最近一次 runBossRecommend 锁定的 tabId。
@@ -647,7 +648,9 @@ export async function runBossRecommend(args) {
     //     → 我们用 openStartTs 当 sinceTs，等首屏响应
     //   - 不一致 → 点目标 li 切职位 → BOSS 发新 API
     //     → 用 selectRes.liClickedAt 当 sinceTs，等切职位的响应
-    const { selectJobInBossRecommend } = await import("src/util/automation/bossSelectJob");
+    const { selectJobInBossRecommend } = await safeImport(() =>
+      import("src/util/automation/bossSelectJob")
+    );
     const selectRes = await selectJobInBossRecommend(opened.tabId, encryptJobId, {
       ...selectJobOpts,
       onProgress: (stage, payload) => {
@@ -832,7 +835,9 @@ export async function runBossRecommend(args) {
   ];
   if (dedupChannelIds.length > 0) {
     try {
-      const { getTaskChannelResumeIds } = await import("src/api/searchTaskApi");
+      const { getTaskChannelResumeIds } = await safeImport(() =>
+        import("src/api/searchTaskApi")
+      );
       const resps = await Promise.all(
         dedupChannelIds.map((id) => getTaskChannelResumeIds(id).catch(() => null))
       );
@@ -907,8 +912,8 @@ export async function runBossRecommend(args) {
   const MAX_HUMANIZE_ROUNDS = 20;
   let rounds = 0;
 
-  const { humanizeBrowseGeeks, smoothScrollToBottom } = await import(
-    "src/util/automation/bossHumanizeBrowse"
+  const { humanizeBrowseGeeks, smoothScrollToBottom } = await safeImport(() =>
+    import("src/util/automation/bossHumanizeBrowse")
   );
 
   // helper：geek 用于跟「已保存 outId(geekId)」匹配的候选 ID（容错多字段）

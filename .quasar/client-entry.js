@@ -162,7 +162,9 @@ createQuasarApp(createApp, quasarUserOptions)
       
       import('boot/iframe-messenger'),
       
-      import('boot/SvgBase64Manager')
+      import('boot/SvgBase64Manager'),
+      
+      import('boot/chunkReload')
       
     ]).then(bootFiles => {
       const boot = mapFn(bootFiles).filter(entry => typeof entry === 'function')
