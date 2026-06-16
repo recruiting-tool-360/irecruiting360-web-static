@@ -74,6 +74,9 @@ const targetOrigin = [
   
   // 钉钉相关域名
   /^https:\/\/app\d+\.eapps\.dingtalkcloud\.com$/,
+
+  // 美迪西生物医药
+  "https://mhr.medicilon.com.cn",
 ];
 
 /**
