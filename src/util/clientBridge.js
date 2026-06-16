@@ -78,7 +78,10 @@ export async function sendToClient(type, payload, opts = {}) {
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ v: 1, type, payload, requestId }),
-      signal: ctrl.signal
+      signal: ctrl.signal,
+      // ★ Chrome 142+ Local Network Access：HTTPS 公网页面访问 127.0.0.1（loopback）需显式声明，
+      //   否则被当跨域/混合内容拦截。老浏览器忽略该字段。详见 useClientLauncher.probeClient 注释。
+      targetAddressSpace: 'loopback'
     });
     clearTimeout(t);
   } catch (e) {

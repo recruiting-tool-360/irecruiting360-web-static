@@ -95,7 +95,12 @@ export async function probeClient() {
       cache: 'no-store',
       signal: ctrl.signal,
       // 不带 credentials 减少 preflight 复杂度
-      credentials: 'omit'
+      credentials: 'omit',
+      // ★ Chrome 142+ Local Network Access：HTTPS 公网页面访问 127.0.0.1（loopback）默认被拦
+      //   （报「跨域/CORS」），必须显式声明目标地址空间为 loopback，否则会先被混合内容/LNA 拦截。
+      //   声明后浏览器才会走 LNA 许可流程（首次弹一次「允许访问本地网络」，用户点允许即可）。
+      //   老浏览器不认识这个 init 字段，会被忽略（安全）。
+      targetAddressSpace: 'loopback'
     });
     clearTimeout(t);
     if (!res.ok) return null;
