@@ -114,6 +114,17 @@ export default {
        *      简历份数默认上一次填写的值。
        */
       lastResumeCountByChatId: {},
+      /**
+       * 每个 chatId（职位会话）上次在 AIProfileActionPanel 勾选的"搜索/推荐"模块。
+       * 结构：{ [chatId]: { search:boolean, recommend:boolean } }。永久持久化。
+       *
+       * 为什么要按 chatId 存：lastSelectedModules 是**全局**偏好，多个职位会话共用一份，
+       * 会互相串台——A 职位勾了搜索+推荐并启动，切到 B 职位只勾搜索，再回到 A 时
+       * A 卡片重新挂载会读全局偏好（已被 B 改成"仅搜索"）→ A 的勾选被错误篡改。
+       * 按 chatId 各存一份后，每个会话的卡片只认自己会话的勾选，互不影响。
+       * （lastSelectedModules 仍保留，作为"新会话首次出现卡片"时的默认值。）
+       */
+      lastSelectedModulesByChatId: {},
     }),
     mutations: {
         changeLeftLoadingSwitch(state,payload) {
@@ -375,6 +386,17 @@ export default {
           recommend: !!payload?.recommend
         };
       },
+      /** 记录某 chatId（职位会话）上次勾选的搜索/推荐模块（按会话隔离，避免跨会话串台）。 */
+      setLastSelectedModulesForChat(state, { chatId, modules } = {}) {
+        if (!chatId) return;
+        state.lastSelectedModulesByChatId = {
+          ...(state.lastSelectedModulesByChatId || {}),
+          [chatId]: {
+            search: !!modules?.search,
+            recommend: !!modules?.recommend
+          }
+        };
+      },
     },
     actions: {
         async fetchAndUpdateScore({ commit, state }) {
@@ -498,6 +520,11 @@ export default {
          */
         getLastSelectedModules(state) {
             return state.lastSelectedModules || { search: true, recommend: false };
+        },
+        /** 取某 chatId（职位会话）上次勾选的搜索/推荐模块（没有则返回 null，调用方回退全局偏好）。 */
+        getLastSelectedModulesForChat: (state) => (chatId) => {
+            if (!chatId) return null;
+            return state.lastSelectedModulesByChatId?.[chatId] || null;
         },
         /** 取某 chatId 上次填写的简历份数（没有则返回 null） */
         getLastResumeCountForChat: (state) => (chatId) => {

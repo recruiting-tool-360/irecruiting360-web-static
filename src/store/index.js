@@ -56,6 +56,8 @@ const store = createStore({
         "AiSerachConfig.lastSelectedModules",
         // 每个职位（chatId）上次填写的"简历份数"：跨会话保留，下次新 AI 卡片默认上次值。
         "AiSerachConfig.lastResumeCountByChatId",
+        // 每个职位（chatId）上次勾选的"搜索/推荐"模块：按会话隔离，避免跨会话串台。
+        "AiSerachConfig.lastSelectedModulesByChatId",
         "SimilarResumeConfig.cooldownStartTime",
         "SimilarResumeConfig.cooldownEndTime",
         // BOSS 我的职位列表（隐藏窗口静默抓取）：跨会话保留，避免每次进主页都等

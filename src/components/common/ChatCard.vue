@@ -149,7 +149,7 @@
                       <AIProfileActionPanel
                         v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
                         :message="msg"
-                        :disabled="hasResultCardAfter(index)"
+                        :disabled="hasResultCardAfter(index) || isTaskRunningForCurrentChat"
                         @change="(s) => handleActionPanelChange(msg, s)"
                         @aggregate="() => handleSearch(msg)"
                         @clear-and-restart="(s) => onAiPanelRetry(msg, 'RESTART', s)"
@@ -168,7 +168,7 @@
                   <AIProfileActionPanel
                     v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
                     :message="msg"
-                    :disabled="hasResultCardAfter(index)"
+                    :disabled="hasResultCardAfter(index) || isTaskRunningForCurrentChat"
                     @change="(s) => handleActionPanelChange(msg, s)"
                     @aggregate="() => handleSearch(msg)"
                     @clear-and-restart="(s) => onAiPanelRetry(msg, 'RESTART', s)"

@@ -41,7 +41,7 @@
         -->
         <span
           class="module-item"
-          :class="{ active: selectedModules.search }"
+          :class="{ active: selectedModules.search, 'is-locked': locked }"
           @click="toggleModule('search')"
         >
           <span class="check-box">
@@ -63,7 +63,7 @@
         </span>
         <span
           class="module-item"
-          :class="{ active: selectedModules.recommend }"
+          :class="{ active: selectedModules.recommend, 'is-locked': locked }"
           @click="toggleModule('recommend')"
         >
           <span class="check-box">
@@ -121,7 +121,7 @@
                 v-model="matchedBossJobId"
                 class="native-select"
                 :class="{ 'native-select--unset': matchedBossJobId === null }"
-                :disabled="bossJobOptions.length === 0"
+                :disabled="bossJobOptions.length === 0 || locked"
                 @change="onBossJobManualChange"
               >
                 <option v-if="bossJobOptions.length === 0" :value="null">暂无 BOSS 我的职位</option>
@@ -200,6 +200,7 @@
                 type="text"
                 inputmode="numeric"
                 maxlength="4"
+                :disabled="locked"
                 @input="onResumeCountInput"
               />
               <span class="config-unit">份</span>
@@ -385,10 +386,27 @@ const bossEnabled = computed(() => {
  * 让 BOSS 重启时仍能从 lastSelectedModules 恢复用户真实偏好。
  */
 const lastSelectedModules = computed(() => store.getters.getLastSelectedModules);
-const selectedModules = ref({
-  search: !!lastSelectedModules.value?.search,
-  recommend: !!lastSelectedModules.value?.recommend
-});
+
+// ★ 本卡片所属会话 id：优先用消息自带 chatId，兜底当前选中会话。
+//   用它做「按会话隔离」的勾选记忆 key，避免不同职位会话的勾选互相串台。
+const panelChatId = computed(
+  () => props.message?.chatId || store.getters.getLatestChatId || ""
+);
+
+/**
+ * 解析本卡片初始勾选：
+ *   ① 本会话（panelChatId）上次的勾选记忆 —— 跨会话隔离，回到该职位时还原它自己的选择
+ *   ② 没有会话记忆时回退全局上次偏好（新会话首次出现卡片用）
+ *   ③ 全空兜底 { search:true, recommend:false }
+ */
+function resolveInitialModules() {
+  const perChat = store.getters.getLastSelectedModulesForChat(panelChatId.value);
+  const src = perChat || lastSelectedModules.value || {};
+  if (!src.search && !src.recommend) return { search: true, recommend: false };
+  return { search: !!src.search, recommend: !!src.recommend };
+}
+
+const selectedModules = ref(resolveInitialModules());
 
 /**
  * BOSS 切到禁用时：自动收敛 selectedModules 到 { search:true, recommend:false }
@@ -407,23 +425,17 @@ watch(
         selectedModules.value = { search: true, recommend: false };
       }
     } else {
-      // BOSS 开了：从用户偏好恢复（偏好全 false 才兜底默认仅勾搜索，跟 AiSerachConfig
-      // state 默认值 { search:true, recommend:false } 保持一致；推荐由用户明确勾选才走）
-      const pref = lastSelectedModules.value || {};
-      if (!pref.search && !pref.recommend) {
-        selectedModules.value = { search: true, recommend: false };
-      } else {
-        selectedModules.value = {
-          search: !!pref.search,
-          recommend: !!pref.recommend
-        };
-      }
+      // BOSS 开了：从「本会话」勾选记忆恢复（无会话记忆才回退全局偏好），
+      // 避免读全局偏好把别的会话刚改的勾选串到本卡片上。
+      selectedModules.value = resolveInitialModules();
     }
   },
   { immediate: true }
 );
 
 function toggleModule(key) {
+  // ★ 已启动任务（进行中/排队中）或已发起搜索 → 配置锁定，勾选不可再改
+  if (locked.value) return;
   // BOSS 禁用时 UI 上根本看不到勾选框（v-if 隐藏），点击不可达；
   // 但万一上层用 ref 强调 toggleModule 时也得防御一下，禁止打开 recommend
   if (key === "recommend" && !bossEnabled.value) return;
@@ -432,7 +444,9 @@ function toggleModule(key) {
     [key]: !selectedModules.value[key]
   };
   selectedModules.value = next;
-  // ★ 写回 lastSelectedModules（永久缓存）—— 下次新卡片用这个初始值
+  // ★ 写回「本会话」勾选记忆（按 chatId 隔离）—— 回到本职位时还原它自己的勾选，不被别的会话污染
+  store.commit("setLastSelectedModulesForChat", { chatId: panelChatId.value, modules: next });
+  // 同时写全局偏好 —— 仅作为「全新会话首次出现卡片」时的默认值
   store.commit("setLastSelectedModules", next);
 }
 
@@ -460,6 +474,11 @@ const matchedBossJobId = ref(null);
 let _userPickedBoss = false;
 // 本卡片是否已发起过搜索（用户点过启动/重搜/增量）→ 锁定匹配职位，不再自动匹配
 const searchLocked = ref(false);
+// ★ 配置是否锁定（只读）。任意一个为真即锁：
+//   - props.disabled：ChatCard 判定「该 chat 已有进行中/排队中任务」或「本卡片后面已有结果卡片」
+//   - searchLocked：用户刚点过启动/重搜/增量（任务还没落到 store 的过渡态也立即锁住）
+//   锁定后：搜索牛人/推荐牛人勾选、匹配 BOSS 职位下拉、本次期望最大简历数输入框均不可再编辑。
+const locked = computed(() => props.disabled || searchLocked.value);
 // BOSS 职位匹配状态：'idle' 未匹配 / 'matching' 匹配中 / 'matched' 已命中 / 'no-match' 无匹配
 const bossMatchState = ref("idle");
 const bossMatchReason = ref(""); // 无匹配时后端给的原因，用于提示
@@ -754,6 +773,12 @@ function getState() {
  */
 function lockMatchAndEmit(eventName) {
   searchLocked.value = true;
+  // ★ 启动搜索时把「本次实际提交的勾选」固化到本会话记忆里（即便用户没手动 toggle 过、
+  //   勾选来自默认值也固化），保证任务进行中/排队中时回到本职位卡片还原的是它自己的勾选。
+  store.commit("setLastSelectedModulesForChat", {
+    chatId: panelChatId.value,
+    modules: selectedModules.value
+  });
   emit(eventName, getState());
 }
 
@@ -821,6 +846,13 @@ $accent-border: #ccfbf1;
   gap: 10px; /* space-x-2.5 */
   cursor: pointer;
   user-select: none;
+
+  /* ★ 任务已启动（进行中/排队中）→ 锁定，勾选不可改 */
+  &.is-locked {
+    cursor: not-allowed;
+    opacity: 0.55;
+    pointer-events: none;
+  }
 
   /* 1:1 对照 ihraisaas: w-6 h-6 rounded-lg border shadow-sm */
   .check-box {
@@ -1029,6 +1061,11 @@ $accent-border: #ccfbf1;
   &:focus {
     border-color: $accent;
     box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+  }
+  &:disabled {
+    background: #f4f4f5;
+    color: #a1a1aa;
+    cursor: not-allowed;
   }
 }
 .config-unit {
