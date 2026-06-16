@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -810,8 +810,66 @@ function registerIpc(): void {
 
 // =============== App 生命周期 ===============
 
+/**
+ * 安装自定义应用菜单。
+ *
+ * 目的：默认菜单里「关于/隐藏/退出」标签是 `About/Hide/Quit ${app.name}` 拼出来的，
+ * dev 模式 app.name='electron' → 显示成 "About electron"。这里显式给 macOS appMenu 的
+ * about/hide/quit 指定带 displayName 的标签；其余项保留 role（系统自动本地化 + 快捷键），
+ * 从而不必调 app.setName()（避免 userData 路径漂移 → cookie 失效）。
+ *
+ * 非 macOS 维持系统默认菜单（顶部应用名问题不存在），直接返回。
+ */
+function setupApplicationMenu(displayName: string): void {
+  if (process.platform !== 'darwin') return
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: displayName,
+      submenu: [
+        { role: 'about', label: `关于 ${displayName}` },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide', label: `隐藏 ${displayName}` },
+        { role: 'hideOthers', label: '隐藏其他' },
+        { role: 'unhide', label: '全部显示' },
+        { type: 'separator' },
+        { role: 'quit', label: `退出 ${displayName}` }
+      ]
+    },
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' }
+  ]
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.ihire365.ikuaizhao')
+
+  // 应用展示名：生产取 app.getName()（= electron-builder.yml 的 productName，i快招 / i快招 QA2）；
+  //   dev 模式 app.getName() 是 'electron'，回退成 'i快招'。
+  const displayName = app.getName() === 'electron' ? 'i快招' : app.getName()
+
+  // 「关于」面板：显示正确的应用名 + 版本号 + 版权 + logo。
+  //   注意：这里只改「关于」对话框，不调 app.setName()——后者会改 userData 路径导致 partition
+  //   cookie 失效（见 WINDOW_TITLE 注释）。
+  app.setAboutPanelOptions({
+    applicationName: displayName,
+    applicationVersion: app.getVersion(),
+    version: app.getVersion(),
+    copyright: `© ${new Date().getFullYear()} ihire365.com`,
+    // 默认会显示 Electron 原子 logo（dev 跑的是 Electron.app）→ 指定成应用图标
+    iconPath: icon128
+  })
+
+  // 自定义应用菜单：默认菜单的「关于/隐藏/退出」标签用 app.name 拼（dev 下 = 'electron' →
+  // 显示 "About electron"）。这里显式给 appMenu 的 about/hide/quit 加 displayName 标签，
+  // 其余沿用 role（系统自动本地化），避免动 app.setName()。
+  setupApplicationMenu(displayName)
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
