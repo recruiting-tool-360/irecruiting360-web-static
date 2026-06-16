@@ -1,0 +1,275 @@
+/**
+ * i快招 客户端壳层样式（自绘标题栏 + Chrome 风格标签栏）
+ * 仅作用于 main BrowserWindow 的壳；真实业务页面跑在 WebContentsView 里，不受这套样式影响。
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI Variable',
+    'Segoe UI',
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  font-size: 13px;
+  color: #ffffff;
+  background: #171717;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 标题栏（Chrome 同款单行：左侧 mac 红绿灯空隙 / 标签 / 右侧 win 三按钮空隙） ===== */
+
+.shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.titlebar {
+  height: 40px;
+  display: flex;
+  align-items: stretch;
+  background: #171717;
+  border-bottom: 1px solid #262626;
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+/* mac：左侧给红绿灯（系统在 ~78x40 区域绘制） */
+.titlebar.platform-darwin .titlebar-left-spacer {
+  width: 78px;
+  flex-shrink: 0;
+}
+
+/* win/linux：右侧给系统三按钮（titleBarOverlay 在 138x40 区域绘制） */
+.titlebar:not(.platform-darwin) .titlebar-right-spacer {
+  width: 138px;
+  flex-shrink: 0;
+}
+
+/* ===== 标签栏 ===== */
+
+/* 固定区：home tab，不参与滚动，标签再多也始终可见在最左 */
+.tab-bar-pinned {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 0 0 6px;
+  flex-shrink: 0;
+  /* 跟 .tab-bar 同基线，但不滚动 */
+  -webkit-app-region: drag;
+}
+
+/* 滚动区：招聘站点 tab，溢出可滚 */
+.tab-bar {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 0 0 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  /* 整体可拖（标签栏末尾空白也能拖动窗口）；单个 tab 通过 .tab 的 no-drag 屏蔽 */
+  -webkit-app-region: drag;
+  /* 防止 flex 容器被内部子项撑开导致挤掉固定区 */
+  min-width: 0;
+}
+
+/*
+ * 末尾 12px 占位：直接用 .tab-bar 的 padding-right 在 overflow-x:auto 容器里会被浏览器
+ * "吞掉"（滚动到底时仍紧贴右边）；只能用伪元素强制在滚动内容流末尾占位。
+ */
+.tab-bar::after {
+  content: '';
+  flex: 0 0 12px;
+  align-self: stretch;
+}
+
+.tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  /* 标签宽度策略：
+     - 理想宽度 180px（基础值，少量 tab 时显示完整标题）
+     - tab 数量多时按比例缩，最小 110px（保证 favicon + 2 字 + 省略号 + close 都能塞下）
+     - 缩到 110px 仍容不下 → 触发 .tab-bar 的 overflow-x 滚动
+     - 不扩大（无 flex-grow），跟 Chrome 一致 */
+  flex: 0 1 180px;
+  min-width: 110px;
+  padding: 0 8px 0 10px;
+  background: transparent;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  /* 关闭/新增 tab 时其它 tab 宽度变化平滑 */
+  transition: background-color 0.12s, flex-basis 0.16s ease;
+  font-size: 12px;
+  color: #ffffff;
+  -webkit-app-region: no-drag;
+}
+
+.tab:hover {
+  /* tailwind neutral-800 = #262626 */
+  background: #262626;
+}
+
+.tab.active {
+  /* 激活态：比 hover 略亮的灰，与窗口暗色背景区分但保持深色一致 */
+  background: #404040;
+  color: #ffffff;
+  box-shadow: 0 -1px 0 #525252 inset;
+}
+
+.tab.dragging {
+  opacity: 0.5;
+}
+
+.tab.drop-before::before,
+.tab.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: #1677ff;
+  border-radius: 1px;
+}
+.tab.drop-before::before {
+  left: -1px;
+}
+.tab.drop-after::after {
+  right: -1px;
+}
+
+.tab-favicon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  color: #fff;
+}
+
+.tab-favicon.boss {
+  background: #00d068;
+}
+.tab-favicon.zhilian {
+  background: #1677ff;
+}
+.tab-favicon.liepin {
+  background: #ff7b00;
+}
+.tab-favicon.job51 {
+  background: #d72121;
+}
+.tab-favicon.ihr-manage {
+  /* i 人事工作台用紫色，与招聘渠道区分 */
+  background: #722ed1;
+}
+.tab-favicon.home {
+  background: linear-gradient(135deg, #1677ff, #69b1ff);
+  font-size: 8px;
+  letter-spacing: -0.5px;
+}
+.tab-favicon.unknown {
+  background: #9ca3af;
+}
+
+.tab-favicon.loading {
+  background: transparent;
+  border: 2px solid #d1d5db;
+  border-top-color: #1677ff;
+  border-radius: 50%;
+  animation: tab-spin 0.8s linear infinite;
+}
+
+@keyframes tab-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tab-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #d4d4d4;
+  font-size: 16px;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background-color 0.12s;
+}
+
+.tab-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.tab.pinned {
+  /* 主页 tab：固定宽度，永不收缩（位于不滚动的 .tab-bar-pinned 容器内） */
+  flex: 0 0 110px;
+  min-width: 110px;
+}
+
+/* 主页 tab 不渲染关闭按钮（决策 C） */
+
+/* ===== 加载占位（壳本身没有内容；真实内容在 WebContentsView 里） ===== */
+
+.shell-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #525252;
+  font-size: 12px;
+  background: #171717;
+}

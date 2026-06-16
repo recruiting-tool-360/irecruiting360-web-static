@@ -9,19 +9,46 @@ export const getChatIdByUserId = (userId) => {
 }
 
 
-//查询历史对话
-export const getChatHistory = (chatId,userId) => {
+/**
+ * 查询历史对话
+ *
+ * 两种模式：
+ *   1) 不传 pagination → 走旧逻辑，返回最近 count 轮（默认 10）
+ *   2) 传 { pageNo, pageSize } → 启用分页
+ *       - pageNo=1 返回**最新一页**（页内时间正序：旧→新）
+ *       - pageNo=2 返回更早一页（用于"向上滚动加载更老消息"）
+ *       - 返回结构多 { pageNo, pageSize, total, totalPage, hasNext, hasPrevious }
+ *
+ * @param {string} chatId
+ * @param {string|number} userId
+ * @param {{ pageNo?: number, pageSize?: number }} [pagination]
+ */
+export const getChatHistory = (chatId, userId, pagination) => {
+    const params = { chatId, userId };
+    if (pagination?.pageNo != null) params.pageNo = pagination.pageNo;
+    if (pagination?.pageSize != null) params.pageSize = pagination.pageSize;
     return request({
-        method:'GET',
-        url:'/ihire/chat/getChatHistory?chatId='+chatId+"&userId="+userId
+        method: 'GET',
+        url: '/ihire/chat/getChatHistory',
+        params
     });
 }
 
-//清理历史对话
-export const clearChatHistory = (chatId,userId) => {
+/**
+ * 清理历史对话（保留 chatId，只清这个 chat 下的消息历史）
+ *
+ * 后端：@RequestMapping(value = "/ihire/chat/clearChatHistory", method = {GET, POST})
+ *        Response<String> clearChatHistory(@RequestParam("chatId") String chatId)
+ *
+ * - 只要 chatId（不需要 userId，后端从登录态拿）
+ * - 用 POST + params（chatId 走 query string，跟后端 @RequestParam 对应）
+ * - 用 axios `params` 让 chatId 安全 encode，避免含 `+ / & =` 等特殊字符时出 bug
+ */
+export const clearChatHistory = (chatId) => {
     return request({
-        method:'GET',
-        url:'/ihire/chat/clearChatHistory?chatId='+chatId+"&userId="+userId
+        method: 'POST',
+        url: '/ihire/chat/clearChatHistory',
+        params: { chatId }
     });
 }
 

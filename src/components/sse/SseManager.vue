@@ -10,6 +10,7 @@ import notify from 'src/util/notify'
 import sseClient from 'src/api/sse'
 import { getUserInfo, userlogout } from "src/api/user/UserApi"
 import Cookies from 'js-cookie'
+import { redirectToLogin } from "src/util/redirectToLogin"
 
 const store = useStore();
 const userInfo = computed(() => store.getters.getUserInfo);
@@ -42,9 +43,54 @@ async function handleAuthError(data) {
 }
 
 //更新ai分数
+//
+// SSE 推过来的"score 已更新"消息可能针对**搜索通道**的 resumeBlindId（在 ChannelConfig.ALL.data）
+// 或**推荐通道**的 resumeBlindId（在 BossRecommendData.byJobId[jobId].geekList）。
+// 老版本不分通道全部塞给 JobInfo (ALL.cardInfoRef)，推荐的 ID 找不到 → 报"未找到ID为 XXX 的简历"
+// 噪音刷屏，且 UI 上推荐的分数不会被这条 SSE 路径写回（虽然 polling 兜底了）。
+//
+// 新策略：
+//   1) 先检查这条 resumeBlindId 是否在 BossRecommendData 某个 bucket 里
+//      → 是的话 commit patchBossRecommendGeek，**不再骚扰 JobInfo**
+//   2) 否则才走 JobInfo（搜索通道）
 const updateChannelScore = (msg) => {
-  const resumeData = {id:msg.resumeId,score:msg.score}
-  allChannel.value['ALL'].cardInfoRef.updateResumeScoreFN(resumeData);
+  const resumeId = msg?.resumeId
+  if (!resumeId) return
+
+  // 推荐通道：扫描所有 BossRecommendData bucket 找这个 blindId
+  let isRecommendId = false
+  let recommendJobId = null
+  try {
+    const byJobId = store.state?.BossRecommendData?.byJobId || {}
+    for (const jId of Object.keys(byJobId)) {
+      const bucket = byJobId[jId]
+      const geekList = Array.isArray(bucket?.geekList) ? bucket.geekList : []
+      if (geekList.some((g) => String(g?.resumeBlindId) === String(resumeId))) {
+        isRecommendId = true
+        recommendJobId = jId
+        break
+      }
+    }
+  } catch (_e) { /* ignore */ }
+
+  if (isRecommendId && recommendJobId) {
+    store.commit('patchBossRecommendGeek', {
+      jobId: recommendJobId,
+      resumeBlindId: String(resumeId),
+      patch: {
+        score: typeof msg?.score === 'number' ? msg.score : null,
+        scoreStatus: msg?.scoreStatus || 'SUCCESS'
+      }
+    })
+    return
+  }
+
+  // 搜索通道：找 JobInfo (ALL.cardInfoRef)，没挂载就 silent skip（推荐 tab 切换走时也算这条路径）
+  const allChannelRef = allChannel.value?.['ALL']?.cardInfoRef
+  if (!allChannelRef || typeof allChannelRef.updateResumeScoreFN !== 'function') {
+    return
+  }
+  allChannelRef.updateResumeScoreFN({ id: resumeId, score: msg.score })
 }
 
 // 退出登录函数 - 从Header.vue复制过来的逻辑
@@ -57,7 +103,8 @@ async function logout() {
   } catch (e) {
     console.log(e)
   }
-  window.location.href = '/login';
+  // 客户端模式拦截跳转 → 弹 IhrAuthModal；浏览器模式照旧跳 /login
+  redirectToLogin({ reason: 'sse_auth_error_logout' });
 }
 
 // 初始化用户信息
@@ -71,13 +118,21 @@ async function userInfoInit() {
     } else {
       store.commit('changeUserInfo', null)
       notify.error('用户信息异常，请联系管理员')
-      window.location.href = '/login'
+      redirectToLogin({ reason: 'user_info_failed_business' });
     }
   } catch (ex) {
     store.commit('changeUserInfo', null)
-    notify.error('用户信息异常，请联系管理员')
     console.log(ex)
-    window.location.href = '/login'
+    // ★ 网络层失败（超时 / 断网 / 请求被取消）不是登录态问题 → 只提示连接异常，**不弹登录授权框**。
+    //   判定：axios 这类失败没有 HTTP 响应（ex.response 为空）。真正的 token 失效是 200 响应里
+    //   success!=='success' 且含 'token'，已由 request.js 拦截并弹 IhrAuthModal；带 401/403 响应的
+    //   才在这里走 redirectToLogin。
+    if (!ex?.response) {
+      notify.error('网络连接异常，请检查网络后重试');
+      return;
+    }
+    notify.error('用户信息异常，请联系管理员')
+    redirectToLogin({ reason: 'user_info_failed_exception' });
   }
 }
 
@@ -183,9 +238,24 @@ function handleSseMessage(data) {
       // 根据场景处理不同的个人消息
       switch (message.scenario) {
         case 'chat':
-          // 处理聊天消息
+          // 处理聊天消息（小写：保留向后兼容）
           console.log('聊天消息:', message.data);
           break;
+        case 'CHAT': {
+          // 服务端主动推聊天消息（如任务完成卡片 TASK_COMPLETION_CARD），content 是 HTML 富文本
+          // 形态：{ chatId, message: { id, role, content, timestamp, messageType } }
+          const payload = message.data || {};
+          const chatId = payload.chatId;
+          const msgObj = payload.message;
+          if (!chatId || !msgObj) {
+            console.warn('[SseManager] CHAT 消息缺 chatId 或 message:', payload);
+            break;
+          }
+          console.log(`[SseManager] CHAT push chatId=${chatId} type=${msgObj.messageType} id=${msgObj.id}`);
+          // 通过 store 派发，ChatCard watch serverPushedMessage 触发渲染
+          store.commit('SET_SERVER_PUSHED_MESSAGE', { chatId, message: msgObj });
+          break;
+        }
         case 'notification':
           // 处理个人通知
           notify.info(message.data.content || String(message.data), {

@@ -1,0 +1,153 @@
+appId: com.ihire365.ikuaizhao
+productName: i快招
+directories:
+  buildResources: build
+# afterPack 钩子：macOS 打包完后如果没真实签名，自动 ad-hoc 签
+# 让 dev 包在 Apple Silicon 上能直接双击运行（不签的 .app 在 arm64 会被内核 kill）
+afterPack: build/afterPack.js
+# files：显式白名单 + 关键排除，避免 dist*/ build*/ scripts/ 等临时目录被一股脑打进 app.asar
+# （历史教训：dist-arm64-backup 不在默认排除列表里，会被 include 成 650MB 体积）
+files:
+  - out/**
+  - resources/**
+  - package.json
+  - 'node_modules/**'
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{dist,dist-*,build,scripts}/**'
+  - '!**/{__pycache__,*.tsbuildinfo,*.map}'
+asarUnpack:
+  - resources/**
+
+# 自定义协议注册：让 OS 知道 ikuaizhao:// 由本应用处理
+# 安装包会把这条信息写入：
+#   - macOS: Info.plist 的 CFBundleURLTypes
+#   - Windows: 注册表 HKEY_CLASSES_ROOT\ikuaizhao
+#   - Linux: .desktop launcher 的 MimeType=x-scheme-handler/ikuaizhao
+protocols:
+  - name: i快招
+    schemes:
+      - ikuaizhao
+
+win:
+  icon: resources/icons/icon.ico
+  executableName: ikuaizhao
+  # ===== Windows 代码签名 =====
+  #
+  # 行为分两档：
+  #
+  # ① npm run build:win:dev / build:win:dir
+  #    → 通过命令行 --config.win.signtoolOptions=null 强制覆盖跳过签名
+  #    → 出未签名 exe（SmartScreen 弹"未知发布者"，用户点"仍要运行"能装）
+  #
+  # ② npm run build:win:release
+  #    → 用下面的 signtoolOptions 走真实签名
+  #    → 需要配 env：
+  #         export WIN_CSC_LINK="$HOME/secure/CodeSigning.pfx"
+  #         export WIN_CSC_KEY_PASSWORD="<.pfx 密码>"
+  #    → macOS 上交叉签：先 `brew install osslsigncode`，electron-builder 自动调它替代 signtool.exe
+  #
+  # 详见 docs/windows-release.md
+  # 架构：x64 + arm64
+  # electron-builder 会输出三个产物：
+  #   - i快招-1.0.0-x64-setup.exe       100 MB  专用 x64
+  #   - i快招-1.0.0-arm64-setup.exe     100 MB  专用 arm64
+  #   - i快招-1.0.0-setup.exe           200 MB  合并包,自动检测安装对应 arch ← 对外发这个
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  # 默认行为：
+  #   有 WIN_CSC_LINK env (.pfx)            → electron-builder 自动签 + 用默认时间戳服务器
+  #   没 env 或 build:win:dev 命令显式跳过   → 不签名，出未签名 exe（SmartScreen 警告但能装）
+  #
+  # publisherName 在 25.x 移到了 signtoolOptions 下；dev 模式不签名时这块整段被跳过，无副作用
+  signtoolOptions:
+    publisherName:
+      - i快招
+      - ihire365.com
+    signingHashAlgorithms:
+      - sha256
+    timeStampServer: http://timestamp.sectigo.com
+    rfc3161TimeStampServer: http://timestamp.sectigo.com
+
+nsis:
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+
+mac:
+  icon: resources/icons/icon.icns
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+
+  # 双架构：x64（Intel Mac）+ arm64（Apple Silicon）
+  # dmg 给用户安装，zip 给 electron-updater 增量更新用
+  #
+  # ⚠️ 国内访问 Apple notary S3 不稳，双架构同时公证容易超时（HTTPClientError.deadlineExceeded）
+  # 解决办法：
+  #   ① 开 VPN/代理（最稳）
+  #   ② 单架构分两次跑（命令行 override：electron-builder --mac --x64 / --mac --arm64）
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+
+  # ===== macOS 代码签名 + 公证（默认 adhoc 自签，本地能跑）=====
+  #
+  # ① 开发期（无证书）：npm run build:mac:dev / build:mac:dir
+  #    → identity=null 强制 adhoc 签名；notarize=false 不公证。
+  #    → 用户首次运行需要"右键 → 打开"绕过 Gatekeeper（macOS 警告"无法验证开发者"）。
+  #    → Apple Silicon 强制要求至少 adhoc 签名才能运行（不签会 zsh: killed）。
+  #
+  # ② 正式签名 + 公证：先准备好 Apple Developer 证书 + App-specific password
+  #    export CSC_LINK="/path/to/DeveloperID.p12"      # 或 .keychain 里有 identity 也可以自动找到
+  #    export CSC_KEY_PASSWORD="p12 密码"
+  #    export APPLE_ID="dev@ihire365.com"               # 公证用 Apple ID
+  #    export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+  #    export APPLE_TEAM_ID="ABCD1234EF"               # 团队 ID（10 位）
+  #    npm run build:mac:release
+  #    → electron-builder 自动用 Developer ID 签名 + notarytool 公证。
+  #    → 公证完成后用 staple 钉到 .dmg / .app 里，离线分发也能通过 Gatekeeper。
+  #
+  # 详见 docs/client-signing-guide.md / docs/build-and-package.md
+  notarize: false
+  hardenedRuntime: true                # 公证强制要求；adhoc 也允许开
+  gatekeeperAssess: false              # 跳过本地 spctl 校验，加快打包
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
+appImage:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+npmRebuild: false
+# 自动更新元数据所在地（用于 electron-updater 拼 latest.yml 里 url 字段的相对路径）
+# 改成 https:// 之后 electron-updater 不会有 "insecure" 警告
+publish:
+  provider: generic
+  url: http://download.ihr360.com/ikuaizhao/
+  channel: latest
+  useMultipleRangeRequest: true
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

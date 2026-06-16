@@ -30,7 +30,7 @@
       <resume-list
         :resumes="jobList"
         :loading="isLoadingMore"
-        :has-more-data="hasMoreData"
+        :has-more-data="hasMoreData && allowLoadMore"
         :total="searchChannelConfig.channelDataTotal"
         :channel-str="channelConfig.name"
         :ai-sort="aiSortSwitch"
@@ -56,9 +56,14 @@ import * as BossJobInfoManager from 'src/pluginSrc/channels/BossJobInfoManager';
 import notify from "src/util/notify";
 import {channelDataSave, channelDataSavePlus} from "src/pluginSrc/util/CannelManager";
 import ResumeList from '../../../components/resume/ResumeList.vue';
+import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 import {channelSearchListSimilar} from "src/pluginSrc/channels/BossJobInfoManager";
 import {clearChannel as clearChannelApi} from "src/pluginSrc/util/AsyncTaskQueueManager";
 import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
+import { openChannelLoginUrl } from "src/util/openChannelLoginUrl";
+import { handleChannelSearchFailure } from "src/util/channelLoginGuard";
+import { triggerContinueSearchFromResults } from "src/util/triggerContinueSearch";
+import { runChannelSearchWithDedup } from "src/util/searchChannelDedup";
 
 // 定义组件属性
 const props = defineProps({
@@ -73,6 +78,19 @@ const props = defineProps({
   aiSort: {
     type: Boolean,
     default: false
+  },
+  /**
+   * 查看历史 task 结果时由 AISearch 透传过来。
+   * - 非空 → 直接读 ViewingResults.byTaskId[viewingTaskId] 的数据
+   * - 空 / null → fallback 到 ChannelConfig.ALL（runtime 模式）
+   *
+   * 设计意图：彻底绕开旧 `getEffectiveChannelConfByAll` 依赖的全局 viewing state
+   * （getLatestChatId + currentViewingByChat[cid]）—— 那种间接寻址在 chat 切换 /
+   * clearCurrentViewingTask 时容易让数据"消失"。按 taskId 直接取，taskId 不变数据稳定。
+   */
+  viewingTaskId: {
+    type: [String, Number],
+    default: null
   }
 });
 
@@ -80,14 +98,29 @@ const store = useStore();
 const $q = useQuasar();
 const channelKey = "BOSS";
 const channelConfig = computed(() => store.getters.getChannelConfByChannel(channelKey));
-const allDataConfig = computed(() => store.getters.getChannelConfByAll);
+// ★ 只有"刚结束的（最新）任务"或 runtime 搜索才允许加载更多；历史完成卡"查看结果"进来的不显示
+const allowLoadMore = computed(() => !isHistoryTaskView(store, props.viewingTaskId));
+// ★ 按 props.viewingTaskId 直接取 viewing bucket（详见 ViewingResults.js）；
+//   非 viewing 模式 fallback 到 ChannelConfig.ALL（runtime 模式）。
+//   完全不依赖 currentViewingByChat 全局 state，taskId 不变时数据稳定不抖动。
+const allDataConfig = computed(() => {
+  if (props.viewingTaskId) {
+    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
+    const cfg = typeof byTask === 'function' ? byTask(props.viewingTaskId) : null;
+    if (cfg) return cfg;
+  }
+  return store.getters.getChannelConfByAll;
+});
 const aiSortSwitch = computed(() => channelConfig.value.aiSort);
 //渠道历史查询参数
 const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);
-//当前搜索条件
-const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value.channelSearchConditions.find((item) => item.channel === channelKey));
-//渠道搜索分页信息
-const searchChannelConfig = computed(() => allSearchChannelConditionRequestData.value.config.find((item) => item.channelKey === channelKey));
+//当前搜索条件（null-safe）
+const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value?.channelSearchConditions?.find((item) => item.channel === channelKey));
+//渠道搜索分页信息（null-safe，查看任务结果时 config 为 null，用 jobList.length 兜底避免模板访问 undefined.channelDataTotal 崩溃）
+const searchChannelConfig = computed(() =>
+  allSearchChannelConditionRequestData.value?.config?.find((item) => item.channelKey === channelKey)
+  || { channelDataTotal: jobList.value.length, channelPage: 1, channelCountSize: jobList.value.length, totalPage: 1 }
+);
 //是否已读
 const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 //搜索id
@@ -105,7 +138,14 @@ const currentSort = ref('score');
 
 //数据
 const jobList = computed(() =>{
-  return allDataConfig.value.data.filter(item=>item.channel===channelConfig.value.desc)
+  const allData = allDataConfig.value.data;
+  const desc = channelConfig.value.desc;
+  const filtered = allData.filter(item=>item.channel===desc);
+  console.log('[BossJobInfo] jobList computed, ALL.data=', allData.length, 'desc=', desc, 'filtered=', filtered.length);
+  if (allData.length > 0 && filtered.length === 0) {
+    console.warn('[BossJobInfo] filter 返回空！前3条channel=', allData.slice(0,3).map(x=>x.channel));
+  }
+  return filtered;
   // return channelConfig.value.data || [];
 });
 //查询数据变化
@@ -114,9 +154,9 @@ const searchCount = computed(()=>store.getters.getSearchCount);
 //查询渠道配置
 const showSettingsChannelConfig = computed(()=>store.getters.getUserChannelConfig);
 
-//跳转登陆页
+//跳转登陆页：客户端模式下走 IPC 开独立窗口；浏览器模式下走 window.open
 const goToLogin = () => {
-  window.open(pluginAllUrls.BOSS.loginUrl, '_blank');
+  openChannelLoginUrl('boss', pluginAllUrls.BOSS.loginUrl);
 };
 
 //初始化
@@ -133,29 +173,9 @@ const getChannelDisable = (key) => {
 };
 
 // 加载更多数据
+// 加载更多 → 走任务流程的「保留增量搜索」（CONTINUE），不再直接翻下一页。
 const loadMore = async () => {
-  // console.log("加载更多数据",searchChannelConfig.value)
-  if (!hasMoreData.value) {
-    return;
-  }
-  const newChannelPage = searchChannelConfig.value.channelPage + 1;
-  if (newChannelPage > searchChannelConfig.value.totalPage) {
-    return;
-  }
-
-  isLoadingMore.value = true;
-  try {
-    await executeSearch(allSearchChannelConditionRequestData.value, newChannelPage);
-  } catch(error) {
-    console.error('加载更多数据失败:', error);
-    $q.notify({
-      message: '加载更多数据失败，请稍后重试',
-      color: 'negative',
-      icon: 'error'
-    });
-  } finally {
-    isLoadingMore.value = false;
-  }
+  triggerContinueSearchFromResults(store);
 }
 
 
@@ -174,20 +194,31 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
   }
 
   try {
-    // 调用 BossJobInfoManager 中的方法执行搜索
-    const result = await BossJobInfoManager.channelSearchList(searchRequestData, page);
+    // 调用 BossJobInfoManager 搜索；保留增量搜索(CONTINUE)时：去重已入库简历 + 不足一页(15)自动延时5s翻下一页
+    const result = await runChannelSearchWithDedup({
+      store,
+      chatId: chatId.value,
+      channelSubType: channelKey,
+      searchRequestData,
+      startPage: page,
+      channelSearchList: BossJobInfoManager.channelSearchList,
+      onPageConfig: (cfg) =>
+        store.commit('setSearchChannelConditionConfigData', { key: channelKey, config: cfg })
+    });
 
     if (!result) {
       console.error('BOSS直聘搜索结果为空');
+      // 渠道搜索接口调用失败（含非网络业务异常 / 返回空）→ 顶部弹渠道异常 + 复核登录态，未登录则停任务
+      if (isFirstPage && !props.viewingTaskId) {
+        await handleChannelSearchFailure(store, channelKey, chatId.value);
+      }
       if (isFirstPage) {
         hasData.value = false;
       }
       return;
     }
 
-    store.commit('setSearchChannelConditionConfigData', {key:channelKey, config:result});
-
-    // 处理搜索结果
+    // 处理搜索结果（result.dataList：增量搜索时已是去重后的「未入库新人」，普通搜索为原始一页）
     if (result.dataList && result.dataList.length > 0) {
       //保存数据并返回结果
       let channelJobList;
@@ -199,7 +230,13 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
       }
       if(channelJobList){
           // store.commit('addChannelConfData', {key: channelKey, value: channelJobList});
-          store.commit('addChannelConfData', {key: 'ALL', value: channelJobList});
+          // viewing 模式（刚结束任务可加载更多）下渲染读 ViewingResults bucket，
+          // 必须把新页数据追加进 bucket，否则列表 / tab badge 停在首屏条数。
+          if (props.viewingTaskId) {
+            store.commit('appendViewingTaskResults', {taskId: props.viewingTaskId, value: channelJobList});
+          } else {
+            store.commit('addChannelConfData', {key: 'ALL', value: channelJobList});
+          }
           hasData.value = true;
 
           // 将搜索结果加入异步任务队列中处理
@@ -239,6 +276,9 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
   } catch (error) {
     console.error('BOSS直聘搜索失败:', error);
     notify.error('BOSS直聘搜索失败，请稍后再试');
+    if (isFirstPage && !props.viewingTaskId) {
+      await handleChannelSearchFailure(store, channelKey, chatId.value);
+    }
 
     if (isFirstPage) {
       hasData.value = false;
@@ -361,11 +401,15 @@ const handleScheduleInterview = (resume) => {
 };
 
 // 监听jobList数据变化
+// ⚠️ 必须同时处理"变非空"的情况（比如查看任务结果时外部直接往 ALL.data 灌数据，
+// executeSearch 不会运行，hasData 不会被 executeSearch 内部置 true）
 watch(
   jobList,
   (newValue) => {
     if (!newValue || newValue.length === 0) {
       initializationStatus();
+    } else {
+      hasData.value = true;
     }
   }
 );

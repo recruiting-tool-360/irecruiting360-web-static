@@ -175,7 +175,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary" 
-                :disable="!(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo"
+                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)"
                 @click.stop="assignJob(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
@@ -193,7 +193,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary"
-                :disable="!(resume.score !== null && resume.score !== undefined && resume.score >= 0) || !!resume?.resumeThirdPartyInfo" 
+                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)" 
                 @click.stop="addToTalentPool(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
@@ -210,12 +210,14 @@
               </q-btn>
             </template>
             <q-btn flat class="q-ma-xs" size="md" color="primary" 
-              :disable="isSimilarButtonDisabled" 
+              :disable="readOnly || isSimilarButtonDisabled" 
               @click.stop="searchSimilarResumes">
               <q-icon size="xs" class="q-mr-xs" name="search"></q-icon>
               <span>{{ similarButtonText }}</span>
             </q-btn>
-            <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="md" @click.stop="scheduleInterview">
+            <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="md"
+              :disable="readOnly"
+              @click.stop="scheduleInterview">
               <q-icon size="xs" class="q-mr-xs" name="chat"></q-icon>
               <span>立即沟通</span>
             </q-btn>
@@ -282,6 +284,7 @@ import {getSearchConditionRequest, getSearchStateValues} from "src/pluginSrc/uti
 import AIResumeEvaluation from 'src/components/resume/AIResumeEvaluation.vue';
 import {markResumeBlindReadStatus, userCollectResume} from "src/api/jobList/JobListApi";
 import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
+import { openExternalSiteUrl } from "src/util/openChannelLoginUrl";
 import { useSendResume } from 'src/hooks/useSendResume';
 import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
@@ -302,6 +305,36 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  /**
+   * 只读模式：卡片内的所有"业务联动"动作都被跳过，只 emit 事件给父组件。
+   *
+   * 用途：BOSS 推荐 tab 的匿名候选人（id 是 encryptGeekId）不在 i 人事简历库里，
+   *      不能直接调 `markResumeBlindReadStatus` / `bossHandleViewDetail`（会报 400 /
+   *      JSON.parse undefined）。父组件设 readOnly=true 后，ResumeCard 只负责展示，
+   *      所有交互交给父组件接 emit 后自己处理。
+   *
+   * 受影响的内部函数：viewDetail / handleIsReadData / handleViewDetail
+   * 受影响的按钮：分配职位 / 加入人才库 / 相似简历 / 立即沟通（全部 disabled）
+   */
+  readOnly: {
+    type: Boolean,
+    default: false
+  },
+  /**
+   * 可选：每条简历自带的 searchConditionId（来自任务级查询 /search/task/results/query 返回的
+   * `searchConditionId` 字段）。传了的话优先用，作为 AIResumeEvaluation 的 `searchId` 参数。
+   *
+   * 不传则 fallback 到全局 store.getters.getSearchConditionId（保留老 AISearch 流程行为）。
+   *
+   * 为什么要可覆盖：
+   *   全局 getSearchConditionId 是单值，由 AISearch.executeSearch 在 save 条件时写入，
+   *   跨任务 / 跨 chat 查看历史结果时容易脏。任务结果接口返回的 `searchConditionId` 是
+   *   该任务执行时**真正使用的**条件 ID，按条传更准；AI 评估 / 相似简历等接口才能命中。
+   */
+  searchConditionIdOverride: {
+    type: [String, Number],
+    default: null
+  }
 });
 
 const emit = defineEmits([
@@ -316,8 +349,11 @@ const emit = defineEmits([
 ]);
 // 渠道名称
 const tabStr = computed(() => props.tabStr);
-// 搜索id
-const searchConditionId = computed(() => store.getters.getSearchConditionId);
+// 搜索id：优先用 prop 传入的 override（任务结果路径需要这个，全局 getter 跨任务会脏），
+// 没传就 fallback 到 store 全局 getter（保留老 AISearch 路径行为）
+const searchConditionId = computed(
+  () => props.searchConditionIdOverride || store.getters.getSearchConditionId
+);
 //aiSearchRef
 const aiSearchRef = computed(() => store.getters.getAiSearchRefValue);
 // 所有渠道状态
@@ -371,19 +407,15 @@ const { isVisible } = usePlanVisibility({
 const { resumeGenerateBase64s } = bossDomGenerator();
 
 // 在新窗口中打开详情页面
-const openDetailInNewWindow = (url) => {
-  // 设置窗口参数
-  const name = '_blank';
-  const iWidth = window.screen.availWidth * 0.8;
-  const iHeight = window.screen.availHeight * 0.8;
-  const iTop = (window.screen.availHeight + 30 - iHeight) / 2;
-  const iLeft = (window.screen.availWidth - 10 - iWidth) / 2;
-
-  // 打开新窗口
-  window.open(
-    url,
-    '_blank'
-  );  
+// 客户端模式：通过 IPC 让主进程开独立 BrowserWindow（带对应招聘站 partition cookie）
+// 浏览器模式：保持原 window.open 行为
+//
+// @param {string} url
+// @param {Object} [opts]
+// @param {boolean} [opts.forceReload=false] 同 URL tab 复用时强制 reload，让 SPA 重拉数据。
+//   "立即沟通" / "查看详情" 等场景必须 true，否则用户刚收藏 / 加入人才库后跳过去看不到最新人。
+const openDetailInNewWindow = (url, opts) => {
+  openExternalSiteUrl(url, opts);
 }
 
 // 替换openDetailInNewWindow2函数
@@ -456,7 +488,9 @@ const bossScheduleInterview = async (resume) => {
     let bossCollect = await runCollect(boosJobInfo);
     if(bossCollect){
       const url = pluginAllUrls.BOSS.baseUrl + pluginAllUrls.BOSS.interactionUrl;
-      openDetailInNewWindow(url);
+      // ★ forceReload: BOSS 互动消息 tab 可能已经打开（同 URL），openOrActivateSiteTab
+      //   只会激活不会刷新。这里强制 reload，让 BOSS SPA 重新拉数据 → 显示刚收藏的人。
+      openDetailInNewWindow(url, { forceReload: true });
     }else{
       notify.warning(resume.channel+"联系人才失败");
     }
@@ -678,9 +712,13 @@ const addToBlacklist = () => {
 
 // 查看详情
 const viewDetail = () => {
-  handleViewDetail(props.resume);
-  //设置已读
-  handleIsReadData(props.resume)
+  // readOnly=true（BOSS 推荐 tab 等匿名场景）跳过所有 i 人事 / 渠道业务联动，
+  // 只 emit 给父组件，由父组件决定后续行为（如打开候选人详情抽屉）
+  if (!props.readOnly) {
+    handleViewDetail(props.resume);
+    //设置已读
+    handleIsReadData(props.resume);
+  }
   emit('detail', props.resume);
 };
 
@@ -889,14 +927,21 @@ const scheduleInterview = () => {
 
 //处理已读
 const handleIsReadData = async (resume) => {
+  // ★ 已读标记如果已是已读就不重复调；否则乐观置已读（直接改当前展示对象，
+  //   兼容 runtime(ALL.data) / viewing(ViewingResults bucket) 两种来源 —— 之前只改 ALL.data，
+  //   查看结果列表（viewing bucket）里点开后「已读标记」不显示）
+  if (resume && resume.isRead) return true;
   try {
-    let {data} = await markResumeBlindReadStatus([resume.id], true);
+    await markResumeBlindReadStatus([resume.id], true);
   } catch (error) {
     console.error('标记简历已读状态失败:', error);
     return false;
   }
 
-  // 更新渠道聚合中的对应数据
+  // 直接改当前展示的 resume 对象（无论它来自哪个 bucket，都是模板渲染的同一个对象）
+  if (resume) resume.isRead = 1;
+
+  // 同步更新渠道聚合 ALL.data 里的对应数据（保证切 tab / 重渲染仍是已读）
   if (allChannelStatus.value['ALL'] && allChannelStatus.value['ALL'].data) {
     const allDataIndex = allChannelStatus.value['ALL'].data.findIndex(item => item.id === resume.id);
     if (allDataIndex !== -1) {
@@ -1018,9 +1063,24 @@ const addToTalentPool = async (resume) => {
   }
 };
 
+// 任一第三方操作（加入人才库 / 分配职位）已成功 → 两个按钮都置灰。
+// 用户要求：加入人才库成功 或 分配职位成功后，分配职位和加入人才库都禁用。
+const isThirdPartyActionDone = (thirdPartyInfo) => thirdPartyInfo?.status == '1';
+
+// 分配职位是否已成功（决定「分配职位」按钮文案「已分配职位」）
+const isAssignJobDone = (thirdPartyInfo) =>
+  thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1';
+
+// 加入人才库是否已成功：**只认 JOIN_POOLS**（按后端 type 区分文案）。
+//   之前把 ASSIGN_POSITIONS 也算「已加入人才库」→ 用户只点了「分配职位」，刷新后却显示
+//   「已加入人才库」。现按真实操作 type 区分：分配职位只显示「已分配职位」，加入人才库才显示
+//   「已加入人才库」。（两个按钮在任一操作成功后仍都禁用，由 isThirdPartyActionDone 控制。）
+const isTalentPoolDone = (thirdPartyInfo) =>
+  thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status == '1';
+
 // 获取分配职位按钮文本
 const getAssignJobButtonText = (thirdPartyInfo) => {
-  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1') {
+  if (isAssignJobDone(thirdPartyInfo)) {
     return '已分配职位';
   }
   return '分配职位';
@@ -1028,10 +1088,7 @@ const getAssignJobButtonText = (thirdPartyInfo) => {
 
 // 获取加入人才库按钮文本
 const getTalentPoolButtonText = (thirdPartyInfo) => {
-  if (thirdPartyInfo?.type === 'JOIN_POOLS' && thirdPartyInfo?.status == '1') {
-    return '已加入人才库';
-  }
-  if (thirdPartyInfo?.type === 'ASSIGN_POSITIONS' && thirdPartyInfo?.status == '1') {
+  if (isTalentPoolDone(thirdPartyInfo)) {
     return '已加入人才库';
   }
   return '加入人才库';

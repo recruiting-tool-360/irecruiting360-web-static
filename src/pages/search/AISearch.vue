@@ -1,10 +1,13 @@
 <template>
   <div class="q-py-xs q-px-xs sss">
-    <!-- 自定义加载遮罩 -->
-    <div v-if="isLoading" class="custom-loading-overlay">
+    <!-- 全屏 loading 遮罩已移除：
+         任务进度由聊天里的 TaskStatusCard 显示，全屏遮罩会让用户没法切其他职位看其他数据，
+         任务跑搜索期间应该允许自由切换职位（每个任务跟自己的 taskId 跑，不受 UI 切换影响）。
+         isLoading 仍被 executeSearch 内部使用作为状态标志，只是不再渲染遮罩。 -->
+    <!-- <div v-if="isLoading" class="custom-loading-overlay">
       <q-spinner color="primary" size="3em" />
       <div class="text-subtitle1 q-mt-sm text-white">正在搜索数据，请稍候...</div>
-    </div>
+    </div> -->
 
     <q-card flat bordered class="search-filter-card q-px-xs" style="min-height: 90vh">
       <q-card-section class="q-pa-xs channel-sticky">
@@ -13,27 +16,23 @@
           <!-- 渠道标签区域 (7/12) -->
           <div class="col-9 channel-container" style="">
             <q-tabs
-                v-model="selectedChannel"
-                dense
-                inline-label
-                no-caps
-                @update:model-value="handleChannelSelection"
-                class="channel-tabs bg-white text-grey-9 text-bold shadow-2 flex justify-lg-start"
-                active-color="primary"
-                align="left"
-                indicator-color="primary"
-                :breakpoint="0"
+              v-model="selectedChannel"
+              dense
+              inline-label
+              no-caps
+              @update:model-value="handleChannelSelection"
+              class="channel-tabs bg-white text-grey-9 text-bold shadow-2 flex justify-lg-start"
+              active-color="primary"
+              align="left"
+              indicator-color="primary"
+              :breakpoint="0"
             >
               <!-- 渠道聚合 Tab -->
-              <q-tab
-                  name="ALL"
-                  @click="handleChannelSelection('ALL')"
-                  class="channel-tab"
-              >
+              <q-tab name="ALL" @click="handleChannelSelection('ALL')" class="channel-tab">
                 <q-avatar size="sm" color="primary" text-color="white" class="q-mr-sm">
-                  {{ allChannelStatus.ALL?.name?.charAt(0)?.toUpperCase() || '?' }}
+                  {{ allChannelStatus.ALL?.name?.charAt(0)?.toUpperCase() || "?" }}
                 </q-avatar>
-                <span class="text-subtitle2">{{allChannelStatus.ALL.name}}</span>
+                <span class="text-subtitle2">{{ allChannelStatus.ALL.name }}</span>
                 <!--                <q-badge v-if="allChannelStatus.ALL.dataSize > 0" color="red-5" floating>-->
                 <!--                  {{ allChannelStatus.ALL.dataSize }}-->
                 <!--                </q-badge>-->
@@ -41,61 +40,61 @@
 
               <!-- 动态显示的渠道选项 -->
               <q-tab
-                  v-for="channel in visibleChannels"
-                  :key="channel.key"
-                  :name="channel.key"
-                  v-show="getChannelDisable(channel.key)"
-                  @click="handleChannelSelection(channel.key)"
-                  class="channel-tab"
+                v-for="channel in visibleChannels"
+                :key="channel.key"
+                :name="channel.key"
+                v-show="getChannelDisable(channel.key)"
+                @click="handleChannelSelection(channel.key)"
+                class="channel-tab"
               >
                 <!--                <q-badge class="" :color="channel.login?'green':'red'" floating>{{ channel.login ? '已登录' : '未登录' }}</q-badge>-->
                 <q-avatar size="xs" color="white" text-color="primary" class="q-mr-sm">
                   <!--                  {{ channel?.name?.charAt(0)?.toUpperCase() || '?' }}-->
                   <img :src="channel.logo" />
                 </q-avatar>
-                <span class="text-subtitle2">{{channel.name}}</span>
+                <span class="text-subtitle2">{{ channel.name }}</span>
                 <span class="login-status-container" v-if="!channel.login">
                   (<span
                     class="q-ma-none q-pa-none cursor-pointer text-bold"
                     :class="channel.login ? 'text-primary' : 'text-grey'"
-                >{{ channel.login ? '已登录' : '未登录' }}</span>
-                  <q-btn
-                      v-if="!channel.login"
-                      flat
-                      dense
-                      round
-                      icon="refresh"
-                      size="xs"
-                      class="refresh-btn"
-                      @click.stop="refreshChannelLogin(channel.key)"
-                      @mouseenter="hideTabTooltip(channel.key)"
-                      @mouseleave="showTabTooltip(channel.key)"
+                    >{{ channel.login ? "已登录" : "未登录" }}</span
                   >
-                    <q-tooltip>刷新登录状态</q-tooltip>
-                  </q-btn>)
+                  <q-btn
+                    v-if="!channel.login"
+                    flat
+                    dense
+                    round
+                    icon="refresh"
+                    size="xs"
+                    class="refresh-btn"
+                    @click.stop="refreshChannelLogin(channel.key)"
+                    @mouseenter="hideTabTooltip(channel.key)"
+                    @mouseleave="showTabTooltip(channel.key)"
+                  >
+                    <q-tooltip>刷新登录状态</q-tooltip> </q-btn
+                  >)
                 </span>
-                <q-badge v-if="channel.dataSize > 0" color="red-5" floating>
-                  {{ channel.dataSize }}
+                <q-badge v-if="channelDisplayCount(channel) > 0" color="red-5" floating>
+                  {{ channelDisplayCount(channel) }}
                 </q-badge>
-                <q-tooltip
-                    :ref="(el) => setTooltipRef(el, channel.key)"
-                    :delay="100"
-                >
-                  {{ !getChannelDisable(channel.key) ? '已禁用' : (channel.login ? '已登录' : '请登录')}}
+                <q-tooltip :ref="(el) => setTooltipRef(el, channel.key)" :delay="100">
+                  {{
+                    !getChannelDisable(channel.key) ? "已禁用" : channel.login ? "已登录" : "请登录"
+                  }}
                 </q-tooltip>
               </q-tab>
 
               <!-- 收藏 Tab -->
               <q-tab
-                  v-if="chatId && !isHidden"
-                  name="Collect"
-                  @click="handleChannelSelection('Collect')"
-                  class="channel-tab"
+                v-if="chatId && !isHidden"
+                name="Collect"
+                @click="handleChannelSelection('Collect')"
+                class="channel-tab"
               >
                 <q-avatar size="sm" color="primary" text-color="white" class="q-mr-sm">
-                  {{ allChannelStatus.Collect?.name?.charAt(0)?.toUpperCase() || '?' }}
+                  {{ allChannelStatus.Collect?.name?.charAt(0)?.toUpperCase() || "?" }}
                 </q-avatar>
-                <span class="text-subtitle2">{{allChannelStatus.Collect.name}}</span>
+                <span class="text-subtitle2">{{ allChannelStatus.Collect.name }}</span>
                 <q-badge v-if="allChannelStatus.Collect.dataSize > 0" color="red-5" floating>
                   {{ allChannelStatus.Collect.dataSize }}
                 </q-badge>
@@ -103,46 +102,64 @@
 
               <!-- 更多渠道下拉菜单 -->
               <q-btn-dropdown
-                  v-if="hiddenChannels.length > 0"
-                  auto-close
-                  stretch
-                  flat
-                  icon="more_horiz"
-                  class="text-primary more-dropdown"
+                v-if="hiddenChannels.length > 0"
+                auto-close
+                stretch
+                flat
+                icon="more_horiz"
+                class="text-primary more-dropdown"
               >
                 <q-list>
                   <q-item
-                      v-for="channel in hiddenChannels"
-                      v-show="channel.key!=='LIEPIN'"
-                      :key="channel.key"
-                      clickable
-                      v-close-popup
-                      @click="handleChannelSelection(channel.key)"
-                      class="channel-dropdown-item"
+                    v-for="channel in hiddenChannels"
+                    v-show="channel.key !== 'LIEPIN'"
+                    :key="channel.key"
+                    clickable
+                    v-close-popup
+                    @click="handleChannelSelection(channel.key)"
+                    class="channel-dropdown-item"
                   >
                     <q-item-section>
                       <div>
                         <q-avatar size="sm" color="primary" text-color="white" class="q-mr-sm">
-                          {{ channel?.name?.charAt(0)?.toUpperCase() || '?' }}
+                          {{ channel?.name?.charAt(0)?.toUpperCase() || "?" }}
                         </q-avatar>
-                        <span class="text-subtitle2">{{channel.name}}</span>
-                        <q-badge class="q-ml-xs q-mb-xs" rounded align="middle" :color="!getChannelDisable(channel.key) ? 'grey' : (channel.login ? 'green' : 'red')" outline>
-                          {{ !getChannelDisable(channel.key) ? '已禁用' : (channel.login ? '已登录' : '未登录') }}
+                        <span class="text-subtitle2">{{ channel.name }}</span>
+                        <q-badge
+                          class="q-ml-xs q-mb-xs"
+                          rounded
+                          align="middle"
+                          :color="
+                            !getChannelDisable(channel.key)
+                              ? 'grey'
+                              : channel.login
+                              ? 'green'
+                              : 'red'
+                          "
+                          outline
+                        >
+                          {{
+                            !getChannelDisable(channel.key)
+                              ? "已禁用"
+                              : channel.login
+                              ? "已登录"
+                              : "未登录"
+                          }}
                         </q-badge>
                       </div>
                     </q-item-section>
-                    <q-item-section side v-if="channel.dataSize > 0">
-                      <q-badge color="red-5">{{ channel.dataSize }}</q-badge>
+                    <q-item-section side v-if="channelDisplayCount(channel) > 0">
+                      <q-badge color="red-5">{{ channelDisplayCount(channel) }}</q-badge>
                     </q-item-section>
                     <q-item-section side v-if="!channel.login" class="text-grey-6">
                       <q-btn
-                          flat
-                          dense
-                          round
-                          icon="refresh"
-                          size="xs"
-                          class="refresh-btn"
-                          @click.stop="refreshChannelLogin(channel.key)"
+                        flat
+                        dense
+                        round
+                        icon="refresh"
+                        size="xs"
+                        class="refresh-btn"
+                        @click.stop="refreshChannelLogin(channel.key)"
                       >
                         <q-tooltip>刷新登录状态</q-tooltip>
                       </q-btn>
@@ -161,26 +178,26 @@
               <!-- 左侧操作 -->
               <div class="col-auto">
                 <q-checkbox
-                    v-model="onlyShowUnread"
-                    label="未读"
-                    size="xs"
-                    dense
-                    class="q-mr-sm text-bold"
-                    :class="onlyShowUnread?'text-primary' : 'text-grey-7'"
-                    @update:model-value="handleUnreadChange"
+                  v-model="onlyShowUnread"
+                  label="未读"
+                  size="xs"
+                  dense
+                  class="q-mr-sm text-bold"
+                  :class="onlyShowUnread ? 'text-primary' : 'text-grey-7'"
+                  @update:model-value="handleUnreadChange"
                 />
 
                 <q-btn
-                    v-if="selectedChannel  !== 'Collect'"
-                    flat
-                    dense
-                    :color="aiSort ? 'primary' : 'grey-7'"
-                    @click="toggleAiSort"
-                    class="q-mr-sm"
+                  v-if="selectedChannel !== 'Collect'"
+                  flat
+                  dense
+                  :color="aiSort ? 'primary' : 'grey-7'"
+                  @click="toggleAiSort"
+                  class="q-mr-sm"
                 >
                   <q-icon :name="aiSort ? 'auto_awesome' : 'sort'" size="xs"></q-icon>
                   AI排序
-                  <q-tooltip>{{ 'AI排序' }}</q-tooltip>
+                  <q-tooltip>{{ "AI排序" }}</q-tooltip>
                 </q-btn>
               </div>
 
@@ -199,13 +216,7 @@
                 <!--                </q-btn>-->
 
                 <!-- 更多操作下拉菜单 -->
-                <q-btn-dropdown
-                    flat
-                    dense
-                    color="primary"
-                    icon="more_vert"
-                    label=""
-                >
+                <q-btn-dropdown flat dense color="primary" icon="more_vert" label="">
                   <q-list>
                     <!--                    <q-item clickable v-close-popup @click="exportData">-->
                     <!--                      <q-item-section avatar>-->
@@ -218,7 +229,9 @@
                       <q-item-section avatar>
                         <q-icon name="checklist" color="primary" />
                       </q-item-section>
-                      <q-item-section>{{ store.getters.getResumeBatchMode ? '关闭批量操作' : '开启批量操作' }}</q-item-section>
+                      <q-item-section>{{
+                        store.getters.getResumeBatchMode ? "关闭批量操作" : "开启批量操作"
+                      }}</q-item-section>
                     </q-item>
 
                     <!--                    <q-item clickable v-close-popup @click="markAllAsRead">-->
@@ -246,10 +259,10 @@
 
       <!-- 内容区域 -->
       <q-card-section class="list-container q-py-none">
-<!--        <div v-if="isLoading && !hasData" class="flex flex-center q-pa-xl">-->
-<!--          <q-spinner color="primary" size="3em" />-->
-<!--          <div class="q-ml-sm text-subtitle1">正在加载数据...</div>-->
-<!--        </div>-->
+        <!--        <div v-if="isLoading && !hasData" class="flex flex-center q-pa-xl">-->
+        <!--          <q-spinner color="primary" size="3em" />-->
+        <!--          <div class="q-ml-sm text-subtitle1">正在加载数据...</div>-->
+        <!--        </div>-->
 
         <!--        <div v-else-if="!hasData" class="flex flex-center column q-pa-xl">-->
         <!--          <q-icon name="search_off" size="4em" color="grey-5" />-->
@@ -265,20 +278,62 @@
         <!--        </div>-->
 
         <div class="search-result-container">
-          <!-- 使用v-show替代动态组件加载 -->
-          <JobInfo ref="jobInfoRef" v-show="selectedChannel==='ALL'" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" ></JobInfo>
-          <BossJobInfo ref="bossJobInfoRef" v-show="selectedChannel==='BOSS'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" ></BossJobInfo>
-          <ZHILIANJobInfo ref="zhiLianInfoRef" v-show="selectedChannel==='ZHILIAN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></ZHILIANJobInfo>
-          <LIEPINJobInfo ref="liePinInfoRef" v-show="selectedChannel==='LIEPIN'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose" ></LIEPINJobInfo>
-          <JOB51JobInfo ref="job51InfoRef" v-show="selectedChannel==='JOB51'" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></JOB51JobInfo>
-          <CollectJobInfo ref="collectInfoRef" v-show="selectedChannel==='Collect'&&chatId" v-model:third-party-channel-config="allThirdPartyChannelConfig" :on-loding-open="loadingOpen" :on-loding-close="loadingClose"></CollectJobInfo>
+          <!--
+            :viewing-task-id 透传给 5 个 channel 组件
+              - 非空 → 各组件按 taskId 直读 ViewingResults.byTaskId[taskId]（不依赖全局 viewing state）
+              - 空 → runtime 模式，走 ChannelConfig.ALL
+            CollectJobInfo 不参与（收藏 tab 跟任务结果无关）
+          -->
+          <JobInfo
+            ref="jobInfoRef"
+            v-show="selectedChannel === 'ALL'"
+            v-model:third-party-channel-config="allThirdPartyChannelConfig"
+            :on-loding-open="loadingOpen"
+            :on-loding-close="loadingClose"
+            :viewing-task-id="viewingTaskId"
+          ></JobInfo>
+          <BossJobInfo
+            ref="bossJobInfoRef"
+            v-show="selectedChannel === 'BOSS'"
+            :on-loding-open="loadingOpen"
+            :on-loding-close="loadingClose"
+            :viewing-task-id="viewingTaskId"
+          ></BossJobInfo>
+          <ZHILIANJobInfo
+            ref="zhiLianInfoRef"
+            v-show="selectedChannel === 'ZHILIAN'"
+            :on-loding-open="loadingOpen"
+            :on-loding-close="loadingClose"
+            :viewing-task-id="viewingTaskId"
+          ></ZHILIANJobInfo>
+          <LIEPINJobInfo
+            ref="liePinInfoRef"
+            v-show="selectedChannel === 'LIEPIN'"
+            :on-loding-open="loadingOpen"
+            :on-loding-close="loadingClose"
+            :viewing-task-id="viewingTaskId"
+          ></LIEPINJobInfo>
+          <JOB51JobInfo
+            ref="job51InfoRef"
+            v-show="selectedChannel === 'JOB51'"
+            :on-loding-open="loadingOpen"
+            :on-loding-close="loadingClose"
+            :viewing-task-id="viewingTaskId"
+          ></JOB51JobInfo>
+          <CollectJobInfo
+            ref="collectInfoRef"
+            v-show="selectedChannel === 'Collect' && chatId"
+            v-model:third-party-channel-config="allThirdPartyChannelConfig"
+            :on-loding-open="loadingOpen"
+            :on-loding-close="loadingClose"
+          ></CollectJobInfo>
         </div>
         <!-- 调试信息 -->
         <div v-if="componentLoadError" class="text-center q-pa-md text-negative">
           组件加载失败: {{ selectedChannel }}
           <div class="q-mt-md">
             <div>错误信息: {{ errorMessage }}</div>
-            <div>可用组件: {{ Object.keys(channelComponents).join(', ') }}</div>
+            <div>可用组件: {{ Object.keys(channelComponents).join(", ") }}</div>
           </div>
         </div>
       </q-card-section>
@@ -289,8 +344,8 @@
 
     <!-- 添加渠道设置对话框 -->
     <channel-settings-dialog
-        v-model:visible="showSettingsDialog"
-        @save-channel-config="saveChannelEnable"
+      v-model:visible="showSettingsDialog"
+      @save-channel-config="saveChannelEnable"
     />
 
     <!-- 添加插件安装提醒对话框 -->
@@ -298,59 +353,108 @@
 
     <!-- 添加强制更新对话框 -->
     <force-update-dialog
-        v-model:visible="showForceUpdateDialog"
-        :current-version="currentVersion"
-        :latest-version="latestVersion"
-        @update="handleForceUpdate"
+      v-model:visible="showForceUpdateDialog"
+      :current-version="currentVersion"
+      :latest-version="latestVersion"
+      @update="handleForceUpdate"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick, inject } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from "vue";
 import { useStore } from "vuex";
 import { useQuasar } from "quasar";
 import {
   pluginBossResultProcessor,
-  pluginJob51ResultProcessor, pluginLIEPINResultProcessor,
-  pluginResultProcessor, pluginZhiLianResultProcessor
-} from 'src/pluginSrc/verifyes/PluginProcessor';
-import { getPluginBaseConfig, getPluginCookieBaseConfig } from 'src/pluginSrc/config/PluginRequestManager';
-import * as BossJobInfoManager from 'src/pluginSrc/channels/BossJobInfoManager';
-import * as Job51InfoManager from 'src/pluginSrc/channels/Job51InfoManager';
-import * as ZhiLianJobInfoManager from 'src/pluginSrc/channels/ZhiLianJobInfoManager';
-import * as LIEPINJobInfoManager from 'src/pluginSrc/channels/LIEPINJobInfoManager';
-import JobInfo from './channel/JobInfo.vue';
-import BossJobInfo from './channel/BossJobInfo.vue';
-import JOB51JobInfo from './channel/JOB51JobInfo.vue';
-import ZHILIANJobInfo from './channel/ZHILIANJobInfo.vue';
-import LIEPINJobInfo from './channel/LIEPINJobInfo.vue';
-import CollectJobInfo from './channel/CollectJobInfo.vue';
-import {setDefaultPluginRules} from "src/pluginSrc/util/BasePluginManager";
-import {pluginRequest} from "src/pluginSrc/config/PluginStatus";
-import {convertSearchConditionRequest} from "src/pjo/dto/request/SaveSearchRequest";
-import {saveCondition} from "src/api/search/SearchApi";
-import QueueStatusMonitor from './components/QueueStatusMonitor.vue';
-import ChannelSettingsDialog from 'src/components/settings/ChannelSettingsDialog.vue';
-import {convertSearchState} from "src/pjo/dto/request/SearchStateConfig";
-import {getCurrentConditionByChatId} from "src/api/chat/ChatApi";
+  pluginJob51ResultProcessor,
+  pluginLIEPINResultProcessor,
+  pluginResultProcessor,
+  pluginZhiLianResultProcessor
+} from "src/pluginSrc/verifyes/PluginProcessor";
+import {
+  getPluginBaseConfig,
+  getPluginCookieBaseConfig
+} from "src/pluginSrc/config/PluginRequestManager";
+import { setBossWatcherEnabled } from "src/util/automation/bossResidentWatcher";
+import { setJob51WatcherEnabled } from "src/util/automation/job51LoginWatcher";
+import { setZhilianWatcherEnabled } from "src/util/automation/zhilianLoginWatcher";
+import * as BossJobInfoManager from "src/pluginSrc/channels/BossJobInfoManager";
+import * as Job51InfoManager from "src/pluginSrc/channels/Job51InfoManager";
+import * as ZhiLianJobInfoManager from "src/pluginSrc/channels/ZhiLianJobInfoManager";
+import * as LIEPINJobInfoManager from "src/pluginSrc/channels/LIEPINJobInfoManager";
+import JobInfo from "./channel/JobInfo.vue";
+import BossJobInfo from "./channel/BossJobInfo.vue";
+import JOB51JobInfo from "./channel/JOB51JobInfo.vue";
+import ZHILIANJobInfo from "./channel/ZHILIANJobInfo.vue";
+import LIEPINJobInfo from "./channel/LIEPINJobInfo.vue";
+import CollectJobInfo from "./channel/CollectJobInfo.vue";
+import { setDefaultPluginRules } from "src/pluginSrc/util/BasePluginManager";
+import { pluginRequest } from "src/pluginSrc/config/PluginStatus";
+import { convertSearchConditionRequest } from "src/pjo/dto/request/SaveSearchRequest";
+import { saveCondition } from "src/api/search/SearchApi";
+import { setConditionCache } from "src/util/searchConditionCache";
+import QueueStatusMonitor from "./components/QueueStatusMonitor.vue";
+import ChannelSettingsDialog from "src/components/settings/ChannelSettingsDialog.vue";
+import { convertSearchState } from "src/pjo/dto/request/SearchStateConfig";
+import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import notify from "src/util/notify";
-import {asyncTaskQueueManager} from "src/pluginSrc/util/AsyncTaskQueueManager";
-import PluginInstallDialog from 'src/components/plugins/PluginInstallDialog.vue';
-import {needForceUpdate} from "src/pluginSrc/util/pluginVersion";
-import ForceUpdateDialog from 'src/components/plugins/ForceUpdateDialog.vue';
-import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
+import { asyncTaskQueueManager } from "src/pluginSrc/util/AsyncTaskQueueManager";
+import PluginInstallDialog from "src/components/plugins/PluginInstallDialog.vue";
+import { needForceUpdate } from "src/pluginSrc/util/pluginVersion";
+import ForceUpdateDialog from "src/components/plugins/ForceUpdateDialog.vue";
+import { usePlanVisibility } from "src/hooks/usePlanVisibility";
+import { isElectronClient } from "src/util/openChannelLoginUrl";
 
 // 定义组件属性
 const props = defineProps({
   searchState: {
     type: Object,
     default: () => ({})
+  },
+  /**
+   * 查看历史 task 结果时由 IndexPage 透传过来，再透给 5 个 channel 组件
+   * （JobInfo / BossJobInfo / ZHILIANJobInfo / JOB51JobInfo / LIEPINJobInfo）。
+   * 非空 → 各组件直读 ViewingResults.byTaskId[viewingTaskId]
+   * 空 / null → runtime 模式，走 ChannelConfig.ALL
+   *
+   * 设计目的：彻底绕开旧 getEffectiveChannelConfByAll 的全局 viewing state，
+   * 避免 chat 切换 / clearCurrentViewingTask 让 UI 数据"消失"。
+   */
+  viewingTaskId: {
+    type: [String, Number],
+    default: null
   }
 });
 
 const store = useStore();
 const $q = useQuasar();
+
+/**
+ * 渠道 tab 右上角红色 badge 显示的条数。
+ *
+ * 直接按"当前列表实际显示的数据"算，而不是单独维护的 channelConf[key].dataSize
+ * （dataSize 容易出现 loadMore 后没同步 → badge 跟列表不一致，比如列表 150 但 badge 还显示 50）。
+ *
+ * 数据源跟各 channel 组件 jobList **完全一致**：
+ *   - viewing 模式（有 viewingTaskId + bucket）→ ViewingResults.byTaskId[viewingTaskId].data
+ *   - runtime 模式 → ChannelConfig.ALL.data
+ *   再按 `item.channel === channel.desc` 过滤计数。
+ */
+function channelDisplayCount(channel) {
+  if (!channel) return 0;
+  const desc = channel.desc || channel.name;
+  let allData = null;
+  if (props.viewingTaskId) {
+    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
+    const cfg = typeof byTask === "function" ? byTask(props.viewingTaskId) : null;
+    if (cfg?.data) allData = cfg.data;
+  }
+  if (!allData) {
+    allData = store.getters.getChannelConfByAll?.data || [];
+  }
+  return allData.filter((item) => item && item.channel === desc).length;
+}
 
 //搜索条件
 const searchState = computed(() => props.searchState);
@@ -369,23 +473,23 @@ const allChannelStatus = computed(() => store.getters.getChannelConf);
 // 所有第三方渠道配置
 const allThirdPartyChannelConfig = computed(() => {
   return Object.entries(allChannelStatus.value)
-      .filter(([key, channel]) => !(key === 'ALL' || key === 'Collect'))
-      .map(([key, channel]) => ({ ...channel }));
+    .filter(([key, channel]) => !(key === "ALL" || key === "Collect"))
+    .map(([key, channel]) => ({ ...channel }));
 });
 
 //渠道设置配置
-const showSettingsChannelConfig = computed(()=>store.getters.getUserChannelConfig);
+const showSettingsChannelConfig = computed(() => store.getters.getUserChannelConfig);
 
 // 当前选择的渠道
-const selectedChannel = ref('ALL');
+const selectedChannel = ref("ALL");
 const componentLoadError = ref(false);
-const errorMessage = ref('');
+const errorMessage = ref("");
 
 //插件版本
 // 强制更新对话框相关状态
 const showForceUpdateDialog = ref(false);
-const currentVersion = ref('');
-const latestVersion = ref('');
+const currentVersion = ref("");
+const latestVersion = ref("");
 
 // 从store中获取强制更新显示状态
 const forceUpdateVisible = computed(() => store.getters.getForceUpdateVisible);
@@ -393,9 +497,9 @@ const forceUpdateVisible = computed(() => store.getters.getForceUpdateVisible);
 // 控制选项卡的状态
 const onlyShowUnread = computed({
   get: () => store.getters.getUnreadCheckBoxV,
-  set: (val) => store.commit('changeUnreadCheckBoxV', val)
+  set: (val) => store.commit("changeUnreadCheckBoxV", val)
 });
-const aiSort = computed(()=>{
+const aiSort = computed(() => {
   return allChannelStatus.value[selectedChannel.value].aiSort;
 });
 const isLoading = ref(false);
@@ -428,25 +532,25 @@ const hiddenChannels = ref([]);
 
 //三方显示隐藏控制开关
 let visibleThirdSwitch = computed(() => {
-  return store.getters.getUserInfo?.extendData || '';
+  return store.getters.getUserInfo?.extendData || "";
 });
 
 let isHidden = computed(() => {
-  return ['PlanA'].includes(visibleThirdSwitch.value?.plan || '');
+  return ["PlanA"].includes(visibleThirdSwitch.value?.plan || "");
 });
 
-const visibleThirdSwitchPlus = inject('visibleThirdSwitchPlus');
+const visibleThirdSwitchPlus = inject("visibleThirdSwitchPlus");
 
-const styleTop = visibleThirdSwitchPlus.value?"0px":"48px";
+const styleTop = visibleThirdSwitchPlus.value ? "0px" : "48px";
 
 // 动态渠道组件映射
 const channelComponents = {
-  'ALL': JobInfo,
-  'BOSS': BossJobInfo,
-  'JOB51': JOB51JobInfo,
-  'ZHILIAN': ZHILIANJobInfo,
-  'LIEPIN': LIEPINJobInfo,
-  'Collect': CollectJobInfo
+  ALL: JobInfo,
+  BOSS: BossJobInfo,
+  JOB51: JOB51JobInfo,
+  ZHILIAN: ZHILIANJobInfo,
+  LIEPIN: LIEPINJobInfo,
+  Collect: CollectJobInfo
 };
 
 // 添加对关联关系的调试
@@ -454,9 +558,9 @@ const channelComponents = {
 
 //获取渠道禁用状态
 const getChannelDisable = (key) => {
-  const channelConfig = showSettingsChannelConfig.value.find(config => config.key === key);
+  const channelConfig = showSettingsChannelConfig.value.find((config) => config.key === key);
   // 如果找到配置且 enableConfig 为 false 则禁用，否则不禁用
-  if(key==='LIEPIN'){
+  if (key === "LIEPIN") {
     return false;
   }
   return channelConfig.enableConfig;
@@ -464,11 +568,11 @@ const getChannelDisable = (key) => {
 
 //保存渠道配置
 const saveChannelEnable = (configData) => {
-  console.log('保存渠道配置:', configData);
+  console.log("保存渠道配置:", configData);
 
   if (configData && Array.isArray(configData)) {
     // 遍历配置数据
-    configData.forEach(config => {
+    configData.forEach((config) => {
       const channelKey = config.key;
       const isEnabled = config.enableConfig;
 
@@ -485,19 +589,19 @@ const saveChannelEnable = (configData) => {
             const clearedCount = allChannelStatus.value[channelKey].data.length;
 
             // 清空该渠道的数据
-            store.commit('changeChannelConfData', {
+            store.commit("changeChannelConfData", {
               key: channelKey,
               value: []
             });
 
             // 更新数据大小
-            store.commit('changeChannelConfDataSize', {
+            store.commit("changeChannelConfDataSize", {
               key: channelKey,
               value: 0
             });
 
             // 更新搜索条件
-            store.commit('setSearchChannelConditionRequestData', {
+            store.commit("setSearchChannelConditionRequestData", {
               key: channelKey,
               config: {
                 channelDataTotal: 0,
@@ -509,40 +613,53 @@ const saveChannelEnable = (configData) => {
               }
             });
             // 确保在清空数据后停止分数自动更新
-            if (allChannelStatus.value[channelKey].cardInfoRef &&
-                typeof allChannelStatus.value[channelKey].cardInfoRef.initializationStatus === 'function') {
+            if (
+              allChannelStatus.value[channelKey].cardInfoRef &&
+              typeof allChannelStatus.value[channelKey].cardInfoRef.initializationStatus ===
+                "function"
+            ) {
               allChannelStatus.value[channelKey].cardInfoRef.initializationStatus();
             }
 
             console.log(`已清空渠道 ${channelKey} 的 ${clearedCount} 条数据`);
 
             // 处理 ALL 聚合渠道
-            if (allChannelStatus.value.ALL && allChannelStatus.value.ALL.data && allChannelStatus.value.ALL.data.length > 0) {
+            if (
+              allChannelStatus.value.ALL &&
+              allChannelStatus.value.ALL.data &&
+              allChannelStatus.value.ALL.data.length > 0
+            ) {
               // 获取当前 ALL 渠道的数据
               const allData = [...allChannelStatus.value.ALL.data];
 
               // 过滤掉禁用渠道的数据
-              const filteredData = allData.filter(item => item.channel !== allChannelStatus.value[channelKey].desc);
+              const filteredData = allData.filter(
+                (item) => item.channel !== allChannelStatus.value[channelKey].desc
+              );
 
               // 更新 ALL 渠道的数据
-              store.commit('changeChannelConfData', {
-                key: 'ALL',
+              store.commit("changeChannelConfData", {
+                key: "ALL",
                 value: filteredData
               });
 
               // 更新 ALL 渠道的数据大小
-              store.commit('changeChannelConfDataSize', {
-                key: 'ALL',
+              store.commit("changeChannelConfDataSize", {
+                key: "ALL",
                 value: filteredData.length
               });
 
               // 确保在更新 ALL 渠道数据后也停止其分数自动更新
-              if (allChannelStatus.value['ALL'].cardInfoRef &&
-                  typeof allChannelStatus.value['ALL'].cardInfoRef.initializationStatus === 'function') {
-                allChannelStatus.value['ALL'].cardInfoRef.initializationStatus();
+              if (
+                allChannelStatus.value["ALL"].cardInfoRef &&
+                typeof allChannelStatus.value["ALL"].cardInfoRef.initializationStatus === "function"
+              ) {
+                allChannelStatus.value["ALL"].cardInfoRef.initializationStatus();
               }
 
-              console.log(`已从 ALL 聚合渠道中移除渠道 ${channelKey} 的数据，剩余数据 ${filteredData.length} 条`);
+              console.log(
+                `已从 ALL 聚合渠道中移除渠道 ${channelKey} 的数据，剩余数据 ${filteredData.length} 条`
+              );
             }
           }
         }
@@ -551,13 +668,50 @@ const saveChannelEnable = (configData) => {
 
     // 如果当前选中的渠道已被禁用，自动切换到 ALL 渠道
     const currentChannel = selectedChannel.value;
-    if (currentChannel !== 'ALL' && currentChannel !== 'Collect') {
-      const currentConfig = configData.find(config => config.key === currentChannel);
+    if (currentChannel !== "ALL" && currentChannel !== "Collect") {
+      const currentConfig = configData.find((config) => config.key === currentChannel);
       if (currentConfig && !currentConfig.enableConfig) {
-        selectedChannel.value = 'ALL';
-        console.log('当前渠道已禁用，自动切换到 ALL 渠道');
-        notify.info(`${allChannelStatus.value[currentChannel].name} 渠道已禁用，已切换到渠道聚合视图`);
+        selectedChannel.value = "ALL";
+        console.log("当前渠道已禁用，自动切换到 ALL 渠道");
+        notify.info(
+          `${allChannelStatus.value[currentChannel].name} 渠道已禁用，已切换到渠道聚合视图`
+        );
       }
+    }
+
+    // ★ BOSS 渠道启用/禁用 → 控制 BOSS 登录监视单例 tab：
+    //   启用 → main 建监视单例 tab；禁用 → 销毁该 webContents（docs/boss标签管理.md）。
+    const bossConfig = configData.find((config) => config && config.key === "BOSS");
+    if (bossConfig) {
+      setBossWatcherEnabled(store, bossConfig.enableConfig !== false);
+    }
+
+    // ★ 51job 渠道启用/禁用 → 起/停 10s 登录态轮询
+    const job51Config = configData.find((config) => config && config.key === "JOB51");
+    if (job51Config) {
+      setJob51WatcherEnabled(store, job51Config.enableConfig !== false);
+    }
+
+    // ★ 智联 渠道启用/禁用 → 起/停 10s 登录态轮询
+    const zhilianConfig = configData.find((config) => config && config.key === "ZHILIAN");
+    if (zhilianConfig) {
+      setZhilianWatcherEnabled(store, zhilianConfig.enableConfig !== false);
+    }
+
+    // ★ 若当前有进行中的任务，停止被禁用渠道仍在跑的 channel 任务
+    //   （后端标注 errorCode=CHANNEL_DISABLED_BY_USER / errorMessage=用户禁用渠道导致停止任务）
+    const disabledKeys = configData
+      .filter((config) => config && config.enableConfig === false)
+      .map((config) => config.key);
+    if (disabledKeys.length > 0) {
+      store
+        .dispatch("SearchTasks/stopDisabledChannels", { disabledKeys })
+        .then((res) => {
+          if (res && res.stoppedTasks > 0) {
+            notify.warning(`已停止 ${res.stoppedTasks} 个进行中的任务（渠道被禁用）`);
+          }
+        })
+        .catch((e) => console.warn("[AISearch] stopDisabledChannels 失败:", e?.message || e));
     }
   }
 };
@@ -570,7 +724,7 @@ const verifyComponentMapping = () => {
     // 存储映射关系
     mappingResults[key] = {
       componentExists: !!component,
-      componentName: component ? component.name || '未命名组件' : '组件不存在'
+      componentName: component ? component.name || "未命名组件" : "组件不存在"
     };
 
     if (!component) {
@@ -586,18 +740,19 @@ const verifyComponentMapping = () => {
     componentLoadError.value = true;
     errorMessage.value = `无法加载渠道 ${selectedChannel.value} 的组件`;
     console.error(errorMessage.value);
-    console.log('现有渠道映射:', channelComponents);
+    console.log("现有渠道映射:", channelComponents);
     // 尝试从对象上获取信息
-    console.log('渠道键和名称详情:',
-        Object.keys(allChannelStatus.value).map(key => ({
-          key,
-          name: allChannelStatus.value[key].name,
-          matchedComponent: channelComponents[key] ? 'Yes' : 'No'
-        }))
+    console.log(
+      "渠道键和名称详情:",
+      Object.keys(allChannelStatus.value).map((key) => ({
+        key,
+        name: allChannelStatus.value[key].name,
+        matchedComponent: channelComponents[key] ? "Yes" : "No"
+      }))
     );
   } else {
     componentLoadError.value = false;
-    errorMessage.value = '';
+    errorMessage.value = "";
   }
 };
 
@@ -608,7 +763,10 @@ const initializePluginConfig = async () => {
 
   // 依次执行插件配置请求
   let pluginConfigRs = await pluginRequest(pluginBaseConfig.action, pluginBaseConfig);
-  let pluginCookieConfigRs = await pluginRequest(pluginCookieBaseConfig.action, pluginCookieBaseConfig);
+  let pluginCookieConfigRs = await pluginRequest(
+    pluginCookieBaseConfig.action,
+    pluginCookieBaseConfig
+  );
 
   return {
     baseConfigResult: pluginConfigRs,
@@ -618,16 +776,22 @@ const initializePluginConfig = async () => {
 
 // 修改检查插件是否安装函数
 const checkPluginInstalled = async () => {
+  // 客户端模式下：能力由 Electron 客户端提供，不依赖浏览器插件，直接视为已安装
+  if (isElectronClient()) {
+    return true;
+  }
   try {
     // 直接通过初始化插件配置来检查插件是否安装
     const result = await initializePluginConfig();
-    return result &&
-        result.baseConfigResult &&
-        result.cookieConfigResult &&
-        result.baseConfigResult.success &&
-        result.cookieConfigResult.success;
+    return (
+      result &&
+      result.baseConfigResult &&
+      result.cookieConfigResult &&
+      result.baseConfigResult.success &&
+      result.cookieConfigResult.success
+    );
   } catch (error) {
-    console.error('插件检测失败:', error);
+    console.error("插件检测失败:", error);
     // $q.notify({
     //   message: '系统监测到【i快找】浏览器插件异常，请及时安装最新插件！',
     //   color: 'negative',
@@ -642,85 +806,96 @@ const checkChannelLoginStatus = async () => {
   // 并行执行所有渠道的登录检查
   const checkPromises = [
     {
-      key: 'BOSS',
+      key: "BOSS",
       check: async () => {
         try {
           // 使用正确的方法检查登录状态
           const result = await BossJobInfoManager.bossUserStatus();
           return result && pluginBossResultProcessor(result);
         } catch (error) {
-          console.error('BOSS登录检查失败:', error);
+          console.error("BOSS登录检查失败:", error);
           return false;
         }
       }
     },
     {
-      key: 'JOB51',
+      key: "JOB51",
       check: async () => {
         try {
           // 使用正确的方法检查登录状态
           const result = await Job51InfoManager.job51UserStatus();
           return result && pluginJob51ResultProcessor(result);
         } catch (error) {
-          console.error('51Job登录检查失败:', error);
+          console.error("51Job登录检查失败:", error);
           return false;
         }
       }
     },
     {
-      key: 'ZHILIAN',
+      key: "ZHILIAN",
       check: async () => {
         try {
           // 使用正确的方法检查登录状态
           const result = await ZhiLianJobInfoManager.zhiLianUserStatus();
           return result && pluginZhiLianResultProcessor(result);
         } catch (error) {
-          console.error('智联登录检查失败:', error);
+          console.error("智联登录检查失败:", error);
           return false;
         }
       }
     },
     {
-      key: 'LIEPIN',
+      key: "LIEPIN",
       check: async () => {
         try {
           // 使用正确的方法检查登录状态
           const result = await LIEPINJobInfoManager.liePinUserStatus();
           return result && pluginLIEPINResultProcessor(result);
         } catch (error) {
-          console.error('猎聘登录检查失败:', error);
+          console.error("猎聘登录检查失败:", error);
           return false;
         }
       }
     }
   ];
 
+  // BOSS / JOB51 / ZHILIAN 登录态由各自的常驻监视接管时，跳过这里的 checkAuth 判定（避免覆盖监视判定）
+  const bossOwnedByWatcher = store.getters.getBossLoginWatcherActive === true;
+  const job51OwnedByWatcher = store.getters.getJob51LoginWatcherActive === true;
+  const zhilianOwnedByWatcher = store.getters.getZhilianLoginWatcherActive === true;
+  const effectivePromises = checkPromises.filter((p) => {
+    if (p.key === "BOSS" && bossOwnedByWatcher) return false;
+    if (p.key === "JOB51" && job51OwnedByWatcher) return false;
+    if (p.key === "ZHILIAN" && zhilianOwnedByWatcher) return false;
+    return true;
+  });
+
   const results = await Promise.allSettled(
-      checkPromises.map(async ({ key, check }) => {
-        try {
-          const result = await check();
-          const isLoggedIn = result;
+    effectivePromises.map(async ({ key, check }) => {
+      try {
+        const result = await check();
+        const isLoggedIn = result;
 
-          // 更新登录状态
-          store.commit('changeChannelConfLogin', {
+        // 更新登录状态
+        store.commit("changeChannelConfLogin", {
+          key: key,
+          value: isLoggedIn
+        });
+
+        // 如果登录了，不再禁用
+        if (isLoggedIn) {
+          store.commit("changeChannelConfDisable", {
             key: key,
-            value: isLoggedIn
+            value: false
           });
-
-          // 如果登录了，不再禁用
-          if (isLoggedIn) {
-            store.commit('changeChannelConfDisable', {
-              key: key,
-              value: false
-            });
-          }
-
-          return { key, isLoggedIn };
-        } catch (error) {
-          console.error(`${key} 登录状态检查失败:`, error);
-          return { key, isLoggedIn: false };
         }
-      })
+
+        return { key, isLoggedIn };
+      } catch (error) {
+        console.error(`${key} 登录状态检查失败:`, error);
+        return { key, isLoggedIn: false };
+      }
+    })
   );
 
   // console.log('渠道登录状态检查结果:', results);
@@ -730,13 +905,24 @@ const checkChannelLoginStatus = async () => {
 const initPluginAndChannels = async () => {
   // isLoading.value = true;
 
+  // 客户端模式：插件能力由 Electron 主进程的 recruitBridge 提供（见 BasePluginManager 的 ElectronAdapter）。
+  // 跳过浏览器插件版本检测、declarativeNetRequest 规则注册（在主进程启动时已用 webRequest 配置好），
+  // 但仍然需要走 checkChannelLoginStatus 让各招聘站登录态被检测到，并显示在渠道 tab 上。
+  if (isElectronClient()) {
+    store.commit("changePluginInstall", true);
+    // 检查各渠道登录状态：调用方式不变，内部通过 ElectronAdapter 走客户端原生
+    await checkChannelLoginStatus();
+    await forceUpdateChannelView();
+    return;
+  }
+
   // 检查插件安装状态（同时会初始化插件配置）
   const pluginInstalled = await checkPluginInstalled();
   if (!pluginInstalled) {
     // isLoading.value = false;
 
     // 更新插件安装状态
-    store.commit('changePluginInstall', false);
+    store.commit("changePluginInstall", false);
 
     // 使用新的对话框显示插件安装提示
     if (pluginInstallDialogRef.value) {
@@ -746,18 +932,18 @@ const initPluginAndChannels = async () => {
     return;
   } else {
     // 更新插件安装状态为已安装
-    store.commit('changePluginInstall', true);
+    store.commit("changePluginInstall", true);
   }
   //是否需要更新插件
   let pluginUpdateSwitch = await needForceUpdate();
-  console.log('插件是否需要更新：', pluginUpdateSwitch);
+  console.log("插件是否需要更新：", pluginUpdateSwitch);
   currentVersion.value = pluginUpdateSwitch.localVersion;
   latestVersion.value = pluginUpdateSwitch.remoteVersion;
 
   // 根据检测结果设置强制更新开关状态
-  store.commit('setForceUpdateVisible', pluginUpdateSwitch.flag);
+  store.commit("setForceUpdateVisible", pluginUpdateSwitch.flag);
 
-  if(pluginUpdateSwitch.flag){
+  if (pluginUpdateSwitch.flag) {
     // 显示强制更新对话框
     showForceUpdateDialog.value = true;
     return;
@@ -765,7 +951,7 @@ const initPluginAndChannels = async () => {
 
   //设置插件规则
   let ruleConfig = await setDefaultPluginRules();
-  if(!pluginResultProcessor(ruleConfig)){
+  if (!pluginResultProcessor(ruleConfig)) {
     return;
   }
   // 检查各渠道登录状态
@@ -779,24 +965,78 @@ const initPluginAndChannels = async () => {
   // isLoading.value = false;
 };
 
+// 客户端模式下：监听主进程推送的"渠道登录态可能变化"事件，自动刷新对应渠道
+// 解决"启动时已登录但 header 还没抓到"和"用户点前往登录后没自动刷新"两个场景
+let unsubscribeChannelStatus = null;
+const setupClientChannelStatusListener = () => {
+  if (!isElectronClient()) return;
+  const recruitBridge = window.api?.recruitBridge;
+  if (!recruitBridge?.onChannelStatusChanged) return;
+
+  // 用 debounce + 去重，避免短时间内大量 webRequest 抓 header 触发刷新风暴
+  const pendingChannels = new Set();
+  let scheduleTimer = null;
+  const flush = () => {
+    scheduleTimer = null;
+    const channels = Array.from(pendingChannels);
+    pendingChannels.clear();
+    channels.forEach((channel) => {
+      console.log("[AISearch] auto-refresh channel login:", channel);
+      // silent=true：客户端 webRequest 自动触发的后台刷新，不弹 toast 打扰用户
+      refreshChannelLogin(channel, { silent: true }).catch((err) =>
+        console.error("refreshChannelLogin error", channel, err)
+      );
+    });
+  };
+
+  unsubscribeChannelStatus = recruitBridge.onChannelStatusChanged(({ channel }) => {
+    if (!channel) return;
+    pendingChannels.add(channel);
+    if (!scheduleTimer) {
+      scheduleTimer = setTimeout(flush, 300);
+    }
+  });
+};
+
 // 初始化时加载渠道显示
 onMounted(async () => {
+  // 客户端模式：先注册监听器，让 hydrate / openSiteWindow 触发的事件不丢
+  setupClientChannelStatusListener();
+
   // 初始化插件和渠道状态
   await initPluginAndChannels();
 
   // 初始化渠道ref
-  store.commit('changeChannelCardInfoRef', {key: "ALL", value: jobInfoRef.value? jobInfoRef.value:null});
-  store.commit('changeChannelCardInfoRef', {key: "BOSS", value: bossJobInfoRef.value?  bossJobInfoRef.value:null});
-  store.commit('changeChannelCardInfoRef', {key: "ZHILIAN", value: zhiLianInfoRef.value? zhiLianInfoRef.value:null});
-  store.commit('changeChannelCardInfoRef', {key: "LIEPIN", value: liePinInfoRef.value?  liePinInfoRef.value:null});
-  store.commit('changeChannelCardInfoRef', {key: "JOB51", value: job51InfoRef.value?  job51InfoRef.value:null});
-  store.commit('changeChannelCardInfoRef', {key: "Collect", value: collectInfoRef.value?  collectInfoRef.value:null});
+  store.commit("changeChannelCardInfoRef", {
+    key: "ALL",
+    value: jobInfoRef.value ? jobInfoRef.value : null
+  });
+  store.commit("changeChannelCardInfoRef", {
+    key: "BOSS",
+    value: bossJobInfoRef.value ? bossJobInfoRef.value : null
+  });
+  store.commit("changeChannelCardInfoRef", {
+    key: "ZHILIAN",
+    value: zhiLianInfoRef.value ? zhiLianInfoRef.value : null
+  });
+  store.commit("changeChannelCardInfoRef", {
+    key: "LIEPIN",
+    value: liePinInfoRef.value ? liePinInfoRef.value : null
+  });
+  store.commit("changeChannelCardInfoRef", {
+    key: "JOB51",
+    value: job51InfoRef.value ? job51InfoRef.value : null
+  });
+  store.commit("changeChannelCardInfoRef", {
+    key: "Collect",
+    value: collectInfoRef.value ? collectInfoRef.value : null
+  });
 
   // 验证组件映射是否正确
   // verifyComponentMapping();
 
   // 监听窗口大小变化
-  window.addEventListener('resize', updateChannelVisibility);
+  window.addEventListener("resize", updateChannelVisibility);
 
   // 打印渠道信息
   // console.log('渠道状态:', allChannelStatus.value);
@@ -805,15 +1045,27 @@ onMounted(async () => {
   // simulateDataLoading();
 });
 
+// 组件卸载时取消监听
+onUnmounted(() => {
+  if (unsubscribeChannelStatus) {
+    try {
+      unsubscribeChannelStatus();
+    } catch (e) {
+      /* ignore */
+    }
+    unsubscribeChannelStatus = null;
+  }
+});
+
 // 在组件卸载前移除事件监听
 const beforeUnmount = () => {
-  window.removeEventListener('resize', updateChannelVisibility);
+  window.removeEventListener("resize", updateChannelVisibility);
 };
 
 // 更新渠道显示逻辑
 const updateChannelVisibility = () => {
   // 获取渠道容器宽度
-  const containerWidth = document.querySelector('.channel-container')?.offsetWidth || 800;
+  const containerWidth = document.querySelector(".channel-container")?.offsetWidth || 800;
   const tabBarPadding = 20; // 预估的内边距总和
   const moreDropdownWidth = 50; // 更多按钮的宽度
   const availableWidth = containerWidth - tabBarPadding - moreDropdownWidth;
@@ -854,13 +1106,16 @@ const updateChannelVisibility = () => {
 };
 
 // 监听窗口大小变化
-watch(() => $q.screen.width, () => {
-  nextTick(updateChannelVisibility);
-});
+watch(
+  () => $q.screen.width,
+  () => {
+    nextTick(updateChannelVisibility);
+  }
+);
 
 // 切换AI排序
 const toggleAiSort = () => {
-  store.commit('changeAiSortSwitch', {
+  store.commit("changeAiSortSwitch", {
     key: selectedChannel.value,
     value: !aiSort.value
   });
@@ -889,8 +1144,8 @@ const loadMoreData = () => {
 
     $q.notify({
       message: `已为您加载更多${selectedChannel.value}数据`,
-      color: 'positive',
-      icon: 'cloud_download'
+      color: "positive",
+      icon: "cloud_download"
     });
   }, 1500);
 };
@@ -898,23 +1153,23 @@ const loadMoreData = () => {
 // 导出数据
 const exportData = () => {
   $q.notify({
-    message: '数据导出功能开发中',
-    color: 'info',
-    icon: 'info'
+    message: "数据导出功能开发中",
+    color: "info",
+    icon: "info"
   });
 };
 
 // 刷新所有数据
 const toggleBatchMode = () => {
-  store.commit('setResumeBatchMode', !store.getters.getResumeBatchMode);
+  store.commit("setResumeBatchMode", !store.getters.getResumeBatchMode);
 };
 
 // 标记所有为已读
 const markAllAsRead = () => {
   $q.notify({
-    message: '已将所有内容标记为已读',
-    color: 'positive',
-    icon: 'done_all'
+    message: "已将所有内容标记为已读",
+    color: "positive",
+    icon: "done_all"
   });
 };
 
@@ -926,23 +1181,19 @@ const openSettings = () => {
   showSettingsDialog.value = true;
 };
 
-// 监听选中渠道的变化，更新AI排序状态
+// 监听选中渠道的变化
 watch(selectedChannel, (newChannel) => {
-  console.log('选中的渠道改变为:', newChannel);
-  console.log('对应的组件是:', channelComponents[newChannel]);
-
   // 验证组件映射
   verifyComponentMapping();
-
-  const channelInfo = allChannelStatus.value[newChannel];
-  if (channelInfo) {
-    aiSort.value = channelInfo.aiSort || false;
-  }
+  // ⚠️ 不要在这里写 aiSort.value = ...
+  // aiSort 是 computed(() => allChannelStatus.value[selectedChannel.value].aiSort)，
+  // 切 tab 后它会自动重算，手动赋值会触发 "Write operation failed: computed value is readonly"
+  void newChannel; // suppress lint unused warning
 });
 
 // 处理渠道选择
 const handleChannelSelection = (key) => {
-  console.log('手动选择渠道:', key);
+  console.log("手动选择渠道:", key);
 
   // 检查渠道是否被禁用
   // if (getChannelDisable(key)) {
@@ -956,39 +1207,51 @@ const handleChannelSelection = (key) => {
   //   return;
   // }
 
-  console.log('渠道对应组件:', channelComponents[key]);
+  console.log("渠道对应组件:", channelComponents[key]);
 
   // 确保key是有效的
-  if (!key || typeof key !== 'string') {
-    console.error('无效的渠道键:', key);
+  if (!key || typeof key !== "string") {
+    console.error("无效的渠道键:", key);
     return;
   }
 
   // 确保组件存在
   if (!channelComponents[key]) {
-    console.error('找不到渠道对应的组件:', key);
+    console.error("找不到渠道对应的组件:", key);
     return;
   }
 
   // 设置选中渠道
   selectedChannel.value = key;
-  console.log('已设置selectedChannel为:', selectedChannel.value);
+  console.log("已设置selectedChannel为:", selectedChannel.value);
 };
 
 // 执行搜索方法 - 由父组件调用
-const executeSearch = async (searchState) => {
-  //检查插件安装
-  if (!pluginInstalled.value) {
+//
+// @param {Object} searchState
+// @param {Object} [opts]
+// @param {Object} [opts.searchRequestData]
+//   外部（IndexPage.handleAggregateSearch 里的 prepareConditionOnly）已经 saveCondition
+//   拿到的 data。传了就**跳过内部第二次 saveCondition**（避免 Network 出现两次 saveCondition：
+//   一次来自 prepareConditionOnly、一次来自 executeSearch）。
+//   data 形态：saveCondition 响应的 data，含 id / channelSearchConditions 等。
+const executeSearch = async (searchState, opts = {}) => {
+  console.log(
+    "[AISearch] executeSearch 被调用！调用栈：",
+    new Error().stack?.split("\n").slice(1, 4).join(" | ")
+  );
+  //检查插件安装（客户端模式下跳过）
+  if (!pluginInstalled.value && !isElectronClient()) {
     pluginInstallDialogRef.value.openDialog();
     return;
   }
   //检测强制更新
-  if(forceUpdateVisible.value){
+  if (forceUpdateVisible.value) {
     showForceUpdateDialog.value = true;
-    return
+    return;
   }
   //打开监视器
-  store.commit('openQueueMonitor');
+  store.commit("openQueueMonitor");
 
   isLoading.value = true;
   hasData.value = false;
@@ -998,69 +1261,104 @@ const executeSearch = async (searchState) => {
     if (isLoading.value) {
       isLoading.value = false;
       $q.notify({
-        message: '搜索超时，请稍后再试',
-        color: 'warning',
-        icon: 'timer_off',
-        position: 'top'
+        message: "搜索超时，请稍后再试",
+        color: "warning",
+        icon: "timer_off",
+        position: "top"
       });
     }
   }, 15000);
 
   try {
     // console.log('AISearch接收到搜索状态:', searchState);
-    let channels = allThirdPartyChannelConfig.value.filter((channel) => channel.login&&getChannelDisable(channel.key)).map((item) => (item.name))||[];
-    if(!(channels&&channels.length>0)){
+    let channels =
+      allThirdPartyChannelConfig.value
+        .filter((channel) => channel.login && getChannelDisable(channel.key))
+        .map((item) => item.name) || [];
+    if (!(channels && channels.length > 0)) {
       notify.info("没有可查询渠道");
       return;
     }
-    // 获取搜索条件请求对象
-    let searchConditionRequest = getSearchConditionRequest(searchState,channels);
-    // console.log('搜索参数:', searchConditionRequest);
-    // 保存搜索条件到后端
+    // 获取 / 复用 searchRequestData：
+    //   - opts.searchRequestData 传了 → 复用（prepareConditionOnly 已经 saveCondition 过了）
+    //   - 没传 → 走原来内部 saveCondition 路径（向后兼容）
     let searchRequestData;
-    try {
-      const {data} = await saveCondition(searchConditionRequest);
-      data.config = [];
-      searchRequestData = data;
-
-      // 构建分页信息
-      if(data.channelSearchConditions) {
-        data.channelSearchConditions.forEach((item) => {
-          data.config.push({
-            channelDataTotal: 0,
-            channelPage: 0,
-            channelCountSize: 0,
-            totalPage: 0,
-            channelKey: item.channel
-          });
-        });
-        store.commit('setPageConfigData', {key: 'ALL', config: {
-            channelDataTotal: 0,
-            channelPage: 0,
-            channelCountSize: 0,
-            totalPage: 0,
-            channelKey: 'ALL'
-          }});
+    if (opts && opts.searchRequestData && opts.searchRequestData.id) {
+      console.log(
+        `[AISearch] executeSearch 复用外部 searchRequestData (跳过内部 saveCondition) id=${opts.searchRequestData.id}`
+      );
+      searchRequestData = opts.searchRequestData;
+      // 复用路径仍要清空聚合数据 + queue（保证本次搜索从干净的状态开始）
+      try {
+        store.commit("changeChannelConfData", { key: "ALL", value: [] });
+        asyncTaskQueueManager.clearAllQueues();
+      } catch (_e) {
+        /* ignore */
       }
+    } else {
+      const searchConditionRequest = getSearchConditionRequest(searchState, channels);
+      try {
+        const { data } = await saveCondition(searchConditionRequest);
+        data.config = [];
+        searchRequestData = data;
 
-      // 保存搜索条件到 store
-      store.commit('changeSearchChannelConditionRequestData', data);
-      store.commit('changeSearchConditionId', searchRequestData.id);
-      //清空聚合渠道数据
-      store.commit('changeChannelConfData', {key: 'ALL', value: []});
-      //清空正在执行的任务
-      asyncTaskQueueManager.clearAllQueues();
-    } catch (e) {
-      console.error('保存搜索条件失败:', e);
-      $q.notify({
-        message: '后端服务异常，请联系管理员',
-        color: 'negative',
-        icon: 'error'
-      });
-      isLoading.value = false;
-      // 清除定时器
-      clearTimeout(timeoutId);
-      return;
+        // ★ 写入条件缓存（按 searchConditionId 永久存到 localStorage）
+        //   用于 current 拉的任务下次跑时跳过 saveCondition。
+        //   详见 src/util/searchConditionCache.js
+        //
+        //   TODO: 等后端提供 `GET /search/getConditionById?id=xxx` 接口
+        //   （返回结构跟 saveCondition data 同构），本地缓存就可以删掉，
+        //   改成 runTask 内部按 condId 调接口反查。
+        if (searchRequestData?.id) {
+          try {
+            setConditionCache(searchRequestData.id, searchRequestData);
+          } catch (_e) {
+            /* 缓存写入失败不影响主流程 */
+          }
+        }
+
+        // 构建分页信息
+        if (data.channelSearchConditions) {
+          data.channelSearchConditions.forEach((item) => {
+            data.config.push({
+              channelDataTotal: 0,
+              channelPage: 0,
+              channelCountSize: 0,
+              totalPage: 0,
+              channelKey: item.channel
+            });
+          });
+          store.commit("setPageConfigData", {
+            key: "ALL",
+            config: {
+              channelDataTotal: 0,
+              channelPage: 0,
+              channelCountSize: 0,
+              totalPage: 0,
+              channelKey: "ALL"
+            }
+          });
+        }
+
+        // 保存搜索条件到 store
+        store.commit("changeSearchChannelConditionRequestData", data);
+        store.commit("changeSearchConditionId", searchRequestData.id);
+        //清空聚合渠道数据
+        store.commit("changeChannelConfData", { key: "ALL", value: [] });
+        //清空正在执行的任务
+        asyncTaskQueueManager.clearAllQueues();
+      } catch (e) {
+        console.error("保存搜索条件失败:", e);
+        $q.notify({
+          message: "后端服务异常，请联系管理员",
+          color: "negative",
+          icon: "error"
+        });
+        isLoading.value = false;
+        // 清除定时器
+        clearTimeout(timeoutId);
+        return;
+      }
     }
 
     // 根据当前选中的渠道执行不同的搜索策略
@@ -1069,17 +1367,48 @@ const executeSearch = async (searchState) => {
 
       // 使用 Promise.all 等待所有渠道并行执行完毕
       try {
+        // ★ 调用搜索方法之前先检查登录态：本任务启用的渠道里若有未登录的，
+        //   弹顶部「渠道异常」banner + 停当前搜索任务（不 finish，等重新登录后 current 轮询会再次触发），
+        //   不再"静默只搜已登录渠道"。登录态由各渠道登录监视轮询维护（channel.login）。
+        const enabledChannels = allThirdPartyChannelConfig.value.filter((channel) =>
+          getChannelDisable(channel.key)
+        );
+        const notLoggedIn = enabledChannels.filter((channel) => channel.login !== true);
+        if (notLoggedIn.length > 0) {
+          const guard = await import("src/util/channelLoginGuard");
+          notLoggedIn.forEach((channel) => guard.markChannelExpired(store, channel.key));
+          try {
+            await store.dispatch("SearchTasks/stopForChat", {
+              chatId: chatId.value,
+              skipFinish: true
+            });
+          } catch (e) {
+            console.warn("[AISearch] executeSearch: 未登录停任务失败:", e?.message || e);
+          }
+          notify.warning(
+            `${notLoggedIn.map((c) => c.name).join("、")} 未登录，已暂停搜索，请重新登录后重试`
+          );
+          isLoading.value = false;
+          clearTimeout(timeoutId);
+          return;
+        }
+
         // 先检查每个ref是否存在且有channelSearch方法
         const promises = [];
 
         // 过滤已登录的渠道
-        const loggedInChannels = allThirdPartyChannelConfig.value.filter(channel => channel.login);
+        const loggedInChannels = allThirdPartyChannelConfig.value.filter(
+          (channel) => channel.login
+        );
 
         // 遍历已登录的渠道执行搜索
-        loggedInChannels.forEach(channel => {
+        loggedInChannels.forEach((channel) => {
           // 使用channel.cardInfoRef直接访问引用
-          if (channel.cardInfoRef && channel.cardInfoRef &&
-              typeof channel.cardInfoRef.channelSearch === 'function') {
+          if (
+            channel.cardInfoRef &&
+            channel.cardInfoRef &&
+            typeof channel.cardInfoRef.channelSearch === "function"
+          ) {
             promises.push(channel.cardInfoRef.channelSearch(searchRequestData));
           } else {
             console.warn(`${channel.name}渠道组件不存在或channelSearch方法未定义`);
@@ -1089,38 +1418,37 @@ const executeSearch = async (searchState) => {
         // 执行所有有效的promise
         if (promises.length > 0) {
           await Promise.all(promises);
-          console.log('所有渠道搜索完成');
+          console.log("所有渠道搜索完成");
         } else {
-          console.warn('没有可执行的渠道搜索方法');
+          console.warn("没有可执行的渠道搜索方法");
         }
 
         // 渠道执行完毕后，执行 JobInfo 的逻辑
-        if (jobInfoRef.value && typeof jobInfoRef.value.channelSearch === 'function') {
+        if (jobInfoRef.value && typeof jobInfoRef.value.channelSearch === "function") {
           await jobInfoRef.value.channelSearch(1);
         } else {
-          console.warn('JobInfo组件不存在或search方法未定义');
+          console.warn("JobInfo组件不存在或search方法未定义");
         }
       } catch (channelError) {
-        console.error('渠道搜索执行错误:', channelError);
+        console.error("渠道搜索执行错误:", channelError);
       }
     } catch (error) {
-      console.error('搜索执行错误:', error);
+      console.error("搜索执行错误:", error);
       $q.notify({
-        message: '搜索执行过程中发生错误',
-        color: 'warning',
-        icon: 'warning'
+        message: "搜索执行过程中发生错误",
+        color: "warning",
+        icon: "warning"
       });
     }
 
     // 搜索完成后设置数据状态
     hasData.value = true;
-
   } catch (error) {
-    console.error('搜索执行错误:', error);
+    console.error("搜索执行错误:", error);
     $q.notify({
-      message: '搜索执行失败，请稍后再试',
-      color: 'negative',
-      icon: 'error'
+      message: "搜索执行失败，请稍后再试",
+      color: "negative",
+      icon: "error"
     });
     hasData.value = false;
   } finally {
@@ -1131,17 +1459,29 @@ const executeSearch = async (searchState) => {
 };
 
 //获取搜索条件
-const getSearchConditionRequest = (data,channels) => {
-  const copyData = JSON.parse(JSON.stringify(data))
+const getSearchConditionRequest = (data, channels) => {
+  const copyData = JSON.parse(JSON.stringify(data));
   const searchDto = copyData;
   //处理工作年限边界
   const workElSliderValue = searchDto.workElSliderValue;
-  workElSliderValue.min = (workElSliderValue.min <=0||workElSliderValue.min >10) ? workElSliderValue.min = -1 : workElSliderValue.min;
-  workElSliderValue.max = (workElSliderValue.max <=0||workElSliderValue.max >10) ? workElSliderValue.max = -1 : workElSliderValue.max;
+  workElSliderValue.min =
+    workElSliderValue.min <= 0 || workElSliderValue.min > 10
+      ? (workElSliderValue.min = -1)
+      : workElSliderValue.min;
+  workElSliderValue.max =
+    workElSliderValue.max <= 0 || workElSliderValue.max > 10
+      ? (workElSliderValue.max = -1)
+      : workElSliderValue.max;
   //处理年龄边界
   const ageElSliderValue = searchDto.ageElSliderValue;
-  ageElSliderValue.min = (ageElSliderValue.min <=15||ageElSliderValue.min >50) ? ageElSliderValue.min = -1 : ageElSliderValue.min;
-  ageElSliderValue.max = (ageElSliderValue.max <=15||ageElSliderValue.max >50) ? ageElSliderValue.max = -1 : ageElSliderValue.max;
+  ageElSliderValue.min =
+    ageElSliderValue.min <= 15 || ageElSliderValue.min > 50
+      ? (ageElSliderValue.min = -1)
+      : ageElSliderValue.min;
+  ageElSliderValue.max =
+    ageElSliderValue.max <= 15 || ageElSliderValue.max > 50
+      ? (ageElSliderValue.max = -1)
+      : ageElSliderValue.max;
   //用户id
   // searchState.value.userId=1;
   //处理其他参数
@@ -1152,27 +1492,111 @@ const getSearchConditionRequest = (data,channels) => {
   searchConditionRequest.ageFrom = ageElSliderValue.min;
   searchConditionRequest.ageTo = ageElSliderValue.max;
   //用户信息
-  searchConditionRequest.userId=userInfo.value.id;
-  searchConditionRequest.chatId=chatId.value;
+  searchConditionRequest.userId = userInfo.value.id;
+  searchConditionRequest.chatId = chatId.value;
   return searchConditionRequest;
-}
+};
 
+/**
+ * 把 selectedChannel 重置到渠道聚合 tab（'ALL'）。
+ * 仅改响应式值，不 dispatch resize（resize 会触发 updateChannelVisibility 重建 tab，导致 indicator 漂移）。
+ */
+const resetToAggregateTab = async () => {
+  console.log(
+    "[AISearch] resetToAggregateTab 被调用，当前 selectedChannel=",
+    selectedChannel.value
+  );
+  selectedChannel.value = "ALL";
+  await nextTick();
+  console.log("[AISearch] resetToAggregateTab 完成，selectedChannel=", selectedChannel.value);
+};
+
+/**
+ * 轻量版 saveCondition：只把搜索条件保存到后端、commit searchConditionId，
+ * **不清 ALL.data、不抓数据**。
+ *
+ * 用途：A 任务跑期间用户在 B 上创建新任务，B 这边只需要 condId 让 SearchTasks/create
+ * 把任务入库给后端排队，等 A 跑完后队列轮到 B，那时 runTask 的 executor 才真正去抓数据。
+ * 这条路径避免清掉 A 还在收集的 ALL.data。
+ *
+ * @returns {Promise<{ok: boolean, conditionId?: string, message?: string}>}
+ */
+const prepareConditionOnly = async () => {
+  try {
+    let channels =
+      allThirdPartyChannelConfig.value
+        .filter((channel) => channel.login && getChannelDisable(channel.key))
+        .map((item) => item.name) || [];
+    if (!(channels && channels.length > 0)) {
+      return { ok: false, message: "没有可查询渠道" };
+    }
+    const searchConditionRequest = getSearchConditionRequest(searchState.value, channels);
+    const { data } = await saveCondition(searchConditionRequest);
+    data.config = [];
+    if (data.channelSearchConditions) {
+      data.channelSearchConditions.forEach((item) => {
+        data.config.push({
+          channelDataTotal: 0,
+          channelPage: 0,
+          channelCountSize: 0,
+          totalPage: 0,
+          channelKey: item.channel
+        });
+      });
+      // 跟 executeSearch 保持一致：把 ALL 那条 pageConfig 也设上，
+      // 让后续 executeSearch 复用同一份 data 时不缺这一段
+      store.commit("setPageConfigData", {
+        key: "ALL",
+        config: {
+          channelDataTotal: 0,
+          channelPage: 0,
+          channelCountSize: 0,
+          totalPage: 0,
+          channelKey: "ALL"
+        }
+      });
+    }
+    store.commit("changeSearchChannelConditionRequestData", data);
+    store.commit("changeSearchConditionId", data.id);
+
+    // ★ 写入条件缓存（按 searchConditionId 永久存到 localStorage）
+    //   跟 executeSearch saveCondition 分支保持一致，详见 src/util/searchConditionCache.js
+    if (data?.id) {
+      try {
+        setConditionCache(data.id, data);
+      } catch (_e) {
+        /* 缓存写入失败不影响主流程 */
+      }
+    }
+
+    console.log("[AISearch] prepareConditionOnly 完成，conditionId=", data.id);
+    // 返回完整 data：caller (IndexPage.handleAggregateSearch) 可以把它传给 executeSearch
+    // 让 executeSearch 跳过内部第二次 saveCondition（避免 Network 上重复出现）
+    return { ok: true, conditionId: data.id, data };
+  } catch (e) {
+    console.error("[AISearch] prepareConditionOnly 失败:", e?.message || e);
+    return { ok: false, message: e?.message || String(e) };
+  }
+};
 
 // 暴露给父组件的方法
 defineExpose({
-  executeSearch
+  executeSearch,
+  resetToAggregateTab,
+  prepareConditionOnly
 });
 const env = process.env.NODE_ENV;
 // 在适当位置添加以下代码
 // const showQueueMonitor = ref(env === 'development'); // 控制队列监视器的显示与隐藏
-const showQueueMonitor = computed(() => store.getters.getShowQueueMonitor);
+// 客户端模式下不显示「AI任务状态监视器」：进到搜索结果列表时任务已完成，无需再展示队列监视器。
+const showQueueMonitor = computed(() => store.getters.getShowQueueMonitor && !isElectronClient());
 
 // 处理未读状态变化
+// ★ 只做本地筛选：onlyShowUnread 的 v-model 已经把状态写进 store(getUnreadCheckBoxV)，
+//   ResumeList.filteredResumes 会按它实时过滤显示。**不再触发 executeSearch 重新搜索** ——
+//   否则在「查看结果」等无登录渠道场景会误报「没有可查询渠道」，而其实列表已筛选好。
 const handleUnreadChange = (value) => {
-  console.log('未读状态变更为:', value,store.getters.getUnreadCheckBoxV);
-  // store.commit('changeUnreadCheckBoxV', value);
-  // console.log(searchState.value)
-  executeSearch(searchState.value);
+  console.log("未读筛选切换:", value, "→ 仅本地过滤，不重新搜索");
 };
 
 // 添加强制更新渠道视图的辅助方法
@@ -1185,11 +1609,11 @@ const forceUpdateChannelView = async () => {
 
   // 重新构建渠道列表
   let allChannels = Object.entries(latestChannelStatus)
-      .filter(([key]) => !(key === 'ALL' || key === 'Collect'))
-      .map(([key, channel]) => ({ ...channel }));
+    .filter(([key]) => !(key === "ALL" || key === "Collect"))
+    .map(([key, channel]) => ({ ...channel }));
 
   // 根据可用空间分配渠道
-  const containerWidth = document.querySelector('.channel-container')?.offsetWidth || 800;
+  const containerWidth = document.querySelector(".channel-container")?.offsetWidth || 800;
   const tabBarPadding = 20;
   const moreDropdownWidth = 50;
   const availableWidth = containerWidth - tabBarPadding - moreDropdownWidth;
@@ -1214,25 +1638,56 @@ const forceUpdateChannelView = async () => {
   await nextTick();
 };
 
-// 添加刷新渠道登录状态的方法
-const refreshChannelLogin = async (key) => {
+/**
+ * 刷新渠道登录状态
+ * @param {string} key  渠道 key（BOSS / ZHILIAN / JOB51 / LIEPIN）
+ * @param {{silent?: boolean}} opts
+ *   silent=true 时不弹 toast（用于客户端 webRequest 自动触发的静默更新；
+ *   手动点刷新按钮时不传，默认 false 会弹 toast）
+ */
+const refreshChannelLogin = async (key, opts = {}) => {
+  const silent = !!opts.silent;
+
+  // BOSS / JOB51 登录态由各自常驻监视接管时，跳过静默 checkAuth 刷新：
+  // 否则监视判定的登录态会被这里 checkAuth 的偶发结果冲掉，导致 header 不更新。
+  // 静默刷新主要由 header 抓取事件自动触发，是主要的覆盖来源；手动点刷新（silent=false）仍放行。
+  if (silent && key === "BOSS" && store.getters.getBossLoginWatcherActive === true) {
+    console.log("[AISearch] refreshChannelLogin: BOSS 由常驻监视接管，跳过静默 checkAuth 刷新");
+    return;
+  }
+  if (silent && key === "JOB51" && store.getters.getJob51LoginWatcherActive === true) {
+    console.log("[AISearch] refreshChannelLogin: JOB51 由轮询监视接管，跳过静默 checkAuth 刷新");
+    return;
+  }
+  if (silent && key === "ZHILIAN" && store.getters.getZhilianLoginWatcherActive === true) {
+    console.log("[AISearch] refreshChannelLogin: ZHILIAN 由轮询监视接管，跳过静默 checkAuth 刷新");
+    return;
+  }
 
   try {
     let result = false;
 
     // 根据渠道类型执行不同的登录检查逻辑
     switch (key) {
-      case 'BOSS':
-        result = await BossJobInfoManager.bossUserStatus().then(res => res && pluginBossResultProcessor(res));
+      case "BOSS":
+        result = await BossJobInfoManager.bossUserStatus().then(
+          (res) => res && pluginBossResultProcessor(res)
+        );
         break;
-      case 'JOB51':
-        result = await Job51InfoManager.job51UserStatus().then(res => res && pluginJob51ResultProcessor(res));
+      case "JOB51":
+        result = await Job51InfoManager.job51UserStatus().then(
+          (res) => res && pluginJob51ResultProcessor(res)
+        );
         break;
-      case 'ZHILIAN':
-        result = await ZhiLianJobInfoManager.zhiLianUserStatus().then(res => res && pluginZhiLianResultProcessor(res));
+      case "ZHILIAN":
+        result = await ZhiLianJobInfoManager.zhiLianUserStatus().then(
+          (res) => res && pluginZhiLianResultProcessor(res)
+        );
         break;
-      case 'LIEPIN':
-        result = await LIEPINJobInfoManager.liePinUserStatus().then(res => res && pluginLIEPINResultProcessor(res));
+      case "LIEPIN":
+        result = await LIEPINJobInfoManager.liePinUserStatus().then(
+          (res) => res && pluginLIEPINResultProcessor(res)
+        );
         break;
       default:
         console.warn(`未知渠道: ${key}`);
@@ -1240,14 +1695,14 @@ const refreshChannelLogin = async (key) => {
     }
 
     // 更新渠道登录状态
-    store.commit('changeChannelConfLogin', {
+    store.commit("changeChannelConfLogin", {
       key: key,
       value: result
     });
 
     // 如果登录了，不再禁用
     if (result) {
-      store.commit('changeChannelConfDisable', {
+      store.commit("changeChannelConfDisable", {
         key: key,
         value: false
       });
@@ -1256,16 +1711,21 @@ const refreshChannelLogin = async (key) => {
     // 强制更新渠道视图
     await forceUpdateChannelView();
 
-    // 显示结果通知
-    $q.notify({
-      message: result
-          ? `${allChannelStatus.value[key]?.name || key} 已成功登录`
-          : `${allChannelStatus.value[key]?.name || key} 未登录，请先在浏览器中登录该网站`,
-      color: result ? 'positive' : 'gray',
-      icon: result ? 'check_circle' : 'warning',
-      position: 'top',
-      timeout: 1500
-    });
+    // 静默刷新不弹 toast（客户端自动触发场景）
+    if (!silent) {
+      const channelName = allChannelStatus.value[key]?.name || key;
+      // 客户端模式下用户应该"在客户端的新 tab 里登录"，不是浏览器
+      const failHint = isElectronClient()
+        ? `${channelName} 未登录，请点击顶部「${channelName}」按钮在客户端中登录`
+        : `${channelName} 未登录，请先在浏览器中登录该网站`;
+      $q.notify({
+        message: result ? `${channelName} 已成功登录` : failHint,
+        color: result ? "positive" : "gray",
+        icon: result ? "check_circle" : "warning",
+        position: "top",
+        timeout: 1500
+      });
+    }
 
     return result;
   } catch (error) {
@@ -1274,23 +1734,28 @@ const refreshChannelLogin = async (key) => {
     // 显示错误通知
     $q.notify({
       message: `${allChannelStatus.value[key]?.name || key} 登录状态检查失败`,
-      color: 'negative',
-      icon: 'error',
-      position: 'top',
+      color: "negative",
+      icon: "error",
+      position: "top",
       timeout: 3000
     });
 
     return false;
   } finally {
-    // 关闭加载提示
-    loadingNotify.dismiss();
+    // 关闭加载提示（仅在非 silent 模式下创建过；silent 模式下根本没有 loadingNotify 这个变量）
+    // 兼容历史代码：用 typeof 守护，避免 ReferenceError
+    try {
+      if (typeof loadingNotify !== "undefined" && loadingNotify) loadingNotify.dismiss();
+    } catch (_e) {
+      /* noop */
+    }
   }
 };
 
 // 添加强制更新对话框的更新处理函数
 const handleForceUpdate = () => {
-  // 打开插件安装对话框
-  if (pluginInstallDialogRef.value) {
+  // 客户端模式下：跳过浏览器插件相关弹窗
+  if (!isElectronClient() && pluginInstallDialogRef.value) {
     pluginInstallDialogRef.value.openDialog();
   }
   // 隐藏强制更新对话框
@@ -1307,7 +1772,7 @@ const setTooltipRef = (el, key) => {
 // 隐藏tab tooltip
 const hideTabTooltip = (key) => {
   const tooltip = tooltipRefs.value[key];
-  if (tooltip && typeof tooltip.hide === 'function') {
+  if (tooltip && typeof tooltip.hide === "function") {
     tooltip.hide();
   }
 };
@@ -1315,7 +1780,7 @@ const hideTabTooltip = (key) => {
 // 显示tab tooltip
 const showTabTooltip = (key) => {
   const tooltip = tooltipRefs.value[key];
-  if (tooltip && typeof tooltip.show === 'function') {
+  if (tooltip && typeof tooltip.show === "function") {
     tooltip.show();
   }
 };

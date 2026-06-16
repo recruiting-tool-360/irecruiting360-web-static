@@ -48,6 +48,22 @@ const errorAlert = (title, message) => {
     notify.error(message || title);
 }
 
+/**
+ * "登录态过期 / token 失效"业务错误判定：success!=='success' + errorMessage 含 'token'
+ *   - 客户端模式 → 拦截，弹 IhrAuthModal（i 人事登录授权弹框）
+ *   - 浏览器模式 → redirectToLogin 内部仍然走 /login 跳转
+ *
+ * 典型后端响应：
+ *   { success: 'fail', errorCode: 'USER_001', errorMessage: '未能读取到有效 token' }
+ *
+ * 跟通用业务失败区分：业务失败弹"服务异常"通用提示，token 失效弹登录授权框，UX 更准确。
+ */
+function isTokenInvalidError(responseData) {
+  if (!responseData || responseData.success === 'success') return false;
+  const msg = String(responseData.errorMessage || '').toLowerCase();
+  return msg.includes('token');
+}
+
 //校验结果集
 const validateError=(responseData)=>{
 //响应结果
@@ -55,8 +71,39 @@ const validateError=(responseData)=>{
         if(responseData.success==='success'){
             return responseData;
         }else{
-            console.log("服务异常,请联系管理员")
-            errorAlert("服务异常","请联系管理员");
+            // 业务侧失败：把后端真实响应打到 console，方便排查（拦截器之前只 log 通用文案，
+            // 业务方拿到的是 undefined，看不到 code/message/data 之类的具体错误原因）
+            console.warn(
+              '[request.js] 后端业务失败 success!==success | 完整响应=',
+              responseData
+            );
+
+            // token 失效 → 弹 IhrAuthModal 让用户重新授权（客户端模式）
+            // 浏览器模式 redirectToLogin 内部跳 /login
+            if (isTokenInvalidError(responseData)) {
+              console.warn(
+                '[request.js] 检测到 token 失效，触发 redirectToLogin',
+                { errorCode: responseData.errorCode, errorMessage: responseData.errorMessage }
+              );
+              // 动态 import 避免顶层循环依赖（redirectToLogin 内部 dynamic import store）
+              import("../util/redirectToLogin").then((m) => {
+                const fn = m.redirectToLogin || m.default;
+                if (typeof fn === 'function') {
+                  fn({ reason: `api_token_invalid:${responseData.errorCode || ''}` });
+                }
+              }).catch((e) => {
+                console.warn('[request.js] 加载 redirectToLogin 异常:', e?.message || e);
+              });
+              // 不再额外弹"服务异常"通用提示，避免双 notify 干扰
+              return;
+            }
+
+            // ★ 其它业务失败：把完整 envelope（含 errorCode/errorMessage）返回给调用方，
+            //   不再吞成 undefined。让业务侧按上下文给精准提示（如"任务创建失败：当前排队
+            //   任务已达 20 个…"），而不是泛泛的"服务异常/请联系管理员"。
+            //   （之前 return undefined → SearchTasks.create 拿不到 errorMessage →
+            //     只能 fallback 到"createSearchTask 返回缺少 taskId"）
+            return responseData;
         }
     }else{
         console.log("服务异常,请联系管理员")

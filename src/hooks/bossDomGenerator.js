@@ -36,13 +36,20 @@ export function bossDomGenerator() {
     }`
 
   // 生成Boss简历完整页面
-  const generateBossResume = async(resumeJsonStr) => {
+  // overrideName：来自推荐/搜索列表的**真实姓名**（如「陈俊胜」）。BOSS 详情接口里 baseInfo.name 是
+  //   打码的「陈**」→ formatName 后变「陈先生」，后端解析简历正文拿到的就是「陈先生」。
+  //   这里用列表里的真实姓名覆盖正文姓名，保证加入人才库后显示真实姓名。
+  const generateBossResume = async(resumeJsonStr, overrideName) => {
     const config = getResumeFileConfig();
     
     try {
       const data = JSON.parse(resumeJsonStr);
       const { geekDetail } = data;
       const baseInfo = geekDetail.geekBaseInfo;
+      // 真实姓名优先（非空、且不是打码的「**」）；否则回退详情里的（可能打码的）姓名
+      const realName =
+        overrideName && !String(overrideName).includes('**') ? String(overrideName).trim() : '';
+      const displayName = realName || formatName(baseInfo);
       const workExpList = geekDetail.geekWorkExpList;
       const projExpList = geekDetail.geekProjExpList;
       const eduExpList = geekDetail.geekEduExpList;
@@ -60,7 +67,7 @@ export function bossDomGenerator() {
             </div>
             <div style="margin-left: 20px;flex:1;">
               <div>
-                <span style="font-size: 20px;color: #1f262e;">${formatName(baseInfo)}</span>
+                <span style="font-size: 20px;color: #1f262e;">${displayName}</span>
                 <span style="color: #363f4d;margin: 0 4px;">${baseInfo.gender === 1 ? '男' : '女'}</span>
               </div>
               <div style="margin-top: 6px;">
@@ -326,9 +333,9 @@ export function bossDomGenerator() {
     performanceMonitor.start('htmlGeneration');
     console.log('开始生成HTML文件...');
     
-    // 生成HTML内容
+    // 生成HTML内容（把列表里的真实姓名透传进去覆盖正文打码姓名）
     const htmlContents = await Promise.all(result.data.map(async (item) => {
-      const html = await generateBossResume(item.content);
+      const html = await generateBossResume(item.content, maps[item.resumeBlindId]?.name);
       return {
         html,
         id: item.resumeBlindId,
@@ -415,7 +422,7 @@ export function bossDomGenerator() {
       console.log(`处理第${Math.floor(i/batchSize) + 1}批HTML，共${Math.ceil(result.data.length/batchSize)}批`);
       
       const batchHtmls = await Promise.all(batch.map(async (item) => {
-        const html = await generateBossResume(item.content);
+        const html = await generateBossResume(item.content, maps[item.resumeBlindId]?.name);
         return {
           html,
           id: item.resumeBlindId,

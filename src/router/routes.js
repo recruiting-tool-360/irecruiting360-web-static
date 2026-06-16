@@ -24,6 +24,14 @@ const routes = [
     component: () => import('pages/login/SSOLogin2.vue')
   },
   {
+    // i 人事新版 iframe 嵌入此 URL：访问即触发"打开客户端"逻辑（带 SSO payload 走 deep link）
+    // 老 /sso-login 路由不变，作为浏览器 + 插件兜底通道继续保留
+    // 包含 6 个状态：waiting-init / launching / succeeded / intro / downloading / completed
+    // 详见 docs/client-launcher-flow.md
+    path: '/client-launcher',
+    component: () => import('pages/login/ClientLauncher.vue')
+  },
+  {
     path: '/logout',
     component: () => import('pages/login/Logout.vue')
   },

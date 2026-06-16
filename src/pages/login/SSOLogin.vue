@@ -1,5 +1,6 @@
 <template>
   <div class="sso-login-container">
+    <!-- 兜底 UI：登录中断时显示重试按钮 -->
     <div class="login-content">
       <h1 class="text-h4 text-primary q-mb-lg">SSO 登录</h1>
 
@@ -7,29 +8,48 @@
         <q-card-section class="text-center">
           <p class="text-body1">登录过程被中断或发生错误</p>
           <div class="q-mt-md">
-            <q-btn color="primary" label="重试" @click="handleSSOLogin(iframeParams)" class="q-mr-md" />
+            <q-btn
+              color="primary"
+              label="重试"
+              @click="handleSSOLogin(iframeParams)"
+              class="q-mr-md"
+              :disable="!iframeParams"
+            />
             <q-btn color="primary" label="返回登录页" to="/login" />
           </div>
         </q-card-section>
       </q-card>
     </div>
 
+    <!-- 进行中遮罩 -->
     <div class="loading-overlay" v-if="loading">
       <q-spinner color="primary" size="3em" />
       <div class="text-subtitle1 q-mt-sm text-white">正在登录中，请稍候...</div>
-<!--      <q-btn flat color="white" label="取消" class="q-mt-md" @click="cancelLogin" />-->
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref, onUnmounted, getCurrentInstance, unref } from 'vue';
+/**
+ * SSO 登录页（保持原行为，i 人事老 URL https://login.ihire365.com/sso-login 仍然命中此页）。
+ *
+ * 三种触发场景，对应三条入口：
+ *   A. 浏览器 / i 人事 iframe：iframeMsg.on('init') → handleSSOLogin
+ *   B. Electron 客户端被 deep link 唤起后加载本页：onMounted 时通过 handover.getPendingPayload 读 payload → handleSSOLogin
+ *   C. Electron 客户端运行中再次收到 deep link：handover.onDeepLink 监听器触发 → handleSSOLogin
+ *
+ * 三条路径都把数据组装成同一个 fakeInitMessage 形态，复用 handleSSOLogin，业务逻辑零分叉。
+ */
+import { onMounted, ref, onUnmounted, getCurrentInstance } from 'vue';
 import { useRouter } from 'vue-router';
 import { generateSsoToken, ssoLogin, getUserInfo } from 'src/api/user/UserApi';
 import { createChat } from 'src/api/chat/ChatApi';
+import { fetchJdMapForPositions } from 'src/util/positionJdFetcher';
 import { useStore } from 'vuex';
 import notify from 'src/util/notify';
-import Cookies from 'js-cookie'
+import Cookies from 'js-cookie';
+
+import { isElectronClient } from 'src/util/openChannelLoginUrl';
 
 const router = useRouter();
 const store = useStore();
@@ -38,40 +58,61 @@ const iframeParams = ref(null);
 const { proxy } = getCurrentInstance();
 const iframeMsg = proxy.$iframeMessenger;
 
-// 初始化
-iframeMsg.on("init", (data, context) => {
-  if(context.from !== "ihr-recruit-assistant") return
+// ====== 入口 A：iframe init 消息（i 人事 iframe 嵌入老 URL 时） ======
+//
+// ⚠️ 仅在浏览器/iframe 模式下挂载！
+//
+// 客户端模式下 deep link payload 通过入口 B/C 进入流程，再由 runFromDeepLinkPayload
+// 调 iframeMsg.injectInit() 灌给 shim。shim 会 emit 'init' 给业务（MainLayout 等），
+// 但 SSOLogin 自己**不能**再监听 init，否则会触发"SSO 流程跑两次"的死循环
+// （shim 把 from 伪装为 'ihr-recruit-assistant' 通过校验 → 入口 A 又跑一次 handleSSOLogin）
+if (!isElectronClient()) {
+  iframeMsg.on('init', (data, context) => {
+    if (context.from !== 'ihr-recruit-assistant') return;
 
-  // 更新应用状态
-  store.commit('changeAppStatus', {
-    isSingleSignOn: true,
-    sourceKey: context.from
-  })
+    store.commit('changeAppStatus', {
+      isSingleSignOn: true,
+      sourceKey: context.from
+    });
 
-  iframeParams.value = data // 保存初始化信息
+    iframeParams.value = data;
+    updateGloalColor(data?.sysConfig?.color);
 
-  updateGloalColor(data?.sysConfig?.color);
+    handleSSOLogin(data);
 
-  
+    return Promise.resolve(true);
+  });
 
-  handleSSOLogin(data);
+  // 主题色推送（客户端自带主题，shim 也不 emit themeColor，不需要在客户端模式挂）
+  iframeMsg.on('themeColor', (data, context) => {
+    if (context.from !== 'ihr-recruit-assistant') return;
+    return updateGloalColor(data?.sysConfig?.color);
+  });
+}
 
-  return Promise.resolve(true);
-})
+// ====== SSO 登录核心流程 ======
+//
+// 幂等保护：用 module-level Promise 串行化 handleSSOLogin 调用。
+// 任何并发触发（入口 A/B/C/D 互相竞速、deep link 多次到达、Vue HMR 重挂载等）
+// 都只会跑一次完整 SSO 流程，避免后端被打 N 遍。
+let ssoInflight = null;
 
-// 监听主题色改变
-iframeMsg.on("themeColor", (data, context) => {
-  if(context.from !== "ihr-recruit-assistant") return
-  return updateGloalColor(data?.sysConfig?.color);
-})
+const handleSSOLogin = (iframeMessage) => {
+  if (!iframeMessage) return Promise.resolve();
+  if (ssoInflight) {
+    console.log('[SSOLogin] 已有正在跑的 SSO 流程，复用同一个 Promise');
+    return ssoInflight;
+  }
+  ssoInflight = doSSOLogin(iframeMessage).finally(() => {
+    ssoInflight = null;
+  });
+  return ssoInflight;
+};
 
-// SSO 登录流程
-const handleSSOLogin = async (iframeMessage) => {
-  
+const doSSOLogin = async (iframeMessage) => {
   try {
     loading.value = true;
 
-    // 从 URL 获取参数，如果有的话
     const urlParams = new URLSearchParams(window.location.search);
     const errorMsg = urlParams.get('error');
 
@@ -82,39 +123,71 @@ const handleSSOLogin = async (iframeMessage) => {
     }
 
     const { ssoConfig, positionList } = iframeMessage;
-    // 步骤1: 生成SSO令牌
+    // 父页（ihr360-recruit-static）会在 positionList 每项里带上 jd 文本，
+    // 这里立刻缓存到 store，让 LeftMenu loadChatList 后能按 positionId 回填 jd
+    // （后端 chatList 接口不返 jd 字段，需要前端 cache 这条路径补）
+    if (Array.isArray(positionList) && positionList.length > 0) {
+      store.commit('SET_POSITION_JD_CACHE', positionList);
+      console.log(
+        `[SSOLogin] 已缓存 ${positionList.length} 个职位 JD（用于 LeftMenu auto-send-jd）`
+      );
+    }
     const tokenResponse = await generateSsoToken(ssoConfig?.userConfig ?? {});
 
     if (tokenResponse.data && tokenResponse.data.token) {
       const token = tokenResponse.data.token;
 
-      // 步骤2: 使用令牌进行SSO登录
       const loginResponse = await ssoLogin(token);
 
-      if (loginResponse.success === "success") {
-        // 如果登录成功，更新用户信息到 Vuex
+      if (loginResponse.success === 'success') {
         if (loginResponse.data) {
-          Cookies.set('satoken', loginResponse.data, {path: '/', expires: 30}); // 更新 Cookie
+          Cookies.set('satoken', loginResponse.data, { path: '/', expires: 30 });
         }
 
-        let { data, success } = await getUserInfo()
+        let { data, success } = await getUserInfo();
         if (success && success === 'success') {
-          store.commit('changeUserInfo', data)
+          store.commit('changeUserInfo', data);
         }
-        // if (loginResponse.data && loginResponse.data.userInfo) {
-        //   store.commit('changeUserInfo', loginResponse.data.userInfo);
-        // }
-        // 步骤3: 创建聊天
-        try {
-          const chatResponse = await createChat(positionList ?? []);
 
-          if (chatResponse.success === "success") {
-            // 如果聊天创建成功，保存聊天ID（如果响应中有的话）
+        // ★ SSO 登录成功 = 已正确授权进入主页 → 关掉可能残留的 i 人事授权弹框
+        store.commit('setIhrAuthModalVisible', false);
+
+        // ★ 记录本次 SSO 成功登录使用的 ssoConfig.userConfig 序列化字符串
+        //   下次客户端运行中收到 deep link 时，MainLayout 用它跟 incoming key 比对
+        //   判定"同一用户"（静默刷新）vs "不同用户"（router.replace('/sso-login') 整页重走）
+        try {
+          store.commit(
+            'setLastSsoUserKey',
+            JSON.stringify(ssoConfig?.userConfig || {})
+          );
+        } catch (_e) {
+          /* ignore: 极端情况下 userConfig 含循环引用，比对功能降级到永远不一致即可 */
+        }
+
+        try {
+          // ★ 兜底：同步进后端前补 JD。positionList 可能来自 deep link/rebuild，部分项没带 jd
+          //   （application/position 不返 jd）。客户端模式批量拉详情补齐，让 createChatPlus 不写空串。
+          //   非客户端 / 已有 jd → fetchJdMapForPositions 自然 no-op，不影响浏览器模式（父页已带 jd）。
+          let chatPositionList = Array.isArray(positionList) ? positionList : [];
+          const missingJdIds = chatPositionList
+            .filter((p) => p && p.positionId != null && (!p.jd || String(p.jd).trim() === ''))
+            .map((p) => p.positionId);
+          if (missingJdIds.length > 0) {
+            const jdMap = await fetchJdMapForPositions(missingJdIds);
+            if (jdMap && Object.keys(jdMap).length > 0) {
+              chatPositionList = chatPositionList.map((p) =>
+                p && (!p.jd || String(p.jd).trim() === '') && jdMap[String(p.positionId)]
+                  ? { ...p, jd: jdMap[String(p.positionId)] }
+                  : p
+              );
+            }
+          }
+          const chatResponse = await createChat(chatPositionList);
+
+          if (chatResponse.success === 'success') {
             if (chatResponse.data && chatResponse.data.chatId) {
               store.commit('changeLocalUserChatId', chatResponse.data.chatId);
             }
-
-            // 所有步骤成功完成，跳转到首页
             router.push('/');
           } else {
             notify.error(chatResponse.errorMessage || '创建聊天失败');
@@ -124,7 +197,6 @@ const handleSSOLogin = async (iframeMessage) => {
         } catch (chatError) {
           console.error('创建聊天时发生错误:', chatError);
           notify.error('创建聊天时发生错误');
-          // 尽管创建聊天失败，但用户已登录，仍然可以跳转到首页
           setTimeout(() => {
             router.push('/');
           }, 2000);
@@ -145,41 +217,150 @@ const handleSSOLogin = async (iframeMessage) => {
   }
 };
 
-/**
- * 更新全局主题色
- * @param color 颜色
- */
 const updateGloalColor = (color) => {
   color && store.commit('updateSsoThemeColor', color);
   return Promise.resolve(true);
-}
-
-// 取消登录
-const cancelLogin = () => {
-  loading.value = false;
-  notify.warning('登录操作已取消');
 };
 
-// 组件挂载时自动开始登录流程
-onMounted(() => {
-  // 添加超时处理，防止无限等待
-  const timeout = setTimeout(() => {
+// ====== 入口 B+C：客户端模式下读 deep link payload + 监听后续 deep link ======
+
+/**
+ * 决策 D10：deep link payload 里只放 positionIds（控 URL 长度上限），
+ * positionList 在客户端启动后通过 ihrBridge.getApplicationPosition() 重建。
+ *
+ * 这样 createChat(positionList) 仍能拿到完整职位列表，业务零感知。
+ *
+ * 失败时返回空数组（降级），让流程继续；用户进入主页后业务还能再次拉取。
+ */
+async function rebuildPositionList(positionIds) {
+  try {
+    const ihrBridge = window?.api?.ihrBridge;
+    if (!ihrBridge || !Array.isArray(positionIds) || positionIds.length === 0) {
+      return [];
+    }
+    const res = await ihrBridge.getApplicationPosition();
+    const all = res?.success && Array.isArray(res?.data) ? res.data : [];
+    const idSet = new Set(positionIds);
+    const filtered = all.filter((item) => idSet.has(item.headcountId));
+    // ★ application/position 不带 jd → 在这里批量拉职位详情算出 JD，
+    //   让后面 createChat(positionList) 同步进后端时就带上 JD，不再写空串。
+    //   拉不到 → 回退空串（不影响原流程）。
+    const jdMap = await fetchJdMapForPositions(filtered.map((item) => item.headcountId));
+    return filtered.map((item) => ({
+      ...item,
+      positionId: item.headcountId,
+      name: `${item.positionName ?? ''} (${item.headcountCode ?? ''})`,
+      jd: jdMap[String(item.headcountId)] || ''
+    }));
+  } catch (e) {
+    console.error('[SSOLogin] rebuildPositionList failed:', e);
+    return [];
+  }
+}
+
+/**
+ * 把 deep link payload 重组成与 i 人事 init 推送相同结构后跑 SSO，
+ * 并通过 messenger shim 的 injectInit() 把 payload 灌进去，
+ * 让后续业务页面 iframeMsg.on('init', cb) 也能拿到（替代原来 postMessage 推送的角色）。
+ *
+ * payload schema 见 docs/client-launcher-flow.md §4.2
+ */
+async function runFromDeepLinkPayload(p) {
+  if (!p?.ssoConfig) return;
+
+  // 0) 回填 positionList（D10：deep link 只传 positionIds，避免 URL 超长）
+  let positionList = Array.isArray(p.positionList) ? p.positionList : [];
+  if (positionList.length === 0 && Array.isArray(p.positionIds) && p.positionIds.length > 0) {
+    positionList = await rebuildPositionList(p.positionIds);
+  }
+
+  // 1) 跑 SSO 登录（沿用原 init 消息的形态）
+  const fakeInitMessage = {
+    ssoConfig: p.ssoConfig,
+    sysConfig: p.sysConfig,
+    positionList
+  };
+  iframeParams.value = fakeInitMessage;
+  updateGloalColor(p.sysConfig?.color);
+  handleSSOLogin(fakeInitMessage);
+
+  // 2) 把"业务字段"灌进 messenger shim：让后续业务模块的
+  //    iframeMsg.on('init') 监听器在客户端模式下也能拿到 payload。
+  //    （shim 同时会写 sessionStorage，跨路由切换也能复用）
+  if (typeof iframeMsg?.injectInit === 'function') {
+    iframeMsg.injectInit({
+      positionList, // 已回填
+      positionIds: p.positionIds,
+      sysConfig: p.sysConfig,
+      ssoConfig: p.ssoConfig,
+      companyConfig: p.companyConfig
+    });
+  }
+}
+
+async function consumeClientHandover() {
+  const handover = window?.api?.handover;
+  if (!handover) return false;
+
+  try {
+    const pending = await handover.getPendingPayload();
+    if (pending && pending.action === 'sso' && pending.payload) {
+      await runFromDeepLinkPayload(pending.payload);
+      return true;
+    }
+  } catch (err) {
+    console.error('[SSOLogin] consumeClientHandover error:', err);
+  }
+  return false;
+}
+
+// ====== 生命周期 ======
+let timeoutHandle = null;
+let unsubscribeDeepLink = null;
+
+onMounted(async () => {
+  if (isElectronClient()) {
+    // 客户端模式：读冷启动 deep link payload + 监听运行中到达的新 deep link
+    const consumed = await consumeClientHandover();
+
+    if (window?.api?.handover?.onDeepLink) {
+      unsubscribeDeepLink = window.api.handover.onDeepLink((data) => {
+        if (data?.action === 'sso' && data?.payload) {
+          void runFromDeepLinkPayload(data.payload);
+        }
+      });
+    }
+
+    // 没有 pending deep link 也没有正在跑的 SSO（用户直接打开客户端，不是 deep link 唤起）
+    if (!consumed) {
+      loading.value = false;
+    }
+    return;
+  }
+
+  // 30 秒等不到 init 消息就报超时
+  timeoutHandle = setTimeout(() => {
     if (loading.value) {
       loading.value = false;
       notify.error('登录超时，请稍后重试');
     }
-  }, 30000); // 30秒超时
-
-  // 组件卸载时清除超时定时器
-  clearTimeoutOnUnmount(timeout);
+  }, 30000);
 });
 
-// 组件卸载时清除超时定时器
-const clearTimeoutOnUnmount = (timeout) => {
-  onUnmounted(() => {
-    clearTimeout(timeout);
-  });
-};
+onUnmounted(() => {
+  if (timeoutHandle) {
+    clearTimeout(timeoutHandle);
+    timeoutHandle = null;
+  }
+  if (unsubscribeDeepLink) {
+    try {
+      unsubscribeDeepLink();
+    } catch (_e) {
+      /* ignore */
+    }
+    unsubscribeDeepLink = null;
+  }
+});
 </script>
 
 <style scoped>

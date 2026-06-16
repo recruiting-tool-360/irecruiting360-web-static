@@ -2,6 +2,44 @@ import { ref, reactive } from 'vue';
 import AsyncTaskQueue, { asyncTaskQueue } from './AsyncTaskQueue';
 
 /**
+ * 把 AI 任务队列状态推到 Vuex（lazy 引入避免 utils → store 循环依赖）。
+ * 节流：只在 active 状态切换时推送，避免每 2s 一次的高频 commit。
+ *
+ * active=true 时快照 latestChatId 作为"这一路 AI 服务的 chatId"，让
+ * isAiAnalyzingForChat 能做精准的 per-chat 判断（避免"chat A 的任务队列还在跑，
+ * 用户切到 chat B，B 被误判为进行中"的串扰）。
+ *
+ * 队列任务通常是当前主页选中职位（latestChatId）的简历详情解析，所以
+ * "flip 到 true 那一刻的 latestChatId == 这一路 AI 服务的 chat" 这个不变式成立。
+ */
+let _lastPushedActive = null;
+function pushAiTaskQueueStateToStore(active, pending) {
+  if (_lastPushedActive === active) return; // 同状态不重复推
+  _lastPushedActive = active;
+  import('src/store').then((m) => {
+    try {
+      const store = m.default || m;
+      if (store && typeof store.commit === 'function') {
+        // ⚠️ 必须用 runningTask.chatId，不能用 latestChatId
+        //   latestChatId = 用户当前选中的 chat，跟"谁的任务在跑"无关
+        //   用户在 B 任务跑期间切到 A → latestChatId 变 A
+        //   → 这里推 chatId=A → isAiAnalyzingForChat(A) 误判为 true → A 显示"进行中..."
+        // 任务真正归属：SearchTasks.runningTaskId → tasksById[id].chatId
+        let chatId = null;
+        if (active) {
+          const runningId = store.state?.SearchTasks?.runningTaskId;
+          const runningTask = runningId ? store.state?.SearchTasks?.tasksById?.[runningId] : null;
+          chatId = runningTask?.chatId
+            || (store.getters && store.getters.getLatestChatId)
+            || null;
+        }
+        store.commit('setAiTaskQueueState', { active, pending, chatId });
+      }
+    } catch (_e) { /* ignore */ }
+  }).catch(() => { /* ignore */ });
+}
+
+/**
  * 任务队列管理器 - 管理多个AsyncTaskQueue实例
  */
 class AsyncTaskQueueManager {
@@ -177,6 +215,11 @@ class AsyncTaskQueueManager {
 
   /**
    * 更新队列状态信息
+   *
+   * 副作用：把 totalTasks > 0 推到 Vuex 的 aiTaskQueueActive，
+   * 让 TaskStatusCard / canCreateForChat / getJobAggregateStatus 知道
+   * "AI 详情解析 + 评分 + 其它后台处理任务"还在跑（QueueStatusMonitor 监控的就是这个队列）。
+   * 之前只看 scoreAutoUpdater 的 active 信号，会漏掉详情解析、补单等阶段。
    */
   updateQueueStatus() {
     let totalTasks = 0;
@@ -208,6 +251,9 @@ class AsyncTaskQueueManager {
     });
 
     this.queueStatus.totalTasks = totalTasks;
+
+    // 推 store：让任务状态卡片 + LeftMenu badge 跟着真实 AI 任务队列状态变化
+    pushAiTaskQueueStateToStore(totalTasks > 0, totalTasks);
   }
 
   /**

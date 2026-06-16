@@ -14,13 +14,21 @@ export function useUpdateResumeStatus() {
   /**
    * 更新状态 - 添加resumeThirdPartyInfo信息
    * @param {Array} resumeInfoArray 包含 {id, type, status, errorMsg} 的数组
+   *
+   * 同时更新两个数据源：
+   *   1) ChannelConfig.ALL.data —— 搜索通道的 ResumeCard 渲染依据
+   *   2) BossRecommendData.byJobId[*].geekList —— 推荐通道的 ResumeCard 渲染依据
+   *
+   * 之前只更新 ALL.data，推荐通道点"加入人才库"成功后按钮不变成"已加入人才库"
+   * （因为推荐 geek 在 BossRecommendData 里，跟 ALL.data 是两个数据源）。
+   * 这里两边都 patch 保证两个 tab 的 UI 都同步。
    */
   const update = (resumeInfoArray) => {
     if(!Array.isArray(resumeInfoArray) || resumeInfoArray.length <= 0) {
       return false;
     }
 
-    // 创建一个映射表，方便快速查找
+    // 创建一个映射表，方便快速查找（key 是 resumeBlindId）
     const resumeInfoMap = resumeInfoArray.reduce((map, item) => {
       map[item.id] = {
         id: item.id,
@@ -31,9 +39,8 @@ export function useUpdateResumeStatus() {
       return map;
     }, {});
 
-    // 更新allResume数据
+    // (1) 更新 ChannelConfig.ALL.data（搜索通道）
     const data = allResume.value.data.map(item => {
-      // 如果当前简历的id在要更新的数组中
       if (resumeInfoMap[item?.id]) {
         return {
           ...item,
@@ -42,9 +49,32 @@ export function useUpdateResumeStatus() {
       }
       return item;
     });
-
-    // 提交到store
     store.commit('changeChannelConfData', {key: 'ALL', value: data});
+
+    // (1.5) 同时更新「查看结果」viewing bucket（results 视图渲染的是 ViewingResults 而非 ALL.data，
+    //       不 patch 这里的话，结果页里「加入人才库」按钮不会变「已加入人才库」）
+    store.commit('patchViewingResumeThirdPartyInfo', resumeInfoMap);
+
+    // (2) 同时更新 BossRecommendData.byJobId[*].geekList（推荐通道）
+    // 按 resumeBlindId 反查每个 bucket 里的 geek，找到就 patch resumeThirdPartyInfo
+    const byJobId = store.state?.BossRecommendData?.byJobId || {};
+    for (const jobId of Object.keys(byJobId)) {
+      const bucket = byJobId[jobId];
+      const geekList = Array.isArray(bucket?.geekList) ? bucket.geekList : [];
+      for (const g of geekList) {
+        const blindId = g?.resumeBlindId;
+        if (!blindId) continue;
+        const info = resumeInfoMap[String(blindId)] || resumeInfoMap[blindId];
+        if (info) {
+          store.commit('patchBossRecommendGeek', {
+            jobId,
+            resumeBlindId: String(blindId),
+            patch: { resumeThirdPartyInfo: info }
+          });
+        }
+      }
+    }
+
     return true;
   };
 

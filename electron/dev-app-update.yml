@@ -1,0 +1,16 @@
+# dev 模式自动更新配置（electron-updater 默认读这个文件）
+#
+# 生产 / qa2 包：electron-builder 打包时把 electron-builder.yml(.qa2) 的 publish 块
+# 写进 app.asar 内的 app-update.yml，autoUpdater 自动读那个。
+#
+# dev 模式（npm run dev:el / dev:el:devtools）：app 没打包，electron-updater 会
+# fallback 读这个 dev-app-update.yml。url 必须指向**真实可访问的** publish 服务器，
+# 否则 checkForUpdates 直接 404 报错（旧默认值 example.com 就是这个问题）。
+#
+# 这里跟 electron-builder.qa2.yml 的 publish 块保持一致，dev 默认走 qa2 渠道方便联调：
+#   - 推 qa2 包后，dev 模式也能立刻收到更新提示
+#   - 要测 release 渠道临时把下面 url 换成 http://download.ihr360.com/ikuaizhao/
+provider: generic
+url: http://download.ihr360.com/ikuaizhao-qa2/
+channel: latest
+updaterCacheDirName: electron-updater

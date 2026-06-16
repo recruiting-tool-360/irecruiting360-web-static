@@ -1,0 +1,106 @@
+<!--
+  任务完成卡片 HTML 模板（messageType=TASK_COMPLETION_CARD）
+
+  双重身份：
+    1. **后端模板源**：纯 HTML + mustache `{{ }}` 占位，**这一份字符串**直接发给后端
+       作为消息模板。后端用任意 mustache 兼容引擎把 `{{ }}` 替换成真实值后，通过 SSE 或
+       chatHistory 返回完整 HTML 给前端。
+    2. **Tailwind JIT 扫描源**：JIT 静态扫描这个文件中的类名生成对应 CSS，确保运行时
+       动态注入的 HTML 类不会因找不到样式失效。
+
+  约定：
+    - 不含 Vue 语法（无 `:bind` / `@click` / `v-if` 等），保证可直接当字符串发出
+    - 按钮交互通过 `data-action="<actionCode>"` 属性声明，前端 click 事件代理统一捕获
+    - 不带外层卡片背景 / 圆角 / 边框 —— ChatCard 聊天气泡已经有这些样式
+
+  可用占位符（= 后端填充时要提供的字段）：
+    {{taskId}}              任务 ID
+    {{taskChannelId}}       主渠道任务 ID（兼容字段）
+    {{taskChannelIds}}      所有渠道任务 ID（逗号分隔）
+    {{searchConditionId}}   主搜索条件 ID
+    {{searchConditionIds}}  所有搜索条件 ID（逗号分隔）
+    {{chatId}}              职位会话 ID
+    {{totalCount}}          全渠道符合画像人选数
+    {{bossCount}}           BOSS 直聘人选数
+    {{actualStartTime}}     实际开始（已格式化，如 '15:11' 或 '-'）
+    {{actualEndTime}}       实际结束（同上）
+    {{actualDuration}}      实际时长（如 '3分20秒' 或 '-'）
+
+  按钮 action 协议（data-action 值 → 前端事件分发）：
+    "view-result"         查看结果
+    "clear-and-restart"   清空重新搜索
+    "keep-and-increment"  保留增量搜索
+
+  前端 click 代理：
+    src/components/clients/TaskCompletionCard.vue 监听根 div click，
+    通过 event.target.closest('[data-action]') 拿 actionCode，emit 对应事件。
+-->
+
+<div data-task-id="{{taskId}}" data-task-channel-id="{{taskChannelId}}" data-task-channel-ids="{{taskChannelIds}}" data-search-condition-id="{{searchConditionId}}" data-search-condition-ids="{{searchConditionIds}}" data-chat-id="{{chatId}}" data-message-type="TASK_COMPLETION_CARD" class="w-full max-w-full">
+  <!--
+    text section：删除了原版的 whitespace-pre-wrap class。
+    原版后端把整段文本 + spans 写在**同一行**没换行符，所以 pre-wrap 不会破坏布局。
+    但模板源换行写更可读 → 不能用 pre-wrap，否则 <span> 之间的换行符会变成视觉换行。
+    用 <br> 显式控制换行即可。
+  -->
+  <div class="text-[15px] leading-relaxed text-neutral-800">
+    <div class="flex items-start">
+      <div class="message-content">
+        <div class="flex items-center space-x-2 mb-2 text-[16px] font-black underline decoration-primary-200 decoration-2 underline-offset-4"><span>🎊</span><span>该职位聚合搜索已全部完成！</span></div>
+        <br>
+        <br>
+        <span class="font-black text-neutral-900">搜索牛人</span>：共检索到符合画像的人选 <span class="font-black text-neutral-900">{{totalCount}}</span> 位；BOSS 直聘 <span class="font-black text-neutral-900">{{bossCount}}</span> 位。<br>建议您查看结果。
+      </div>
+    </div>
+  </div>
+  <div class="mt-6 bg-[#F8FAFB] border border-neutral-100 rounded-[12px] overflow-hidden shadow-sm">
+    <div class="px-4 py-2 border-b border-neutral-100 flex items-center space-x-2 bg-white/50">
+      <div class="w-5 h-5 rounded-full bg-[#15B8A615] flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-zap w-3 h-3 text-primary-500" aria-hidden="true">
+          <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path>
+        </svg>
+      </div>
+      <span class="text-[12px] text-neutral-500 font-medium">执行统计</span>
+    </div>
+    <div class="grid grid-cols-3 divide-x divide-neutral-100 bg-white">
+      <div class="px-4 py-3">
+        <div class="text-[11px] text-neutral-400 mb-1">实际开始</div>
+        <div class="text-[14px] font-bold text-neutral-800">{{actualStartTime}}</div>
+      </div>
+      <div class="px-4 py-3">
+        <div class="text-[11px] text-neutral-400 mb-1">实际结束</div>
+        <div class="text-[14px] font-bold text-neutral-800">{{actualEndTime}}</div>
+      </div>
+      <div class="px-4 py-3">
+        <div class="text-[11px] text-neutral-400 mb-1">实际时长</div>
+        <div class="text-[14px] font-bold text-[#15B8A6]">{{actualDuration}}</div>
+      </div>
+    </div>
+  </div>
+  <div class="mt-6 flex flex-wrap gap-2 pt-2">
+    <button type="button" data-action="view-result" class="flex items-center space-x-1.5 px-5 py-2.5 bg-[#15B8A6] text-white text-[13px] font-black rounded-[8px] hover:opacity-90 active:scale-95 transition-all outline-none">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users w-4 h-4" aria-hidden="true">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+        <path d="M16 3.128a4 4 0 0 1 0 7.744"></path>
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+        <circle cx="9" cy="7" r="4"></circle>
+      </svg>
+      <span>查看结果</span>
+    </button>
+    <button type="button" data-action="clear-and-restart" class="flex items-center space-x-1.5 px-5 py-2.5 bg-[#FFF9F3] text-[#F59E0B] border border-[#FDE68A] text-[13px] font-black rounded-[8px] hover:bg-[#FFF4E8] active:scale-95 transition-all shadow-sm disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-ccw w-4 h-4" aria-hidden="true">
+        <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+        <path d="M3 3v5h5"></path>
+        <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+        <path d="M16 16h5v5"></path>
+      </svg>
+      <span>清空重新搜索</span>
+    </button>
+    <button type="button" data-action="keep-and-increment" class="flex items-center space-x-1.5 px-5 py-2.5 bg-[#F0FDF4] text-[#15B8A6] border border-[#CCFBF1] text-[13px] font-black rounded-[8px] hover:bg-[#DCFCE7] active:scale-95 transition-all shadow-sm disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-zap w-4 h-4" aria-hidden="true">
+        <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path>
+      </svg>
+      <span>保留增量搜索</span>
+    </button>
+  </div>
+</div>

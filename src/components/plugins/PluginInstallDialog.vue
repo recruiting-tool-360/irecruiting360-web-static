@@ -29,6 +29,7 @@ import { useQuasar } from 'quasar';
 import notify from 'src/util/notify'
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 import { useBrowserDetector } from 'src/hooks/useBrowserDetector';
+import { isElectronClient } from 'src/util/openChannelLoginUrl';
 
 const $q = useQuasar();
 const router = useRouter();
@@ -51,6 +52,11 @@ const dialogVisible = ref(false);
 
 // 打开对话框方法
 const openDialog = () => {
+  // 客户端模式下不展示插件相关弹窗
+  if (isElectronClient()) {
+    dialogVisible.value = false;
+    return;
+  }
   dialogVisible.value = true;
 };
 
@@ -79,6 +85,11 @@ const handleInstallClick = () => {
 
 // 监听插件安装状态变化
 watch(pluginInstalled, (newVal) => {
+  // 客户端模式下：关闭并忽略所有插件检测信号
+  if (isElectronClient()) {
+    dialogVisible.value = false;
+    return;
+  }
   // 如果插件未安装，打开对话框
   if (!newVal) {
     openDialog();

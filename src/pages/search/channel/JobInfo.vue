@@ -17,7 +17,7 @@
       <resume-list
         :resumes="jobList"
         :loading="isLoadingMore"
-        :has-more-data="hasMoreData"
+        :has-more-data="hasMoreData && allowLoadMore"
         :total="channelDataTotal"
         :channel-str="channelConfig.name"
         :ai-sort="aiSortSwitch"
@@ -42,6 +42,8 @@ import { useQuasar } from "quasar";
 import ResumeList from 'src/components/resume/ResumeList.vue';
 import scoreUpdater from "src/utils/scoreAutoUpdater";
 import {setNotScore} from "src/api/jobList/JobListApi";
+import { isHistoryTaskView } from "src/util/viewingTaskMeta";
+import { triggerContinueSearchFromResults } from "src/util/triggerContinueSearch";
 
 // 定义组件属性
 const props = defineProps({
@@ -52,6 +54,15 @@ const props = defineProps({
   aiSort: {
     type: Boolean,
     default: false
+  },
+  /**
+   * 查看历史 task 结果时由 AISearch 透传过来。
+   * 非空 → 直接读 ViewingResults.byTaskId[viewingTaskId]；空 → fallback ChannelConfig.ALL（runtime）。
+   * 详见 BossJobInfo.vue 同名 prop 注释。
+   */
+  viewingTaskId: {
+    type: [String, Number],
+    default: null
   }
 });
 
@@ -70,12 +81,12 @@ const allThirdPartyChannelConfig = computed(() => {
 });
 // 渠道历史查询参数
 const allSearchChannelConditionRequestData = computed(() => store.getters.getSearchChannelConditionRequestData);
-// 当前搜索条件
-const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value.channelSearchConditions.find((item) => item.channel === channelKey));
-// 渠道搜索分页信息
-const searchChannelConfig = computed(() => allSearchChannelConditionRequestData.value.config.find((item) => item.channelKey === channelKey));
-//渠道所有数据总数
-const channelDataTotal = computed(() => allSearchChannelConditionRequestData.value.config.reduce((total, item) => total + (item.channelDataTotal || 0), 0));
+// 当前搜索条件（null-safe：查看任务结果时 searchChannelConditionRequestData 为 null）
+const searchChannelCondition = computed(() => allSearchChannelConditionRequestData.value?.channelSearchConditions?.find((item) => item.channel === channelKey));
+// 渠道搜索分页信息（null-safe）
+const searchChannelConfig = computed(() => allSearchChannelConditionRequestData.value?.config?.find((item) => item.channelKey === channelKey));
+//渠道所有数据总数（null-safe：查看任务结果时走 ALL.data 的 length 兜底）
+const channelDataTotal = computed(() => allSearchChannelConditionRequestData.value?.config?.reduce((total, item) => total + (item.channelDataTotal || 0), 0) ?? jobList.value.length);
 // 是否已读
 const filterByRead = computed(() => store.getters.getUnreadCheckBoxV);
 // 搜索id
@@ -92,6 +103,9 @@ const hasMoreData = computed(() => {
   // 如果jobList数量小于总数据量，说明还有更多数据可以加载
   return jobList.value.length < channelDataTotal.value;
 });
+// ★ 只有"刚结束的（最新）任务"或 runtime 搜索才允许加载更多；
+//   从历史完成卡"查看结果"进来的（viewingTaskId 非最新任务）不显示加载更多。
+const allowLoadMore = computed(() => !isHistoryTaskView(store, props.viewingTaskId));
 const currentPage = ref(1);
 const currentFilters = ref({});
 const currentSort = ref('score');
@@ -105,10 +119,22 @@ const getChannelDisable = (key) => {
   return channelConfig.enableConfig;
 };
 
-// 数据 - 聚合渠道从vuex中获取数据
+// 数据 - 聚合渠道从 vuex 获取
+// ★ 按 props.viewingTaskId 直接读 ViewingResults bucket（不依赖全局 viewing state），
+//   fallback 到 ChannelConfig.ALL（runtime）。详见 ViewingResults.js 顶部注释。
 const jobList = computed(() => {
-  console.log('渲染ALL渠道数据:', channelConfig.value.data);
-  return channelConfig.value.data || [];
+  if (props.viewingTaskId) {
+    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
+    const cfg = typeof byTask === 'function' ? byTask(props.viewingTaskId) : null;
+    if (cfg?.data) {
+      console.log('[JobInfo] viewing 模式 taskId=', props.viewingTaskId, '条数=', cfg.data.length);
+      return cfg.data;
+    }
+  }
+  const runtimeCfg = store.getters.getChannelConfByAll;
+  const data = runtimeCfg?.data;
+  console.log('[JobInfo] runtime 模式 ALL.data 条数=', data?.length ?? 'null');
+  return data || [];
 });
 
 // 停止分数自动更新
@@ -129,19 +155,67 @@ const initializationStatus = () => {
 const startScoreUpdate = (resumeList) => {
   if (!resumeList || resumeList.length === 0) return;
 
+  // 如果列表里的简历**全部已有 score（>=0）**，说明是查看历史任务结果（resumeBlind 返回了 score），
+  // 不需要再轮询查分，避免 taskResumeIdMap 为空时走老接口却查不到任何数据的无效轮询。
+  const allHaveScore = resumeList.every(
+    (r) => r.score !== null && r.score !== undefined && r.score >= 0
+  );
+  if (allHaveScore) {
+    console.log('[JobInfo] 全部简历已有 score，跳过 scoreUpdater 启动');
+    return;
+  }
+
   // 启动自动更新器
+  //
+  // 传 chatId 让 store 记录"这一路 AI 评分是为哪个 chat 跑"——LeftMenu
+  // isAiAnalyzingForChat 据此精准判定 per-chat "进行中"状态。
+  // 不传时 SearchTasks 会降级 fallback，可能出现跨 chat 串扰（"两个职位同时进行中"）。
   scoreUpdater.start(
     resumeList,
     channelKey,
     searchConditionId.value,
-    updateScoreData
+    updateScoreData,
+    chatId.value
   );
+
+  // WAITING 回调：
+  //   scoreStatus='WAITING' = detail 从来没提交过，AI 无法开始打分
+  //   判断策略（和 taskId 挂钩）：
+  //     - 当前 chat 仍有进行中的任务（RUNNING/WAITING/RESTING）→ detail 会在任务执行中被补提交，继续等
+  //     - 当前 chat 没有进行中任务（任务已 COMPLETED/FAILED/STOPPED）→ 分析流程已中断
+  //       → 停止轮询，把这些简历标为 score=-2（UI: "AI分析失败"）
+  scoreUpdater.onWaitingCallback = (waitingItems) => {
+    const latestTask = (() => {
+      const getter = store.getters['SearchTasks/getLatestTaskByChat'];
+      return typeof getter === 'function' ? getter(chatId.value) : null;
+    })();
+    const ACTIVE_STATUSES = ['RUNNING', 'WAITING', 'RESTING'];
+    const isTaskActive = latestTask && ACTIVE_STATUSES.includes(latestTask.taskStatus);
+    // 渠道重新登录后正在"重新分析"AI 分析异常的简历 → 即使任务已停止也别急着标 -2，
+    // 给重新提交的 detail 留出被后端打分的时间
+    const reAnalyzing = store.getters.getReAnalyzingActive === true;
+
+    if (!isTaskActive && !reAnalyzing) {
+      console.warn(
+        `[JobInfo.onWaiting] 当前 chat 无进行中任务（${latestTask?.taskStatus ?? '无任务'}），` +
+        `${waitingItems.length} 条 WAITING 简历分析已中断 → 标记 score=-2，停止轮询`
+      );
+      // 把 WAITING 简历的 score 标为 -2（UI 层显示"AI分析失败"），停止无意义轮询
+      waitingItems.forEach(({ resumeBlindId }) => {
+        updateResumeScoreFN({ id: resumeBlindId, score: -2 });
+      });
+      stopScoreUpdate();
+    } else {
+      // 有进行中任务 → detail 会被任务执行器补提交 → 继续轮询等结果
+      console.log('[JobInfo.onWaiting] 任务仍进行中，继续轮询等待 detail 提交');
+    }
+  };
 };
 
 // 检查数据是否已加载
 watch(() => jobList.value, (newList) => {
   hasData.value = newList && newList.length > 0;
-  console.log('jobList更新，长度:', newList?.length, '有数据:', hasData.value);
+  console.log('[JobInfo] hasData watch 触发，长度=', newList?.length, 'hasData=', hasData.value);
 
   // 当数据被清空时，停止分数自动更新
   if (!newList || newList.length === 0) {
@@ -198,71 +272,10 @@ onUnmounted(() => {
   stopScoreUpdate();
 });
 
-// 加载更多数据 - 调用各个渠道的loadMore方法
+// 加载更多 → 走任务流程的「保留增量搜索」（CONTINUE），而不是直接翻下一页。
+// 由 ChatCard.startContinueSearch 创建 CONTINUE 任务 + 返回聊天视图。
 const loadMore = async () => {
-  if (!hasMoreData.value) {
-    return;
-  }
-
-  // 设置加载状态
-  isLoadingMore.value = true;
-
-  try {
-    console.log('ALL渠道开始执行加载更多');
-
-    // 获取所有已登录的渠道
-    const loggedInChannels = allThirdPartyChannelConfig.value.filter(channel => channel.login && getChannelDisable(channel.key));
-    console.log(`找到${loggedInChannels.length}个已登录渠道`, loggedInChannels.map(c => c.key));
-
-    if (!loggedInChannels || loggedInChannels.length === 0) {
-      console.warn('没有渠道可以加载更多数据');
-      isLoadingMore.value = false;
-      return;
-    }
-
-    // 收集所有loadMore调用的Promise
-    const promises = [];
-
-    // 遍历已登录的渠道执行加载更多
-    for (const channel of loggedInChannels) {
-      try {
-        // 使用channel.cardInfoRef访问组件引用
-        if (channel.cardInfoRef && typeof channel.cardInfoRef.loadMore === 'function') {
-          console.log(`正在调用${channel.name}(${channel.key})的loadMore方法`);
-          promises.push(channel.cardInfoRef.loadMore());
-        } else {
-          console.warn(`${channel.name}(${channel.key})渠道组件不存在或loadMore方法未定义`);
-        }
-      } catch (err) {
-        console.error(`调用${channel.key}渠道的loadMore方法时出错:`, err);
-      }
-    }
-
-    // 如果有有效的promise，等待它们全部完成
-    if (promises.length > 0) {
-      try {
-        await Promise.all(promises);
-        console.log('所有渠道的loadMore方法执行完成');
-      } catch (error) {
-        console.error('执行渠道loadMore方法时发生错误:', error);
-        throw error; // 继续向上抛出错误
-      }
-    } else {
-      console.warn('没有找到可执行的渠道loadMore方法');
-    }
-  } catch (error) {
-    console.error('加载更多执行过程中发生错误:', error);
-    $q.notify({
-      message: '加载更多数据失败，请稍后重试',
-      color: 'negative',
-      icon: 'error',
-      position: 'top'
-    });
-  } finally {
-    // 无论成功失败都需要重置加载状态
-    isLoadingMore.value = false;
-    console.log('ALL渠道loadMore执行完成，当前数据量:', jobList.value.length);
-  }
+  triggerContinueSearchFromResults(store);
 };
 
 // 获取渠道搜索详情参数
@@ -286,14 +299,28 @@ const updateResumeScoreFN = async (scoreItem) => {
       console.error('更新分数参数无效:', scoreItem);
       return false;
     }
+    // 先在 ALL 里定位该简历（拿 channelSubType 判断渠道登录态）
+    const allArr = allChannelStatus.value?.['ALL']?.data || [];
+    const foundIdx = allArr.findIndex(item => item && item.id === scoreItem.id);
+    const foundResume = foundIdx >= 0 ? allArr[foundIdx] : null;
+    const DESC_TO_KEY = { 'boss直聘': 'BOSS', '智联招聘': 'ZHILIAN', '前程无忧': 'JOB51', '猎聘': 'LIEPIN' };
+    const subType = foundResume?.channelSubType || DESC_TO_KEY[foundResume?.channel];
+
     if(scoreItem.score ===-2){
-      try {
-        await setNotScore({
-          resumeBlindIds: [scoreItem.id],
-          searchId: searchConditionId.value
-        });
-      }catch (e){
-        console.log(e)
+      // ★ 该渠道未登录 → **不调 setNotScore**（避免后端把简历永久标"不可评分"），
+      //   本地仍标 -2 显示"分析失败"；等用户重新登录后由 reAnalyzeFailedResumes 重新分析。
+      const channelLoggedIn = subType ? allChannelStatus.value?.[subType]?.login === true : true;
+      if (channelLoggedIn) {
+        try {
+          await setNotScore({
+            resumeBlindIds: [scoreItem.id],
+            searchId: searchConditionId.value
+          });
+        }catch (e){
+          console.log(e)
+        }
+      } else {
+        console.log(`[JobInfo] 渠道 ${subType} 未登录，跳过 setNotScore（等重新登录后重新分析）`);
       }
     }
 

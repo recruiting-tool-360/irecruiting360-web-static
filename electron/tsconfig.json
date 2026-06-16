@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {},
+    "typeRoots": ["./node_modules/@types", "./src/types"]
+  },
+  "include": [
+    "src", // ✅ 覆盖 src 目录
+    "src/types/**/*.d.ts" // 或显式包含
+  ],
+  "files": [],
+  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.web.json" }]
+}

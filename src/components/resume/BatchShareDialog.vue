@@ -61,6 +61,7 @@
 <script setup>
 import { ref, defineProps, defineEmits, watch, computed } from 'vue';
 import { getChannelUrl } from 'src/pluginSrc/util/ChannelUrlUtil';
+import { openExternalSiteUrl } from 'src/util/openChannelLoginUrl';
 import { useQuasar } from 'quasar';
 
 const $q = useQuasar();
@@ -115,7 +116,8 @@ function openUrl(resume) {
     return;
   }
 
-  window.open(resume.detailUrl, '_blank');
+  // 客户端模式下走 IPC 在客户端独立窗口打开；浏览器模式下保持原 window.open
+  openExternalSiteUrl(resume.detailUrl);
 }
 
 // 复制简历详情URL

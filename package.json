@@ -10,7 +10,10 @@
     "format": "prettier --write \"**/*.{js,vue,scss,html,md,json}\" --ignore-path .gitignore",
     "test": "echo \"No test specified\" && exit 0",
     "dev": "quasar dev",
-    "build": "quasar build"
+    "build": "quasar build",
+    "dev:el": "cd ./electron && yarn dev",
+    "dev:el:local": "DEV_TARGET_URL=http://localhost:8080/ npm run dev:el",
+    "dev:el:devtools": "OPEN_HOME_DEVTOOLS=1 DEV_TARGET_URL=http://localhost:8080/ npm run dev:el"
   },
   "dependencies": {
     "@quasar/extras": "^1.16.4",
@@ -44,6 +47,7 @@
     "eslint-plugin-vue": "^9.0.0",
     "postcss": "^8.4.14",
     "prettier": "^2.5.1",
+    "tailwindcss": "^3.4.19",
     "vite-plugin-checker": "^0.6.4"
   },
   "engines": {

@@ -35,6 +35,8 @@ import 'quasar/dist/quasar.sass'
 
 import 'src/css/app.scss'
 
+import 'src/css/tailwind.css'
+
 
 import createQuasarApp from './app.js'
 import quasarUserOptions from './quasar-user-options.js'
@@ -160,7 +162,9 @@ createQuasarApp(createApp, quasarUserOptions)
       
       import('boot/iframe-messenger'),
       
-      import('boot/SvgBase64Manager')
+      import('boot/SvgBase64Manager'),
+      
+      import('boot/chunkReload')
       
     ]).then(bootFiles => {
       const boot = mapFn(bootFiles).filter(entry => typeof entry === 'function')
