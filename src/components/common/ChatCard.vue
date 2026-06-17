@@ -527,7 +527,22 @@ function forceShowLoginRequired() {
  */
 function clearInflightTaskForChat(chatId) {
   const cid = chatId || currentChatId.value || props.chatId;
-  if (cid) _removeOldTaskCardsForChat(cid);
+  if (!cid) return;
+  _removeOldTaskCardsForChat(cid);
+  // ★ 创建被拦截（没真正建任务，如全渠道禁用弹登录面板 / 无权限 / 已有进行中任务）
+  //   → 解锁该 chat 的「保留增量 / 清空重新」配置卡：恢复输入框 + 按钮回「启动聚合搜索」，
+  //   否则乐观锁定后卡在「聚合搜索已启动」点不动。
+  const retryMsgId = pendingRetryCardByChat.value[cid];
+  if (retryMsgId) {
+    const card = internalMessages.value.find((m) => m.id === retryMsgId);
+    if (card?.cardData?.actionExecuted) {
+      card.cardData.actionExecuted = false;
+      console.log("[ChatCard] 创建被拦截 → 解锁 RetryConfigCard", retryMsgId);
+    }
+    const nr = { ...pendingRetryCardByChat.value };
+    delete nr[cid];
+    pendingRetryCardByChat.value = nr;
+  }
 }
 // 注：每次切会话重置 dismissed 的 watch 放在下方 props 定义之后
 
