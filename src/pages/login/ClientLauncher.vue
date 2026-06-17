@@ -745,6 +745,18 @@ async function launchWithPayload(payload, prefetchedTokenInfo = null) {
 
 // intro 状态下点"打开 i快招 客户端" —— 先 client/launch 预校验，通过才唤起
 async function handleManualOpen() {
+  // ★ Chrome 142+ Local Network Access：访问 127.0.0.1（loopback）需用户授权，
+  //   而「允许访问本地网络」许可框**只在用户手势内、且早于其它 await 时**才会弹出。
+  //   openClient 内部会先 await client/launch 换 token，手势随之过期 → 之后 tryLaunch 里的
+  //   探测永远弹不出许可框（后台 2s 轮询更没手势）。所以这里抢在最前面、点击手势仍新鲜时
+  //   先探一次 loopback：① 触发许可框让用户点允许；② 命中则顺带标记 clientDetected。
+  //   用户授权一次后按 origin 持久记住，后续后台轮询/唤起都能正常访问 loopback。
+  try {
+    const info = await probeClient();
+    if (info) clientDetected.value = true;
+  } catch (e) {
+    void e;
+  }
   await openClient(initPayload.value);
 }
 

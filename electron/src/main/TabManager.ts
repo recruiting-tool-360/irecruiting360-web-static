@@ -304,7 +304,10 @@ class TabManager {
     url: string,
     opts: { hidden: boolean; background: boolean }
   ): string {
-    if (!this.mainWindow) throw new Error('TabManager: mainWindow not set')
+    // 同时挡住「未设置」和「已销毁」两种情况（后者来自退出/关窗后仍触发的定时器）
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+      throw new Error('TabManager: mainWindow not available (null or destroyed)')
+    }
     const partition = SITE_PARTITION[key] ?? `persist:ihr360-site-${key}`
     const title = SITE_TITLE[key] ?? key
     const isHidden = opts.hidden
@@ -410,6 +413,10 @@ class TabManager {
    * 已存在则不动（避免打断登录/推荐可见态）；仅当不存在时新建隐藏单例。
    */
   ensureBossMonitorTab(): string {
+    // ★ 主窗口已销毁（退出 / 窗口关闭）时直接返回，绝不再 spawnSiteTab。
+    //   否则定时器（bossLoginWatcher poll）仍会触发 → spawnSiteTab 访问已销毁的
+    //   mainWindow.contentView → 抛 "Object has been destroyed" 主进程崩溃弹框。
+    if (!this.isReady()) return ''
     const existing = this.bossTabId ? this.tabs.get(this.bossTabId) : null
     if (existing && !existing.view.webContents.isDestroyed()) return this.bossTabId as string
     const id = this.spawnSiteTab('boss', TabManager.BOSS_MONITOR_URL, {

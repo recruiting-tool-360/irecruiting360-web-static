@@ -100,7 +100,25 @@ export const channelSearchList = async (channelRequestInfo, channelPage = 1, pag
     return;
   }
   if(!pluginBossResultProcessor(responseJobListData)){
-    notify.warning('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
+    // 去掉「请联系管理员」：BOSS 业务报错（如「发布职位后才能搜索牛人」）直接把后端原文提示给用户
+    const bizMsg = responseJobListData?.responseData?.data?.message;
+    notify.warning(bizMsg || 'BOSS 数据查询异常')
+    // ★ BOSS 搜索牛人需要在 BOSS 上发布对应职位；未发布 → 停止整个任务（用户要求）。
+    //   只对「发布职位」这类不可恢复的业务错误停任务，普通抖动不停。
+    if (bizMsg && bizMsg.includes('发布职位')) {
+      try {
+        const cid = store.getters.getLatestChatId;
+        if (cid) {
+          store.dispatch('SearchTasks/stopForChat', {
+            chatId: cid,
+            errorCode: 'BOSS_JOB_NOT_PUBLISHED',
+            errorMessage: bizMsg
+          });
+        }
+      } catch (e) {
+        console.warn('[BossJobInfoManager] 未发布职位停止任务失败:', e?.message || e);
+      }
+    }
     return;
   }
   channelSearchConfig.channelPage = responseJobListData.responseData.data.zpData.page;
@@ -129,7 +147,9 @@ export const channelSearchListSimilar = async (channelRequestInfo, channelPage =
     return;
   }
   if(!pluginBossResultProcessor(responseJobListData)){
-    notify.warning('Boos数据查询异常！请联系管理员！'+(responseJobListData?.responseData?.data?.message))
+    // 去掉「请联系管理员」：直接展示后端业务原文
+    const bizMsg = responseJobListData?.responseData?.data?.message;
+    notify.warning(bizMsg || 'BOSS 数据查询异常')
     return;
   }
   channelSearchConfig.channelPage = responseJobListData.responseData.data.zpData.page;

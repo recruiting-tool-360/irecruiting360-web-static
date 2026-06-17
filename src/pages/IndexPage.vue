@@ -1773,6 +1773,29 @@ function waitForSearchConditionId(timeoutMs = 30000) {
   });
 }
 
+/**
+ * BOSS「我的职位」是否存在「招聘中」(jobStatus===0) 的职位。
+ *   - 优先读 store 缓存（bossJobListAutoFetch 维护）；空则现拉一次 fetchBossJobList。
+ *   - 拿不到列表（未登录 / 接口异常）→ 返回 true（不拦截，放行交运行时兜底），避免误杀。
+ */
+async function hasPublishedBossJob() {
+  const isPublished = (j) => Number(j?.jobStatus) === 0;
+  try {
+    const cached = store.getters.getBossJobList;
+    if (Array.isArray(cached) && cached.length > 0) {
+      return cached.some(isPublished);
+    }
+    const { fetchBossJobList } = await import("src/util/automation/bossJobList");
+    const res = await fetchBossJobList();
+    const list = res?.zpData?.data;
+    if (Array.isArray(list)) return list.some(isPublished);
+    return true; // 拿不到 → 放行
+  } catch (e) {
+    console.warn("[IndexPage] hasPublishedBossJob 检查失败，放行:", e?.message || e);
+    return true;
+  }
+}
+
 async function dispatchTaskStore({
   chatIdToSearch,
   searchChecked,
@@ -1837,6 +1860,22 @@ async function dispatchTaskStore({
       condId
     });
     channels.push(...builtChannels);
+
+    // ★ BOSS 搜索牛人需要在 BOSS 直聘发布「招聘中」的职位才能搜。创建前检查 BOSS「我的职位」，
+    //   没有任何招聘中的职位 → 只剔除 BOSS-SEARCH 渠道（其它渠道照常创建），并提示去 BOSS 发布。
+    //   检查失败（未登录 / 接口异常）→ 不拦截放行，交给运行时兜底（BossJobInfoManager 收到
+    //   「发布职位」业务错误会停整任务）。
+    const hasBossSearch = channels.some(
+      (c) => c.channelSubType === "BOSS" && c.businessChannel === "SEARCH"
+    );
+    if (hasBossSearch && !(await hasPublishedBossJob())) {
+      notify.warning("未在 BOSS 直聘发布招聘中的职位，本次跳过 BOSS 搜索牛人，请先在 BOSS 发布职位");
+      for (let i = channels.length - 1; i >= 0; i--) {
+        if (channels[i].channelSubType === "BOSS" && channels[i].businessChannel === "SEARCH") {
+          channels.splice(i, 1);
+        }
+      }
+    }
 
     if (channels.length === 0) {
       console.warn("[IndexPage] dispatchTaskStore: 无启用渠道，跳过任务创建");
@@ -1990,34 +2029,34 @@ async function handleAggregateSearch(payload) {
   //   - return 不进入 task create 链路
   if (isElectronClient()) {
     const keysToCheck = [];
-    if (searchChecked) {
-      const userChannels = store.getters.getUserChannelConfig || [];
-      const enabledKeys = userChannels.length
-        ? userChannels.filter((c) => c.enableConfig).map((c) => c.key)
-        : ["BOSS", "ZHILIAN", "JOB51"]; // 兜底全启用
+    const userChannels = store.getters.getUserChannelConfig || [];
+    const enabledKeys = userChannels.length
+      ? userChannels.filter((c) => c.enableConfig).map((c) => c.key)
+      : ["BOSS", "ZHILIAN", "JOB51"]; // 兜底全启用
 
-      // ★ 用户显式禁用了所有渠道 —— 仅勾"搜索"时拦截，否则没有任何渠道可搜
-      //   如果同时勾了"推荐"，BOSS 推荐是写死的（不受 userChannelConfig 影响），
-      //   可以继续走推荐路径，所以允许放行但 keysToCheck 仅含 BOSS（recheck 下面加进去）
-      if (userChannels.length > 0 && enabledKeys.length === 0) {
-        if (!recommendChecked) {
-          console.warn("[IndexPage] aggregate-search 被拒绝：用户禁用了所有渠道且未勾推荐");
-          // 没启用任何渠道 → 直接弹「未检测到登录状态」面板（可勾选启用渠道 + 去登录），替代原 toast
-          currentView.value = "chat";
-          nextTick(() => {
-            const chatCard = embeddedChatRef.value;
-            if (chatCard && typeof chatCard.forceShowLoginRequired === "function") {
-              chatCard.forceShowLoginRequired();
-            } else {
-              notify.warning(
-                "当前没有启用任何招聘渠道，请先在右上角「设置」中启用至少一个渠道后再搜索"
-              );
-            }
-          });
-          return;
+    // ★ 用户禁用了所有渠道（配置存在但一个都没启用）→ 不论「搜索牛人」还是「推荐牛人」都没法跑
+    //   （推荐也走 BOSS 渠道，BOSS 被禁用就推不了）→ 直接弹「未检测到登录状态」面板
+    //   （可勾选启用渠道 + 去登录），而不是静默无反应。
+    //   （之前只在「仅勾搜索」时拦截，勾了推荐就放行 → 全渠道禁用点启动没反应。）
+    if (userChannels.length > 0 && enabledKeys.length === 0) {
+      console.warn("[IndexPage] aggregate-search 被拒绝：用户禁用了所有渠道 → 弹渠道选择/登录面板");
+      currentView.value = "chat";
+      nextTick(() => {
+        const chatCard = embeddedChatRef.value;
+        if (chatCard && typeof chatCard.forceShowLoginRequired === "function") {
+          chatCard.forceShowLoginRequired();
+        } else {
+          notify.warning(
+            "当前没有启用任何招聘渠道，请先在右上角「设置」中启用至少一个渠道后再搜索"
+          );
         }
-      }
+      });
+      // 清掉 ChatCard 已 push 的在途占位卡，避免卡死
+      embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
+      return;
+    }
 
+    if (searchChecked) {
       keysToCheck.push(...enabledKeys);
     }
     if (recommendChecked && !keysToCheck.includes("BOSS")) {
