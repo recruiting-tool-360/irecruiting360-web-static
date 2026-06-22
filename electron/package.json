@@ -1,6 +1,6 @@
 {
   "name": "electron",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "i快招智能招聘助手 - 桌面客户端 (dev 包名保持 electron 不动以避免 userData 路径漂移；生产 .app 名由 electron-builder.yml 的 productName 决定)",
   "main": "./out/main/index.js",
   "author": "ihire365.com",

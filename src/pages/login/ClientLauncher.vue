@@ -729,12 +729,12 @@ async function launchWithPayload(payload, prefetchedTokenInfo = null) {
     const ok = await handle.promise;
     currentLaunchHandle = null;
     isLaunching.value = false;
-    if (!ok) {
-      errorMsg.value = isEmbedded.value
-        ? "当前在内嵌浏览器中，无法唤起客户端，请用系统浏览器访问。"
-        : "未检测到 i 快招客户端，请确认已安装；如未安装请下载。";
+    if (!ok && isEmbedded.value) {
+      errorMsg.value =
+        "当前在内嵌浏览器中，无法唤起客户端，请用系统浏览器访问。";
     }
-    // 成功时不显示任何提示——焦点已切到客户端窗口
+    // 非内嵌浏览器下 !ok 多为浏览器禁止访问 localhost 的探测误报，并不代表客户端没装/没打开，故不再提示「未检测到」
+    // 成功时也不显示任何提示——焦点已切到客户端窗口
   } catch (e) {
     console.error("[ClientLauncher] tryLaunch failed:", e);
     currentLaunchHandle = null;
