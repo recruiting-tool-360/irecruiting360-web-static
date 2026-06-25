@@ -315,22 +315,32 @@ function handleDeepLink(url: string): void {
     pendingDeepLink = null
   }
 
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
+  // 仅在窗口被最小化 / 隐藏时才恢复显示并聚焦。
+  // 窗口已经可见（哪怕被其它程序盖在后面）时**不再** show/focus —— 否则用户在客户端内
+  // （或嵌在客户端里的 i人事 manage 页）触发任务时，内嵌 launcher 会发 ikuaizhao:// deep link，
+  // 经 open-url / second-instance 又回到这里，导致每执行一次任务就把整个窗口弹到最前，
+  // 打断用户在浏览器或其它程序里的操作。
+  // （冷启动场景 mainWindow 尚未创建，前面已 return，窗口由 createMainWindow / ready-to-show 正常显示。）
+  const needRaise = mainWindow.isMinimized() || !mainWindow.isVisible()
+  if (needRaise) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
 
-  // ★ 来回唤起客户端后主页 tab 偶发黑屏（WebContentsView 不重绘）→ 无脑重新聚焦主页 tab 触发重绘，
-  //   等价于用户手动点一下「i快招」主页 tab。在窗口 show/focus 之后再做（立刻 + 下一帧各一次，
-  //   覆盖「show 还没真正出画就 focus」的竞态），focusHomeTab 幂等，重复调用无副作用。
-  const refocusHome = (): void => {
-    try {
-      tabManager.focusHomeTab()
-    } catch (e) {
-      console.warn('[main] focusHomeTab failed:', e)
+    // ★ 来回唤起客户端后主页 tab 偶发黑屏（WebContentsView 不重绘）→ 重新聚焦主页 tab 触发重绘，
+    //   等价于用户手动点一下「i快招」主页 tab。仅在刚把窗口恢复/显示出来时才需要做（立刻 +
+    //   下一帧各一次，覆盖「show 还没真正出画就 focus」的竞态），focusHomeTab 幂等，重复调用无副作用。
+    //   窗口本来就可见时不做，避免无谓的 wc.focus() 把窗口抢到前台。
+    const refocusHome = (): void => {
+      try {
+        tabManager.focusHomeTab()
+      } catch (e) {
+        console.warn('[main] focusHomeTab failed:', e)
+      }
     }
+    refocusHome()
+    setTimeout(refocusHome, 80)
   }
-  refocusHome()
-  setTimeout(refocusHome, 80)
 }
 
 /**
@@ -754,10 +764,31 @@ function registerIpc(): void {
           error: { code: 'TAB_NOT_FOUND', message: `tabId=${opts.tabId} not found` }
         }
       }
-      return cdpDispatchClick(wc, opts.selector, {
+      // ★ 焦点守卫：CDP 模拟点击（Input.dispatchMouseEvent）会让被点的（后台）招聘站 view
+      //   获得焦点 → 在 Windows 上把整个客户端窗口顶到前台。自动任务（尤其 BOSS 推荐）执行中
+      //   会反复点击，导致用户在其它程序办公时被反复抢焦点。
+      //   对策：点击前记录主窗口是否本就有焦点；若用户原本不在本应用（无焦点），点击后把因点击
+      //   而被抢到的焦点还回去（blur），让客户端退回后台、不打扰用户。
+      //   （点击前用户就在本应用 → wasFocused=true → 不动，保证正常交互。）
+      const guardWin = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+      const wasFocusedBeforeClick = guardWin ? guardWin.isFocused() : false
+      const clickResult = await cdpDispatchClick(wc, opts.selector, {
         pressHoldMs: opts.pressHoldMs,
         requireVisible: opts.requireVisible
       })
+      if (guardWin && !wasFocusedBeforeClick) {
+        const restoreIfStolen = (): void => {
+          try {
+            if (!guardWin.isDestroyed() && guardWin.isFocused()) guardWin.blur()
+          } catch {
+            /* ignore */
+          }
+        }
+        // 立刻 + 下一帧各查一次：CDP 点击导致的焦点切换是异步的，可能在 dispatch 返回后才落地。
+        restoreIfStolen()
+        setTimeout(restoreIfStolen, 120)
+      }
+      return clickResult
     }
   )
 

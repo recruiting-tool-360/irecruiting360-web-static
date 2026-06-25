@@ -160,9 +160,13 @@ export async function captureFromHiddenView(
   // 关键：不用 show:false。某些 Electron / macOS 版本下 show:false 且无 parent 的窗口
   // 会被自动 release，导致 webContents 在 attach 后立刻销毁、sendCommand 抛
   // "target closed while handling command"。
-  // 改用 show:true + 摆到屏幕外 + skipTaskbar + opacity 0，用户视觉上仍然不可见。
+  // 但也不能用 show:true —— show:true 会把这个窗口**激活成前台**，即便摆到屏幕外 + opacity 0，
+  // 仍会抢走用户当前正在操作的其它程序的焦点（自动抓取时表现为「无人点击窗口却被聚焦」）。
+  // 正确做法：create show:false → 之后 showInactive()。showInactive 让窗口进入「已显示」状态
+  // （从而不会被自动 release），但**不激活、不抢前台焦点**。配合屏幕外 + skipTaskbar + opacity 0
+  // 用户视觉上仍然不可见。
   const win = new BrowserWindow({
-    show: true,
+    show: false,
     x: -32000,
     y: -32000,
     width: 1280,
@@ -183,6 +187,12 @@ export async function captureFromHiddenView(
       backgroundThrottling: false
     }
   })
+  // 显示但不激活/不抢焦点（替代 show:true，避免自动抓取时把屏幕外窗口弹成前台抢焦点）
+  try {
+    win.showInactive()
+  } catch (e) {
+    console.warn(`[hiddenView] showInactive failed: ${(e as Error)?.message || e}`)
+  }
   // 防止页面 <title> 把窗口标题改成奇怪东西（小概率出现在 dock hover）
   try {
     win.setTitle('')
