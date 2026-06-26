@@ -744,6 +744,9 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
 
   const config = { ...CONFIG, ...(opts.config || {}) };
   const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
+  // ★ 取消回调：用户手动停止任务后，每处理一个 geek 前 check，命中则立即中断本批拟人化。
+  //   修复"手动停止后推荐 tab 仍在跑 scroll/click/dwell 脚本"。
+  const shouldAbort = typeof opts.shouldAbort === "function" ? opts.shouldAbort : null;
 
   // 1) 随机决定本轮 click/browse 数量 + 选 geek + 排序
   const clickCount = randomInt(config.CLICK_COUNT_RANGE[0], config.CLICK_COUNT_RANGE[1]);
@@ -765,7 +768,24 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
   // 2) 按 plan 顺序执行
   const executed = [];
   const errors = [];
+  let aborted = false;
   for (let i = 0; i < plan.length; i++) {
+    // ★ 每个 geek 处理前先 check 用户是否已停止任务 → 立即中断，不再 scroll/click/dwell
+    if (shouldAbort) {
+      let stop = false;
+      try {
+        stop = await shouldAbort();
+      } catch (e) {
+        console.warn("[humanizeBrowse] shouldAbort 回调异常（忽略）:", e?.message || e);
+      }
+      if (stop) {
+        console.log(
+          `[humanizeBrowse] 检测到用户停止，中断剩余 plan（已执行 ${executed.length}/${plan.length}）`
+        );
+        aborted = true;
+        break;
+      }
+    }
     const item = plan[i];
     const tag = `[${i + 1}/${plan.length}] ${item.action}:${item.geekId.slice(0, 12)}`;
     onProgress("itemStart", { ...item, index: i, total: plan.length });
@@ -817,18 +837,19 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
   }
 
   console.log(
-    `[humanizeBrowse] DONE executed=${executed.length}/${plan.length} errors=${errors.length}`
+    `[humanizeBrowse] DONE executed=${executed.length}/${plan.length} errors=${errors.length}` +
+      `${aborted ? " (aborted by user stop)" : ""}`
   );
-  onProgress("done", { executed: executed.length, errors: errors.length });
+  onProgress("done", { executed: executed.length, errors: errors.length, aborted });
 
-  if (errors.length > 0 && errors.length === plan.length) {
+  if (!aborted && errors.length > 0 && errors.length === plan.length) {
     // 全部失败：只打控制台日志，便于排查 selector 失效（不弹 UI 通知打扰用户）
     console.warn(
       `[humanizeBrowse] ${plan.length} 项全部失败，可能 DOM selector 失效（CONFIG.ITEM_SELECTOR_TEMPLATE / CLOSE_BUTTON_CANDIDATES）`
     );
   }
 
-  return { ok: true, plan, executed, errors };
+  return { ok: true, plan, executed, errors, aborted };
 }
 
 // 导出 CONFIG 让外部能读默认值（如果不想完全覆盖，可以 { ...defaultConfig, BROWSE_DWELL_MS_RANGE: [...] }）

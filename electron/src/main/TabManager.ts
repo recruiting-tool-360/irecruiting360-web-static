@@ -163,6 +163,22 @@ class TabManager {
   /** BOSS 单例 tab 的 URL 变化监听（bossLoginWatcher 用来判登录态） */
   private bossUrlListener: ((url: string) => void) | null = null
 
+  /**
+   * ★ 隐藏视图聚焦守卫（修复"后台监视 tab reload 时整个客户端窗口被弹到最前抢焦点"）。
+   *
+   * 现象：BOSS 常驻登录监视是个**隐藏**的 WebContentsView，每 3 分钟 reload 一次职位管理页。
+   *   reload 后 BOSS 页面里的 autofocus 输入框 / 页面 `focus()` 会让这个隐藏子视图获得焦点，
+   *   在 macOS 上**激活整个 app** → 客户端窗口跳到最前，打断用户在其它程序里的操作；
+   *   随后 mainWindow 'focus' 又触发 LeftMenu 刷新职位（日志里的 ihrBridge 拉职位即此）。
+   *
+   * 对策：我们**主动**触发隐藏 tab 加载（spawnSiteTab hidden / reloadBossMonitor）前，
+   *   记一个守卫窗口 + 加载前 app 是否本就在前台。若加载前 app 在后台、而守卫窗口内窗口被
+   *   "顶"到前台（只可能是这个隐藏加载导致 —— 用户不可能去点 0×0 隐藏视图），则立即 blur
+   *   把焦点还回用户原来的程序。加载前 app 本就在前台（用户正在用）→ 不动，保证正常交互。
+   */
+  private hiddenLoadGuardUntil = 0
+  private hiddenLoadAppWasActive = false
+
   /** BOSS 登录态监视的默认页（职位管理 shell 页） */
   private static readonly BOSS_MONITOR_URL = 'https://www.zhipin.com/web/chat/job/list'
 
@@ -366,6 +382,8 @@ class TabManager {
       this.order.push(id)
     }
 
+    // 隐藏 tab 加载：开启聚焦守卫（reload 后页面可能 autofocus 把隐藏视图 + 整个 app 顶到前台）
+    if (isHidden) this.markHiddenLoadStart()
     void view.webContents.loadURL(url)
     if (isHidden) {
       // hidden tab：不 activate（保持原 active 不变），不显式 broadcast（getTabs 会过滤掉它）
@@ -518,12 +536,55 @@ class TabManager {
     //     isBossTabVisible() 变 false，只要 locked 就说明推荐任务还在跑，绝不能 reload 回职位管理页
     //     （否则推荐牛人任务被异常中断）
     if (this.isBossTabVisible() || tab.locked) return
+    // ★ 当前停在「推荐牛人」页时**不 reload**：
+    //   reloadBossMonitor 会把单例 tab 导航回职位管理页（BOSS_MONITOR_URL），
+    //   毁掉用户刚抓到的推荐牛人列表；且 BOSS 重新进推荐页会给每个牛人重新生成
+    //   encryptGeekId（DOM 上的 data-geekid 变了），导致搜索结果里的「立即沟通」
+    //   按 geekId 在推荐列表里匹配不到卡片。
+    //   推荐页 URL（/web/frame/recommend、/web/chat/recommend）本身就算登录态
+    //   （isLoggedInUrl 对 /web/ 返回 true），登录监视不依赖这次强制 reload；
+    //   真被挤下线时站点 SPA 会自己跳登录页，30s 轮询的 poll() 仍能捕捉到。
+    const curUrl = tab.view.webContents.getURL() || ''
+    if (curUrl.includes('/web/frame/recommend') || curUrl.includes('/web/chat/recommend')) {
+      console.log(
+        '[TabManager] reloadBossMonitor skip：BOSS 单例当前在推荐牛人页，保留列表不 reload（避免 encryptGeekId 变化）'
+      )
+      return
+    }
+    // 隐藏监视 reload：开启聚焦守卫，防止 reload 后 BOSS 页面 autofocus 把窗口顶到前台抢焦点
+    this.markHiddenLoadStart()
     void tab.view.webContents.loadURL(TabManager.BOSS_MONITOR_URL)
   }
 
   /** 注册 BOSS 单例 URL 变化监听（bossLoginWatcher 判登录态） */
   setBossUrlListener(cb: ((url: string) => void) | null): void {
     this.bossUrlListener = cb
+  }
+
+  /**
+   * 标记"即将主动触发一次隐藏视图加载"——开启聚焦守卫窗口，并记下加载前 app 是否在前台。
+   * 在 spawnSiteTab(hidden) / reloadBossMonitor 调 loadURL 之前调用。
+   */
+  private markHiddenLoadStart(): void {
+    const focused = !!(
+      this.mainWindow &&
+      !this.mainWindow.isDestroyed() &&
+      this.mainWindow.isFocused()
+    )
+    this.hiddenLoadAppWasActive = focused
+    // 10s 守卫窗口：覆盖 reload 后页面异步 autofocus / 站点 JS 调 focus() 的时延
+    this.hiddenLoadGuardUntil = Date.now() + 10_000
+  }
+
+  /**
+   * mainWindow 'focus' 时调用：判断这次聚焦是否是"隐藏视图加载把 app 顶到前台"的非法聚焦。
+   * 是 → 返回 true（调用方应立即 blur 并跳过职位刷新等副作用），并消费掉本次守卫（只判一次）。
+   */
+  shouldRejectFocusFromHiddenLoad(): boolean {
+    const within = Date.now() < this.hiddenLoadGuardUntil
+    const illegitimate = within && !this.hiddenLoadAppWasActive
+    if (within) this.hiddenLoadGuardUntil = 0 // 消费：本次加载只拦一次，避免误伤后续真实用户聚焦
+    return illegitimate
   }
 
   /**
@@ -937,6 +998,30 @@ class TabManager {
       onBossNav()
     })
     wc.on('did-finish-load', onChange)
+
+    // ★ BOSS 站点 tab 导航诊断：定位"推荐列表被刷新/换一批"到底是谁触发的。
+    //   - did-navigate     → **整页导航**（loadURL / reload / location 跳转）= 真·页面刷新
+    //   - did-navigate-in-page → SPA 路由内跳（不重载页面）
+    //   通过 URL 即可反推触发源：
+    //     · 含 /web/chat/job/list（BOSS_MONITOR_URL）→ reloadBossMonitor / parkBossTab（登录监视）
+    //     · 含 /web/frame/recommend 或 /web/chat/recommend 且带 _t= → autoSelectJob=false 的 tabs.loadUrl
+    //     · 含 recommend 不带 _t → openBossSingleton 复用时 loadURL（又一次 openBossRecommend）
+    //     · 含 geek/detail 等 → 用户/自动化点开了候选人详情（openChannelUrl）
+    //   如果列表"换了一批"但这里**没有** did-navigate 打印 → 不是页面刷新，是 BOSS 自己 XHR 回填。
+    if (tab.channel === 'boss') {
+      wc.on('did-navigate', (_e, url) => {
+        console.log(
+          `[TabManager][bossNavDiag] 整页导航 did-navigate tab=${tab.id} ` +
+            `isMonitorSingleton=${tab.id === this.bossTabId} url=${url} t=${new Date().toISOString()}`
+        )
+      })
+      wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+        if (!isMainFrame) return
+        console.log(
+          `[TabManager][bossNavDiag] SPA 内跳 did-navigate-in-page tab=${tab.id} url=${url} t=${new Date().toISOString()}`
+        )
+      })
+    }
 
     // 招聘站点自动化 tab：屏蔽站点 JS 弹窗（alert/confirm/prompt）。
     //   背景：BOSS 多 session 互斥保护会在"同账号多处进入"时弹原生 alert

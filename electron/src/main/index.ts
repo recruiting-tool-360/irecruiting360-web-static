@@ -483,6 +483,20 @@ function createMainWindow(): BrowserWindow {
   // ★ 客户端窗口获得焦点 → 通知主页 SPA（LeftMenu 据此刷新职位列表，及时获取新增/隐藏的职位）。
   //   这是"客户端聚焦"而非"网页聚焦"：即使当前停在 BOSS tab，app 一回到前台也会触发。
   mainWindow.on('focus', () => {
+    // ★ 拦截"隐藏监视视图 reload 把整个 app 顶到前台"的非法聚焦：
+    //   后台 BOSS 登录监视 tab（隐藏）每 3 分钟 reload 职位管理页，reload 后页面 autofocus
+    //   会让这个隐藏子视图获得焦点 → macOS 激活 app → 窗口跳到最前打断用户。
+    //   若判定本次聚焦来自这种隐藏加载（且加载前 app 不在前台）→ 立即 blur 退回后台，
+    //   且**不**发 app:window-focus（避免触发 LeftMenu 刷新职位等一连串副作用）。
+    try {
+      if (tabManager.shouldRejectFocusFromHiddenLoad()) {
+        console.log('[main] 拦截隐藏监视视图引起的非法聚焦 → blur 退回后台，不打扰用户')
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.blur()
+        return
+      }
+    } catch (e) {
+      console.warn('[main] hidden-load focus guard error (ignored):', (e as Error)?.message || e)
+    }
     try {
       const wc = tabManager.getHomeWebContents()
       if (wc && !wc.isDestroyed()) wc.send('app:window-focus')

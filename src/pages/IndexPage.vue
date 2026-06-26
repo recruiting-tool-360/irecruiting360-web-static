@@ -1219,7 +1219,10 @@ async function doFetchRecommend(args) {
       onProgress,
       recommendTaskChannelId: recommendTaskChannelId || null,
       recommendTaskChannelIds,
-      stopAfter: args?.stopAfter
+      stopAfter: args?.stopAfter,
+      // ★ 传本次运行所属 taskId：用户停旧任务→开新任务时，humanize 循环只认这个 id 的停止标记，
+      //   不会因"最新任务变成新任务"而漏判（修复停止后仍在跑/串台）
+      abortTaskId: _taskIdForPhase
     });
   } finally {
     // 流程结束 / 失败都要关蒙层；放 finally 防止 throw 时蒙层卡住
@@ -1270,6 +1273,21 @@ async function doFetchRecommend(args) {
     }
     return;
   }
+  // ★ 上传前最后一道关：本任务若已被用户主动停止，**丢弃本次推荐结果**——
+  //   不写缓存、不 POST /results 落库、不发 /detail 触发 AI 评分、不启动评分轮询。
+  //   修复："任务进行中手动停止后，又开新任务时，上一次推荐缓存里的牛人仍被继续做 AI 分析并上传"。
+  //   用 _taskIdForPhase（流程开始时捕获的本任务 id），即便此刻已开了新任务也能精确判定。
+  if (
+    _taskIdForPhase &&
+    store.state?.SearchTasks?.userStoppedTaskIds?.[String(_taskIdForPhase)] === true
+  ) {
+    console.warn(
+      `[IndexPage] 推荐流程返回但本任务(${_taskIdForPhase})已被用户停止，丢弃结果：不写缓存/不落库/不评分/不上传`
+    );
+    setPhase("FAILED");
+    return;
+  }
+
   // 用首屏 + humanize accumulated 的去重合并结果写回 store
   // ⚠️ totalSize 用实际合并后的数量（res.geekList.length），不是 firstPage.totalSize。
   // firstPage.totalSize 只反映 BOSS 单页响应的 totalSize 字段（通常 15），跟我们实际累计
@@ -1359,21 +1377,43 @@ async function doFetchRecommend(args) {
 
       // 2a) 先把 resumeBlindId / taskResumeId 回填给 BossRecommendData.geekList[i]
       //     scoreUpdater 回调时按 resumeBlindId 反查 geek 写回 score
+      //   同时把「id → encryptGeekId」写进 sessionStorage，供「查看结果」时的「立即沟通」
+      //   反查出真·长 encryptGeekId（DOM data-geekid）精确匹配卡片。
+      //
+      //   ★ 关键映射键 = outId(=uniqSign=`rec_<geekId>`)：
+      //     /results 上送的 rawResume 同时带 outId 和 geekCard.encryptGeekId；
+      //     /search/task/results/query 回来的简历里 outId（=originalResumeUrlInfo.request.rowId）
+      //     就是同一个值。所以用 outId 当 key 最稳（跨"查看结果"也能反查），
+      //     再附带 resumeBlindId/taskResumeId 当 key 兜底。
+      const geekIdPairs = [];
       for (let i = 0; i < jobList.length; i++) {
         const row = jobList[i];
         const geek = geekList[i] || {};
+        const card = geek.geekCard || {};
         const taskResumeId = row?.taskResumeId;
         const resumeBlindId = row?.resumeBlindId || row?.id;
-        if (!taskResumeId || !resumeBlindId) continue;
-        const encryptGeekId =
-          geek?.encryptGeekId || geek?.geekId || geek?.geekCard?.encryptGeekId || "";
-        if (encryptGeekId) {
+        // 长 encryptGeekId（不要 fallback 到 geek.geekId 那个纯数字短 id）
+        const encryptGeekId = geek?.encryptGeekId || card?.encryptGeekId || "";
+        if (!encryptGeekId) continue;
+        // outId / uniqSign：跟 mapBossRecommendGeekToSearchRaw 的 uniqSign 算法一致
+        const plainGeekId = card?.geekId || geek?.geekId || "";
+        const outId = plainGeekId ? `rec_${plainGeekId}` : "";
+        if (resumeBlindId && taskResumeId) {
           store.commit("patchBossRecommendGeek", {
             jobId,
             encryptGeekId,
             patch: { resumeBlindId: String(resumeBlindId), taskResumeId: String(taskResumeId) }
           });
+          geekIdPairs.push({ localId: resumeBlindId, geekId: encryptGeekId });
+          geekIdPairs.push({ localId: taskResumeId, geekId: encryptGeekId });
         }
+        if (outId) geekIdPairs.push({ localId: outId, geekId: encryptGeekId });
+      }
+      try {
+        const { rememberGeekIds } = await import("src/util/automation/recommendGeekIdMap");
+        rememberGeekIds(geekIdPairs);
+      } catch (e) {
+        console.warn("[IndexPage] 写入 recommendGeekIdMap 失败（忽略）:", e?.message || e);
       }
 
       // 2b) 启动**推荐独立**的 recommendScoreUpdater（跟搜索的 scoreAutoUpdater 单例零干扰）
@@ -2450,6 +2490,11 @@ async function handleViewResults(payload) {
     console.log(
       `[IndexPage] /search/task/results/query 分流: search=${list.length} recommend=${recommendList.length}`
     );
+
+    // 「查看结果」路径**不再**往映射里写 outId（后端给的 outId 是 rec_xxx 短 id，不是
+    //   DOM 的长 encryptGeekId，写了也匹配不到、还会污染）。
+    //   反查靠的是「立即沟通」时用 resume.outId(=rec_xxx) 去查**实时任务路径**已写好的
+    //   `outId → encryptGeekId` 映射（见 doFetchRecommend 落库处）。这里无需写入。
 
     // 推荐数据灌进 BossRecommendData：每个 task 用**独立 bucket key**（`task-<taskId>`），
     // 避免不同任务的推荐结果互相串扰。
