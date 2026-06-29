@@ -1,6 +1,6 @@
 职位列表
 网页地址：[https://www.zhipin.com/web/frame/job/list-new](https://www.zhipin.com/web/frame/job/list-new)
-接口：[https://www.zhipin.com/wapi/zpjob/job/data/list?position=0&type=0&searchStr=&comId=&tagIdStr=&page=1&_=1778678784286](https://www.zhipin.com/wapi/zpjob/job/data/list?position=0&type=0&searchStr=&comId=&tagIdStr=&page=1&_=1778678784286)
+接口：[https://www.zhipin.com/wapi/zpjob/job/data/list?position=0&type=0&searchStr=&comId=&tagIdStr=&page=1&\_=1778678784286](https://www.zhipin.com/wapi/zpjob/job/data/list?position=0&type=0&searchStr=&comId=&tagIdStr=&page=1&_=1778678784286)
 
 返回结果
 
@@ -285,7 +285,7 @@
 
 推荐牛人
 
-[https://www.zhipin.com/web/chat/recommend](https://www.zhipin.com/web/chat/recommend) 内部切入了iframe地址，  
+[https://www.zhipin.com/web/chat/recommend](https://www.zhipin.com/web/chat/recommend) 内部切入了 iframe 地址，  
 iframe 网页地址: [https://www.zhipin.com/web/frame/recommend/?jobid=61e0cd1cbd6016d90nZ80tq5FVVV&status=0&filterParams=&source=0](https://www.zhipin.com/web/frame/recommend/?jobid=61e0cd1cbd6016d90nZ80tq5FVVV&status=0&filterParams=&source=0)
 接口地址： [https://www.zhipin.com/wapi/zpjob/rec/geek/list?age=16,-1&activation=0&school=0&recentNotView=0&gender=0&exchangeResumeWithColleague=0&switchJobFrequency=0&major=0&keyword1=-1&experience=0&degree=0&intention=0&salary=0&jobId=61e0cd1cbd6016d90nZ80tq5FVVV&page=2&coverScreenMemory=0&cardType=0](https://www.zhipin.com/wapi/zpjob/rec/geek/list?age=16,-1&activation=0&school=0&recentNotView=0&gender=0&exchangeResumeWithColleague=0&switchJobFrequency=0&major=0&keyword1=-1&experience=0&degree=0&intention=0&salary=0&jobId=61e0cd1cbd6016d90nZ80tq5FVVV&page=2&coverScreenMemory=0&cardType=0)
 
@@ -313,41 +313,39 @@ div.container-wrap                                  ← 最外层
                   li.card-item × N
 ```
 
-### 关键选择器速查（**不要用 `data-v-`* Vue scoped hash，会随构建变**）
+### 关键选择器速查（**不要用 `data-v-`\* Vue scoped hash，会随构建变**）
 
-
-| 用途           | 选择器                                                                                                           |
-| ------------ | ------------------------------------------------------------------------------------------------------------- |
-| 滚动容器         | `.recommend-list-wrap`（或退而求其次：`#recommend-list`）                                                              |
-| 单张卡片         | `li.card-item` 或 `.card-item .candidate-card-wrap`                                                            |
-| 卡片点击热区       | `li.card-item .card-inner`                                                                                    |
-| 牛人 ID        | `li.card-item .card-inner[data-geekid]` 或 `[data-geek]`                                                       |
-| 卡片列表容器       | `ul.card-list`                                                                                                |
-| 顶部引导卡        | `.list-top-card-wrap`（遍历卡片时跳过）                                                                                |
-| 筛选浮层 trigger | `.filter-wrap`（在 `.candidate-head` 内）                                                                         |
-| 筛选浮层         | `.filter-panel`                                                                                               |
-| 详情弹框（点卡片打开）  | 待补 —— 实测发现 BOSS 没有"详情弹框"，点卡片是 **路由跳转**到候选人详情页 / 聊天页。"拟人操作"应当用 **hover + 移动 + scroll** 而不是 click（详见拟人操作 skill） |
-
+| 用途                   | 选择器                                                                                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 滚动容器               | `.recommend-list-wrap`（或退而求其次：`#recommend-list`）                                                                                                         |
+| 单张卡片               | `li.card-item` 或 `.card-item .candidate-card-wrap`                                                                                                               |
+| 卡片点击热区           | `li.card-item .card-inner`                                                                                                                                        |
+| 牛人 ID                | `li.card-item .card-inner[data-geekid]` 或 `[data-geek]`                                                                                                          |
+| 卡片列表容器           | `ul.card-list`                                                                                                                                                    |
+| 顶部引导卡             | `.list-top-card-wrap`（遍历卡片时跳过）                                                                                                                           |
+| 筛选浮层 trigger       | `.filter-wrap`（在 `.candidate-head` 内）                                                                                                                         |
+| 筛选浮层               | `.filter-panel`                                                                                                                                                   |
+| 详情弹框（点卡片打开） | 待补 —— 实测发现 BOSS 没有"详情弹框"，点卡片是 **路由跳转**到候选人详情页 / 聊天页。"拟人操作"应当用 **hover + 移动 + scroll** 而不是 click（详见拟人操作 skill） |
 
 ### 滚动加载下一页机制
 
 - BOSS 推荐页是**滚动到底部自动加载下一页**（IntersectionObserver / scroll listener），
-不是分页器点击。
+  不是分页器点击。
 - 自动加载会触发同一个接口：
-`GET /wapi/zpjob/rec/geek/list?...&page=N&...`
+  `GET /wapi/zpjob/rec/geek/list?...&page=N&...`
 - 拟人脚本里**不要直接 fetch 这个 URL**（会被 BOSS 风控识别），
-而是 `await scrollContainer.evaluate(el => el.scrollTo({top: el.scrollHeight, behavior: 'smooth'}))`
-→ 然后 `page.waitForResponse(r => r.url().includes('/wapi/zpjob/rec/geek/list'))` 监听自然请求。
+  而是 `await scrollContainer.evaluate(el => el.scrollTo({top: el.scrollHeight, behavior: 'smooth'}))`
+  → 然后 `page.waitForResponse(r => r.url().includes('/wapi/zpjob/rec/geek/list'))` 监听自然请求。
 - 新一页的 `zpData.geekList` 会被 BOSS 追加到 `ul.card-list` 末尾（新的 `li.card-item`）。
 - 反向触发不到的兜底：当 BOSS 内部判断"已经到底"时，`zpData.hasMore: false`，
-滚动也不会再触发请求。脚本应通过 `hasMore=false` 或"超时没等到新响应"双兜底退出。
+  滚动也不会再触发请求。脚本应通过 `hasMore=false` 或"超时没等到新响应"双兜底退出。
 
 ### 候选人详情：是路由跳转，不是弹框
 
 点击 `li.card-item .card-inner` 后 BOSS 的行为：
 
 - **绝大多数情况**：当前 tab 路由跳转到 `/web/chat/recommend?id=<encryptGeekId>` 等聊天页，
-推荐列表会被替换掉，**会破坏拟人滚动流程**。
+  推荐列表会被替换掉，**会破坏拟人滚动流程**。
 - **少数 UI 变种**：弹出右侧抽屉 `.candidate-detail-drawer` / `.geek-detail-drawer`。
 
 → **拟人操作不点卡片**。改用以下"看起来像在浏览"的动作组合：
@@ -1197,3 +1195,252 @@ class btns -> 确定
 }
 ```
 
+列表单个候选人的 item
+
+```html
+<li data-v-b753c1ac="" class="card-item">
+  <div
+    data-v-23b92cda=""
+    data-v-c46192b0=""
+    data-v-b753c1ac=""
+    class="candidate-card-wrap css-type-1"
+  >
+    <div
+      data-v-0f780f28=""
+      data-v-23b92cda=""
+      class="card-inner common-wrap css-type-1"
+      data-geek="158d8656d01946280HB739i7FQ~~"
+      data-geekid="158d8656d01946280HB739i7FQ~~"
+    >
+      <div data-v-0f780f28="" class="col-1">
+        <div
+          data-v-6094170e=""
+          data-v-0f780f28=""
+          class="avatar-wrap"
+          style="width: 48px; height: 48px;"
+        >
+          <img
+            data-v-6094170e=""
+            src="https://img.bosszhipin.com/boss/avatar/avatar_16.png?x-oss-process=image/resize,l_900,h_600/format,webp"
+            alt="王星"
+            class="avatar"
+          />
+          <svg
+            data-v-e7427138=""
+            data-v-6094170e=""
+            aria-hidden="true"
+            width="16"
+            height="16"
+            class="svg-icon gender"
+          >
+            <use data-v-e7427138="" xlink:href="#icon-icon-man"></use>
+          </svg>
+        </div>
+        <div data-v-2f330a8b="" data-v-0f780f28="" class="salary-wrap css-type-1">
+          <span data-v-2f330a8b="">20-26K</span>
+        </div>
+      </div>
+      <div data-v-0f780f28="" class="col-2">
+        <div data-v-0f780f28="" class="row name-wrap">
+          <span data-v-0f780f28="" class="name">王星</span>
+          <span data-v-0f780f28="" class="active-text">刚刚活跃</span>
+          <!---->
+        </div>
+        <div data-v-0f780f28="" class="row">
+          <div data-v-49f4ddf0="" data-v-0f780f28="" class="join-text-wrap base-info">
+            <span data-v-49f4ddf0="">31岁</span>
+            <i data-v-49f4ddf0="" class="join-shape line" style="margin: 0px 8px;"></i
+            ><span data-v-49f4ddf0="">10年</span>
+            <i data-v-49f4ddf0="" class="join-shape line" style="margin: 0px 8px;"></i
+            ><span data-v-49f4ddf0="">大专</span>
+            <i data-v-49f4ddf0="" class="join-shape line" style="margin: 0px 8px;"></i
+            ><span data-v-49f4ddf0="">在职-考虑机会</span>
+            <!---->
+          </div>
+        </div>
+        <div data-v-0f780f28="" class="row row-flex expect-wrap">
+          <span data-v-0f780f28="" class="label">期望</span>
+          <span data-v-0f780f28="" class="content"
+            ><div data-v-49f4ddf0="" data-v-0f780f28="" class="join-text-wrap">
+              <span data-v-49f4ddf0="">大连</span>
+              <i data-v-49f4ddf0="" class="join-shape dot" style="margin: 0px 8px;"></i
+              ><span data-v-49f4ddf0="">Android</span>
+              <!---->
+            </div></span
+          >
+        </div>
+        <div data-v-0f780f28="" class="row row-flex geek-desc">
+          <span data-v-0f780f28="" class="label">优势</span>
+          <span data-v-0f780f28="" class="content"
+            >安卓应用，车载座舱开发经验丰富，具备团队开发与独立开发能力，熟悉市场大部分商业 SDK
+            ，可结合业务并搭建 MVVM，MVP 架构。掌握 Java、Kotlin 语言开发 Android 项目。掌握 Dart
+            语言开发 Flutter 项目。掌握 Jetpack 组件库，主流开源库。了解 AMS、WMS、PMS
+            相关系统服务及 Binder 机制。了解 Joynr、SomeIP 通讯协议。熟悉 Linux
+            下开发，与硬件联调环境。追求前沿技术，学习能力强，自我驱动。</span
+          >
+        </div>
+        <div data-v-0f780f28="" class="row tags">
+          <div data-v-5513e603="" data-v-0f780f28="" class="tags-wrap">
+            <span data-v-5513e603="" class="tag-item"> Kotlin </span
+            ><span data-v-5513e603="" class="tag-item"> Android Studio </span
+            ><span data-v-5513e603="" class="tag-item"> Flutter </span>
+          </div>
+        </div>
+      </div>
+      <div data-v-0f780f28="" class="col-3">
+        <div data-v-25090fae="" data-v-0f780f28="" class="time-placeholder-wrap">
+          <div data-v-25090fae="" class="placeholder" style="height: 92px;">···</div>
+          <div data-v-25090fae="" class="content">
+            <div data-v-49f4ddf0="" data-v-25090fae="" class="join-text-wrap">
+              <span data-v-49f4ddf0="">2022.02</span>
+              <i data-v-49f4ddf0="" class="join-shape minus" style="margin: 0px 5px;"></i
+              ><span data-v-49f4ddf0="">2025.02</span>
+              <!---->
+            </div>
+            <div data-v-49f4ddf0="" data-v-25090fae="" class="join-text-wrap">
+              <span data-v-49f4ddf0="">2019.08</span>
+              <i data-v-49f4ddf0="" class="join-shape minus" style="margin: 0px 5px;"></i
+              ><span data-v-49f4ddf0="">2022.01</span>
+              <!---->
+            </div>
+            <div data-v-49f4ddf0="" data-v-25090fae="" class="join-text-wrap">
+              <span data-v-49f4ddf0="">2017.04</span>
+              <i data-v-49f4ddf0="" class="join-shape minus" style="margin: 0px 5px;"></i
+              ><span data-v-49f4ddf0="">2019.07</span>
+              <!---->
+            </div>
+            <div data-v-49f4ddf0="" data-v-25090fae="" class="join-text-wrap">
+              <span data-v-49f4ddf0="">2013</span>
+              <i data-v-49f4ddf0="" class="join-shape minus" style="margin: 0px 5px;"></i
+              ><span data-v-49f4ddf0="">2016</span>
+              <!---->
+            </div>
+          </div>
+        </div>
+        <div data-v-419a77a6="" data-v-0f780f28="" class="timeline-wrap work-exps">
+          <i data-v-419a77a6="" class="dotted"></i>
+          <div data-v-419a77a6="" class="timeline-item">
+            <div data-v-419a77a6="" class="timeline-item-icon">
+              <svg
+                data-v-e7427138=""
+                data-v-419a77a6=""
+                aria-hidden="true"
+                width="13"
+                height="13"
+                class="svg-icon icon icon-work-v2"
+              >
+                <use data-v-e7427138="" xlink:href="#icon-icon-work-v2"></use>
+              </svg>
+            </div>
+            <div data-v-49f4ddf0="" data-v-419a77a6="" class="join-text-wrap time">
+              <span data-v-49f4ddf0="">2022.02</span>
+              <i data-v-49f4ddf0="" class="join-shape minus" style="margin: 0px 4px;"></i
+              ><span data-v-49f4ddf0="">2025.02</span>
+              <!---->
+            </div>
+            <div data-v-49f4ddf0="" data-v-419a77a6="" class="join-text-wrap content">
+              <span data-v-49f4ddf0="">长城汽车</span>
+              <i data-v-49f4ddf0="" class="join-shape dot" style="margin: 0px 8px;"></i
+              ><span data-v-49f4ddf0="">Android</span>
+              <!---->
+            </div>
+          </div>
+          <div data-v-419a77a6="" class="timeline-item">
+            <div data-v-419a77a6="" class="timeline-item-icon">
+              <span data-v-419a77a6="" class="dot"></span>
+            </div>
+            <div data-v-49f4ddf0="" data-v-419a77a6="" class="join-text-wrap time">
+              <span data-v-49f4ddf0="">2019.08</span>
+              <i data-v-49f4ddf0="" class="join-shape minus" style="margin: 0px 4px;"></i
+              ><span data-v-49f4ddf0="">2022.01</span>
+              <!---->
+            </div>
+            <div data-v-49f4ddf0="" data-v-419a77a6="" class="join-text-wrap content">
+              <span data-v-49f4ddf0="">大连源氏信息</span>
+              <i data-v-49f4ddf0="" class="join-shape dot" style="margin: 0px 8px;"></i
+              ><span data-v-49f4ddf0="">Android</span>
+              <!---->
+            </div>
+          </div>
+          <div data-v-419a77a6="" class="timeline-item">
+            <div data-v-419a77a6="" class="timeline-item-icon">
+              <span data-v-419a77a6="" class="dot"></span>
+            </div>
+            <div data-v-49f4ddf0="" data-v-419a77a6="" class="join-text-wrap time">
+              <span data-v-49f4ddf0="">2017.04</span>
+              <i data-v-49f4ddf0="" class="join-shape minus" style="margin: 0px 4px;"></i
+              ><span data-v-49f4ddf0="">2019.07</span>
+              <!---->
+            </div>
+            <div data-v-49f4ddf0="" data-v-419a77a6="" class="join-text-wrap content">
+              <span data-v-49f4ddf0="">九海赢信科技大连</span>
+              <i data-v-49f4ddf0="" class="join-shape dot" style="margin: 0px 8px;"></i
+              ><span data-v-49f4ddf0="">Android</span>
+              <!---->
+            </div>
+          </div>
+        </div>
+        <div data-v-419a77a6="" data-v-0f780f28="" class="timeline-wrap edu-exps">
+          <!---->
+          <div data-v-419a77a6="" class="timeline-item">
+            <div data-v-419a77a6="" class="timeline-item-icon">
+              <svg
+                data-v-e7427138=""
+                data-v-419a77a6=""
+                aria-hidden="true"
+                width="13"
+                height="13"
+                class="svg-icon icon icon-edu-v2"
+              >
+                <use data-v-e7427138="" xlink:href="#icon-icon-edu-v2"></use>
+              </svg>
+            </div>
+            <div data-v-49f4ddf0="" data-v-419a77a6="" class="join-text-wrap time">
+              <span data-v-49f4ddf0="">2013</span>
+              <i data-v-49f4ddf0="" class="join-shape minus" style="margin: 0px 4px;"></i
+              ><span data-v-49f4ddf0="">2016</span>
+              <!---->
+            </div>
+            <div data-v-49f4ddf0="" data-v-419a77a6="" class="join-text-wrap content">
+              <span data-v-49f4ddf0="">北京电子科技职业学院</span>
+              <i data-v-49f4ddf0="" class="join-shape dot" style="margin: 0px 8px;"></i
+              ><span data-v-49f4ddf0="">电子信息工程</span>
+              <i data-v-49f4ddf0="" class="join-shape dot" style="margin: 0px 8px;"></i
+              ><span data-v-49f4ddf0="">大专</span>
+              <!---->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div data-v-3e747006="" data-v-23b92cda="" class="tooltip-wrap suitable">
+      <!---->
+      <i data-v-3e747006="" class="icon iboss-close"></i>
+      <!---->
+    </div>
+    <div data-v-23b92cda="" class="operate-side">
+      <!---->
+      <!---->
+      <!---->
+      <div data-v-a237b14c="" data-v-23b92cda="" class="button-chat-wrap button-chat">
+        <span data-v-a237b14c="" class="btn-doc"
+          ><!---->
+          <div data-v-a237b14c="" class="button-list">
+            <!---->
+            <button data-v-a237b14c="" type="button" class="btn btn-greet">
+              打招呼<i data-v-a237b14c="" class="overdue-tip-icon"></i>
+            </button></div
+        ></span>
+        <!---->
+        <!---->
+        <!---->
+        <!---->
+      </div>
+    </div>
+    <!---->
+    <!---->
+    <!---->
+    <!---->
+  </div>
+</li>
+```

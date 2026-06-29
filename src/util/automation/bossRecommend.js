@@ -237,6 +237,8 @@ export async function openBossRecommendForJob(args) {
  *                                         正确做法：让外层 runBossRecommend 在打开 tab 之前
  *                                         抓 sinceTs 传进来）
  * @param {{ status?: number|string, filterParams?: string, source?: number|string }} [args.urlOpts]
+ * @param {string} [args.tabId]  已打开的推荐 tab id。传了就**复用**该 tab，不再 openBossRecommend
+ *                               （避免对已加载/已选职位的推荐页再 loadURL 触发整页 reload → 换一批牛人）。
  * @returns {Promise<{
  *   ok: boolean,
  *   tabId?: string,
@@ -247,10 +249,23 @@ export async function openBossRecommendForJob(args) {
  * }>}
  */
 export async function fetchBossRecommendList(args) {
-  const { encryptJobId, waitMs = 10000, navWaitMs = 0, urlOpts, sinceTs } = args || {};
+  const { encryptJobId, waitMs = 10000, navWaitMs = 0, urlOpts, sinceTs, tabId } = args || {};
 
-  const opened = await openBossRecommend(encryptJobId, urlOpts);
-  if (!opened.ok) return opened;
+  // ★ 关键修复：tabId 传了就**复用已打开的推荐 tab**，不再 openBossRecommend。
+  //   原因：runBossRecommend 已经 openBossRecommend + selectJob 把推荐页加载并选好职位了，
+  //   这里再 openBossRecommend → openOrActivate → openBossSingleton 会对同一个 tab 再
+  //   `loadURL(recommendUrl)` 一次 = **整页 reload**，BOSS 会重新返回**另一批**牛人
+  //   （page=1 内容都变了），导致我们 capture 到的列表跟 reload 后 DOM 渲染的列表不一致
+  //   → 拟人化 / 立即沟通 按 encryptGeekId 匹配不到卡片。
+  //   （日志实证：同一次任务里出现两次 did-navigate 到 /web/chat/recommend，第二次后
+  //    /rec/geek/list page=1 的 body 大小从 223787 变成 193529。）
+  let opened;
+  if (tabId) {
+    opened = { ok: true, tabId, url: buildBossRecommendUrl(encryptJobId, urlOpts) };
+  } else {
+    opened = await openBossRecommend(encryptJobId, urlOpts);
+    if (!opened.ok) return opened;
+  }
   if (navWaitMs > 0) await new Promise((r) => setTimeout(r, navWaitMs));
 
   // siteNetwork bridge 只在 Electron 客户端里存在；浏览器模式不支持 BOSS 推荐自动化
@@ -540,7 +555,15 @@ export async function runBossRecommend(args) {
      *   - 'firstPage' → 上面所有 + fetch 首屏（不 humanize）
      *   - undefined / 其它 → 完整流程
      */
-    stopAfter
+    stopAfter,
+    /**
+     * ★ 本次推荐运行所属的 taskId（由 doFetchRecommend 在流程**开始时**捕获并传入）。
+     *   用户停止当前任务后又立刻开新任务时，"最新任务"已变成新任务（RUNNING），
+     *   若 isUserAborted 仍按 getLatestTaskByChat 判定，旧的在途 humanize 循环会读到
+     *   新任务状态（未停）→ 永不 break → 拟人化脚本继续跑 + 旧缓存数据被上传（串台 bug）。
+     *   传入本运行**自己**的 taskId，isUserAborted 只认这个 id 的停止标记，互不影响。
+     */
+    abortTaskId
   } = args || {};
 
   // 1) 主动 select 分支需要在 open 之前做三件事：
@@ -801,7 +824,14 @@ export async function runBossRecommend(args) {
   // emit 'fetching'：让 UI 推荐卡切到 step2 "获取候选人列表" processing
   if (typeof onProgress === "function") onProgress("fetching", { sinceTs });
 
-  const first = await fetchBossRecommendList({ encryptJobId, navWaitMs: 0, sinceTs });
+  // ★ 复用已打开 + 已选职位的推荐 tab（opened.tabId），不要让 fetchBossRecommendList 再
+  //   openBossRecommend 触发整页 reload（会换成另一批牛人，导致后续拟人化/立即沟通匹配不上）。
+  const first = await fetchBossRecommendList({
+    encryptJobId,
+    navWaitMs: 0,
+    sinceTs,
+    tabId: opened.tabId
+  });
   if (!first.ok) return first;
   if (typeof onProgress === "function") {
     onProgress("firstPage", first.data);
@@ -997,13 +1027,22 @@ export async function runBossRecommend(args) {
     try {
       const storeMod = await import("src/store");
       const store = storeMod.default || storeMod;
+      const stoppedMap = store?.state?.SearchTasks?.userStoppedTaskIds || {};
+      // ★ 优先认本次运行**自己**的 taskId（abortTaskId）。
+      //   用户停旧任务→立刻开新任务时，"最新任务"已是新任务，再按 getLatestTaskByChat 判定会
+      //   读到新任务（RUNNING）导致旧循环永不 break。只认 abortTaskId 即可精确停掉本运行。
+      if (abortTaskId) {
+        if (stoppedMap[String(abortTaskId)] === true) return true;
+        const t = store?.state?.SearchTasks?.tasksById?.[abortTaskId];
+        if (t && t.taskStatus === "STOPPED") return true;
+        return false;
+      }
+      // 兜底（未传 abortTaskId 的老调用方）：按 chat 最新任务判定
       const cid = store?.getters?.getLatestChatId;
       if (!cid) return false;
       const getLatest = store?.getters?.["SearchTasks/getLatestTaskByChat"];
       const task = typeof getLatest === "function" ? getLatest(cid) : null;
       if (!task) return false;
-      // 双重判定：state.userStoppedTaskIds 命中 OR task.taskStatus 已是 STOPPED
-      const stoppedMap = store?.state?.SearchTasks?.userStoppedTaskIds || {};
       return stoppedMap[String(task.taskId)] === true || task.taskStatus === "STOPPED";
     } catch (e) {
       console.warn("[bossRecommend] isUserAborted check 失败（默认 false）:", e?.message || e);
@@ -1045,6 +1084,10 @@ export async function runBossRecommend(args) {
       try {
         const hRes = await humanizeBrowseGeeks(first.tabId, batchGeekIds, {
           config: humanizeOpts?.config || undefined,
+          // ★ 把"用户是否停了本任务"作为取消回调传进去：humanizeBrowseGeeks 每处理一个 geek
+          //   前都会 check，一旦命中立即中断本批拟人化（scroll/click/dwell），不再继续跑脚本。
+          //   修复"用户手动停止后推荐 tab 仍在跑拟人化脚本"。
+          shouldAbort: isUserAborted,
           onProgress: (stage, payload) => {
             if (typeof onProgress === "function") {
               onProgress(`humanize.${stage}`, { ...payload, round: rounds });
@@ -1053,6 +1096,15 @@ export async function runBossRecommend(args) {
         });
         humanizePerRoundResults.push(hRes);
         batchGeekIds.forEach((id) => processedGeekIds.add(id));
+
+        // humanizeBrowseGeeks 内部因停止而中断 → 立刻 break 外层循环，带回已有数据
+        if (hRes?.aborted) {
+          console.log(
+            `[bossRecommend][humanize][round ${rounds}] humanizeBrowseGeeks 因用户停止中断，break 循环`
+          );
+          humanizeError = { code: "USER_STOPPED", message: "用户主动停止任务" };
+          break;
+        }
 
         if (!hRes?.ok) {
           humanizeError = { code: hRes?.errorCode || "UNKNOWN", message: hRes?.message || "" };
@@ -1087,6 +1139,14 @@ export async function runBossRecommend(args) {
 
     // ④ 没自动触发 → 主动滚到底强制触发
     if (newGeeksThisRound.length === 0) {
+      // 强制滚底 + 等响应最多 12s，是个耗时段；进入前再 check 一次停止，避免停止后还白等一轮
+      if (await isUserAborted()) {
+        console.log(
+          `[bossRecommend][humanize][round ${rounds}] 强制滚底前检测到用户停止，立即 break`
+        );
+        humanizeError = { code: "USER_STOPPED", message: "用户主动停止任务" };
+        break;
+      }
       console.log(
         `[bossRecommend][humanize][round ${rounds}] 未自动触发 lazy load，主动 smoothScrollToBottom（多管齐下：主frame+iframe多容器+sentinel scrollIntoView）`
       );

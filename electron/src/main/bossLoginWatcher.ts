@@ -85,13 +85,22 @@ function onBossUrl(url: string): void {
 
 /** 兜底轮询：读单例当前 URL（不发请求） */
 function poll(): void {
-  const url = tabManager.getBossTabUrl()
-  if (!url) {
-    // 单例不在了（被销毁 / 还没建）→ 确保监视 tab 存在
-    tabManager.ensureBossMonitorTab()
-    return
+  // ★ 整个轮询体包 try/catch：定时器回调里任何异常都会变成「主进程未捕获异常」崩溃弹框
+  //   （曾出现退出/关窗后 ensureBossMonitorTab → spawnSiteTab 访问已销毁 mainWindow 抛
+  //   "Object has been destroyed"）。这里兜底吞掉，绝不让定时器拖垮主进程。
+  try {
+    // 主窗口不在了（退出 / 关窗）→ 不再做任何 tab 操作
+    if (!tabManager.isReady()) return
+    const url = tabManager.getBossTabUrl()
+    if (!url) {
+      // 单例不在了（被销毁 / 还没建）→ 确保监视 tab 存在
+      tabManager.ensureBossMonitorTab()
+      return
+    }
+    onBossUrl(url)
+  } catch (e) {
+    console.warn('[bossLoginWatcher] poll error (ignored):', (e as Error)?.message || e)
   }
-  onBossUrl(url)
 }
 
 /**
