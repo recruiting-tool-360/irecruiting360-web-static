@@ -237,8 +237,6 @@ export async function openBossRecommendForJob(args) {
  *                                         正确做法：让外层 runBossRecommend 在打开 tab 之前
  *                                         抓 sinceTs 传进来）
  * @param {{ status?: number|string, filterParams?: string, source?: number|string }} [args.urlOpts]
- * @param {string} [args.tabId]  已打开的推荐 tab id。传了就**复用**该 tab，不再 openBossRecommend
- *                               （避免对已加载/已选职位的推荐页再 loadURL 触发整页 reload → 换一批牛人）。
  * @returns {Promise<{
  *   ok: boolean,
  *   tabId?: string,
@@ -249,23 +247,10 @@ export async function openBossRecommendForJob(args) {
  * }>}
  */
 export async function fetchBossRecommendList(args) {
-  const { encryptJobId, waitMs = 10000, navWaitMs = 0, urlOpts, sinceTs, tabId } = args || {};
+  const { encryptJobId, waitMs = 10000, navWaitMs = 0, urlOpts, sinceTs } = args || {};
 
-  // ★ 关键修复：tabId 传了就**复用已打开的推荐 tab**，不再 openBossRecommend。
-  //   原因：runBossRecommend 已经 openBossRecommend + selectJob 把推荐页加载并选好职位了，
-  //   这里再 openBossRecommend → openOrActivate → openBossSingleton 会对同一个 tab 再
-  //   `loadURL(recommendUrl)` 一次 = **整页 reload**，BOSS 会重新返回**另一批**牛人
-  //   （page=1 内容都变了），导致我们 capture 到的列表跟 reload 后 DOM 渲染的列表不一致
-  //   → 拟人化 / 立即沟通 按 encryptGeekId 匹配不到卡片。
-  //   （日志实证：同一次任务里出现两次 did-navigate 到 /web/chat/recommend，第二次后
-  //    /rec/geek/list page=1 的 body 大小从 223787 变成 193529。）
-  let opened;
-  if (tabId) {
-    opened = { ok: true, tabId, url: buildBossRecommendUrl(encryptJobId, urlOpts) };
-  } else {
-    opened = await openBossRecommend(encryptJobId, urlOpts);
-    if (!opened.ok) return opened;
-  }
+  const opened = await openBossRecommend(encryptJobId, urlOpts);
+  if (!opened.ok) return opened;
   if (navWaitMs > 0) await new Promise((r) => setTimeout(r, navWaitMs));
 
   // siteNetwork bridge 只在 Electron 客户端里存在；浏览器模式不支持 BOSS 推荐自动化
@@ -824,14 +809,7 @@ export async function runBossRecommend(args) {
   // emit 'fetching'：让 UI 推荐卡切到 step2 "获取候选人列表" processing
   if (typeof onProgress === "function") onProgress("fetching", { sinceTs });
 
-  // ★ 复用已打开 + 已选职位的推荐 tab（opened.tabId），不要让 fetchBossRecommendList 再
-  //   openBossRecommend 触发整页 reload（会换成另一批牛人，导致后续拟人化/立即沟通匹配不上）。
-  const first = await fetchBossRecommendList({
-    encryptJobId,
-    navWaitMs: 0,
-    sinceTs,
-    tabId: opened.tabId
-  });
+  const first = await fetchBossRecommendList({ encryptJobId, navWaitMs: 0, sinceTs });
   if (!first.ok) return first;
   if (typeof onProgress === "function") {
     onProgress("firstPage", first.data);
