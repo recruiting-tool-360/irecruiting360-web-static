@@ -54,7 +54,7 @@ import { useStore } from "vuex";
 import { useQuasar } from "quasar";
 import * as LIEPINJobInfoManager from 'src/pluginSrc/channels/LIEPINJobInfoManager';
 import notify from "src/util/notify";
-import {channelDataSave, channelDataSavePlus} from "src/pluginSrc/util/CannelManager";
+import {channelDataSaveByRuntime} from "src/pluginSrc/util/CannelManager";
 import ResumeList from '../../../components/resume/ResumeList.vue';
 import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 import {channelSearchListSimilar} from "src/pluginSrc/channels/LIEPINJobInfoManager";
@@ -201,7 +201,7 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
       //保存数据并返回结果
       let channelJobList;
       try {
-        channelJobList = await channelDataSavePlus(searchRequestData.requestId, searchRequestData.id, channelConfig.value.desc, result.dataList,chatId.value, filterByRead.value);
+        channelJobList = await channelDataSaveByRuntime(searchRequestData.requestId, searchRequestData.id, channelConfig.value.desc, result.dataList,chatId.value, filterByRead.value);
       }catch (e){
         console.log(e)
         searchChannelConfig.value.channelPage = searchChannelConfig.value.channelPage-1;

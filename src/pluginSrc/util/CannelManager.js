@@ -1,4 +1,5 @@
 import {saveJobList} from "src/api/jobList/JobListApi";
+import { isElectronClient } from "src/util/openChannelLoginUrl";
 // 任务化迁移：channelDataSavePlus 已经**完全用任务侧 /search/taskChannel/{tcId}/results 取代
 // 老业务接口 /search/saveSearchPlus**。
 //
@@ -62,3 +63,25 @@ export const channelDataSavePlus = async (outId, searchConditionId, channel, cha
     return [];
   }
 }
+
+/**
+ * 按运行环境保存搜索结果：
+ *   - 独立网页版：走旧的 /search/saveSearchPlus，保持原有即时搜索链路
+ *   - Electron 桌面端：走任务侧 /search/taskChannel/{tcId}/results，保留任务化链路
+ *
+ * 两套逻辑不能混用：网页版的即时搜索没有先创建 taskChannel，直接调用
+ * channelDataSavePlus 会因找不到活跃 taskChannel 返回空数组，导致页面不显示结果。
+ */
+export const channelDataSaveByRuntime = async (
+  outId,
+  searchConditionId,
+  channel,
+  channelList,
+  chatId,
+  isRead
+) => {
+  if (isElectronClient()) {
+    return channelDataSavePlus(outId, searchConditionId, channel, channelList, chatId, isRead);
+  }
+  return channelDataSave(outId, searchConditionId, channel, channelList);
+};
