@@ -56,13 +56,8 @@
           - BOSS 推荐 API 返回的 geek 数据通过 mapBossGeekToResume() 适配成 ResumeCard 期望的 resume shape
           - BOSS 推荐没有的字段（简要描述 / 工作经历 / 教育经历 / AI 评分 / 性别 / 年龄 ...）留空，
             ResumeCard 内部已有空态处理（暂无工作经历 / AI 分析中 / 无 badge 等）
-          - readOnly 按 geek.resumeBlindId 是否回填**动态判断**：
-              * 已回填（/results 之后，patchBossRecommendGeek 把 i 人事真实 resumeBlindId 写进 geek）
-                → readOnly=false，跟搜索 tab 等价，可分配职位 / 加入人才库 / 相似简历 / AI 评估
-              * 未回填（/results 之前的瞬时态，只有 encryptGeekId）
-                → readOnly=true，按钮 disable
-            老版本写死 readOnly=true 是因为那时 resume.id=encryptGeekId 后端不认识；
-            现在 /results 后端给了真实 resumeBlindId，跟搜索通道完全对等。
+          - 推荐数据直接复用搜索结果卡片的业务操作，立即沟通走
+            「查询详情 → 收藏 → 互动消息页」流程。
       -->
       <div class="rl-resume-list">
         <ResumeCard
@@ -70,7 +65,6 @@
           :key="geek.encryptGeekId || geek.geekId || geek.resumeBlindId || idx"
           :resume="mapBossGeekToResume(geek)"
           :is-read="false"
-          :read-only="!geek.resumeBlindId"
           tab-str="推荐牛人"
           :search-condition-id-override="geek.searchConditionId || null"
           @detail="() => onCardClick(geek)"
@@ -186,7 +180,7 @@ function mapBossGeekToResume(geek) {
     // id 优先用 resumeBlindId（patchBossRecommendGeek 在 /results 之后回填进来）：
     //   - AIResumeEvaluation 弹框查分用 resumeBlindIds=[resume.id] 调 getScoreListDetailedPlus，
     //     如果给 encryptGeekId 后端找不到 → 弹"未找到该简历的评估数据"
-    //   - "分配职位 / 加入人才库" 等业务也都按 resumeBlindId 走（虽然推荐当前 readOnly 禁用了）
+    //   - "分配职位 / 加入人才库" 等业务仍按 resumeBlindId 走；推荐结果落库后会回填该字段。
     //   - 没有 resumeBlindId 时降级到 encryptGeekId（/results 落库前的瞬时态）
     id: g.resumeBlindId || g.encryptGeekId || c.encGeekId || c.geekId || `geek_${Math.random().toString(36).slice(2)}`,
     name: c.geekName || g.geekName || '匿名候选人',
@@ -212,14 +206,21 @@ function mapBossGeekToResume(geek) {
     // .request.securityId 报 TypeError → handleResume 异常退出 → importResume / 加入人才库
     // / 分配职位 / 立即沟通 整条流程都 break。
     //
-    // BOSS 推荐 API 的 securityId 在 geekCard.securityId（500+ 字符的防爬签名），
-    // 拼成跟搜索通道相同的 originalResumeUrlInfo 格式：{"request":{"securityId":"..."}}
+    // BOSS 推荐 API 的 securityId/lid 在 geekCard 中，
+    // expectPositionName 对应搜索流程里的 lidTag。
+    // 拼成跟搜索通道相同的 originalResumeUrlInfo，供「立即沟通」复用：
+    // {"request":{"securityId":"...","lidTag":"...","lid":"..."}}
     originalResumeUrlInfo: c.securityId
-      ? JSON.stringify({ request: { securityId: c.securityId } })
+      ? JSON.stringify({
+          request: {
+            securityId: c.securityId,
+            lidTag: c.expectPositionName || '',
+            lid: c.lid || ''
+          }
+        })
       : 'null',
-    // 保留原始 BOSS geek，候选人详情抽屉 / "立即沟通" 等动作需要时能拿到 securityId / lid
-    _raw: g,
-    _isBossRecommend: true
+    // 保留原始 BOSS geek，候选人详情抽屉等动作需要时能拿到完整原始数据。
+    _raw: g
   };
 }
 

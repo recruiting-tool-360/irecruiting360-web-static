@@ -288,7 +288,6 @@ import { openExternalSiteUrl } from "src/util/openChannelLoginUrl";
 import { useSendResume } from 'src/hooks/useSendResume';
 import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
-import { greetBossRecommendGeek } from 'src/util/automation/bossRecommendGreet';
 
 const store = useStore();
 const $q = useQuasar();
@@ -919,31 +918,9 @@ const saveJobListRequestTemplate =()=>{
   }
 }
 
-/**
- * 是否「推荐牛人」候选人：
- *   - 推荐牛人列表（RecommendList.vue）渲染 ResumeCard 时会传 tabStr='推荐牛人'
- *   - mapBossGeekToResume 适配出来的推荐数据带 _isBossRecommend=true
- */
-const isBossRecommend = computed(() => {
-  return props.tabStr === '推荐牛人' || props.resume?._isBossRecommend === true;
-});
-
 // 约面试 / 立即沟通
 const scheduleInterview = async () => {
-  // ★ 推荐牛人：走新逻辑 —— 定位已打开的「推荐牛人列表」tab，找到这个牛人后切到该 tab
-  //   并自动点击卡片上的「打招呼」按钮（不再走旧的收藏 + 打开互动消息页流程）。
-  if (isBossRecommend.value) {
-    const res = await greetBossRecommendGeek(props.resume);
-    if (res.ok) {
-      notify.success('已切换到推荐牛人列表并为该牛人打招呼');
-    } else {
-      notify.warning(res.message || '立即沟通失败');
-    }
-    emit('interview', props.resume);
-    return;
-  }
-
-  // 其它渠道：保留原有「收藏 + 打开互动消息页」逻辑
+  // 普通搜索和推荐牛人统一走旧流程：查询详情 → 收藏 → 打开互动消息页。
   bossScheduleInterview(props.resume);
   emit('interview', props.resume);
 };
