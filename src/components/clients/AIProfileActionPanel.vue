@@ -2,7 +2,7 @@
   AI 职位画像深度解析 - 动作面板
 
   跟随每条带 [&AI_SEARCH&] 标记的 bot 消息渲染在气泡下方，提供：
-    1. 顶部一行：搜索牛人 / 推荐牛人 两个圆形对勾（默认都选中）+ 右侧"配置已自动锁定"
+    1. 顶部一行：推荐牛人圆形对勾（默认选中）+ 右侧"配置已自动锁定"
     2. 选中"推荐牛人"时展开青色配置卡片：
        - 匹配 Boss 直聘职位（下拉，数据来自 store.getters.getBossJobList）
        - 本次期望最大搜索"简历数"（数字输入 + "份"）
@@ -19,14 +19,10 @@
     <!--
       模块勾选 + 锁定提示
 
-      显示逻辑（设置里 BOSS 未启用时简化 UI）：
-        - bossEnabled=true（默认 / 设置里启用了 BOSS）：显示「搜索牛人」+「推荐牛人」两个勾选框
-        - bossEnabled=false（设置里禁用了 BOSS）：
-            · 「推荐牛人」依赖 BOSS 渠道，无意义
-            · 只剩「搜索牛人」一个选项，让用户勾选也无意义
-            · 「配置已自动锁定」单独留着也没意义
-            → 整行隐藏，直接进配置卡片 / 启动按钮区
-            （selectedModules 由 watch(bossEnabled) 自动改为 { search:true, recommend:false }）
+      搜索牛人入口已下架：
+        - bossEnabled=true：只显示「推荐牛人」
+        - bossEnabled=false：整行隐藏，任务入口不可用
+        - selectedModules.search 始终为 false，避免历史缓存暗中创建 SEARCH 渠道
 
       数据来源：store.getters.getUserChannelConfig → [{ key:'BOSS', enableConfig: bool }, ...]
     -->
@@ -39,28 +35,6 @@
             - 勾：w-4 h-4 text-white（16×16 白色 Check）
             - 文字：text-xs font-black tracking-tight；active text-primary-600 / inactive text-neutral-500
         -->
-        <span
-          class="module-item"
-          :class="{ active: selectedModules.search, 'is-locked': locked }"
-          @click="toggleModule('search')"
-        >
-          <span class="check-box">
-            <svg
-              v-if="selectedModules.search"
-              viewBox="0 0 24 24"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="3"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-          </span>
-          <span class="module-text">搜索牛人</span>
-        </span>
         <span
           class="module-item"
           :class="{ active: selectedModules.recommend, 'is-locked': locked }"
@@ -366,8 +340,8 @@ const isRetryMode = computed(
  * （注：项目里 getChannelDisable() 函数名反语义，实际 enableConfig=true 表示启用）
  *
  * 联动效果（详见 template 的 v-if）：
- *   - bossEnabled=true：显示"搜索牛人 / 推荐牛人"两个勾选框（默认都勾）
- *   - bossEnabled=false：两个勾选框都隐藏；selectedModules 强制为 { search:true, recommend:false }
+ *   - bossEnabled=true：只显示"推荐牛人"
+ *   - bossEnabled=false：入口隐藏；selectedModules 强制为 { search:false, recommend:false }
  */
 const userChannelConfig = computed(() => store.getters.getUserChannelConfig || []);
 const bossEnabled = computed(() => {
@@ -377,16 +351,6 @@ const bossEnabled = computed(() => {
   return cfg.enableConfig !== false;
 });
 
-/**
- * 初始勾选从 store 的"用户上次偏好"读取（永久缓存，详见 AiSerachConfig.lastSelectedModules）
- * —— 新的 AIProfileActionPanel 实例化时自动套用上次的勾选状态，
- * 避免每次都强制回默认 { search:true, recommend:true }。
- *
- * 写回时机仅在 toggleModule（用户主动）；下方 watch(bossEnabled) 的强制收敛不写回，
- * 让 BOSS 重启时仍能从 lastSelectedModules 恢复用户真实偏好。
- */
-const lastSelectedModules = computed(() => store.getters.getLastSelectedModules);
-
 // ★ 本卡片所属会话 id：优先用消息自带 chatId，兜底当前选中会话。
 //   用它做「按会话隔离」的勾选记忆 key，避免不同职位会话的勾选互相串台。
 const panelChatId = computed(
@@ -394,41 +358,26 @@ const panelChatId = computed(
 );
 
 /**
- * 解析本卡片初始勾选：
- *   ① 本会话（panelChatId）上次的勾选记忆 —— 跨会话隔离，回到该职位时还原它自己的选择
- *   ② 没有会话记忆时回退全局上次偏好（新会话首次出现卡片用）
- *   ③ 全空兜底 { search:true, recommend:false }
+ * 搜索牛人入口下架后，不再恢复历史模块勾选缓存。
+ * BOSS 可用时固定从「仅推荐牛人」开始。
  */
 function resolveInitialModules() {
-  const perChat = store.getters.getLastSelectedModulesForChat(panelChatId.value);
-  const src = perChat || lastSelectedModules.value || {};
-  if (!src.search && !src.recommend) return { search: true, recommend: false };
-  return { search: !!src.search, recommend: !!src.recommend };
+  return bossEnabled.value
+    ? { search: false, recommend: true }
+    : { search: false, recommend: false };
 }
 
 const selectedModules = ref(resolveInitialModules());
 
 /**
- * BOSS 切到禁用时：自动收敛 selectedModules 到 { search:true, recommend:false }
- *   —— 仅 UI 层强制，不写 lastSelectedModules，下次 BOSS 启用时恢复用户真实偏好
- * BOSS 切到启用时：从 lastSelectedModules 恢复用户偏好（兜底全勾）
- *
- * 用 watch immediate:true 保证初次挂载时立刻同步，避免出现"BOSS 禁用 + recommend=true"
- * 的非法组合传给 aggregate 事件。
+ * BOSS 启停时只在「仅推荐」和「无可用模块」之间切换。
  */
 watch(
   bossEnabled,
   (enabled) => {
-    if (!enabled) {
-      // BOSS 关了：只能搜索；推荐自动收起（仅运行态，不写 lastSelectedModules）
-      if (selectedModules.value.recommend || !selectedModules.value.search) {
-        selectedModules.value = { search: true, recommend: false };
-      }
-    } else {
-      // BOSS 开了：从「本会话」勾选记忆恢复（无会话记忆才回退全局偏好），
-      // 避免读全局偏好把别的会话刚改的勾选串到本卡片上。
-      selectedModules.value = resolveInitialModules();
-    }
+    selectedModules.value = enabled
+      ? { search: false, recommend: true }
+      : { search: false, recommend: false };
   },
   { immediate: true }
 );
@@ -436,12 +385,11 @@ watch(
 function toggleModule(key) {
   // ★ 已启动任务（进行中/排队中）或已发起搜索 → 配置锁定，勾选不可再改
   if (locked.value) return;
-  // BOSS 禁用时 UI 上根本看不到勾选框（v-if 隐藏），点击不可达；
-  // 但万一上层用 ref 强调 toggleModule 时也得防御一下，禁止打开 recommend
-  if (key === "recommend" && !bossEnabled.value) return;
+  // 搜索牛人入口已下架，只允许切换推荐牛人。
+  if (key !== "recommend" || !bossEnabled.value) return;
   const next = {
-    ...selectedModules.value,
-    [key]: !selectedModules.value[key]
+    search: false,
+    recommend: !selectedModules.value.recommend
   };
   selectedModules.value = next;
   // ★ 写回「本会话」勾选记忆（按 chatId 隔离）—— 回到本职位时还原它自己的勾选，不被别的会话污染

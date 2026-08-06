@@ -449,6 +449,7 @@ import {
 import ChatEmptyState from "src/components/clients/ChatEmptyState.vue";
 import { parseAISearchJD, getAISearchPrefix } from "src/util/parseAISearchJD";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
+import { normalizeClientChannelConfig } from "src/util/clientChannelAvailability";
 
 const store = useStore();
 const $q = useQuasar();
@@ -466,12 +467,9 @@ const loginRequiredCondition = computed(() => {
   if (!isElectronClient()) return false;
   const conf = store.getters.getChannelConf || {};
   const userCfg = store.getters.getUserChannelConfig || [];
-  const isEnabled = (k) => {
-    if (!Array.isArray(userCfg) || userCfg.length === 0) return true;
-    const e = userCfg.find((c) => c.key === k);
-    return e ? !!e.enableConfig : true;
-  };
-  const keys = ["BOSS", "ZHILIAN", "JOB51"].filter(isEnabled);
+  const keys = normalizeClientChannelConfig(userCfg)
+    .filter((channel) => channel.enableConfig)
+    .map((channel) => channel.key);
   // 没启用任何渠道 → 也需要弹（面板里可勾选启用渠道 + 去登录，参考 ihraisaas 交互）
   if (keys.length === 0) return true;
   // 任一已启用渠道未登录就需要弹
@@ -785,12 +783,21 @@ const displayMessages = computed(() => {
   //   - 其它（RUNNING / RESTING / 终态）→ 保留
   const getTaskById = store.getters["SearchTasks/getTaskById"];
   return raw.filter((msg) => {
+    // 搜索牛人已下架：隐藏历史搜索流程卡；推荐流程和通用完成卡继续保留。
+    if (msg?.type === "execution_log" && String(msg.content || "").includes("搜索牛人")) {
+      return false;
+    }
     if (msg?.type !== "task_status") return true;
+    if (msg.kind === "search") return false;
     if (msg.isStopped) return true;
     if (!msg.taskId) return false;
     if (typeof getTaskById !== "function") return false;
     const task = getTaskById(msg.taskId);
     if (!task) return false;
+    const hasRecommendChannel = (task.channels || []).some(
+      (channel) => channel?.businessChannel === "RECOMMEND"
+    );
+    if (!hasRecommendChannel) return false;
     if (task.taskStatus === "WAITING") return false;
     return true;
   });
@@ -1281,7 +1288,10 @@ const handleSearch = async (msg) => {
     // fallback 默认 recommend:false（更保守）—— BOSS 禁用 / state 还没就绪时，
     // 避免误触发推荐牛人。AIProfileActionPanel 已经在 mount 时 immediate emit('change')
     // 推送真实状态（含 BOSS 禁用 → recommend:false 的转换），这条 fallback 只是双保险防御。
-    const selectedModules = state?.selectedModules || { search: true, recommend: false };
+    const selectedModules = {
+      search: false,
+      recommend: state?.selectedModules?.recommend !== false
+    };
     const matchedBossJobId = state?.matchedBossJobId || null;
     const resumeCount = state?.resumeCount ?? null;
     const chatIdForSearch = props.chatId || currentChatId.value;
@@ -1370,7 +1380,7 @@ function startSearchFromFilter() {
     });
     return false;
   }
-  const selectedModules = { search: true, recommend: false };
+  const selectedModules = { search: false, recommend: true };
   const placeholderMsgId = pushTaskStatusPlaceholdersByModules(chatIdForSearch, selectedModules);
   emit("aggregate-search", {
     chatId: chatIdForSearch,
@@ -1562,14 +1572,9 @@ function _removeOldTaskCardsForChat(chatId) {
 function pushTaskStatusPlaceholdersByModules(chatId, selectedModules) {
   // 先删旧任务卡，再 push 新占位 → 新状态卡始终在最新位置，历史卡不堆叠
   _removeOldTaskCardsForChat(chatId);
-  const sel = selectedModules || { search: true, recommend: false };
+  const sel = selectedModules || { search: false, recommend: true };
   let lastId = "";
-  if (sel.search) lastId = pushTaskStatusPlaceholder(chatId, "search");
   if (sel.recommend) lastId = pushTaskStatusPlaceholder(chatId, "recommend");
-  if (!sel.search && !sel.recommend) {
-    // 都没勾还是兜底 push 一张 'all'，避免占位丢失
-    lastId = pushTaskStatusPlaceholder(chatId, "all");
-  }
   return lastId;
 }
 
@@ -1846,14 +1851,10 @@ function ensureTaskStatusCardForCurrentChat(force = false) {
   const isChannelTerminal = (s) =>
     s === "COMPLETED" || s === "FAILED" || s === "STOPPED" || s === "SKIPPED";
   const channels = Array.isArray(latestTask.channels) ? latestTask.channels : [];
-  const hasSearch = channels.some(
-    (c) => c.businessChannel === "SEARCH" && !isChannelTerminal(c.taskChannelStatus)
-  );
   const hasRecommend = channels.some(
     (c) => c.businessChannel === "RECOMMEND" && !isChannelTerminal(c.taskChannelStatus)
   );
   const kinds = [];
-  if (hasSearch) kinds.push("search");
   if (hasRecommend) kinds.push("recommend");
   // 注意：所有渠道都已终态时 kinds 为空 → 不插任何卡（不再兜底插 'all'）。
 
@@ -1947,7 +1948,6 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
     return null;
   }
   const channels = originalTask.channels;
-  const hasSearch = channels.some((c) => c.businessChannel === "SEARCH");
   const hasRecommend = channels.some((c) => c.businessChannel === "RECOMMEND");
 
   // 推荐渠道（限 BOSS）的配置——抽 relatedPositionValue / maxResumeCount
@@ -1968,7 +1968,7 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
     }
   }
   return {
-    selectedModules: { search: hasSearch, recommend: hasRecommend },
+    selectedModules: { search: false, recommend: hasRecommend },
     matchedBossJobId,
     resumeCount
   };
@@ -2033,13 +2033,22 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   //   data-recommend-task-channel-id）：有搜索渠道才搜、有推荐渠道才推荐。
   //   这样历史卡 / 刷新后 store 查不到原任务时也能正确复原任务构成，
   //   避免「只有推荐」的任务被默认当成「只搜索」重启（modules 缺省时 search 会默认 true）。
-  const cardHasSearch = !!(cardData.searchTaskChannelId || cardData.searchTaskChannelIds);
   const cardHasRecommend = !!(cardData.recommendTaskChannelId || cardData.recommendTaskChannelIds);
-  if (cardHasSearch || cardHasRecommend) {
-    params.selectedModules = { search: cardHasSearch, recommend: cardHasRecommend };
+  if (cardHasRecommend) {
+    params.selectedModules = { search: false, recommend: true };
   } else if (!params.selectedModules) {
-    // 老卡片没有渠道属性、store 也查不到 → 兜底纯搜索（保持旧行为）
-    params.selectedModules = { search: true, recommend: false };
+    params.selectedModules = { search: false, recommend: false };
+  }
+
+  if (!params.selectedModules.recommend) {
+    $q.notify({
+      message: "搜索牛人已下架，该历史任务无法重新执行",
+      color: "warning",
+      icon: "warning",
+      position: "top",
+      timeout: 2500
+    });
+    return;
   }
 
   // ★ 推荐渠道需要 BOSS 职位 id：store 查不到原任务时 matchedBossJobId 为空，
@@ -2201,7 +2210,10 @@ function onAiPanelRetry(msg, taskType, panelState) {
       chatIdForSearch,
       originalTaskId,
       params: {
-        selectedModules: panelState?.selectedModules || { search: true, recommend: false },
+        selectedModules: {
+          search: false,
+          recommend: panelState?.selectedModules?.recommend !== false
+        },
         matchedBossJobId: panelState?.matchedBossJobId || null,
         resumeCount: panelState?.resumeCount ?? null
       },

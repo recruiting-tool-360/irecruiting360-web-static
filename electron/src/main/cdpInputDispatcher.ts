@@ -144,7 +144,13 @@ async function findElement(wc: WebContents, selector: string): Promise<FindEleme
 export async function dispatchClick(
   wc: WebContents,
   selector: string,
-  opts?: { pressHoldMs?: number; requireVisible?: boolean }
+  opts?: {
+    pressHoldMs?: number
+    requireVisible?: boolean
+    /** 先把真实鼠标移动到该元素，等待 hover UI 出现后再定位并点击 selector。 */
+    hoverSelector?: string
+    hoverWaitMs?: number
+  }
 ): Promise<ClickResult> {
   const logs: string[] = []
   const log = (m: string): void => {
@@ -162,6 +168,8 @@ export async function dispatchClick(
   const startedAt = Date.now()
   const pressHoldMs = opts?.pressHoldMs ?? DEFAULT_PRESS_HOLD_MS
   const requireVisible = opts?.requireVisible !== false
+  const hoverSelector = opts?.hoverSelector?.trim() || ''
+  const hoverWaitMs = Math.max(0, opts?.hoverWaitMs ?? 180)
 
   // 1) debugger attach 检查。如果 siteNetworkCapture 已经 attach 过（招聘站 tab 创建时
   //    自动 attach），这里直接复用；否则现 attach 一次。
@@ -180,7 +188,43 @@ export async function dispatchClick(
     }
   }
 
-  // 2) 找元素 + 拿坐标
+  // 2) 可选：先真实 hover 容器。用于 BOSS 互动页这类“鼠标移入卡片才显示操作按钮”的 UI。
+  if (hoverSelector) {
+    log(`querying hover element: ${hoverSelector}`)
+    const hoverFound = await findElement(wc, hoverSelector)
+    if (!hoverFound.found || !hoverFound.visible) {
+      return {
+        ok: false,
+        error: {
+          code: hoverFound.found ? 'ELEMENT_NOT_VISIBLE' : 'ELEMENT_NOT_FOUND',
+          message: `hover selector "${hoverSelector}" ${
+            hoverFound.found ? 'is not visible' : 'was not found'
+          }`
+        },
+        logs
+      }
+    }
+    const hoverX = Number(hoverFound.x)
+    const hoverY = Number(hoverFound.y)
+    if (!Number.isFinite(hoverX) || !Number.isFinite(hoverY)) {
+      return {
+        ok: false,
+        error: { code: 'ELEMENT_NOT_VISIBLE', message: `invalid hover coords x=${hoverX} y=${hoverY}` },
+        logs
+      }
+    }
+    await dbg.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: hoverX,
+      y: hoverY,
+      button: 'none',
+      buttons: 0,
+      modifiers: 0
+    })
+    if (hoverWaitMs > 0) await new Promise((r) => setTimeout(r, hoverWaitMs))
+  }
+
+  // 3) 找元素 + 拿坐标。hover 后重新查询，确保刚出现的按钮已有真实尺寸。
   log(`querying element: ${selector}`)
   const found = await findElement(wc, selector)
   if (!found.found) {
@@ -218,7 +262,7 @@ export async function dispatchClick(
     }
   }
 
-  // 3) 发 CDP Input 三连：mouseMoved → mousePressed → mouseReleased
+  // 4) 发 CDP Input 三连：mouseMoved → mousePressed → mouseReleased
   //    `Input.dispatchMouseEvent` 产生的事件 isTrusted=true，BOSS 视角下跟用户真实点击无差别。
   try {
     log(`dispatching Input.dispatchMouseEvent at (${x}, ${y})`)

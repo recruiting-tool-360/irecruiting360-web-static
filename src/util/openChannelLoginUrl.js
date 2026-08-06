@@ -53,6 +53,8 @@ export function pickChannelByUrl(url) {
  *   场景："立即沟通" 跳 BOSS 互动消息页 / 查看详情等——用户刚操作完
  *   （收藏 / 加入人才库 / 分配职位），跳过去期望看到刚加进去的人，
  *   但 BOSS SPA 不会自动刷新，必须 reload。
+ * @param {'main'|'detail'} [opts.bossMode]
+ *   BOSS 主业务页复用固定主签；候选人详情用独立可关闭页签。
  * @returns {Promise<{success:boolean, message?:string, tabId?:string}|Window|null>}
  */
 export async function openChannelUrl(channel, url, opts = {}) {
@@ -64,7 +66,9 @@ export async function openChannelUrl(channel, url, opts = {}) {
   if (isElectronClient()) {
     const recruitBridge = window.api && window.api.recruitBridge;
     if (recruitBridge && typeof recruitBridge.openSiteWindow === 'function') {
-      const result = await recruitBridge.openSiteWindow(channel, url);
+      const result = await recruitBridge.openSiteWindow(channel, url, {
+        bossMode: opts && opts.bossMode
+      });
       // forceReload 选项：拿到 tabId 之后调一次 tabs.loadUrl，触发完整 navigation，
       // SPA 重新启动 → 自动拉最新数据。
       if (opts && opts.forceReload && result && result.tabId) {

@@ -75,11 +75,10 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
   html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
-    /* 半透明白底 + backdrop-blur：底下的 BOSS tab 内容会被柔化，但仍能看见。
-       对齐 ihraisaas PlatformSimulation L300 className 设计。 */
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    /* 使用稳定的半透明暗底，不再模糊底层页面；提示卡和文字在 Windows 下也保持清晰。 */
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     /* 整个 body 接管点击，让 BOSS view 完全不能被用户碰到 */
     pointer-events: auto;
     cursor: not-allowed;
@@ -88,14 +87,15 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-top: 96px;
+    justify-content: center;
+    padding: 24px;
   }
   .card {
-    background: #fff;
+    background: rgba(255, 255, 255, 0.98);
     padding: 24px 32px;
     border-radius: 24px;
-    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.12);
-    border: 1px solid #f5f5f5;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.9);
     display: flex;
     align-items: center;
     gap: 24px;
@@ -200,25 +200,6 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
     text-decoration-thickness: 2px;
   }
 
-  .footer {
-    position: fixed;
-    bottom: 48px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 10px 24px;
-    background: rgba(38, 38, 38, 0.05);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 900;
-    color: #9ca3af;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-    animation: pop .5s cubic-bezier(.22,.61,.36,1) .15s both;
-  }
 </style>
 </head>
 <body>
@@ -235,7 +216,6 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
       <p class="message">${message}</p>
     </div>
   </div>
-  <div class="footer">客户端模拟模式 · 仅供查看，请勿操作</div>
 </body>
 </html>`
   // base64 编码避免中文 / 特殊字符在 URL 里的转义问题

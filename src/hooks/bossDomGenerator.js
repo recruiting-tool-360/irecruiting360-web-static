@@ -283,11 +283,7 @@ export function bossDomGenerator() {
       return htmlContent;
     } catch (error) {
       console.error('解析简历数据失败:', error);
-      return `
-        <div style="width: 790px; background: #fff; padding: 30px; text-align: center; color: #666;">
-          <p>简历数据解析失败</p>
-        </div>
-      `;
+      throw new Error('BOSS直聘简历数据解析失败，请稍后重试');
     }
   }
 

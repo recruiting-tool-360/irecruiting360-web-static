@@ -300,11 +300,7 @@ export function job51DomGenerator() {
       return htmlContent;
     } catch (error) {
       console.error('解析前程无忧简历数据失败:', error);
-      return `
-        <div style="width: 790px; background: #fff; padding: 30px; text-align: center; color: #666;">
-          <p>前程无忧简历数据解析失败</p>
-        </div>
-      `;
+      throw new Error('前程无忧简历数据解析失败，请稍后重试');
     }
   }
 
@@ -385,4 +381,4 @@ export function job51DomGenerator() {
     resumeGenerateHtmlFiles,
     cssContent
   ]
-} 
+}

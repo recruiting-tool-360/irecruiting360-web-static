@@ -319,8 +319,8 @@ const currentView = computed({
 const activeResultTab = computed({
   get() {
     const cid = store.getters.getLatestChatId;
-    if (!cid) return "search";
-    return activeResultTabByChatId.value[cid] || "search";
+    if (!cid) return "recommend";
+    return activeResultTabByChatId.value[cid] || "recommend";
   },
   set(val) {
     const cid = store.getters.getLatestChatId;
@@ -439,13 +439,6 @@ function getCurrentViewingTaskInfo() {
   return { mode: "latest", task: typeof getLatest === "function" ? getLatest(cid) : null };
 }
 
-const hasSearchForCurrentChat = computed(() => {
-  const { mode, task } = getCurrentViewingTaskInfo();
-  if (mode === "pinned-missing") return false; // 让下游数据兜底
-  if (!task || !Array.isArray(task.channels)) return false;
-  return task.channels.some((c) => c && c.businessChannel === "SEARCH");
-});
-
 const hasRecommendForCurrentChat = computed(() => {
   const { mode, task } = getCurrentViewingTaskInfo();
   if (mode === "pinned-missing") return false; // 让下游数据兜底
@@ -472,8 +465,8 @@ const recommendPaneVisible = computed(() => {
   //   重启后 tasksById 不持久化 → mode 可能 pinned-missing，但 viewing bucket 里有刚 commit
   //   的数据，应该让 pane 可见。getCurrentBossRecommend 已经知道 task bucket，不依赖本地 task。
   if (currentViewingTaskId.value) {
-    const bucket = store.getters.getCurrentBossRecommend;
-    if (bucket && Array.isArray(bucket.geekList) && bucket.geekList.length > 0) return true;
+    // 历史纯 SEARCH 任务也进入推荐 pane 的空态，避免隐藏 SEARCH 后结果区整块空白。
+    return true;
   }
 
   if (mode === "pinned-found") {
@@ -498,26 +491,9 @@ const recommendPaneVisible = computed(() => {
  * pinned-missing（跨电脑查看，本地无 task）才允许 ALL.data 兜底，否则白屏。
  */
 const searchPaneVisible = computed(() => {
-  const { mode, task } = getCurrentViewingTaskInfo();
-
-  // ★ viewing 模式优先看 ViewingResults bucket（按 taskId 直接取，不依赖本地 task 是否存在）。
-  //   重启后 tasksById 不持久化 → mode 可能 pinned-missing，但 ViewingResults 内存里有刚拉的
-  //   15 条数据，应该让 pane 可见。getViewingChannelConfByTaskIdAll 直接按 taskId 取 bucket。
-  if (currentViewingTaskId.value) {
-    const byTask = store.getters.getViewingChannelConfByTaskIdAll;
-    const cfg = typeof byTask === "function" ? byTask(currentViewingTaskId.value) : null;
-    if (cfg && Array.isArray(cfg.data) && cfg.data.length > 0) return true;
-  }
-
-  if (mode === "pinned-found") {
-    return (
-      Array.isArray(task?.channels) &&
-      task.channels.some((c) => c && c.businessChannel === "SEARCH")
-    );
-  }
-  if (hasSearchForCurrentChat.value) return true;
-  const allData = store.getters.getChannelConfByAll?.data;
-  return Array.isArray(allData) && allData.length > 0;
+  // 搜索牛人已下架：历史任务即使仍有 SEARCH 渠道和结果，也只保留数据、不再展示。
+  // AISearch 组件仍通过 v-show 挂载，供推荐任务复用搜索条件生成能力。
+  return false;
 });
 
 /**
@@ -656,21 +632,54 @@ async function retryFetchRecommend() {
  * 推荐结果直接从 geek.geekCard.securityId 取（BOSS 推荐 API 真实字段，
  * 详见 docs/boss地址资料.md L602）。
  */
+function parseOriginalResumeUrlInfo(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string" || value === "null") return null;
+  try {
+    return JSON.parse(value);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function resolveBossGeekSecurityId(geek) {
+  const raw = geek?._raw || {};
+  const info =
+    parseOriginalResumeUrlInfo(geek?.originalResumeUrlInfo) ||
+    parseOriginalResumeUrlInfo(raw?.originalResumeUrlInfo);
+  return (
+    geek?.geekCard?.securityId ||
+    raw?.geekCard?.securityId ||
+    geek?.securityId ||
+    raw?.securityId ||
+    info?.request?.securityId ||
+    info?.securityId ||
+    ""
+  );
+}
+
 function onOpenGeek(geek) {
-  const c = geek?.geekCard || {};
-  const name = c.geekName || geek?.geekName || "匿名";
-  const securityId = c.securityId;
+  const c = geek?.geekCard || geek?._raw?.geekCard || {};
+  const name = c.geekName || geek?.geekName || geek?.name || "匿名";
+  const securityId = resolveBossGeekSecurityId(geek);
   if (!securityId) {
-    console.warn("[IndexPage] open geek 失败：geek.geekCard.securityId 缺失", geek);
+    console.warn("[IndexPage] open geek 失败：候选人 securityId 缺失", geek);
+    notify.warning("候选人详情已失效，请重新执行推荐任务");
     return;
   }
-  // 跟 ChannelUrlUtil.bossUrl 同款 URL 模板
-  const url =
-    pluginAllUrls.BOSS.geekDetailUrl +
-    `?isInnerAccount=0&isResume=1&isPreview=0&status=5&jobId=-1&securityId=${securityId}`;
+  // 跟 ChannelUrlUtil.bossUrl 同款参数；使用 URLSearchParams 防止安全串被错误拼接。
+  const detailUrl = new URL(pluginAllUrls.BOSS.geekDetailUrl);
+  detailUrl.searchParams.set("isInnerAccount", "0");
+  detailUrl.searchParams.set("isResume", "1");
+  detailUrl.searchParams.set("isPreview", "0");
+  detailUrl.searchParams.set("status", "5");
+  detailUrl.searchParams.set("jobId", "-1");
+  detailUrl.searchParams.set("securityId", String(securityId));
+  const url = detailUrl.toString();
   console.log(`[IndexPage] open geek: name=${name} → ${url}`);
   // openChannelUrl 内部按 isElectronClient 判断走 IPC（新 tab）or window.open（新窗口）
-  openChannelUrl("boss", url).catch((e) => {
+  openChannelUrl("boss", url, { bossMode: "detail" }).catch((e) => {
     console.warn("[IndexPage] openChannelUrl(boss) 失败:", e?.message || e);
   });
 }
@@ -1101,6 +1110,9 @@ async function doFetchRecommend(args) {
   }
 
   setPhase("OPENING");
+  // 显式锁住所有职位的“立即沟通”。不能依赖 taskStatus/channelStatus：
+  // 后端队列刷新可能在 BOSS RPA 尚未结束时提前改写这些字段。
+  store.commit("SearchTasks/setBossRecommendRpaActive", true);
   store.commit("setCurrentRecommendJobId", jobId);
   store.commit("setBossRecommendFetching", { jobId, fetching: true });
   console.log("[IndexPage] runBossRecommend", args);
@@ -1172,10 +1184,17 @@ async function doFetchRecommend(args) {
         fetchedAt: Date.now()
       });
       // commit 完上面那次 mutation 会把 fetching 重置为 false（按 mutation 设计），
-      // 但拟人操作还在跑，重新标记 fetching 让 UI 继续显示进度提示
+      // 但逐个打开详情收藏还在跑，重新标记 fetching 让 UI 继续显示进度提示
       store.commit("setBossRecommendFetching", { jobId, fetching: true });
-    } else if (stage === "humanized") {
-      console.log("[IndexPage] 拟人浏览完成:", payload);
+    } else if (stage === "collect.itemStart") {
+      setPhase("FETCHING");
+      console.log(
+        `[IndexPage] 正在收藏候选人 ${Number(payload?.index) + 1}/${payload?.total} ` +
+          `geekId=${payload?.geekId || ""}`
+      );
+    } else if (stage === "collected") {
+      setPhase("FETCHED");
+      console.log("[IndexPage] BOSS 推荐候选人收藏完成:", payload);
     }
   }
 
@@ -1225,6 +1244,7 @@ async function doFetchRecommend(args) {
       abortTaskId: _taskIdForPhase
     });
   } finally {
+    store.commit("SearchTasks/setBossRecommendRpaActive", false);
     // 流程结束 / 失败都要关蒙层；放 finally 防止 throw 时蒙层卡住
     try {
       await window?.api?.automation?.hideOverlay?.();
@@ -1288,7 +1308,7 @@ async function doFetchRecommend(args) {
     return;
   }
 
-  // 用首屏 + humanize accumulated 的去重合并结果写回 store
+  // 只把本次通过页面 RPA 新收藏成功的候选人写回 store。
   // ⚠️ totalSize 用实际合并后的数量（res.geekList.length），不是 firstPage.totalSize。
   // firstPage.totalSize 只反映 BOSS 单页响应的 totalSize 字段（通常 15），跟我们实际累计
   // 抓到的数量不一致 → UI header 显示「共 15 人」但实际 60 人，bug。
@@ -1302,7 +1322,7 @@ async function doFetchRecommend(args) {
   console.log(
     `[IndexPage] BOSS 推荐流程完成 jobId=${jobId} total=${
       (res.geekList || []).length
-    } humanize=${JSON.stringify(res.humanize || res.humanizeError)}`
+    } collection=${JSON.stringify(res.collection || res.collectionError)}`
   );
 
   // ===== 推荐 geekList → 落库 → 配对调 /detail 触发 AI 评分 =====
@@ -1726,7 +1746,8 @@ async function runRealAggregateSearch(opts) {
     return { status: "SKIPPED", message: "already in flight" };
   }
   const modules = opts?.selectedModules || {};
-  const searchChecked = modules.search !== false;
+  // 搜索牛人已下架，旧消息或历史任务即使仍携带 search=true 也不能重新触发。
+  const searchChecked = false;
   const recommendChecked = !!modules.recommend;
   const jobId = opts?.matchedBossJobId;
 
@@ -1933,7 +1954,9 @@ async function dispatchTaskStore({
     // 三者在前端的渠道组装逻辑完全一致，只是落库 search_task.task_type 不一样，
     // 后端基于 taskType 决定是否清空 visible 结果集 / 续在原 resultSet 上追加。
     //
-    // sourceTaskId：只有 CONTINUE（保留增量搜索）才传，其他不传。
+    // sourceTaskId：CONTINUE / RESTART 都要关联上游任务。
+    //   - CONTINUE：后端在原 resultSet 上追加结果
+    //   - RESTART：新任务真正执行时，客户端先清理上游推荐任务产生的 BOSS 收藏
     const createPayload = {
       chatId: chatIdToSearch,
       positionId: store.getters.getLatestPositionId,
@@ -1945,7 +1968,7 @@ async function dispatchTaskStore({
       // 让 executeSearch 复用，避免重复发一次 saveCondition。
       searchRequestData
     };
-    if (sourceTaskId && taskType === "CONTINUE") {
+    if (sourceTaskId && (taskType === "CONTINUE" || taskType === "RESTART")) {
       createPayload.sourceTaskId = sourceTaskId;
     }
     const res = await store.dispatch("SearchTasks/create", createPayload);
@@ -2014,8 +2037,9 @@ async function handleAggregateSearch(payload) {
   const taskType = payload?.taskType || "INITIAL";
 
   const modules = payload?.selectedModules || {};
-  const searchChecked = modules.search !== false;
-  const recommendChecked = !!modules.recommend;
+  const searchChecked = false;
+  // 当前只保留推荐牛人；未传 selectedModules 的老入口也按推荐任务处理。
+  const recommendChecked = modules.recommend !== false;
   const jobId = payload?.matchedBossJobId;
 
   // ===== 拒绝重复点击 =====
@@ -2052,7 +2076,7 @@ async function handleAggregateSearch(payload) {
   // 默认勾选时（业务允许）会走到这里，必须提示，不能让 dispatchTaskStore 拿到空 channels。
   if (!searchChecked && !recommendChecked) {
     console.warn("[IndexPage] aggregate-search 被拒绝：未选择任何搜索模块");
-    notify.warning("请至少选择一个搜索模块（搜索牛人 / 推荐牛人）");
+    notify.warning("请启用推荐牛人");
     embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
     return;
   }
@@ -2087,7 +2111,7 @@ async function handleAggregateSearch(payload) {
           chatCard.forceShowLoginRequired();
         } else {
           notify.warning(
-            "当前没有启用任何招聘渠道，请先在右上角「设置」中启用至少一个渠道后再搜索"
+            "当前没有启用任何招聘渠道，请先在左下角「设置功能」中启用至少一个渠道后再搜索"
           );
         }
       });
@@ -2143,11 +2167,14 @@ async function handleAggregateSearch(payload) {
   // 同时 dispatchTaskStore 等 condId 出现后 create + enqueue。runTask 启动时 executor
   // 已经在跑 → inFlight=true → 返回 SKIPPED 但前一次的搜索结果已经入 ChannelConfig store
   // → runTask 跳过执行直接调接口落库。**仍有 race 但用 await inFlight 收敛**（下面）。
-  // sourceTaskId：**只有 CONTINUE（保留增量搜索）才传**，其他 taskType 不传。
+  // sourceTaskId：CONTINUE / RESTART 都关联原任务。
   //   - CONTINUE：告诉后端把新任务挂在原 resultSet 上追加结果
-  //   - RESTART / INITIAL：不需要关联原任务，传了反而可能触发后端不期望的行为
+  //   - RESTART：供 runTask 在真正执行时先取消原推荐任务产生的收藏
+  //   - INITIAL：首次任务不传
   const sourceTaskId =
-    taskType === "CONTINUE" && payload?.originalTaskId ? payload.originalTaskId : null;
+    (taskType === "CONTINUE" || taskType === "RESTART") && payload?.originalTaskId
+      ? payload.originalTaskId
+      : null;
 
   // ★ 时序修正（关键）：
   //   - 老逻辑：dispatchTaskStore + runRealAggregateSearch 并行启动，dispatchTaskStore
@@ -2269,14 +2296,8 @@ async function handleAggregateSearch(payload) {
     );
   }
 
-  // 3) 决定 results 视图默认 tab：
-  //    - 只勾了推荐 → 默认 'recommend'
-  //    - 其它情况 → 默认 'search'
-  if (recommendChecked && !searchChecked) {
-    activeResultTab.value = "recommend";
-  } else {
-    activeResultTab.value = "search";
-  }
+  // 搜索牛人已下架，结果视图始终进入推荐牛人。
+  activeResultTab.value = "recommend";
 }
 
 /**
@@ -2485,10 +2506,14 @@ async function handleViewResults(payload) {
     //   - RECOMMEND     → 灌进 BossRecommendData.byJobId[jobId]，推荐 tab 显示
     //   推荐数据是后端标准化的 resume 形态（含 name/resumeBlindId/score 等），
     //   mapBossGeekToResume 已经兼容这种"无 geekCard 已是 resume"的输入，直接返回。
-    const list = normalized.filter((x) => x.businessChannel !== "RECOMMEND");
+    // SEARCH 历史数据只保留在后端，不灌入任何前端展示 bucket。
+    const hiddenSearchCount = normalized.filter(
+      (x) => x.businessChannel !== "RECOMMEND"
+    ).length;
+    const list = [];
     const recommendList = normalized.filter((x) => x.businessChannel === "RECOMMEND");
     console.log(
-      `[IndexPage] /search/task/results/query 分流: search=${list.length} recommend=${recommendList.length}`
+      `[IndexPage] /search/task/results/query 分流: hiddenSearch=${hiddenSearchCount} recommend=${recommendList.length}`
     );
 
     // 「查看结果」路径**不再**往映射里写 outId（后端给的 outId 是 rec_xxx 短 id，不是
@@ -2531,13 +2556,9 @@ async function handleViewResults(payload) {
     // 依赖链有时序漂移（先看到上次的 recommendBucket → activeResultTab 已是 'recommend' →
     // 后续 commit 空 bucket 后 watch 才触发，但已经渲染了一次"推荐 tab 选中"的瞬时态）。
     // 这里直接按本次数据切，最稳。
-    const hasSearchData = list.length > 0;
+    const hasSearchData = false;
     const hasRecommendData = recommendList.length > 0;
-    if (hasSearchData && !hasRecommendData) {
-      activeResultTab.value = "search";
-    } else if (!hasSearchData && hasRecommendData) {
-      activeResultTab.value = "recommend";
-    }
+    activeResultTab.value = "recommend";
     console.log(
       `[handleViewResults] activeResultTab → ${activeResultTab.value}` +
         ` (hasSearchData=${hasSearchData} hasRecommendData=${hasRecommendData})`
@@ -2728,7 +2749,7 @@ const searchJobList = () => {
       handleAggregateSearch({
         chatId: chatIdToSearch,
         taskType: "RESTART",
-        selectedModules: { search: true, recommend: false }
+        selectedModules: { search: false, recommend: true }
       });
     }
   });

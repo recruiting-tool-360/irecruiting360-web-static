@@ -5,7 +5,7 @@
 
     布局（justify-between）：
       Left (flex-1)：盾牌 icon + 提示文字 + "使用说明" 链接
-      Right (shrink-0)：3 个渠道按钮 + 设置齿轮
+      Right (shrink-0)：已启用的渠道按钮
   -->
   <div class="csb-root">
     <!-- ========== Left: Global Warning / Tip ========== -->
@@ -137,29 +137,6 @@
           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
         </svg>
       </button>
-
-      <button
-        class="csb-settings"
-        :class="{ 'csb-settings--disabled': anyTaskActive }"
-        :disabled="anyTaskActive"
-        :title="anyTaskActive ? '任务进行中，暂不能修改渠道设置' : '渠道选择与设置'"
-        @click="$emit('openSettings')"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          class="csb-icon-md"
-        >
-          <path
-            d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-          />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
-      </button>
     </div>
   </div>
 </template>
@@ -173,9 +150,7 @@
  * 数据：从 Vuex store.getters.getChannelConf 读取渠道登录态
  *      AISearch.setupClientChannelStatusListener 触发的登录态变化自动反映到这里
  *
- * Emits:
- *   openSettings()  右侧齿轮（待绑定渠道设置弹窗）
- *   continue()      错误状态下点"恢复任务"
+ * 渠道设置入口统一放到左下角「设置功能」中，本组件只保留渠道登录/切换按钮。
  */
 import { computed, ref } from "vue";
 import { useStore } from "vuex";
@@ -188,8 +163,6 @@ import {
   clearChannelExpired
 } from "src/util/channelLoginGuard";
 
-defineEmits(["openSettings"]);
-
 const store = useStore();
 const $q = useQuasar();
 const HELP_URL =
@@ -201,20 +174,6 @@ const HELP_URL =
  * 调 `commit('setChannelError', name)` 都会自动反映到这里。
  */
 const channelError = computed(() => store.getters.getChannelError);
-
-/**
- * 是否有任务正在进行（RUNNING 或 AI 评分中）→ 禁用「渠道选择与设置」齿轮：
- * 任务跑中途改渠道启用/禁用会打断/扰乱正在进行的任务，所以进行中不允许操作渠道设置。
- */
-const anyTaskActive = computed(() => {
-  try {
-    if (store.state?.SearchTasks?.runningTaskId) return true;
-    if (store.getters.getAiAnalyzingActive === true) return true;
-  } catch {
-    /* ignore */
-  }
-  return false;
-});
 
 /**
  * "恢复任务"按钮：recheck 异常渠道的登录态：
@@ -306,7 +265,7 @@ const DISPLAY_CHANNELS = [
 
 const channelConf = computed(() => store.getters.getChannelConf || {});
 
-// 渠道启用配置（用户在"渠道设置"弹窗里勾选的）
+// 渠道启用配置（用户在左下角「设置功能」里勾选的）
 // 数据形态：[{ key: 'BOSS', name: 'boss直聘', enableConfig: true }, ...]
 // 默认为空 → 没配置时全部启用
 const userChannelConfig = computed(() => store.getters.getUserChannelConfig || []);
@@ -627,38 +586,6 @@ $primary-500: $teal-500;
   transition: opacity 0.18s;
   .csb-channel:hover & {
     opacity: 1;
-  }
-}
-
-/* 设置按钮 */
-/* p-1 text-neutral-400 hover:text-primary-500 hover:bg-primary-50 rounded-md ml-1 */
-.csb-settings {
-  padding: 4px;
-  color: $neutral-400;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: color 0.18s, background-color 0.18s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  &:hover {
-    color: $primary-500;
-    background: $primary-50;
-  }
-
-  /* 任务进行中：禁用态（置灰 + 不可点 + hover 不变色） */
-  &.csb-settings--disabled,
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  &.csb-settings--disabled:hover,
-  &:disabled:hover {
-    color: $neutral-400;
-    background: transparent;
   }
 }
 
