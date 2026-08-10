@@ -12,6 +12,11 @@
  * evalOnTab 只用于读取 DOM、滚动和等待状态，禁止在页面上下文调用 el.click()。
  */
 
+import {
+  BOSS_ENTITLEMENT_REQUIRED,
+  detectBossEntitlementDialog,
+} from "src/util/automation/bossEntitlementDialog";
+
 const CARD_SELECTOR_PREFIX =
   ".candidate-recommend .card-inner.common-wrap[data-geekid=";
 const DETAIL_SELECTOR = ".lib-standard-resume.with-right-side";
@@ -295,6 +300,36 @@ async function readDetailState(tabId, opts) {
   return evalOnTab(tabId, buildReadDetailStateScript(opts), true);
 }
 
+function createEntitlementRequiredError() {
+  const error = new Error("BOSS直聘查看权益不足，无法继续查看候选人");
+  error.code = BOSS_ENTITLEMENT_REQUIRED;
+  return error;
+}
+
+/** 等待详情状态时同步检测升级权益弹窗，命中后立即中断，不再等待详情超时。 */
+async function waitForDetailState(tabId, { timeoutMs = 0, expectCollected = null } = {}) {
+  const startedAt = Date.now();
+  let last = null;
+  do {
+    const entitlement = await detectBossEntitlementDialog(tabId);
+    if (entitlement?.found) throw createEntitlementRequiredError();
+
+    last = await readDetailState(tabId, { timeoutMs: 0, expectCollected });
+    const stateMatched =
+      last?.ready &&
+      (expectCollected === null || last.collected === expectCollected);
+    if (stateMatched) return { ...last, timedOut: false };
+    if (Date.now() - startedAt >= timeoutMs) break;
+    await sleep(180);
+  } while (Date.now() - startedAt <= timeoutMs);
+
+  return {
+    ...(last || {}),
+    timedOut: true,
+    elapsedMs: Date.now() - startedAt,
+  };
+}
+
 async function closeDetailIfOpen(tabId) {
   let state = await readDetailState(tabId, { timeoutMs: 0 });
   if (!state?.detailOpen) return { closed: true, wasOpen: false };
@@ -341,7 +376,7 @@ async function collectOneGeek(tabId, geekId) {
   let operationResult = null;
   let operationError = null;
   try {
-    let state = await readDetailState(tabId, {
+    let state = await waitForDetailState(tabId, {
       timeoutMs: DETAIL_OPEN_TIMEOUT_MS,
     });
     if (!state?.ready) throw new Error(`DETAIL_OPEN_TIMEOUT geekId=${geekId}`);
@@ -354,7 +389,7 @@ async function collectOneGeek(tabId, geekId) {
         if (!state.collectSelector)
           throw new Error(`COLLECT_BUTTON_NOT_FOUND geekId=${geekId}`);
         await clickOnTab(tabId, state.collectSelector, randomBetween(55, 100));
-        state = await readDetailState(tabId, {
+        state = await waitForDetailState(tabId, {
           timeoutMs: COLLECT_STATE_TIMEOUT_MS,
           expectCollected: true,
         });
@@ -468,9 +503,36 @@ export async function collectBossRecommendGeeks(tabId, geeks, opts = {}) {
       }
     } catch (e) {
       const error = e?.message || String(e);
-      errors.push({ geekId, error });
-      onProgress("itemError", { geekId, error, index, total: geeks.length });
+      const errorCode = e?.code || "COLLECT_FAILED";
+      errors.push({ geekId, error, errorCode });
+      onProgress("itemError", {
+        geekId,
+        error,
+        errorCode,
+        index,
+        total: geeks.length,
+      });
       console.warn(`[bossRecommendCollect] 收藏失败 geekId=${geekId}:`, error);
+      if (errorCode === BOSS_ENTITLEMENT_REQUIRED) {
+        onProgress("done", {
+          attempted: attemptedGeekIds.length,
+          collected: collectedGeekIds.length,
+          alreadyCollected: alreadyCollectedGeekIds.length,
+          errors: errors.length,
+          aborted: true,
+          errorCode,
+        });
+        return {
+          ok: false,
+          aborted: true,
+          errorCode,
+          message: "BOSS直聘查看权益不足，推荐任务已停止",
+          attemptedGeekIds,
+          collectedGeekIds,
+          alreadyCollectedGeekIds,
+          errors,
+        };
+      }
     }
 
     await sleep(randomBetween(500, 1_100));

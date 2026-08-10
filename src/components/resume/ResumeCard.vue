@@ -38,7 +38,7 @@
                 <q-avatar size="12px" class="q-mr-xs">
                   <img :src="getChannelImage(resume.channel)"/>
                 </q-avatar>
-                {{ resume.channel }}
+                {{ formatChannelDisplayName(resume.channel) }}
               </q-badge>
             </div>
 
@@ -310,6 +310,7 @@ import { useSendResume } from 'src/hooks/useSendResume';
 import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
 import { greetBossInteractionGeek } from 'src/util/automation/bossInteractionGreet';
+import { formatChannelDisplayName } from 'src/util/channelDisplayName';
 
 const store = useStore();
 const $q = useQuasar();
@@ -977,7 +978,11 @@ const scheduleInterview = async () => {
       }
     });
     if (!result?.ok) {
-      notify.warning(result?.message || 'BOSS 互动页面操作失败，请前往 BOSS 检查');
+      if (result?.code === 'BOSS_ENTITLEMENT_REQUIRED') {
+        notify.warning('BOSS直聘沟通权益不足，请开通权益后重试');
+      } else {
+        notify.warning(result?.message || 'BOSS 互动页面操作失败，请前往 BOSS 检查');
+      }
       return;
     }
     notify.success(`已在 BOSS 互动页面执行“${result.action}”`);
@@ -1044,7 +1049,7 @@ const handleViewDetail = (resume) => {
   if(channelInfo){
     channelInfo.fn(resume);
   }else{
-    notify.warning(resume.channel+"查询详情异常，请联系管理员");
+    notify.warning(formatChannelDisplayName(resume.channel)+"查询详情异常，请联系管理员");
   }
 };  
 

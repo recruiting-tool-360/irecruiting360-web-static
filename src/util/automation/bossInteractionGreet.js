@@ -20,6 +20,10 @@ import {
   extractGeekIds,
   extractGeekName,
 } from "src/util/automation/bossRecommendGreet";
+import {
+  BOSS_ENTITLEMENT_REQUIRED,
+  detectBossEntitlementDialog,
+} from "src/util/automation/bossEntitlementDialog";
 
 const INTERACTION_URL = "https://www.zhipin.com/web/chat/interaction";
 const TARGET_ATTRIBUTE = "data-ikz-interaction-target";
@@ -729,7 +733,19 @@ async function closeGreetingDialogIfPresent(tabId) {
     GREETING_DIALOG_WAIT_MIN_MS,
     GREETING_DIALOG_WAIT_MAX_MS
   );
-  await sleep(waitMs);
+  // 首次沟通提示和升级权益弹窗都可能在点击后异步出现；用原有 1–3 秒随机窗口
+  // 轮询同一套权益 DOM，命中后不再尝试“知道了”或“继续沟通”。
+  const entitlement = await detectBossEntitlementDialog(tabId, {
+    timeoutMs: waitMs,
+  });
+  if (entitlement?.found) {
+    return {
+      appeared: false,
+      closed: false,
+      entitlementRequired: true,
+      waitMs,
+    };
+  }
   const result = await closeGreetingDialogNowIfPresent(tabId);
   return { ...result, waitMs };
 }
@@ -737,15 +753,19 @@ async function closeGreetingDialogIfPresent(tabId) {
 async function waitForChatDialogOpen(tabId) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < ACTION_VERIFY_TIMEOUT_MS) {
+    const entitlement = await detectBossEntitlementDialog(tabId);
+    if (entitlement?.found) {
+      return { opened: false, entitlementRequired: true };
+    }
     const chatClose = await findVisibleElement(
       tabId,
       CHAT_CLOSE_SELECTOR,
       "opened-chat-close"
     );
-    if (chatClose?.found) return true;
+    if (chatClose?.found) return { opened: true, entitlementRequired: false };
     await sleep(250);
   }
-  return false;
+  return { opened: false, entitlementRequired: false };
 }
 
 async function waitForContinueAction(tabId, geekIds, geekName) {
@@ -754,6 +774,14 @@ async function waitForContinueAction(tabId, geekIds, geekName) {
   let lastProbe = null;
 
   while (Date.now() - startedAt < ACTION_VERIFY_TIMEOUT_MS) {
+    const entitlement = await detectBossEntitlementDialog(tabId);
+    if (entitlement?.found) {
+      return {
+        probe: lastProbe,
+        greetingDialogClosed,
+        entitlementRequired: true,
+      };
+    }
     // 提示框可能在随机等待结束后才出现，轮询继续沟通按钮时仍要顺手清理。
     const greetingDialog = await closeGreetingDialogNowIfPresent(tabId);
     greetingDialogClosed =
@@ -795,8 +823,15 @@ async function clickContinueAndVerify(
     });
 
     await clickOnTab(tabId, probe.selector);
-    const chatOpened = await waitForChatDialogOpen(tabId);
-    if (chatOpened) {
+    const chatState = await waitForChatDialogOpen(tabId);
+    if (chatState.entitlementRequired) {
+      return {
+        ok: false,
+        code: BOSS_ENTITLEMENT_REQUIRED,
+        message: "BOSS直聘沟通权益不足，请开通权益后重试",
+      };
+    }
+    if (chatState.opened) {
       return {
         ok: true,
         action: "继续沟通",
@@ -811,6 +846,13 @@ async function clickContinueAndVerify(
       geekIds,
       geekName
     );
+    if (continueState.entitlementRequired) {
+      return {
+        ok: false,
+        code: BOSS_ENTITLEMENT_REQUIRED,
+        message: "BOSS直聘沟通权益不足，请开通权益后重试",
+      };
+    }
     probe = continueState.probe;
     if (
       !probe?.candidateFound ||
@@ -848,6 +890,16 @@ async function clickInitialGreetThenContinue(
 
     await clickOnTab(tabId, greetProbe.selector);
     const greetingDialog = await closeGreetingDialogIfPresent(tabId);
+    if (greetingDialog.entitlementRequired) {
+      return {
+        ok: false,
+        code: BOSS_ENTITLEMENT_REQUIRED,
+        action: "沟通",
+        message: "BOSS直聘沟通权益不足，请开通权益后重试",
+        greetAttempt: attempt + 1,
+        greetWaitMs: greetingDialog.waitMs,
+      };
+    }
     greetingDialogClosed =
       greetingDialogClosed || Boolean(greetingDialog.closed);
 
@@ -858,6 +910,18 @@ async function clickInitialGreetThenContinue(
     );
     greetingDialogClosed =
       greetingDialogClosed || continueState.greetingDialogClosed;
+
+    if (continueState.entitlementRequired) {
+      return {
+        ok: false,
+        code: BOSS_ENTITLEMENT_REQUIRED,
+        action: "沟通",
+        message: "BOSS直聘沟通权益不足，请开通权益后重试",
+        greetAttempt: attempt + 1,
+        greetingDialogClosed,
+        greetWaitMs: greetingDialog.waitMs,
+      };
+    }
 
     if (
       continueState.probe?.candidateFound &&
@@ -980,6 +1044,15 @@ export async function greetBossInteractionGeek(resume, options = {}) {
 
   let probe;
   try {
+    const existingEntitlement = await detectBossEntitlementDialog(tabId);
+    if (existingEntitlement?.found) {
+      return {
+        ok: false,
+        code: BOSS_ENTITLEMENT_REQUIRED,
+        message: "BOSS直聘沟通权益不足，请开通权益后重试",
+        tabId,
+      };
+    }
     probe = await waitForTargetAction(tabId, geekIds, geekName);
   } catch (error) {
     console.warn("[bossInteractionGreet] 定位互动按钮异常:", error);
@@ -1028,7 +1101,7 @@ export async function greetBossInteractionGeek(resume, options = {}) {
     if (!clickResult.ok) {
       return {
         ok: false,
-        code: "ACTION_NOT_CONFIRMED",
+        code: clickResult.code || "ACTION_NOT_CONFIRMED",
         message:
           clickResult.message ||
           "BOSS 沟通操作未完成，请检查互动页面后重试",

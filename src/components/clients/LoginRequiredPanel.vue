@@ -159,6 +159,7 @@ import {
   isClientChannelVisible,
   normalizeClientChannelConfig
 } from 'src/util/clientChannelAvailability';
+import { formatChannelDisplayName } from 'src/util/channelDisplayName';
 
 const emit = defineEmits(['complete', 'dismiss']);
 
@@ -193,7 +194,7 @@ const CHANNEL_CONFIGS = [
   {
     storeKey: 'BOSS',
     channel: 'boss',
-    name: 'boss直聘',
+    name: 'BOSS直聘',
     loginUrl: pluginAllUrls?.BOSS?.loginUrl || 'https://www.zhipin.com/web/user/'
   },
   {
@@ -229,7 +230,7 @@ const displayChannels = computed(() =>
       id: cfg.channel,
       key: cfg.storeKey,
       channel: cfg.channel,
-      name: conf.name || cfg.name || cfg.storeKey,
+      name: formatChannelDisplayName(conf.name || cfg.name || cfg.storeKey),
       url: cfg.loginUrl,
       enabled: isChannelEnabled(cfg.storeKey),
       loggedIn: !!conf.login

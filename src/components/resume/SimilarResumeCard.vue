@@ -21,7 +21,7 @@
               <q-avatar size="12px" class="q-mx-sm">
                 <img :src="getChannelImage(resume.channel)" />
               </q-avatar>
-              {{ resume.channel }}</q-badge>
+              {{ formatChannelDisplayName(resume.channel) }}</q-badge>
           </div>
 
           <div class="q-mt-sm">
@@ -105,6 +105,7 @@ import qs from "qs";
 import { useQuasar } from 'quasar';
 import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
 import { openExternalSiteUrl } from "src/util/openChannelLoginUrl";
+import { formatChannelDisplayName } from 'src/util/channelDisplayName';
 const $q = useQuasar();
 
 const props = defineProps({
@@ -213,10 +214,10 @@ const bossScheduleInterview = async (resume) => {
       // ★ forceReload: BOSS 互动消息 tab 可能已经打开，激活后必须 reload 才看到刚收藏的人
       openDetailInNewWindow(url, { forceReload: true });
     }else{
-      notify.warning(resume.channel+"联系人才失败");
+      notify.warning(formatChannelDisplayName(resume.channel)+"联系人才失败");
     }
   }else{
-    notify.warning(resume.channel+"联系人才异常，请联系管理员");
+    notify.warning(formatChannelDisplayName(resume.channel)+"联系人才异常，请联系管理员");
   }
 }
 
@@ -351,7 +352,7 @@ const handleViewDetail = (resume) => {
   if(channelInfo){
     channelInfo.fn(resume);
   }else{
-    notify.warning(resume.channel+"查询详情异常，请联系管理员");
+    notify.warning(formatChannelDisplayName(resume.channel)+"查询详情异常，请联系管理员");
   }
 };
 

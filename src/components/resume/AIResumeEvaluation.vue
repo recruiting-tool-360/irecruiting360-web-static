@@ -49,7 +49,7 @@
                 <div class="row items-center q-gutter-x-sm q-mb-xs q-ml-xs">
                   <q-badge outline v-if="resumeData.intention" rounded color="purple" class="q-ml-sm q-px-sm">{{ resumeData.intention || '未填写' }}</q-badge>
                   <q-badge outline rounded color="grey-7" class="q-ml-sm q-px-sm">
-                    {{ resumeData.channel }}</q-badge>
+                    {{ formatChannelDisplayName(resumeData.channel) }}</q-badge>
                 </div>
                 <div>
 
@@ -204,6 +204,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { RadarChart } from 'echarts/charts';
 import { TitleComponent, TooltipComponent, LegendComponent } from 'echarts/components';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
+import { formatChannelDisplayName } from 'src/util/channelDisplayName';
 
 // 注册必要的组件
 use([
@@ -569,7 +570,8 @@ export default defineComponent({
       getAssignJobButtonText,
       getTalentPoolButtonText,
       shouldShowAssignJobTooltip,
-      shouldShowTalentPoolTooltip
+      shouldShowTalentPoolTooltip,
+      formatChannelDisplayName
     };
   }
 });

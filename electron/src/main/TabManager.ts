@@ -103,7 +103,7 @@ export const SITE_PARTITION: Record<string, string> = {
 }
 
 const SITE_TITLE: Record<string, string> = {
-  boss: 'BOSS 直聘',
+  boss: 'BOSS直聘',
   zhilian: '智联招聘',
   liepin: '猎聘',
   job51: '前程无忧',

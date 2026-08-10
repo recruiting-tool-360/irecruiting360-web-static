@@ -1290,6 +1290,21 @@ async function doFetchRecommend(args) {
       notify.warning(
         `检测到「${CHANNEL_DISPLAY_NAME.BOSS}」账号异常/已下线，相关任务已自动停止。请重新登录后恢复。`
       );
+    } else if (res?.errorCode === "BOSS_ENTITLEMENT_REQUIRED") {
+      const cidForStop = args?.chatId || store.getters.getLatestChatId;
+      try {
+        await store.dispatch("SearchTasks/stopForChat", {
+          chatId: cidForStop,
+          errorCode: "BOSS_ENTITLEMENT_REQUIRED",
+          errorMessage: "BOSS直聘查看权益不足，推荐任务已停止"
+        });
+      } catch (e) {
+        console.warn(
+          "[IndexPage] BOSS 权益不足时停止推荐任务失败:",
+          e?.message || e
+        );
+      }
+      notify.warning("BOSS直聘查看权益不足，推荐任务已停止");
     }
     return;
   }
@@ -1922,7 +1937,7 @@ async function dispatchTaskStore({
     });
     channels.push(...builtChannels);
 
-    // ★ BOSS 搜索牛人需要在 BOSS 直聘发布「招聘中」的职位才能搜。创建前检查 BOSS「我的职位」，
+    // ★ BOSS 搜索牛人需要在 BOSS直聘发布「招聘中」的职位才能搜。创建前检查 BOSS「我的职位」，
     //   没有任何招聘中的职位 → 只剔除 BOSS-SEARCH 渠道（其它渠道照常创建），并提示去 BOSS 发布。
     //   检查失败（未登录 / 接口异常）→ 不拦截放行，交给运行时兜底（BossJobInfoManager 收到
     //   「发布职位」业务错误会停整任务）。
@@ -1930,7 +1945,7 @@ async function dispatchTaskStore({
       (c) => c.channelSubType === "BOSS" && c.businessChannel === "SEARCH"
     );
     if (hasBossSearch && !(await hasPublishedBossJob())) {
-      notify.warning("未在 BOSS 直聘发布招聘中的职位，本次跳过 BOSS 搜索牛人，请先在 BOSS 发布职位");
+      notify.warning("未在 BOSS直聘发布招聘中的职位，本次跳过 BOSS 搜索牛人，请先在 BOSS直聘发布职位");
       for (let i = channels.length - 1; i >= 0; i--) {
         if (channels[i].channelSubType === "BOSS" && channels[i].businessChannel === "SEARCH") {
           channels.splice(i, 1);

@@ -5,7 +5,7 @@
  * 后续恢复时只需把对应项的 visible/defaultEnabled 改回 true。
  */
 export const CLIENT_CHANNELS = [
-  { key: "BOSS", name: "boss直聘", visible: true, defaultEnabled: true },
+  { key: "BOSS", name: "BOSS直聘", visible: true, defaultEnabled: true },
   { key: "JOB51", name: "前程无忧", visible: false, defaultEnabled: false },
   { key: "ZHILIAN", name: "智联招聘", visible: false, defaultEnabled: false }
 ];

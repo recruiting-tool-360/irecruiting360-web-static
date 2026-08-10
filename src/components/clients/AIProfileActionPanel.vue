@@ -4,7 +4,7 @@
   跟随每条带 [&AI_SEARCH&] 标记的 bot 消息渲染在气泡下方，提供：
     1. 顶部一行：推荐牛人圆形对勾（默认选中）+ 右侧"配置已自动锁定"
     2. 选中"推荐牛人"时展开青色配置卡片：
-       - 匹配 Boss 直聘职位（下拉，数据来自 store.getters.getBossJobList）
+       - 匹配 BOSS直聘职位（下拉，数据来自 store.getters.getBossJobList）
        - 本次期望最大搜索"简历数"（数字输入 + "份"）
 
   视觉 1:1 参考 ihraisaas/src/components/AIAssistant/ChatPanel.tsx 第 926-1042 行：
@@ -70,7 +70,7 @@
     <Transition name="rec-slide">
       <div v-if="selectedModules.recommend" class="recommend-section">
         <div class="config-card">
-          <!-- 行 1：匹配 Boss 直聘职位 -->
+          <!-- 行 1：匹配 BOSS直聘职位 -->
           <div class="config-row">
             <div class="config-left">
               <svg
@@ -88,7 +88,7 @@
                 <circle cx="12" cy="12" r="6"></circle>
                 <circle cx="12" cy="12" r="2"></circle>
               </svg>
-              <span class="row-label">匹配 Boss 直聘职位</span>
+              <span class="row-label">匹配 BOSS直聘职位</span>
             </div>
             <div class="select-wrap">
               <select
@@ -142,7 +142,7 @@
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
             <span class="boss-match-hint-text">
-              未找到与当前招聘职位匹配的 BOSS 职位{{ bossMatchReason ? `（${bossMatchReason}）` : "" }}，请手动选择，或在 BOSS 直聘完善对应职位后重试。
+              未找到与当前招聘职位匹配的 BOSS直聘职位{{ bossMatchReason ? `（${bossMatchReason}）` : "" }}，请手动选择，或在 BOSS直聘完善对应职位后重试。
             </span>
           </div>
 

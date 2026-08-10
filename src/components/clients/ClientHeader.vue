@@ -162,6 +162,7 @@ import {
   checkChannelLogin,
   clearChannelExpired
 } from "src/util/channelLoginGuard";
+import { formatChannelDisplayName } from "src/util/channelDisplayName";
 
 const store = useStore();
 const $q = useQuasar();
@@ -173,7 +174,7 @@ const HELP_URL =
  * 任何位置（IndexPage 启动前 recheck 失败 / doFetchRecommend 运行时检测 LOGIN_EXPIRED）
  * 调 `commit('setChannelError', name)` 都会自动反映到这里。
  */
-const channelError = computed(() => store.getters.getChannelError);
+const channelError = computed(() => formatChannelDisplayName(store.getters.getChannelError));
 
 /**
  * "恢复任务"按钮：recheck 异常渠道的登录态：
@@ -284,9 +285,15 @@ const displayChannels = computed(() =>
       key: cfg.storeKey,
       id: cfg.channel,
       channel: cfg.channel,
-      name: conf.name || cfg.storeKey,
+      name: formatChannelDisplayName(conf.name || cfg.storeKey),
       url: cfg.loginUrl,
-      status: channelError.value === conf.name ? "error" : conf.login ? "logged_in" : "logged_out"
+      status:
+        formatChannelDisplayName(channelError.value) ===
+        formatChannelDisplayName(conf.name || cfg.storeKey)
+          ? "error"
+          : conf.login
+            ? "logged_in"
+            : "logged_out"
     };
   })
 );

@@ -714,7 +714,7 @@ const getters = {
     let loginErrAffectsTask = false;
     if (channelErr) {
       const KEY_TO_NAME = {
-        BOSS: "boss直聘",
+        BOSS: "BOSS直聘",
         ZHILIAN: "智联招聘",
         JOB51: "前程无忧",
         LIEPIN: "猎聘"
@@ -1818,7 +1818,7 @@ const actions = {
     );
     if (blockedChannels.length > 0) {
       const CH_NAME = {
-        BOSS: "boss直聘",
+        BOSS: "BOSS直聘",
         ZHILIAN: "智联招聘",
         JOB51: "前程无忧",
         LIEPIN: "猎聘"
@@ -1922,7 +1922,7 @@ const actions = {
         // 禁用渠道不因未登录弹 banner / 跳过（交给 resumeFromCurrent finish(CHANNEL_DISABLED)）
         if (chLogin === false && isChannelEnabledForRun(ch.channelSubType)) {
           const CH_NAME = {
-            BOSS: "boss直聘",
+            BOSS: "BOSS直聘",
             ZHILIAN: "智联招聘",
             JOB51: "前程无忧",
             LIEPIN: "猎聘"

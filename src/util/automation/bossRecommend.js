@@ -1063,14 +1063,7 @@ export async function runBossRecommend(args) {
           if (!alreadyAdded) collectedGeeks.push(geek);
         }
 
-        if (collectRes?.aborted) {
-          console.log(
-            `[bossRecommend][collect][round ${rounds}] 收藏批次因用户停止中断`
-          );
-          collectionError = { code: "USER_STOPPED", message: "用户主动停止任务" };
-          break;
-        }
-
+        // 先处理明确业务错误；权益不足也会中断当前批次，但不能被当成 USER_STOPPED。
         if (!collectRes?.ok) {
           collectionError = {
             code: collectRes?.errorCode || "UNKNOWN",
@@ -1080,6 +1073,14 @@ export async function runBossRecommend(args) {
             `[bossRecommend][collect][round ${rounds}] collectBossRecommendGeeks failed:`,
             collectionError
           );
+          break;
+        }
+
+        if (collectRes?.aborted) {
+          console.log(
+            `[bossRecommend][collect][round ${rounds}] 收藏批次因用户停止中断`
+          );
+          collectionError = { code: "USER_STOPPED", message: "用户主动停止任务" };
           break;
         }
         console.log(
@@ -1241,6 +1242,23 @@ export async function runBossRecommend(args) {
     )
   };
   if (typeof onProgress === "function") onProgress("collected", collectionAggregate);
+
+  // 升级权益弹窗属于不可恢复的渠道业务限制，不能像普通单个收藏失败一样继续翻页。
+  // 将错误提升到 runBossRecommend 顶层，让 IndexPage 停止当前推荐任务。
+  if (collectionError?.code === "BOSS_ENTITLEMENT_REQUIRED") {
+    return {
+      ok: false,
+      tabId: first.tabId,
+      url: first.url,
+      select: selectResult,
+      firstPage: first.data,
+      collection: collectionAggregate,
+      collectionError,
+      geekList: collectedGeeks.slice(0, targetCount),
+      errorCode: collectionError.code,
+      message: collectionError.message || "BOSS直聘查看权益不足，推荐任务已停止"
+    };
+  }
 
   return {
     ok: true,
