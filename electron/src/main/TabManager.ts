@@ -20,7 +20,10 @@
 import { BrowserWindow, WebContentsView, session, shell } from 'electron'
 
 import { ensureAttached as ensureSiteNetworkAttached } from './siteNetworkCapture'
-import { setActiveChannel as setOverlayActiveChannel } from './automationOverlay'
+import {
+  bringOverlayToFront,
+  setActiveChannel as setOverlayActiveChannel
+} from './automationOverlay'
 
 // =============== 类型 ===============
 
@@ -477,7 +480,9 @@ class TabManager {
       this.activate(tab.id)
     } else if (mode === 'background') {
       tab.hidden = false
-      this.bgRenderId = tab.id
+      // 用户已经在看 BOSS 时，后台复用同一个主签不能再把它标成 bgRender。
+      // 否则切到 home 后 BOSS 仍会保留真实 bounds，并凭更高 z-order 盖住主页。
+      this.bgRenderId = this.activeId === tab.id ? null : tab.id
       this.updateBounds()
       this.bringActiveToFront()
       this.broadcastState()
@@ -611,14 +616,41 @@ class TabManager {
     } catch (e) {
       console.warn('[TabManager] bringActiveToFront failed:', (e as Error)?.message || e)
     }
+    // active view 重新 addChildView 后会处于最上层；若自动化蒙层正在显示，
+    // 必须再把蒙层置顶，否则 BOSS 推荐页会盖住蒙层，直到用户手动切换一次 tab。
+    bringOverlayToFront()
+  }
+
+  /**
+   * BOSS 主签整页导航时，Chromium 会重新提交页面渲染层。部分平台上这会让已经挂载的
+   * automationOverlay 暂时落到页面层下面；因为 active tab 没变，不会再触发 activate()，
+   * 所以此前只能靠用户手动切一次 tab 恢复。
+   *
+   * 导航事件到达时立即恢复一次，并在下一轮事件循环再恢复一次，覆盖页面提交后的合成时序。
+   * bringOverlayToFront 自带 overlayWanted / coverChannels 判断，任务已经结束时会直接 no-op。
+   */
+  private restoreBossOverlayAfterNavigation(tab: InternalTab, phase: string): void {
+    if (tab.channel !== 'boss' || tab.id !== this.activeId) return
+
+    // 同步当前 channel，兼容 BOSS 单例以 background 模式复用但用户正在查看该 tab 的场景。
+    setOverlayActiveChannel('boss')
+    bringOverlayToFront()
+
+    setTimeout(() => {
+      if (tab.id !== this.activeId || tab.view.webContents.isDestroyed()) return
+      bringOverlayToFront()
+    }, 0)
+
+    console.log(`[TabManager] BOSS 导航阶段 ${phase}：已请求恢复自动化蒙层 tab=${tab.id}`)
   }
 
   // ----- 激活 / 关闭 / 重排 -----
 
   activate(id: string): void {
     if (!this.tabs.has(id)) return
-    // 用户手动切到这个 tab（或它成为前台）→ 清掉它的"后台渲染"标记（已经是前台了）
-    if (this.bgRenderId === id) this.bgRenderId = null
+    // bgRender 不应指向即将离开的旧 active，也不应指向新的 active。
+    // 前者用于自愈“当前 BOSS 被后台流程重新标成 bgRender”的历史残留状态。
+    if (this.bgRenderId === id || this.bgRenderId === this.activeId) this.bgRenderId = null
     this.activeId = id
     this.updateBounds()
     // 通知蒙层重新评估：active 是招聘站 tab 时显示，是 home / 其它时隐藏
@@ -996,20 +1028,29 @@ class TabManager {
       this.broadcastState()
     })
     wc.on('page-favicon-updated', onChange)
+    wc.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+      if (!isMainFrame) return
+      this.restoreBossOverlayAfterNavigation(tab, 'did-start-navigation')
+    })
     wc.on('did-start-loading', onChange)
     wc.on('did-stop-loading', () => {
       onChange()
       onBossNav()
+      this.restoreBossOverlayAfterNavigation(tab, 'did-stop-loading')
     })
     wc.on('did-navigate', () => {
       onChange()
       onBossNav()
+      this.restoreBossOverlayAfterNavigation(tab, 'did-navigate')
     })
     wc.on('did-navigate-in-page', () => {
       onChange()
       onBossNav()
     })
-    wc.on('did-finish-load', onChange)
+    wc.on('did-finish-load', () => {
+      onChange()
+      this.restoreBossOverlayAfterNavigation(tab, 'did-finish-load')
+    })
 
     // ★ BOSS 站点 tab 导航诊断：定位"推荐列表被刷新/换一批"到底是谁触发的。
     //   - did-navigate     → **整页导航**（loadURL / reload / location 跳转）= 真·页面刷新

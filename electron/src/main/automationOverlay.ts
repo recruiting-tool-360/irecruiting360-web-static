@@ -269,6 +269,42 @@ export function setActiveChannel(channelKey: string | null): void {
   applyOverlayVisibility()
 }
 
+/**
+ * TabManager 调整子视图 z-order 后，把已显示的蒙层重新放回最上层。
+ *
+ * WebContentsView 的层级由 addChildView 顺序决定。后台渲染 BOSS 推荐页时，
+ * TabManager 会重新挂载当前 active view；如果蒙层此前已经 attached，BOSS view
+ * 会被放到蒙层上方，视觉上像“蒙层消失”。这里不改变业务显隐状态，只修复层级。
+ */
+export function bringOverlayToFront(): void {
+  if (!mainWinRef) return
+  const shouldShow =
+    overlayWanted && !!currentActiveChannel && coverChannels.includes(currentActiveChannel)
+  if (!shouldShow) return
+
+  const view = ensureOverlayView()
+  // overlayAttached 是业务侧记录，导航期间 Chromium 的实际子视图状态可能已经与它不同。
+  // remove 失败时仍继续 add，让这个方法同时具备“重新置顶”和“重新挂载”能力。
+  if (overlayAttached) {
+    try {
+      mainWinRef.contentView.removeChildView(view)
+      overlayAttached = false
+    } catch (e) {
+      console.warn(`[automationOverlay] remove before bring to front err: ${(e as Error).message}`)
+    }
+  }
+  try {
+    mainWinRef.contentView.addChildView(view)
+    overlayAttached = true
+    updateOverlayBounds()
+    console.log(
+      `[automationOverlay] brought to front (activeChannel=${currentActiveChannel}, cover=[${coverChannels.join(',')}])`
+    )
+  } catch (e) {
+    console.warn(`[automationOverlay] bring to front err: ${(e as Error).message}`)
+  }
+}
+
 function ensureOverlayView(): WebContentsView {
   if (overlayView && !overlayView.webContents.isDestroyed()) return overlayView
   overlayView = new WebContentsView({
@@ -311,9 +347,7 @@ function updateOverlayBounds(): void {
 function applyOverlayVisibility(): void {
   if (!mainWinRef) return
   const shouldShow =
-    overlayWanted &&
-    !!currentActiveChannel &&
-    coverChannels.includes(currentActiveChannel)
+    overlayWanted && !!currentActiveChannel && coverChannels.includes(currentActiveChannel)
   if (shouldShow && !overlayAttached) {
     const view = ensureOverlayView()
     try {
@@ -358,9 +392,10 @@ export function showOverlay(payload: OverlayPayload = {}): void {
     return
   }
   overlayWanted = true
-  coverChannels = (payload.coverChannels && payload.coverChannels.length > 0
-    ? payload.coverChannels
-    : DEFAULT_COVER_CHANNELS
+  coverChannels = (
+    payload.coverChannels && payload.coverChannels.length > 0
+      ? payload.coverChannels
+      : DEFAULT_COVER_CHANNELS
   ).map((c) => c.toLowerCase())
 
   // 先 reload data url（payload 可能变了）—— view 复用，content 变化

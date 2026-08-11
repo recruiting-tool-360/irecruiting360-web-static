@@ -54,7 +54,10 @@
 
         <!-- 右侧：评分和操作按钮 -->
         <div class="col-4 text-right">
-          <div  v-if="tabStr!=='我的收藏'" class="score-badge q-mb-sm">
+          <div
+            v-if="tabStr!=='我的收藏'"
+            class="score-badge q-mb-sm"
+          >
             <!-- AI评分正常显示 -->
             <q-circular-progress
               v-if="resume.score !== null && resume.score !== undefined && resume.score !== -2"
@@ -65,6 +68,12 @@
               :color="getScoreColor(resume.score)"
               track-color="grey-3"
               class="q-mr-sm text-bold"
+              :class="{ 'score-circle--clickable': canOpenAIEvaluation }"
+              :role="canOpenAIEvaluation ? 'button' : undefined"
+              :tabindex="canOpenAIEvaluation ? 0 : undefined"
+              @click.stop="showAIEvaluationDialog"
+              @keydown.enter.stop="showAIEvaluationDialog"
+              @keydown.space.stop.prevent="showAIEvaluationDialog"
             >
               {{ Math.round(resume.score) }}
             </q-circular-progress>
@@ -96,35 +105,8 @@
           </div>
 
           <div>
-            <q-btn  v-if="tabStr!=='我的收藏'" flat class="q-ma-xs q-px-sm" size="sm" color="primary" @click.stop="showAIEvaluationDialog"
-              :disable="resume.score === null || resume.score === undefined || resume.score < 0">
-              <q-icon class="q-mr-xs" :name="resume.score !== null && resume.score !== undefined && resume.score >= 0 ? 'insights' : (resume.score === -2 ? 'error_outline' : 'hourglass_empty')" />
-              <span class="">{{ resume.score !== null && resume.score !== undefined && resume.score >= 0 ? 'AI评估' : (resume.score === -2 ? 'AI分析失败' : 'AI分析中') }}</span>
-              <q-tooltip v-if="resume.score === null || resume.score === undefined || (resume.score < 0 && resume.score !== -2)">
-                AI分析尚未完成，请稍后再试
-              </q-tooltip>
-              <q-tooltip v-else-if="resume.score === -2">
-                AI分析失败，请检查渠道状态
-              </q-tooltip>
-            </q-btn>
             <q-btn v-if="!isVisible" flat round size="sm" color="orange" :icon="resume.inCollection?'star':'star_outline'" @click.stop="toggleCollect" />
 <!--            <q-btn flat round size="sm" color="primary" icon="visibility" @click.stop="markAsRead" />-->
-
-            <q-btn  v-if="tabStr!=='我的收藏'" flat round size="sm" color="primary" icon="more_vert" @click.stop>
-              <q-menu>
-                <q-list style="min-width: 100px">
-                  <q-item clickable v-close-popup @click="downloadResume">
-                    <q-item-section>分享简历</q-item-section>
-                  </q-item>
-<!--                  <q-item clickable v-close-popup @click="contactCandidate">-->
-<!--                    <q-item-section>联系候选人</q-item-section>-->
-<!--                  </q-item>-->
-<!--                  <q-item clickable v-close-popup @click="addToBlacklist">-->
-<!--                    <q-item-section>加入黑名单</q-item-section>-->
-<!--                  </q-item>-->
-                </q-list>
-              </q-menu>
-            </q-btn>
           </div>
         </div>
       </div>
@@ -404,6 +386,12 @@ const allChannelStatus = computed(() => store.getters.getChannelConf);
 const userInfo = computed(() => store.getters.getUserInfo);
 //当前chat id
 const chatId = computed(() => store.getters.getLatestChatId);
+
+// AI 评分完成后，匹配度区域本身就是 AI 评估弹窗的唯一入口。
+const canOpenAIEvaluation = computed(() => {
+  const score = props.resume?.score;
+  return score !== null && score !== undefined && Number(score) >= 0;
+});
 
 // 任意职位的 BOSS 推荐 RPA 真正操作页面时，都禁用当前卡片的“立即沟通”。
 // 排队/WAITING 和后续 SCORING 评分阶段不在全局 getter 的锁定范围内。
@@ -1199,6 +1187,7 @@ const shouldShowTalentPoolTooltip = (thirdPartyInfo) => {
 
 // 显示AI评估对话框
 const showAIEvaluationDialog = () => {
+  if (!canOpenAIEvaluation.value) return;
   showAIEvaluation.value = true;
 };
 
@@ -1226,6 +1215,18 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+}
+
+.score-circle--clickable {
+  cursor: pointer;
+  border-radius: 50%;
+  transition: box-shadow 0.2s ease;
+}
+
+.score-circle--clickable:hover,
+.score-circle--clickable:focus-visible {
+  box-shadow: 0 0 0 6px rgba(0, 215, 198, 0.08);
+  outline: none;
 }
 
 .boss-communication-button-wrap {
