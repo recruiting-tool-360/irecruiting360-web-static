@@ -1260,7 +1260,11 @@ async function doFetchRecommend(args) {
     }
   }
 
-  if (!res || !res.ok) {
+  const entitlementStopped = res?.errorCode === "BOSS_ENTITLEMENT_REQUIRED";
+  const partialGeekCount = Array.isArray(res?.geekList) ? res.geekList.length : 0;
+  const hasPartialEntitlementResults = entitlementStopped && partialGeekCount > 0;
+
+  if (!res || (!res.ok && !hasPartialEntitlementResults)) {
     console.warn("[IndexPage] runBossRecommend failed:", res?.errorCode, res?.message);
     setPhase("FAILED");
     store.commit("setBossRecommendError", {
@@ -1291,22 +1295,36 @@ async function doFetchRecommend(args) {
         `检测到「${CHANNEL_DISPLAY_NAME.BOSS}」账号异常/已下线，相关任务已自动停止。请重新登录后恢复。`
       );
     } else if (res?.errorCode === "BOSS_ENTITLEMENT_REQUIRED") {
-      const cidForStop = args?.chatId || store.getters.getLatestChatId;
-      try {
-        await store.dispatch("SearchTasks/stopForChat", {
-          chatId: cidForStop,
-          errorCode: "BOSS_ENTITLEMENT_REQUIRED",
-          errorMessage: "BOSS直聘查看权益不足，推荐任务已停止"
-        });
-      } catch (e) {
-        console.warn(
-          "[IndexPage] BOSS 权益不足时停止推荐任务失败:",
-          e?.message || e
-        );
-      }
+      store.commit("SearchTasks/setRecommendClientOutcome", {
+        taskId: _taskIdForPhase,
+        outcome: {
+          code: "BOSS_ENTITLEMENT_REQUIRED",
+          message: "BOSS直聘查看权益不足，推荐任务已停止"
+        }
+      });
       notify.warning("BOSS直聘查看权益不足，推荐任务已停止");
     }
     return;
+  }
+
+  // 查看权益在本轮中途耗尽时，runBossRecommend 会带回此前已经真实收藏成功的人。
+  // 这些结果必须继续落库、触发 AI 评分；仅在所有结果处理完成后，将推荐渠道以权益不足失败收尾。
+  if (hasPartialEntitlementResults) {
+    store.commit("setBossRecommendError", {
+      jobId,
+      error: { code: res.errorCode, message: res.message }
+    });
+    store.commit("SearchTasks/setRecommendClientOutcome", {
+      taskId: _taskIdForPhase,
+      outcome: {
+        code: "BOSS_ENTITLEMENT_REQUIRED",
+        message: res.message || "BOSS直聘查看权益不足，推荐任务已停止",
+        partialResultCount: partialGeekCount
+      }
+    });
+    notify.warning(
+      `BOSS直聘查看权益不足，已保留已获取的 ${partialGeekCount} 份简历，任务停止`
+    );
   }
   // ★ 上传前最后一道关：本任务若已被用户主动停止，**丢弃本次推荐结果**——
   //   不写缓存、不 POST /results 落库、不发 /detail 触发 AI 评分、不启动评分轮询。

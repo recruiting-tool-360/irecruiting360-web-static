@@ -1,20 +1,44 @@
 /**
  * BOSS 升级权益弹窗检测。
  *
- * 推荐牛人打开详情（查看权益）与互动页发起沟通（沟通权益）会出现同一套弹窗 DOM，
- * 因此两个 RPA 流程统一复用这里的检测规则，避免后续结构变化时出现两套口径。
+ * 推荐牛人打开详情（查看权益）与互动页发起沟通（沟通权益）会弹出商业付费窗。
+ * BOSS 目前至少两套灰度皮肤，查看 / 沟通共用同一套骨架，只是标题或顶栏文案不同。
  *
- * 不使用动态 id="boss-dynamic-dialog-*"，只使用稳定结构 + 关键业务文案：
- *   - .dialog-wrap.active[data-type="boss-dialog"] .business-block-dialog
- *   - .vip2-layout / .payment-layout-v2
- *   - “每日沟通总量” + “VIP账号”或“商品需付”
+ * 新皮肤（v4）：
+ *   .business-block-content + .title-text「查看权益不足 / 开聊权益不足」
+ *   支付区 .prop-pay-order / .pay-qrcode-v1
+ *
+ * 旧皮肤（vip2）：
+ *   .business-block-dialog + .vip2-layout + .payment-layout-v2
+ *   对比表文案「每日沟通总量」+「VIP账号 / 商品需付」
+ *   没有「权益不足」标题
+ *
+ * 不使用动态 id="boss-dynamic-dialog-*"。
  */
 
 export const BOSS_ENTITLEMENT_REQUIRED = "BOSS_ENTITLEMENT_REQUIRED";
 
-const DIALOG_SELECTOR =
-  '.dialog-wrap.active[data-type="boss-dialog"] .business-block-dialog';
-const BUSINESS_SELECTOR = ".vip2-layout, .payment-layout-v2";
+const DIALOG_SELECTOR = '.dialog-wrap.active[data-type="boss-dialog"]';
+
+/** 新皮肤独有结构：标题区 / 新支付区。两边都有的 .business-block-wrap 不当判别条件。 */
+const CURRENT_LAYOUT_SELECTOR = [
+  ".business-block-content",
+  ".business-block-header",
+  ".title-text",
+  ".prop-pay-order",
+  ".pay-qrcode-v1",
+].join(", ");
+
+/** 旧皮肤独有结构：vip2 对比表 / 旧支付区。 */
+const LEGACY_LAYOUT_SELECTOR = [
+  ".business-block-dialog",
+  ".vip2-layout",
+  ".payment-layout-v2",
+  ".rights-table-vip",
+].join(", ");
+
+const TITLE_SELECTOR =
+  ".title-text, .business-block-header .header, .business-block-header h3";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,22 +74,50 @@ function buildDetectBossEntitlementDialogScript() {
     return result;
   }
 
+  function normalize(text) {
+    return String(text || '').replace(/\\s+/g, '');
+  }
+
+  function matchCurrent(dialog, title, compactText) {
+    var hasLayout = !!dialog.querySelector(${JSON.stringify(CURRENT_LAYOUT_SELECTOR)});
+    var hasCopy = title.indexOf('权益不足') >= 0 || compactText.indexOf('权益不足') >= 0;
+    return hasLayout && hasCopy;
+  }
+
+  function matchLegacy(dialog, compactText) {
+    var hasLayout = !!dialog.querySelector(${JSON.stringify(LEGACY_LAYOUT_SELECTOR)});
+    var hasCopy = compactText.indexOf('每日沟通总量') >= 0 &&
+      (compactText.indexOf('VIP账号') >= 0 || compactText.indexOf('商品需付') >= 0);
+    return hasLayout && hasCopy;
+  }
+
   var docs = documents();
   for (var di = 0; di < docs.length; di++) {
     var dialogs = docs[di].doc.querySelectorAll(${JSON.stringify(DIALOG_SELECTOR)});
     for (var i = 0; i < dialogs.length; i++) {
       var dialog = dialogs[i];
       if (!isVisible(dialog)) continue;
-      var text = String(dialog.textContent || '').replace(/\\s+/g, ' ').trim();
-      var hasBusinessLayout = !!dialog.querySelector(${JSON.stringify(BUSINESS_SELECTOR)});
-      var matched = hasBusinessLayout &&
-        text.indexOf('每日沟通总量') >= 0 &&
-        (text.indexOf('VIP账号') >= 0 || text.indexOf('商品需付') >= 0);
-      if (matched) {
+
+      var titleEl = dialog.querySelector(${JSON.stringify(TITLE_SELECTOR)});
+      var title = normalize(titleEl && titleEl.textContent);
+      var compactText = normalize(dialog.textContent);
+      var rawText = String(dialog.textContent || '').replace(/\\s+/g, ' ').trim();
+
+      if (matchCurrent(dialog, title, compactText)) {
         return {
           found: true,
+          variant: 'current',
           foundIn: docs[di].label,
-          text: text.slice(0, 500)
+          text: rawText.slice(0, 500)
+        };
+      }
+
+      if (matchLegacy(dialog, compactText)) {
+        return {
+          found: true,
+          variant: 'legacy',
+          foundIn: docs[di].label,
+          text: rawText.slice(0, 500)
         };
       }
     }
