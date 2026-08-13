@@ -2,7 +2,7 @@
   <div>
     <div v-if="isLoading" class="flex flex-center q-pa-xl">
       <q-spinner color="primary" size="3em" />
-      <div class="q-ml-sm text-subtitle1">正在加载{{channelConfig.name}}数据...</div>
+      <div class="q-ml-sm text-subtitle1">正在加载{{ formatChannelDisplayName(channelConfig.name) }}数据...</div>
     </div>
 
     <div v-else-if="!hasData" class="flex flex-center column q-pa-xl" style="margin-top: 16%">
@@ -10,7 +10,7 @@
         <q-btn
             outline
           color="primary" 
-          :label="`前往登录${channelConfig.name}`"
+          :label="`前往登录${formatChannelDisplayName(channelConfig.name)}`"
           icon="login" 
           @click="goToLogin"
           class="login-btn"
@@ -21,7 +21,7 @@
         <q-avatar square size="120px">
           <img :src="'/image/notData.png'">
         </q-avatar>
-        <div class="text-subtitle1 q-mt-md text-grey-7">暂无{{channelConfig.name}}数据</div>
+        <div class="text-subtitle1 q-mt-md text-grey-7">暂无{{ formatChannelDisplayName(channelConfig.name) }}数据</div>
       </div>
     </div>
 
@@ -32,7 +32,7 @@
         :loading="isLoadingMore"
         :has-more-data="hasMoreData && allowLoadMore"
         :total="searchChannelConfig.channelDataTotal"
-        :channel-str="channelConfig.name"
+        :channel-str="formatChannelDisplayName(channelConfig.name)"
         :ai-sort="aiSortSwitch"
         @load-more="loadMore"
         @collect="handleCollect"
@@ -64,6 +64,7 @@ import { openChannelLoginUrl } from "src/util/openChannelLoginUrl";
 import { handleChannelSearchFailure } from "src/util/channelLoginGuard";
 import { triggerContinueSearchFromResults } from "src/util/triggerContinueSearch";
 import { runChannelSearchWithDedup } from "src/util/searchChannelDedup";
+import { formatChannelDisplayName } from "src/util/channelDisplayName";
 
 // 定义组件属性
 const props = defineProps({

@@ -29,7 +29,7 @@ import {
  * 注意大小写：channelConf 用 storeKey 索引，展示名是 `channelConf[key].name`。
  */
 export const CHANNEL_DISPLAY_NAME = {
-  BOSS: "boss直聘",
+  BOSS: "BOSS直聘",
   ZHILIAN: "智联招聘",
   JOB51: "前程无忧",
   LIEPIN: "猎聘"

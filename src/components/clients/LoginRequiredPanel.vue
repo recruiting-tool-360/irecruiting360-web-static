@@ -53,9 +53,17 @@
           >
             <!-- 勾选框：点击切换「启用/禁用」（与渠道设置弹框同一数据源） -->
             <div
-              :class="['lrp-check', { 'lrp-check--off': !ch.enabled }]"
+              :class="[
+                'lrp-check',
+                {
+                  'lrp-check--off': !ch.enabled,
+                  'lrp-check--locked': isChannelSelectionLocked(ch)
+                }
+              ]"
               role="checkbox"
               :aria-checked="ch.enabled"
+              :aria-disabled="isChannelSelectionLocked(ch)"
+              :title="isChannelSelectionLocked(ch) ? '至少需要启用一个招聘渠道' : ''"
               @click="toggleChannel(ch)"
             >
               <svg
@@ -147,6 +155,11 @@ import { useStore } from 'vuex';
 import { openChannelLoginUrl } from 'src/util/openChannelLoginUrl';
 import { pluginAllUrls } from 'src/pluginSrc/config/PluginRequestManager';
 import { applyChannelEnableConfig } from 'src/util/applyChannelEnable';
+import {
+  isClientChannelVisible,
+  normalizeClientChannelConfig
+} from 'src/util/clientChannelAvailability';
+import { formatChannelDisplayName } from 'src/util/channelDisplayName';
 
 const emit = defineEmits(['complete', 'dismiss']);
 
@@ -181,7 +194,7 @@ const CHANNEL_CONFIGS = [
   {
     storeKey: 'BOSS',
     channel: 'boss',
-    name: 'boss直聘',
+    name: 'BOSS直聘',
     loginUrl: pluginAllUrls?.BOSS?.loginUrl || 'https://www.zhipin.com/web/user/'
   },
   {
@@ -204,21 +217,20 @@ const channelConf = computed(() => store.getters.getChannelConf || {});
 const userChannelConfig = computed(() => store.getters.getUserChannelConfig || []);
 
 function isChannelEnabled(storeKey) {
-  const list = userChannelConfig.value;
-  if (!Array.isArray(list) || list.length === 0) return true;
-  const entry = list.find((c) => c.key === storeKey);
-  return entry ? !!entry.enableConfig : true;
+  const entry = normalizeClientChannelConfig(userChannelConfig.value)
+    .find((channel) => channel.key === storeKey);
+  return entry ? entry.enableConfig !== false : false;
 }
 
-// 展示**全部**渠道（含禁用的，禁用置灰），每个渠道带启用态 + 登录态
+// 当前仅展示产品开放的渠道；临时下架渠道仍保留底层配置，但不出现在选择区。
 const displayChannels = computed(() =>
-  CHANNEL_CONFIGS.map((cfg) => {
+  CHANNEL_CONFIGS.filter((cfg) => isClientChannelVisible(cfg.storeKey)).map((cfg) => {
     const conf = channelConf.value[cfg.storeKey] || {};
     return {
       id: cfg.channel,
       key: cfg.storeKey,
       channel: cfg.channel,
-      name: conf.name || cfg.name || cfg.storeKey,
+      name: formatChannelDisplayName(conf.name || cfg.name || cfg.storeKey),
       url: cfg.loginUrl,
       enabled: isChannelEnabled(cfg.storeKey),
       loggedIn: !!conf.login
@@ -238,13 +250,18 @@ const isReady = computed(() => {
 /** 切换某渠道启用/禁用：构建全量配置 → applyChannelEnableConfig（同渠道设置弹框的数据源+副作用） */
 function toggleChannel(ch) {
   if (!ch) return;
-  const nextConfig = CHANNEL_CONFIGS.map((cfg) => ({
-    key: cfg.storeKey,
-    name: channelConf.value[cfg.storeKey]?.name || cfg.name || cfg.storeKey,
+  if (isChannelSelectionLocked(ch)) return;
+  const nextConfig = normalizeClientChannelConfig(userChannelConfig.value).map((channel) => ({
+    ...channel,
     enableConfig:
-      cfg.storeKey === ch.key ? !isChannelEnabled(cfg.storeKey) : isChannelEnabled(cfg.storeKey)
+      channel.key === ch.key ? !isChannelEnabled(channel.key) : channel.enableConfig
   }));
   applyChannelEnableConfig(store, nextConfig);
+}
+
+function isChannelSelectionLocked(ch) {
+  if (!ch?.enabled) return false;
+  return displayChannels.value.filter((channel) => channel.enabled).length <= 1;
 }
 
 function handleOpenChannel(ch) {
@@ -490,6 +507,10 @@ $green-600: #16a34a;
     border-color: $neutral-300;
     background: #ffffff;
     color: transparent;
+  }
+
+  &--locked {
+    cursor: not-allowed;
   }
 }
 

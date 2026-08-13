@@ -4,8 +4,8 @@
  * 决策映射：
  *   A.a Chrome 同款单行布局      → 顶部 40px 高的 .titlebar，标签嵌入其中
  *   B   不带地址栏 / 前进后退    → 不渲染导航控件
- *   C   主页 pinned 不可关       → tab.pinned=true 时不渲染 X
- *   D   主页写死 "i快招" + 应用 logo → 主页 tab title 总是显示 HOME_DISPLAY
+ *   C   i快招/BOSS 主签固定不可关 → pinned 固定；closable=false 不渲染 X
+ *   D   仅主页写死 "i快招" + 应用 logo → home role 显示 HOME_DISPLAY
  *   E.b 紧挨当前 tab 右侧打开    → 主进程已实现，本组件无需特殊处理
  *   F.a M2 内做拖拽重排          → HTML5 DnD 直接重排
  */
@@ -139,7 +139,7 @@ export function TabBar({ platform }: Props): React.JSX.Element {
       .filter(Boolean)
       .join(' ')
 
-    const title = tab.pinned ? HOME_DISPLAY : tab.title || tab.url || '新标签'
+    const title = tab.role === 'home' ? HOME_DISPLAY : tab.title || tab.url || '新标签'
 
     return (
       <div
@@ -157,8 +157,8 @@ export function TabBar({ platform }: Props): React.JSX.Element {
       >
         {renderFavicon(tab)}
         <span className="tab-title">{title}</span>
-        {/* X 关闭按钮：home tab (pinned) 永不显示；业务侧 setLocked(true) 时也不显示 */}
-        {!tab.pinned && !tab.locked ? (
+        {/* X 关闭按钮：永久不可关或业务侧动态 locked 时不显示 */}
+        {tab.closable && !tab.locked ? (
           <button
             type="button"
             className="tab-close"

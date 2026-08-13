@@ -41,6 +41,153 @@ export const TASK_STATUS = {
 // 「一个会话只允许一个活跃任务」去重：记录已自动停止过的重复任务 taskId，避免每个 queue tick 重复发 finish
 const _dedupHandledTaskIds = new Set();
 
+function hasBossRecommendChannel(task) {
+  return (task?.channels || []).some(
+    (ch) => ch?.businessChannel === "RECOMMEND" && ch?.channelSubType === "BOSS"
+  );
+}
+
+function shouldRunRestartCleanup(task) {
+  return (
+    task?.taskType === "RESTART" &&
+    !!task?.sourceTaskId &&
+    hasBossRecommendChannel(task)
+  );
+}
+
+function createRestartCleanupState(status = "PENDING", patch = {}) {
+  return {
+    status,
+    total: 0,
+    targetCount: 0,
+    processed: 0,
+    cancelled: 0,
+    alreadyMissing: 0,
+    unresolved: 0,
+    failed: 0,
+    ...patch,
+    updatedAt: Date.now()
+  };
+}
+
+/**
+ * RESTART 任务真正开始执行后的第一步：清理上游推荐任务产生的 BOSS 收藏。
+ * 清理失败只更新状态卡并继续，不能阻断后续搜索 / 推荐流程。
+ */
+async function runRestartCleanupStep({ taskId, task, commit }) {
+  if (!shouldRunRestartCleanup(task)) return;
+
+  let cleanupState = createRestartCleanupState("RUNNING", task.restartCleanup || {});
+  const patchCleanup = (patch) => {
+    cleanupState = {
+      ...cleanupState,
+      ...patch,
+      updatedAt: Date.now()
+    };
+    commit("patchTask", {
+      taskId,
+      patch: { restartCleanup: cleanupState }
+    });
+  };
+  patchCleanup({ status: "RUNNING" });
+
+  if (
+    typeof window === "undefined" ||
+    !window.api?.automation?.evalOnTab ||
+    !window.api?.automation?.clickOnTab
+  ) {
+    patchCleanup({ status: "SKIPPED" });
+    console.warn(
+      `[SearchTasks] RESTART 取消收藏跳过：当前不是桌面客户端 taskId=${taskId}`
+    );
+    return;
+  }
+
+  commit("setBossRecommendRpaActive", true);
+  try {
+    try {
+      await window.api.automation.showOverlay?.({
+        title: "正在清理推荐收藏",
+        message:
+          '客户端正在取消上次推荐任务产生的收藏，请耐心等待，请勿同步操作 <span class="channel">BOSS直聘</span> 账号',
+        channelName: "BOSS直聘",
+        coverChannels: ["boss"]
+      });
+    } catch (overlayError) {
+      console.warn(
+        "[SearchTasks] RESTART 取消收藏蒙层显示失败（继续执行）:",
+        overlayError?.message || overlayError
+      );
+    }
+
+    const { uncollectBossRecommendTask } = await import(
+      "src/util/automation/bossInteractionUncollect"
+    );
+    const result = await uncollectBossRecommendTask(task.sourceTaskId, {
+      onProgress(stage, detail) {
+        if (stage === "loaded") {
+          patchCleanup({
+            total: Number(detail?.totalRecommendResults) || 0,
+            targetCount: Number(detail?.targetCount) || 0,
+            unresolved: Number(detail?.unresolved) || 0
+          });
+          return;
+        }
+        if (stage === "itemDone") {
+          patchCleanup({
+            processed: cleanupState.processed + 1,
+            cancelled: cleanupState.cancelled + 1
+          });
+          console.log(
+            `[SearchTasks] RESTART 取消收藏成功 taskId=${taskId}` +
+              ` geekId=${detail?.geekId || ""} remaining=${detail?.remaining ?? ""}`
+          );
+        }
+      }
+    });
+
+    const cancelled = Number(result?.cancelled) || 0;
+    const alreadyMissing = Number(result?.alreadyMissing) || 0;
+    const unresolved = Number(result?.unresolved) || 0;
+    const failed = Number(result?.failed) || 0;
+    const unconfirmed = unresolved + failed;
+    let status = "COMPLETED";
+    if (unconfirmed > 0) {
+      status = cancelled + alreadyMissing > 0 ? "PARTIAL" : "FAILED";
+    }
+    patchCleanup({
+      status,
+      total: Number(result?.totalRecommendResults) || cleanupState.total,
+      targetCount: Number(result?.targetCount) || cleanupState.targetCount,
+      processed: cancelled + alreadyMissing + unresolved + failed,
+      cancelled,
+      alreadyMissing,
+      unresolved,
+      failed
+    });
+    console.log(`[SearchTasks] RESTART 取消收藏完成 taskId=${taskId}:`, result);
+  } catch (error) {
+    patchCleanup({
+      status: "FAILED",
+      failed: Math.max(1, Number(cleanupState.failed) || 0)
+    });
+    console.warn(
+      `[SearchTasks] RESTART 取消收藏失败，继续执行后续任务 taskId=${taskId}:`,
+      error?.message || error
+    );
+  } finally {
+    commit("setBossRecommendRpaActive", false);
+    try {
+      await window.api?.automation?.hideOverlay?.();
+    } catch (overlayError) {
+      console.warn(
+        "[SearchTasks] RESTART 取消收藏蒙层关闭失败（忽略）:",
+        overlayError?.message || overlayError
+      );
+    }
+  }
+}
+
 /** UI 聚合状态（对照 ihraisaas JobList.aggregateStatus） */
 export const UI_STATUS = {
   IDLE: "idle",
@@ -69,7 +216,8 @@ const initialState = () => ({
    * 任务字典：taskId → task。
    * task: {
    *   taskId, resultSetId, chatId, positionId,
-   *   taskType, taskStatus, createdAt, finishedAt,
+   *   taskType, sourceTaskId, taskStatus, createdAt, finishedAt,
+   *   restartCleanup,            // RESTART 任务取消上游 BOSS 收藏的客户端进度
    *   isManualStopped,           // 手动停止时 stopped 不显示红 badge
    *   channels: [{
    *     taskChannelId, businessChannel, channelSubType,
@@ -90,6 +238,12 @@ const initialState = () => ({
 
   /** 当前正在跑的 taskId。null 表示空闲 */
   runningTaskId: null,
+
+  /**
+   * BOSS 推荐/取消收藏 RPA 是否正在真实操作 BOSS 页面。
+   * 这是客户端全局互斥锁，不跟当前选中的职位绑定，也不依赖后端任务状态。
+   */
+  bossRecommendRpaActive: false,
 
   /**
    * 后端任务队列（来自 GET /search/task/queue）+ 元信息。
@@ -311,6 +465,10 @@ const mutations = {
 
   setRunning(state, taskId) {
     state.runningTaskId = taskId;
+  },
+
+  setBossRecommendRpaActive(state, active) {
+    state.bossRecommendRpaActive = active === true;
   },
 
   setSseContext(state, ctx) {
@@ -556,7 +714,7 @@ const getters = {
     let loginErrAffectsTask = false;
     if (channelErr) {
       const KEY_TO_NAME = {
-        BOSS: "boss直聘",
+        BOSS: "BOSS直聘",
         ZHILIAN: "智联招聘",
         JOB51: "前程无忧",
         LIEPIN: "猎聘"
@@ -727,6 +885,15 @@ const getters = {
     return state.recommendClientPhase?.[taskId]?.phase || "IDLE";
   },
 
+  /**
+   * 任意职位的 BOSS 推荐 RPA 是否正在真实操作页面。
+   * ResumeCard 用这个全局状态禁用所有职位的“立即沟通”，避免职位 A 操作 BOSS 时
+   * 用户切到职位 B 又发起一套 BOSS 点击流程。
+   */
+  isBossRecommendRpaExecuting: (state) => {
+    return state.bossRecommendRpaActive === true;
+  },
+
   getActiveTaskChannelByDesc:
     (state, gtrs) =>
     (chatId, channelDesc, businessChannel = "SEARCH") => {
@@ -829,6 +996,8 @@ const actions = {
           taskId: String(item.taskId),
           chatId: String(item.chatId),
           taskType: item.taskType || existing?.taskType,
+          sourceTaskId:
+            item.sourceTaskId || item.source_task_id || existing?.sourceTaskId || null,
           taskStatus,
           resultRoundNo: item.resultRoundNo ?? existing?.resultRoundNo,
           canExecuteNow:
@@ -1521,6 +1690,8 @@ const actions = {
       chatId,
       positionId: payload.positionId,
       taskType: data.taskType || payload.taskType,
+      sourceTaskId:
+        data.sourceTaskId || data.source_task_id || payload?.sourceTaskId || null,
       taskStatus: data.taskStatus || TASK_STATUS.WAITING,
       createdAt: Date.now(),
       finishedAt: null,
@@ -1534,6 +1705,9 @@ const actions = {
       //   后端不需要这个字段，纯前端缓存。
       searchRequestData: payload?.searchRequestData || null
     };
+    task.restartCleanup = shouldRunRestartCleanup(task)
+      ? createRestartCleanupState("PENDING")
+      : null;
     console.log(
       `[SearchTasks] create: 最终 task.channels=`,
       mergedChannels
@@ -1644,7 +1818,7 @@ const actions = {
     );
     if (blockedChannels.length > 0) {
       const CH_NAME = {
-        BOSS: "boss直聘",
+        BOSS: "BOSS直聘",
         ZHILIAN: "智联招聘",
         JOB51: "前程无忧",
         LIEPIN: "猎聘"
@@ -1697,6 +1871,10 @@ const actions = {
     // 这个停滞的 runningTaskId 偶然相等（其实是 A 之前那次任务的 taskId 还在 store 里），
     // A 就会被误判成"进行中" → 多个职位全部显示"进行中..."。
     try {
+      // RESTART 专属第一步：任务已进入 RUNNING，状态卡此时可见；先取消上游推荐任务
+      // 产生的 BOSS 收藏，再启动任何 channel。失败只记录状态并继续。
+      await runRestartCleanupStep({ taskId, task, commit });
+
       // 关键 UX：把所有"活跃"channel（WAITING）立刻 patch 为 RUNNING，
       // 这样 TaskStatusCard 在搜索期间就能显示 channel 行 processing 脉冲（青色加粗），
       // step[0] "正在分析画像关键词" 也会从 pending 切到 complete（anyStarted 检测靠这个）。
@@ -1744,7 +1922,7 @@ const actions = {
         // 禁用渠道不因未登录弹 banner / 跳过（交给 resumeFromCurrent finish(CHANNEL_DISABLED)）
         if (chLogin === false && isChannelEnabledForRun(ch.channelSubType)) {
           const CH_NAME = {
-            BOSS: "boss直聘",
+            BOSS: "BOSS直聘",
             ZHILIAN: "智联招聘",
             JOB51: "前程无忧",
             LIEPIN: "猎聘"
@@ -3186,13 +3364,24 @@ const actions = {
         chatId: data.chatId,
         positionId: data.positionId,
         taskType: data.taskType,
+        sourceTaskId:
+          data.sourceTaskId || data.source_task_id || existing?.sourceTaskId || null,
         taskStatus: data.taskStatus,
         createdAt: data.createdAt || Date.now(),
         finishedAt: null,
         isManualStopped: false,
         channels: mappedChannels,
         results: [],
-        error: null
+        error: null,
+        restartCleanup:
+          existing?.restartCleanup ||
+          ((data.taskType || existing?.taskType) === "RESTART" &&
+          (data.sourceTaskId || data.source_task_id || existing?.sourceTaskId) &&
+          keptChannels.some(
+            (c) => c.businessChannel === "RECOMMEND" && c.channelSubType === "BOSS"
+          )
+            ? createRestartCleanupState("PENDING")
+            : null)
       };
       commit("setTask", task);
 

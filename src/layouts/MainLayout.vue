@@ -5,7 +5,7 @@
       跟原 q-header 同级（都是 q-layout 的 fixed-top 槽位），二选一显示
     -->
     <q-header v-if="showClientHeader" elevated class="client-mini-header-wrap">
-      <ClientHeader @open-settings="channelSettingsVisible = true" />
+      <ClientHeader />
     </q-header>
 
     <!--
@@ -57,11 +57,6 @@
     <!-- 客户端模式下：i 人事 manage 未登录 / 会话失效时弹的"账号授权"框 -->
     <IhrAuthModal />
 
-    <!-- 客户端模式：渠道设置弹窗（齿轮按钮触发，配置启用哪些招聘渠道） -->
-    <ChannelSettingsDialog
-      v-model:visible="channelSettingsVisible"
-      @save-channel-config="onSaveChannelConfig"
-    />
   </q-layout>
 </template>
 
@@ -74,7 +69,6 @@ import { useStore } from "vuex";
 import LeftMenu from "layouts/menu/LeftMenu.vue";
 import IhrAuthModal from "src/components/clients/IhrAuthModal.vue";
 import ClientHeader from "src/components/clients/ClientHeader.vue";
-import ChannelSettingsDialog from "src/components/settings/ChannelSettingsDialog.vue";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { useUpdateResumeStatus } from "src/hooks/useUpdateResumeStatus";
 import { importResumeCallbackPlus } from "src/api/jobList/JobListApi";
@@ -83,18 +77,13 @@ import { startBossResidentWatcher } from "src/util/automation/bossResidentWatche
 import { initJob51LoginWatcher } from "src/util/automation/job51LoginWatcher";
 import { initZhilianLoginWatcher } from "src/util/automation/zhilianLoginWatcher";
 import { applyChannelEnableConfig } from "src/util/applyChannelEnable";
+import {
+  isSameClientChannelConfig,
+  normalizeClientChannelConfig
+} from "src/util/clientChannelAvailability";
 import notify from "src/util/notify";
 const store = useStore();
 const router = useRouter();
-
-/**
- * 渠道设置弹框保存：与 AISearch.saveChannelEnable 同一套副作用 ——
- * commit setUserChannelConfig + 起停各渠道登录监视 + 停掉被禁用渠道进行中的任务。
- * （之前 MainLayout 这个弹框没接 @save-channel-config，导致在这里禁用渠道不停止进行中任务。）
- */
-const onSaveChannelConfig = (configData) => {
-  applyChannelEnableConfig(store, configData);
-};
 
 // 客户端模式：mount 时静默拉一次 BOSS 我的职位列表 + 监听 BOSS 登录成功后自动重拉
 // （隐藏 BrowserWindow + CDP，用户不可见；详见 src/util/automation/bossJobListAutoFetch.js）
@@ -262,9 +251,6 @@ provide("visibleThirdSwitchPlus", visibleThirdSwitchPlus);
 // Electron 客户端模式下显示 mini header（PlanA 隐藏了原 q-header，需要这个补回品牌曝光）
 const showClientHeader = computed(() => isElectronClient());
 
-// 渠道设置弹窗可见性（ClientHeader 齿轮按钮触发）
-const channelSettingsVisible = ref(false);
-
 // 获取ihr成功的简历ids
 iframeMsg.on("ihrSuccessIds", async (data, context) => {
   if (context.from !== "ihr-recruit-assistant") return;
@@ -411,6 +397,14 @@ onMounted(() => {
       }`
   );
   if (inClient) {
+    // 当前桌面端只开放 BOSS：首次进入默认启用 BOSS；暂时隐藏的渠道统一禁用，
+    // 避免它们虽然不显示，仍在后台参与登录检测或创建搜索任务。
+    const currentChannelConfig = store.getters.getUserChannelConfig || [];
+    const normalizedChannelConfig = normalizeClientChannelConfig(currentChannelConfig);
+    if (!isSameClientChannelConfig(currentChannelConfig, normalizedChannelConfig)) {
+      applyChannelEnableConfig(store, normalizedChannelConfig);
+    }
+
     // ★ 已经能进到主页（MainLayout）→ 若 accessToken 有效，关掉可能残留的 i 人事授权弹框
     //   解决"client-launcher 打开后偶发授权弹框不关闭"：之前某次后台 ihrBridge 调用返回
     //   NOT_LOGGED_IN 把弹框设 true，但进主页后没人关它。

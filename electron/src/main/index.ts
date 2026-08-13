@@ -40,6 +40,12 @@ import {
   stopBossLoginWatcher,
   setHomeWebContentsForBossWatcher
 } from './bossLoginWatcher'
+import {
+  applyPendingHomePartitionRecovery,
+  disposeClientRecoveryMonitor,
+  monitorHomeWebContents,
+  registerClientRecoveryIpc
+} from './clientRecovery'
 
 /**
  * ⚠️⚠️⚠️ 不要开 `--remote-debugging-port`！
@@ -512,6 +518,7 @@ function createMainWindow(): BrowserWindow {
   })
 
   mainWindow.on('closed', () => {
+    disposeClientRecoveryMonitor()
     tabManager.destroyAll()
     mainWindow = null
   })
@@ -548,6 +555,10 @@ function createMainWindow(): BrowserWindow {
       setHomeWebContentsForBridge(homeWc)
       setHomeWebContentsForProbe(homeWc)
       setHomeWebContentsForBossWatcher(homeWc)
+      const recoveryWindow = mainWindow
+      if (recoveryWindow && !recoveryWindow.isDestroyed()) {
+        monitorHomeWebContents(recoveryWindow, homeWc)
+      }
     }
 
     // 主窗口创建之后再做 hydrate（让主页 SPA 先正常加载）
@@ -590,6 +601,7 @@ function createMainWindow(): BrowserWindow {
 // =============== IPC handlers ===============
 
 function registerIpc(): void {
+  registerClientRecoveryIpc()
   ipcMain.on('ping', () => console.log('pong'))
 
   /**
@@ -627,11 +639,22 @@ function registerIpc(): void {
 
   ipcMain.handle('tabs:list', () => tabManager.getTabs())
 
-  ipcMain.handle('tabs:create', (_e, opts: { url: string; channel?: string; title?: string }) => {
-    if (!opts || typeof opts.url !== 'string') return null
-    const channel = opts.channel ?? pickChannelForUrl(opts.url) ?? 'unknown'
-    return tabManager.openOrActivateSiteTab(channel, opts.url)
-  })
+  ipcMain.handle(
+    'tabs:create',
+    (
+      _e,
+      opts: {
+        url: string
+        channel?: string
+        title?: string
+        bossMode?: 'main' | 'detail'
+      }
+    ) => {
+      if (!opts || typeof opts.url !== 'string') return null
+      const channel = opts.channel ?? pickChannelForUrl(opts.url) ?? 'unknown'
+      return tabManager.openOrActivateSiteTab(channel, opts.url, { bossMode: opts.bossMode })
+    }
+  )
 
   ipcMain.handle('tabs:activate', (_e, id: string) => {
     if (typeof id !== 'string') return false
@@ -766,7 +789,14 @@ function registerIpc(): void {
     'automation:clickOnTab',
     async (
       _e,
-      opts: { tabId: string; selector: string; pressHoldMs?: number; requireVisible?: boolean }
+      opts: {
+        tabId: string
+        selector: string
+        pressHoldMs?: number
+        requireVisible?: boolean
+        hoverSelector?: string
+        hoverWaitMs?: number
+      }
     ) => {
       if (!opts || typeof opts.tabId !== 'string' || typeof opts.selector !== 'string') {
         return { ok: false, error: { code: 'BAD_REQUEST', message: 'tabId & selector required' } }
@@ -788,7 +818,9 @@ function registerIpc(): void {
       const wasFocusedBeforeClick = guardWin ? guardWin.isFocused() : false
       const clickResult = await cdpDispatchClick(wc, opts.selector, {
         pressHoldMs: opts.pressHoldMs,
-        requireVisible: opts.requireVisible
+        requireVisible: opts.requireVisible,
+        hoverSelector: opts.hoverSelector,
+        hoverWaitMs: opts.hoverWaitMs
       })
       if (guardWin && !wasFocusedBeforeClick) {
         const restoreIfStolen = (): void => {
@@ -893,6 +925,16 @@ function setupApplicationMenu(displayName: string): void {
 }
 
 app.whenReady().then(() => {
+  // 用户确认二级修复后，必须在创建 persist:ihr360-main session 之前备份旧分区。
+  // BOSS 等招聘渠道分区与 launcher-data.json 都不在该目录内，不受影响。
+  const recoveryResult = applyPendingHomePartitionRecovery()
+  if (recoveryResult) {
+    console.log(
+      `[main] pending home partition recovery applied ok=${recoveryResult.ok}` +
+        ` backup=${recoveryResult.backupPath || 'none'}`
+    )
+  }
+
   electronApp.setAppUserModelId('com.ihire365.ikuaizhao')
 
   // 应用展示名：生产取 app.getName()（= electron-builder.yml 的 productName，i快招 / i快招 QA2）；

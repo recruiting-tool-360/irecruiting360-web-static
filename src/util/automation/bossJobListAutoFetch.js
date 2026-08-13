@@ -22,6 +22,50 @@ const DEFAULT_STALE_MS = 5 * 60 * 1000
 /** in-flight Promise，防止并发抓取 */
 let inflight = null
 
+/**
+ * 输出 BOSS「我的职位」原始数据和下拉过滤结果，便于排查 BOSS 页面职位数与
+ * i快招「推荐牛人」职位下拉数量不一致的问题。
+ *
+ * 当前下拉唯一的职位状态过滤条件是：Number(jobStatus) === 0。
+ * 这里和 AIProfileActionPanel 的过滤口径保持一致，只做日志，不修改数据。
+ */
+function logBossJobListSnapshot(jobList, meta = {}) {
+  const rows = Array.isArray(jobList) ? jobList : []
+  const details = rows.map((job, index) => {
+    const displayed = Number(job?.jobStatus) === 0
+    return {
+      序号: index + 1,
+      职位名称: job?.jobName || job?.positionName || '未命名职位',
+      是否展示: displayed ? '是' : '否',
+      过滤原因: displayed ? '' : `jobStatus=${String(job?.jobStatus)}（仅展示 0）`,
+      jobStatus: job?.jobStatus,
+      jobAuditStatus: job?.jobAuditStatus,
+      showType: job?.showType,
+      deleted: job?.deleted,
+      encryptJobId: job?.encryptJobId || job?.encryptId || '',
+      jobId: job?.jobId || '',
+      城市: job?.cityName || job?.city || job?.locationName || '',
+      薪资: job?.salaryDesc || ''
+    }
+  })
+  const displayedCount = details.filter((item) => item.是否展示 === '是').length
+
+  console.groupCollapsed(
+    `[bossJobListAutoFetch] BOSS职位明细 source=${meta.source || 'unknown'} ` +
+      `接口总数=${meta.totalSize ?? rows.length} 当前返回=${rows.length} ` +
+      `下拉展示=${displayedCount} 过滤=${rows.length - displayedCount}`
+  )
+  console.log('[bossJobListAutoFetch] 接口分页信息', {
+    page: meta.page,
+    pageSize: meta.pageSize,
+    totalSize: meta.totalSize ?? rows.length,
+    hasMore: meta.hasMore
+  })
+  console.table(details)
+  console.log('[bossJobListAutoFetch] BOSS职位原始数据', rows)
+  console.groupEnd()
+}
+
 /** 检查 BOSS 是否在用户的「渠道设置」中启用（与 ClientHeader / LoginRequiredPanel 同口径） */
 function isBossEnabled(store) {
   const list = store.getters.getUserChannelConfig
@@ -69,13 +113,18 @@ export async function ensureBossJobList(store, opts = {}) {
   const lastAt = Number(store.state.BossData?.lastFetchedAt) || 0
   if (!opts.force && lastAt && Date.now() - lastAt < staleMs) {
     const ageSec = Math.round((Date.now() - lastAt) / 1000)
+    const cachedJobList = store.getters.getBossJobList
     console.log(
       `[bossJobListAutoFetch] ${reasonTag}skipped: fresh (cached ${ageSec}s ago, staleMs=${staleMs})`
     )
+    logBossJobListSnapshot(cachedJobList, {
+      source: `cache_${ageSec}s`,
+      totalSize: store.state.BossData?.totalSize
+    })
     return {
       ok: true,
       skipped: 'fresh',
-      jobList: store.getters.getBossJobList
+      jobList: cachedJobList
     }
   }
 
@@ -118,6 +167,13 @@ export async function ensureBossJobList(store, opts = {}) {
       console.log(
         `[bossJobListAutoFetch] ok rows=${data.length} totalSize=${totalSize} duration=${res.durationMs}ms`
       )
+      logBossJobListSnapshot(data, {
+        source: 'boss_api',
+        page: res.zpData?.page,
+        pageSize: res.zpData?.pageSize,
+        totalSize,
+        hasMore: res.zpData?.hasMore
+      })
       return { ok: true, jobList: data }
     } finally {
       store.commit('setBossJobListFetching', false)

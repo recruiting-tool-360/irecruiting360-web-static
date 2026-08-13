@@ -473,9 +473,8 @@ export async function verifyBossRecommend(args) {
  *      → 随机 5-15s dwell
  *      此分支 sinceTs 取 loadUrl 完成之后的 Date.now()。
  *   4. fetchBossRecommendList 抓首屏（仍是被动监听）
- *   5. **humanizeBrowseGeeks**：在首屏 geek 上随机挑 0-3 个 click（点开 → 15-60s dwell → 关闭弹框）
- *      + 4-10 个 browse（滚到目标位置 + 1.5-4.5s dwell），全程 safe scroll + 选择性 CDP click。
- *      详见 src/util/automation/bossHumanizeBrowse.js 顶部 CONFIG。
+ *   5. 对推荐候选人逐个执行：滚到卡片 → CDP 点击详情 → CDP 点击收藏 → 校验「已收藏」→ 关闭详情。
+ *      只有本次新收藏成功的候选人才计入 targetCount；当前页不足时继续滚动加载下一页。
  *
  * @param {object} args
  * @param {string} args.encryptJobId
@@ -491,27 +490,24 @@ export async function verifyBossRecommend(args) {
  *     - ('select.done')
  *     - ('dwell',           { ms })                ← autoSelectJob=false 才有
  *     - ('firstPage',       { geekList, totalSize, hasMore, source })
- *     - ('humanize.plan',       { plan, clickCount, browseCount })   ← humanizeBrowseGeeks 阶段
- *     - ('humanize.itemStart',  { geekId, action, index, total })
- *     - ('humanize.itemDone',   { geekId, action, index, total })
- *     - ('humanize.itemError',  { geekId, action, error })
- *     - ('humanize.done',       { executed, errors })
- *     - ('humanized',           humanize)                            ← 完成时给一条兼容旧调用方
+ *     - ('collect.itemStart',  { geekId, index, total })
+ *     - ('collect.itemDone',   { geekId, status, index, total })
+ *     - ('collect.itemError',  { geekId, error, index, total })
+ *     - ('collect.done',       { attempted, collected, alreadyCollected, errors })
+ *     - ('collected',          collectionAggregate)
  * @param {[number, number]} [args.firstDwellMs]  仅 autoSelectJob=false 时生效，dwell 范围 [min, max]
  * @param {boolean} [args.autoSelectJob=true]     是否主动 CDP 点选职位（推荐路径，确保 BOSS UI 切到目标职位）
  * @param {object} [args.selectJobOpts]           透传给 selectJobInBossRecommend 的 opts
  *                                                （initialDelayMs / dropdownDwellMs / selectSettleMs 等）
- * @param {object} [args.humanizeOpts]   传给 humanizeBrowseGeeks 的额外参数：
- *                                       - config: 部分覆盖 HUMANIZE_BROWSE_CONFIG
- *                                         （CLICK_COUNT_RANGE / BROWSE_COUNT_RANGE / 各 DWELL 范围 / SELECTOR 等）
+ * @param {object} [args.humanizeOpts]   兼容旧调用参数；其中 config 继续用于分页滚动配置。
  * @returns {Promise<{
  *   ok: boolean,
  *   tabId?: string,
  *   url?: string,
  *   select?: object,           // autoSelectJob=true 才有，selectJobInBossRecommend 的返回
  *   firstPage?: object,
- *   humanize?: object,
- *   geekList: Array,           // 首页 + humanize accumulated 的去重合并
+ *   collection?: object,
+ *   geekList: Array,           // 本次页面 RPA 新收藏成功的候选人
  *   errorCode?: string,
  *   message?: string
  * }>}
@@ -524,8 +520,7 @@ export async function runBossRecommend(args) {
     humanizeOpts = {},
     /**
      * 推荐渠道的 taskChannelId。传了就先拉「该渠道已保存简历 outId(=geekId)」集合，
-     * 用于把**已入库**的牛人从目标条数里排除（不计入、不 humanize、只滚过），
-     * 直到累计「未入库新人」达到 targetCount 或 BOSS 推荐列表没有更多数据。
+     * 用于把**已入库**的牛人从候选池中排除，不再重复打开详情或收藏。
      */
     recommendTaskChannelId,
     /**
@@ -552,69 +547,29 @@ export async function runBossRecommend(args) {
      * 调试用：在某一阶段提前退出
      *   - 'open'      → 只打开 tab + select/dwell，不跑任何抓数据脚本
      *   - 'verify'    → 打开 tab + select/dwell + 跑 verify 脚本（验证职位选中 + 列表可见）
-     *   - 'firstPage' → 上面所有 + fetch 首屏（不 humanize）
+     *   - 'firstPage' → 上面所有 + fetch 首屏（不执行收藏）
      *   - undefined / 其它 → 完整流程
      */
     stopAfter,
     /**
      * ★ 本次推荐运行所属的 taskId（由 doFetchRecommend 在流程**开始时**捕获并传入）。
      *   用户停止当前任务后又立刻开新任务时，"最新任务"已变成新任务（RUNNING），
-     *   若 isUserAborted 仍按 getLatestTaskByChat 判定，旧的在途 humanize 循环会读到
-     *   新任务状态（未停）→ 永不 break → 拟人化脚本继续跑 + 旧缓存数据被上传（串台 bug）。
+     *   若 isUserAborted 仍按 getLatestTaskByChat 判定，旧的在途收藏循环会读到
+     *   新任务状态（未停）→ 永不 break → 旧任务继续收藏并上传（串台 bug）。
      *   传入本运行**自己**的 taskId，isUserAborted 只认这个 id 的停止标记，互不影响。
      */
     abortTaskId
   } = args || {};
 
-  // 1) 主动 select 分支需要在 open 之前做三件事：
-  //    a. **关掉已存在的、URL 跟 target 一致的 BOSS tab** —— 强制 openBossRecommend 走
-  //       新建 tab 路径，避免 openOrActivate reuse 已存在 tab 时**不触发 navigation**导致
-  //       BOSS 不重发 /rec/geek/list 的 edge case（详见 alreadySelected 注释）
-  //    b. clearCache('boss') —— 清旧响应防 sinceTs 过滤后还混入历史数据
-  //    c. 记 openStartTs —— 给「alreadySelected」短路 case 用作 sinceTs
+  // 1) 主动 select 分支需要在 open 之前做两件事：
+  //    a. clearCache('boss') —— 清旧响应防 sinceTs 过滤后还混入历史数据
+  //    b. 记 openStartTs —— 给「alreadySelected」短路 case 用作 sinceTs
   //    （被动 dwell 分支不需要，它在 else 里自己 clearCache + loadUrl 强制 navigation）
+  // BOSS 主签现在永久固定不可关闭；openBossSingleton 每次都会 loadURL，仍能确保重新导航。
+  // 候选人详情签属于用户浏览上下文，启动推荐任务时必须保留，不能批量关闭。
   let openStartTs = 0;
   if (autoSelectJob) {
-    // a. 关掉匹配 target 的旧 BOSS tab
-    //
-    // 判断条件：channel === 'boss' AND url 包含 `jobid=<encryptJobId>`。
-    // 用 substring 匹配比精确匹配宽松，能容忍 BOSS URL 上其它 query 参数 / hash 不一致。
-    // 不动其它 BOSS tab（用户可能手动开了别的职位的推荐页，不能误关）。
-    try {
-      if (typeof window?.api?.tabs?.list === "function") {
-        const allTabs = await window.api.tabs.list();
-        // ★ 用户要求：启动 BOSS 推荐任务前，**所有** BOSS 相关 tab 都关掉（不论 URL 是否匹配 target）。
-        // 业务侧考虑：自动化期间多个 BOSS tab 同时存在容易让用户误以为有多个任务在跑，
-        // siteNetworkCapture 也可能抓到非目标 tab 的响应（虽然有 sinceTs 兜底）。
-        const matching = (Array.isArray(allTabs) ? allTabs : []).filter(
-          (t) => t && t.channel === "boss"
-        );
-        if (matching.length > 0) {
-          console.log(
-            `[bossRecommend] 检测到 ${matching.length} 个已存在 BOSS tab，全部 close 后重开` +
-              ` (tabIds=${matching.map((t) => t.id).join(",")})`
-          );
-          for (const t of matching) {
-            try {
-              // 先解锁（防止上次任务异常 leave 了 locked=true 的 tab，否则 close 被拒绝）
-              if (t.locked && typeof window?.api?.tabs?.setLocked === "function") {
-                await window.api.tabs.setLocked({ id: t.id, locked: false });
-              }
-              await window.api.tabs.close(t.id);
-              console.log(`[bossRecommend] tabs.close(${t.id}) ok url=${t.url}`);
-            } catch (e) {
-              console.warn(`[bossRecommend] tabs.close(${t.id}) 失败（忽略）：`, e?.message || e);
-            }
-          }
-        } else {
-          console.log("[bossRecommend] 无 BOSS tab，无需 close");
-        }
-      }
-    } catch (e) {
-      console.warn("[bossRecommend] tabs.list 失败（忽略，继续开 tab）：", e?.message || e);
-    }
-
-    // b. 清缓存
+    // a. 清缓存
     try {
       if (typeof window?.api?.siteNetwork?.clearCache === "function") {
         await window.api.siteNetwork.clearCache("boss");
@@ -624,7 +579,7 @@ export async function runBossRecommend(args) {
       console.warn("[bossRecommend] clearCache 失败（忽略）：", e?.message || e);
     }
 
-    // c. 记 openStartTs（必须在 openBossRecommend 之前，确保 BOSS 自动发的首屏响应
+    // b. 记 openStartTs（必须在 openBossRecommend 之前，确保 BOSS 自动发的首屏响应
     //    receivedAt > openStartTs，能被 waitForResponse 命中）
     openStartTs = Date.now();
     console.log(
@@ -642,7 +597,7 @@ export async function runBossRecommend(args) {
   // ★ 立刻锁住这个 BOSS tab：用户不能手动 X 关掉（防止自动化跑中被误关导致中断）。
   // 记到模块级变量，由上层（IndexPage.doFetchRecommend 的 finally / stopForChat）
   // 通过 unlockRecommendTab() 解锁，覆盖所有正常/异常退出路径。
-  // 上一次任务异常 leave 的锁先解掉再设新的（理论上调用前已 close 所有 BOSS tab，但保险）
+  // 上一次任务异常遗留的锁先解掉再设新的，避免旧任务状态影响当前主签。
   if (__lockedRecommendTabId && __lockedRecommendTabId !== opened.tabId) {
     await unlockRecommendTab();
   }
@@ -895,7 +850,8 @@ export async function runBossRecommend(args) {
 
   const firstList = (first.data && first.data.geekList) || [];
   const seen = new Set(); // 全局 session 去重：encryptGeekId||geekId（含已保存被跳过的）
-  const merged = []; // 只放「未入库的新人」（计入 targetCount + 进 humanize）
+  const discovered = []; // 已发现且未入库、等待页面收藏的候选人
+  const collectedGeeks = []; // 只有本次从「收藏」变为「已收藏」的候选人才进入结果
   let skippedSavedCount = 0; // 累计被「已保存」过滤掉的人数（仅日志）
 
   const firstConsume = mergeNewGeeks(firstList);
@@ -904,46 +860,42 @@ export async function runBossRecommend(args) {
   let lastHasMore = !!(first.data && first.data.hasMore);
   console.log(
     `[bossRecommend] 首屏 geek=${firstList.length} 新人(未入库)=${firstConsume.mergedAdded} ` +
-      `已保存跳过=${skippedSavedCount} accumulated=${merged.length}/${targetCount} hasMore=${lastHasMore}`
+      `已保存跳过=${skippedSavedCount} discovered=${discovered.length} ` +
+      `collected=${collectedGeeks.length}/${targetCount} hasMore=${lastHasMore}`
   );
 
-  // ⚠️ 注意：这里**不再**有 "firstPage 已够 → 跳过 humanize" 的早返回。
-  // 原因：用户明确要求"拟人化操作"是流程的一部分（防风控关键），即使首屏已经够数也
-  // 要走一轮 humanize 让 BOSS 看到自然行为节奏。下面的循环内部首轮会处理 firstPage 数据，
-  // 之后如果 merged >= targetCount 就 break，不会做多余的滚底/翻页。
-  //
-  // 如果以后想要"firstPage 够就秒回"模式，加 `args.skipHumanizeIfEnough: boolean` 配置即可。
-
-  // ============= 拟人浏览 + 分页加载循环（safe-only）=============
+  // ============= 页面收藏 + 分页加载循环（safe-only）=============
   //
   // 循环流程（每一轮 = 一个 "round"）：
-  //   ① 选当前 batch = merged 里**还没被 humanize 过**的 geek
-  //   ② humanizeBrowseGeeks 跑一遍 batch（每个 click 15-60s，browse 1.5-4.5s）
-  //   ③ 检查 humanize 期间 BOSS 自家有没有发新 /wapi/zpjob/rec/geek/list
-  //      （humanize 的 smooth scroll 可能触发了 BOSS lazy load）
-  //      → 有：新 geek 进 merged，进入下一轮（下轮 batch = 这些新 geek）
+  //   ① 选当前 batch = discovered 里还没尝试收藏的 geek
+  //   ② 逐个打开详情并点击收藏，只有状态变成「已收藏」才计数
+  //   ③ 检查操作期间 BOSS 自家有没有发新 /wapi/zpjob/rec/geek/list
+  //      → 有：新 geek 进入 discovered，下一轮继续收藏
   //   ④ 没自动触发 → 主动调 smoothScrollToBottom 强制把容器滚到底
   //      → siteNetwork.waitForResponse 等下一页 /rec/geek/list（8s 超时）
-  //      → 有响应：新 geek 进 merged，进入下一轮
+  //      → 有响应：新 geek 进入 discovered，进入下一轮
   //      → 超时：真没数据了（BOSS 推荐池见底），结束循环
-  //   ⑤ accumulated >= targetCount → 结束（拿够了）
-  //   ⑥ 安全护栏：最多 MAX_HUMANIZE_ROUNDS 轮（防死循环）
+  //   ⑤ collectedGeeks.length >= targetCount → 结束
+  //   ⑥ 安全护栏：最多 MAX_COLLECTION_ROUNDS 轮（防死循环）
   //
   // 设计要点：
-  //   - `processedGeekIds` Set 标记"已 humanize 过"，避免反复看同一个 geek
-  //   - `seen` Set 全局 dedup encryptGeekId（first page → humanize → 多轮分页都不重复）
-  //   - 每轮 humanize 一开始记 humanizeStartTs，后续 listCache 用它过滤"本轮期间新到的响应"
-  //   - 触发性 lazy load（humanize 内 scroll 引起）+ 强制性滚到底两种触发方式
+  //   - `processedGeekIds` Set 标记已尝试收藏的候选人，避免重复点击
+  //   - `seen` Set 全局去重 encryptGeekId
+  //   - 每轮记录 collectionStartTs，后续 listCache 只读取本轮期间的新响应
+  //   - 操作触发的 lazy load + 强制滚到底两种触发方式
   //     都通过 BOSS 自家 SPA 发请求，不是我们 fetch，安全
-  let humanizeError = null;
-  const humanizePerRoundResults = [];
+  let collectionError = null;
+  const collectionPerRoundResults = [];
   const processedGeekIds = new Set();
-  // 去重已保存后，可能需要多翻几页才凑够 targetCount（纯重复页很快，不 humanize）
-  const MAX_HUMANIZE_ROUNDS = 20;
+  // 已收藏、已入库或收藏失败均不计数，可能需要多翻几页才能凑够 targetCount。
+  const MAX_COLLECTION_ROUNDS = 20;
   let rounds = 0;
 
-  const { humanizeBrowseGeeks, smoothScrollToBottom } = await safeImport(() =>
+  const { smoothScrollToBottom } = await safeImport(() =>
     import("src/util/automation/bossHumanizeBrowse")
+  );
+  const { collectBossRecommendGeeks } = await safeImport(() =>
+    import("src/util/automation/bossRecommendCollect")
   );
 
   // helper：geek 用于跟「已保存 outId(geekId)」匹配的候选 ID（容错多字段）
@@ -964,11 +916,11 @@ export async function runBossRecommend(args) {
     return geekCandidateIds(g).some((id) => savedOutIdSet.has(id));
   }
 
-  // helper：把 BOSS rec/geek/list 响应里的 geek 合进 merged（去重 + 过滤已保存）。
+  // helper：把 BOSS rec/geek/list 响应里的 geek 合进 discovered（去重 + 过滤已保存）。
   //   返回 { sessionNew, mergedAdded }：
   //     - sessionNew  = 本次「之前没见过」的 geek 数（含已保存被跳过的）→ 用来判断 BOSS 是否真返回了新内容
-  //     - mergedAdded = 真正进 merged 的「未入库新人」数 → 计入 targetCount
-  //   已保存的人：只 markSeen（避免重复处理）+ 计 skippedSavedCount，不进 merged（不计目标、不 humanize、只滚过）。
+  //     - mergedAdded = 真正进入待收藏候选池的人数
+  //   已保存的人：只 markSeen + 计 skippedSavedCount，不进入待收藏候选池。
   function mergeNewGeeks(geeks) {
     let sessionNew = 0;
     let mergedAdded = 0;
@@ -985,14 +937,14 @@ export async function runBossRecommend(args) {
         );
         continue;
       }
-      merged.push(g);
+      discovered.push(g);
       mergedAdded++;
     }
     return { sessionNew, mergedAdded };
   }
 
   // helper：扫 siteNetwork 缓存里 BOSS 在 sinceTs 之后发的 /rec/geek/list 响应，
-  // 提取所有 geek。这是"humanize 期间是否触发了 lazy load"的判定依据。
+  // 提取所有 geek。这是收藏操作期间是否触发 lazy load 的判定依据。
   async function collectLazyLoadedGeeksSince(sinceTs) {
     try {
       const cache = await window.api.siteNetwork.listCache("boss");
@@ -1019,7 +971,7 @@ export async function runBossRecommend(args) {
     }
   }
 
-  // 用户主动停止 abort check：每轮 humanize 顶部检查当前 chat 的 task 是否被用户标 STOPPED。
+  // 用户主动停止 abort check：每轮收藏前检查当前 chat 的 task 是否被用户标 STOPPED。
   // 来源：SearchTasks/stopForChat action 会 commit markTaskUserStopped → state.userStoppedTaskIds
   // 同时也会改 task.taskStatus=STOPPED，所以两个信号都可以判定。
   // 动态 import store 避免顶层循环依赖。
@@ -1050,85 +1002,124 @@ export async function runBossRecommend(args) {
     }
   }
 
-  while (rounds < MAX_HUMANIZE_ROUNDS) {
+  while (rounds < MAX_COLLECTION_ROUNDS) {
     rounds++;
 
-    // ★ 每轮先 check 用户是否主动停止；停了就立刻 break，把已有的 merged 数据带回去
+    // ★ 每轮先 check 用户是否主动停止；停了就立刻 break，不再产生新的页面收藏。
     if (await isUserAborted()) {
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] 用户主动停止任务，立即 break 循环（已累计 ${merged.length} 条）`
+        `[bossRecommend][collect][round ${rounds}] 用户主动停止任务，立即 break ` +
+          `（已新收藏 ${collectedGeeks.length}/${targetCount}）`
       );
-      humanizeError = { code: "USER_STOPPED", message: "用户主动停止任务" };
+      collectionError = { code: "USER_STOPPED", message: "用户主动停止任务" };
       break;
     }
 
-    // ① 选当前 batch（只对「未入库新人」做 humanize；已保存的不在 merged 里，自然不会被 humanize）
-    const batchGeekIds = merged
-      .map((g) => String(g.encryptGeekId || g.geekId || ""))
-      .filter((id) => id && !processedGeekIds.has(id));
+    // ① 选当前 batch：只处理未入库、且本轮还没尝试过收藏的候选人。
+    const batchGeeks = discovered.filter((g) => {
+      const id = String(g.encryptGeekId || g.geekId || "");
+      return id && !processedGeekIds.has(id);
+    });
 
-    // ② 跑 humanize（记录开始时间用于过滤本轮 lazy load 响应）。
-    //   ★ batch 为空（典型：当前页全是已保存的人）→ **不结束**，跳过点击/停留，直接走滚动加载更多，
-    //     直到滚到未入库的新人或 BOSS 没有更多数据为止（用户要求：重复的只滚动，不点击/等待）。
-    const humanizeStartTs = Date.now();
-    if (batchGeekIds.length === 0) {
+    // ② 逐个打开详情并点击收藏。记录开始时间，用于判断操作过程中是否触发了 lazy load。
+    const collectionStartTs = Date.now();
+    if (batchGeeks.length === 0) {
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] 无未处理新人 batch（当前页可能全是已保存），` +
-          `跳过 humanize，直接滚动加载更多 accumulated=${merged.length}/${targetCount}`
+        `[bossRecommend][collect][round ${rounds}] 无待收藏候选人，` +
+          `准备加载更多 collected=${collectedGeeks.length}/${targetCount}`
       );
     } else {
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] batch=${batchGeekIds.length} ` +
-          `accumulated=${merged.length}/${targetCount}`
+        `[bossRecommend][collect][round ${rounds}] batch=${batchGeeks.length} ` +
+          `collected=${collectedGeeks.length}/${targetCount}`
       );
       try {
-        const hRes = await humanizeBrowseGeeks(first.tabId, batchGeekIds, {
-          config: humanizeOpts?.config || undefined,
-          // ★ 把"用户是否停了本任务"作为取消回调传进去：humanizeBrowseGeeks 每处理一个 geek
-          //   前都会 check，一旦命中立即中断本批拟人化（scroll/click/dwell），不再继续跑脚本。
-          //   修复"用户手动停止后推荐 tab 仍在跑拟人化脚本"。
+        const collectRes = await collectBossRecommendGeeks(first.tabId, batchGeeks, {
+          targetCount: Math.max(0, targetCount - collectedGeeks.length),
           shouldAbort: isUserAborted,
           onProgress: (stage, payload) => {
             if (typeof onProgress === "function") {
-              onProgress(`humanize.${stage}`, { ...payload, round: rounds });
+              onProgress(`collect.${stage}`, { ...payload, round: rounds });
             }
           }
         });
-        humanizePerRoundResults.push(hRes);
-        batchGeekIds.forEach((id) => processedGeekIds.add(id));
+        collectionPerRoundResults.push(collectRes);
+        for (const id of collectRes?.attemptedGeekIds || []) processedGeekIds.add(String(id));
 
-        // humanizeBrowseGeeks 内部因停止而中断 → 立刻 break 外层循环，带回已有数据
-        if (hRes?.aborted) {
-          console.log(
-            `[bossRecommend][humanize][round ${rounds}] humanizeBrowseGeeks 因用户停止中断，break 循环`
+        // 只把本次页面状态从「收藏」变成「已收藏」的候选人加入最终结果。
+        for (const collectedId of collectRes?.collectedGeekIds || []) {
+          const normalized = String(collectedId).replace(/~+$/, "");
+          const geek = discovered.find((item) =>
+            geekCandidateIds(item).some(
+              (id) => String(id).replace(/~+$/, "") === normalized
+            )
           );
-          humanizeError = { code: "USER_STOPPED", message: "用户主动停止任务" };
+          if (!geek) continue;
+          const alreadyAdded = collectedGeeks.some((item) =>
+            geekCandidateIds(item).some(
+              (id) => String(id).replace(/~+$/, "") === normalized
+            )
+          );
+          if (!alreadyAdded) collectedGeeks.push(geek);
+        }
+
+        // 先处理明确业务错误；权益不足也会中断当前批次，但不能被当成 USER_STOPPED。
+        if (!collectRes?.ok) {
+          collectionError = {
+            code: collectRes?.errorCode || "UNKNOWN",
+            message: collectRes?.message || ""
+          };
+          console.warn(
+            `[bossRecommend][collect][round ${rounds}] collectBossRecommendGeeks failed:`,
+            collectionError
+          );
           break;
         }
 
-        if (!hRes?.ok) {
-          humanizeError = { code: hRes?.errorCode || "UNKNOWN", message: hRes?.message || "" };
-          console.warn(
-            `[bossRecommend][humanize][round ${rounds}] humanizeBrowseGeeks failed:`,
-            humanizeError
+        if (collectRes?.aborted) {
+          console.log(
+            `[bossRecommend][collect][round ${rounds}] 收藏批次因用户停止中断`
           );
+          collectionError = { code: "USER_STOPPED", message: "用户主动停止任务" };
           break;
         }
         console.log(
-          `[bossRecommend][humanize][round ${rounds}] humanize ok: plan=${hRes.plan.length} ` +
-            `executed=${hRes.executed.length} errors=${hRes.errors.length}`
+          `[bossRecommend][collect][round ${rounds}] batch done: ` +
+            `attempted=${collectRes.attemptedGeekIds?.length || 0} ` +
+            `newCollected=${collectRes.collectedGeekIds?.length || 0} ` +
+            `alreadyCollected=${collectRes.alreadyCollectedGeekIds?.length || 0} ` +
+            `errors=${collectRes.errors?.length || 0} ` +
+            `total=${collectedGeeks.length}/${targetCount}`
         );
       } catch (e) {
-        humanizeError = { code: "EXCEPTION", message: e?.message || String(e) };
-        console.warn(`[bossRecommend][humanize][round ${rounds}] humanize 异常:`, humanizeError);
+        collectionError = { code: "EXCEPTION", message: e?.message || String(e) };
+        console.warn(
+          `[bossRecommend][collect][round ${rounds}] 收藏批次异常:`,
+          collectionError
+        );
         break;
       }
     }
 
-    // ③ 检查 humanize 期间 BOSS 自家有没有 lazy load
-    const lazyAutoLoad = await collectLazyLoadedGeeksSince(humanizeStartTs);
+    if (collectedGeeks.length >= targetCount) {
+      console.log(
+        `[bossRecommend][collect][round ${rounds}] 新收藏成功数达到 targetCount=${targetCount}`
+      );
+      break;
+    }
+
+    if (lastHasMore === false) {
+      console.log(
+        `[bossRecommend][collect][round ${rounds}] BOSS hasMore=false，` +
+          `候选池见底（新收藏 ${collectedGeeks.length}/${targetCount}）`
+      );
+      break;
+    }
+
+    // ③ 检查收藏期间 BOSS 自家有没有 lazy load
+    const lazyAutoLoad = await collectLazyLoadedGeeksSince(collectionStartTs);
     console.log(
-      `[bossRecommend][humanize][round ${rounds}] humanize 期间 BOSS 自动发了 ` +
+      `[bossRecommend][collect][round ${rounds}] 收藏期间 BOSS 自动发了 ` +
         `${lazyAutoLoad.responses} 条 /rec/geek/list，含 ${lazyAutoLoad.geeks.length} 个 geek`
     );
 
@@ -1142,13 +1133,13 @@ export async function runBossRecommend(args) {
       // 强制滚底 + 等响应最多 12s，是个耗时段；进入前再 check 一次停止，避免停止后还白等一轮
       if (await isUserAborted()) {
         console.log(
-          `[bossRecommend][humanize][round ${rounds}] 强制滚底前检测到用户停止，立即 break`
+          `[bossRecommend][collect][round ${rounds}] 强制滚底前检测到用户停止，立即 break`
         );
-        humanizeError = { code: "USER_STOPPED", message: "用户主动停止任务" };
+        collectionError = { code: "USER_STOPPED", message: "用户主动停止任务" };
         break;
       }
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] 未自动触发 lazy load，主动 smoothScrollToBottom（多管齐下：主frame+iframe多容器+sentinel scrollIntoView）`
+        `[bossRecommend][collect][round ${rounds}] 未自动触发 lazy load，主动 smoothScrollToBottom`
       );
       const forceTs = Date.now();
       try {
@@ -1158,7 +1149,7 @@ export async function runBossRecommend(args) {
         // smoothScrollToBottom 内部已经打了详细 attempts 日志（每个容器的 scrolled / scrollHeight / clientHeight）
       } catch (e) {
         console.warn(
-          `[bossRecommend][humanize][round ${rounds}] smoothScrollToBottom 失败:`,
+          `[bossRecommend][collect][round ${rounds}] smoothScrollToBottom 失败:`,
           e?.message || e
         );
         break;
@@ -1172,7 +1163,7 @@ export async function runBossRecommend(args) {
       });
       if (!next?.ok) {
         console.log(
-          `[bossRecommend][humanize][round ${rounds}] 强制滚底后 12s 没等到响应（${next?.code}），结束循环（BOSS 推荐池可能见底 或 lazy load 未触发）`
+          `[bossRecommend][collect][round ${rounds}] 强制滚底后 12s 没等到响应（${next?.code}），结束循环`
         );
         break;
       }
@@ -1181,72 +1172,93 @@ export async function runBossRecommend(args) {
       if (typeof nextZp?.hasMore === "boolean") lastHasMore = nextZp.hasMore;
       if (geeks.length === 0) {
         console.log(
-          `[bossRecommend][humanize][round ${rounds}] BOSS 返回空 geekList，结束循环（无更多数据）`
+          `[bossRecommend][collect][round ${rounds}] BOSS 返回空 geekList，结束循环`
         );
         break;
       }
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] 强制滚底触发成功，BOSS 返回 ${geeks.length} 个新 geek`
+        `[bossRecommend][collect][round ${rounds}] 强制滚底触发成功，BOSS 返回 ${geeks.length} 个 geek`
       );
       newGeeksThisRound = geeks;
     }
 
-    // ⑤ 合并到 merged（过滤已保存），检查是否够了
+    // ⑤ 合并到待收藏候选池，下一轮继续逐个打开详情收藏。
     const consume = mergeNewGeeks(newGeeksThisRound);
     console.log(
-      `[bossRecommend][humanize][round ${rounds}] BOSS返回${newGeeksThisRound.length}个，` +
+      `[bossRecommend][collect][round ${rounds}] BOSS返回${newGeeksThisRound.length}个，` +
         `本轮新出现=${consume.sessionNew}（其中未入库新人=${consume.mergedAdded}、已保存跳过=${consume.sessionNew - consume.mergedAdded}），` +
-        `accumulated=${merged.length}/${targetCount} 累计已保存跳过=${skippedSavedCount} hasMore=${lastHasMore}`
+        `discovered=${discovered.length} collected=${collectedGeeks.length}/${targetCount} ` +
+        `累计已保存跳过=${skippedSavedCount} hasMore=${lastHasMore}`
     );
 
     // ★ 终止条件（严格按用户要求）：
     //   1) 未入库新人凑够 targetCount → 结束（拿够了）
     //   2) BOSS hasMore=false → 结束（接口明确没有更多数据）
     //   其它情况（哪怕本轮全是已保存/重复、sessionNew=0）只要 hasMore!==false 就继续翻页，
-    //   重复的人不计入 targetCount，靠 MAX_HUMANIZE_ROUNDS 兜底防死循环。
-    if (merged.length >= targetCount) {
-      console.log(
-        `[bossRecommend][humanize][round ${rounds}] 未入库新人已达 targetCount=${targetCount}，结束循环`
-      );
-      break;
-    }
-
+    //   重复的人不计入 targetCount，靠 MAX_COLLECTION_ROUNDS 兜底防死循环。
     if (lastHasMore === false) {
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] BOSS hasMore=false 没有更多数据，结束循环（已拿 ${merged.length}/${targetCount}）`
+        `[bossRecommend][collect][round ${rounds}] BOSS hasMore=false，没有更多数据`
       );
       break;
     }
 
     if (consume.sessionNew === 0) {
       console.log(
-        `[bossRecommend][humanize][round ${rounds}] 本轮无新出现的 geek 但 hasMore=${lastHasMore}，继续滚动翻下一页找未入库新人`
+        `[bossRecommend][collect][round ${rounds}] 本轮无新候选人但 hasMore=${lastHasMore}，继续翻页`
       );
     }
   }
 
-  if (rounds >= MAX_HUMANIZE_ROUNDS) {
+  if (rounds >= MAX_COLLECTION_ROUNDS) {
     console.warn(
-      `[bossRecommend][humanize] 达到最大轮数护栏 MAX_HUMANIZE_ROUNDS=${MAX_HUMANIZE_ROUNDS}，强制结束`
+      `[bossRecommend][collect] 达到最大轮数护栏 MAX_COLLECTION_ROUNDS=${MAX_COLLECTION_ROUNDS}，强制结束`
     );
   }
 
   console.log(
-    `[bossRecommend] humanize+pagination 整体结束 rounds=${rounds} ` +
-      `final=${merged.length}/${targetCount} 各轮 humanize=${humanizePerRoundResults
-        .map((r) => `${r.executed?.length || 0}/${r.plan?.length || 0}`)
+    `[bossRecommend] collect+pagination 整体结束 rounds=${rounds} ` +
+      `final=${collectedGeeks.length}/${targetCount} 各轮收藏=${collectionPerRoundResults
+        .map((r) => `${r.collectedGeekIds?.length || 0}/${r.attemptedGeekIds?.length || 0}`)
         .join(", ")}`
   );
 
-  // 给上层一个聚合的 humanize 结果（包含每轮明细）
-  const humanizeAggregate = {
+  const collectionAggregate = {
     rounds,
-    perRound: humanizePerRoundResults,
-    totalExecuted: humanizePerRoundResults.reduce((s, r) => s + (r.executed?.length || 0), 0),
-    totalPlan: humanizePerRoundResults.reduce((s, r) => s + (r.plan?.length || 0), 0),
-    totalErrors: humanizePerRoundResults.reduce((s, r) => s + (r.errors?.length || 0), 0)
+    perRound: collectionPerRoundResults,
+    targetCount,
+    collectedCount: collectedGeeks.length,
+    totalAttempted: collectionPerRoundResults.reduce(
+      (sum, result) => sum + (result.attemptedGeekIds?.length || 0),
+      0
+    ),
+    totalAlreadyCollected: collectionPerRoundResults.reduce(
+      (sum, result) => sum + (result.alreadyCollectedGeekIds?.length || 0),
+      0
+    ),
+    totalErrors: collectionPerRoundResults.reduce(
+      (sum, result) => sum + (result.errors?.length || 0),
+      0
+    )
   };
-  if (typeof onProgress === "function") onProgress("humanized", humanizeAggregate);
+  if (typeof onProgress === "function") onProgress("collected", collectionAggregate);
+
+  // 升级权益弹窗属于不可恢复的渠道业务限制，不能像普通单个收藏失败一样继续翻页。
+  // 将错误提升到 runBossRecommend 顶层，让 IndexPage 停止当前推荐任务。
+  if (collectionError?.code === "BOSS_ENTITLEMENT_REQUIRED") {
+    return {
+      ok: false,
+      tabId: first.tabId,
+      url: first.url,
+      select: selectResult,
+      firstPage: first.data,
+      collection: collectionAggregate,
+      collectionError,
+      geekList: collectedGeeks.slice(0, targetCount),
+      errorCode: collectionError.code,
+      message: collectionError.message || "BOSS直聘查看权益不足，推荐任务已停止"
+    };
+  }
 
   return {
     ok: true,
@@ -1254,9 +1266,9 @@ export async function runBossRecommend(args) {
     url: first.url,
     select: selectResult,
     firstPage: first.data,
-    humanize: humanizeAggregate,
-    humanizeError,
-    geekList: merged.slice(0, targetCount) // 不超过 targetCount，多余的截掉
+    collection: collectionAggregate,
+    collectionError,
+    geekList: collectedGeeks.slice(0, targetCount)
   };
 }
 

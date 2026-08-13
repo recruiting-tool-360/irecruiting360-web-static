@@ -66,7 +66,7 @@ const dialogVisible = computed({
 const defaultChannelConfig = [
   {
     key: "BOSS",
-    name: "boss直聘",
+    name: "BOSS直聘",
     enableConfig: true
   },
   // {

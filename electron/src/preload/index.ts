@@ -11,8 +11,12 @@ const recruitBridge = {
   /**
    * 打开第三方招聘站点登录窗口（独立 BrowserWindow + 独立 partition）
    */
-  openSiteWindow: (channel: string, url: string): Promise<{ success: boolean; message?: string }> =>
-    ipcRenderer.invoke('recruit:openSiteWindow', channel, url),
+  openSiteWindow: (
+    channel: string,
+    url: string,
+    opts?: { bossMode?: 'main' | 'detail' }
+  ): Promise<{ success: boolean; message?: string; tabId?: string }> =>
+    ipcRenderer.invoke('recruit:openSiteWindow', channel, url, opts),
 
   /**
    * 取出已抓到的请求/响应 header（取代 chrome.storage.local 里 storageKey 对应的 headersData）
@@ -119,6 +123,14 @@ const appWindow = {
     ipcRenderer.on('app:window-focus', handler)
     return () => ipcRenderer.removeListener('app:window-focus', handler)
   }
+}
+
+/**
+ * 主页启动健康握手。
+ * Vue 根组件真正 mounted 后调用，主进程据此取消白屏自愈计时器。
+ */
+const clientRecovery = {
+  markHomeReady: (): void => ipcRenderer.send('clientRecovery:homeReady')
 }
 
 /**
@@ -267,6 +279,8 @@ interface IhrApiResult<T = unknown> {
 export interface TabState {
   id: string
   pinned: boolean
+  role: 'home' | 'boss-main' | 'boss-detail' | 'site'
+  closable: boolean
   channel?: string
   title: string
   url: string
@@ -280,8 +294,12 @@ export interface TabState {
 
 const tabs = {
   list: (): Promise<TabState[]> => ipcRenderer.invoke('tabs:list'),
-  create: (opts: { url: string; channel?: string; title?: string }): Promise<string | null> =>
-    ipcRenderer.invoke('tabs:create', opts),
+  create: (opts: {
+    url: string
+    channel?: string
+    title?: string
+    bossMode?: 'main' | 'detail'
+  }): Promise<string | null> => ipcRenderer.invoke('tabs:create', opts),
   activate: (id: string): Promise<boolean> => ipcRenderer.invoke('tabs:activate', id),
   close: (id: string): Promise<boolean> => ipcRenderer.invoke('tabs:close', id),
   /**
@@ -477,6 +495,10 @@ const automation = {
     pressHoldMs?: number
     /** 默认 true：元素必须在 viewport 内才点 */
     requireVisible?: boolean
+    /** 可选：点击前先原生 hover 该元素，适配 hover 后才显示的按钮。 */
+    hoverSelector?: string
+    /** hover 后等待目标按钮完成显示的时间。 */
+    hoverWaitMs?: number
   }): Promise<{
     ok: boolean
     data?: {
@@ -792,6 +814,7 @@ if (process.contextIsolated) {
       recruitBridge,
       bossWatcher,
       appWindow,
+      clientRecovery,
       handover,
       tabs,
       ihrBridge,
@@ -812,6 +835,7 @@ if (process.contextIsolated) {
     recruitBridge,
     bossWatcher,
     appWindow,
+    clientRecovery,
     handover,
     tabs,
     ihrBridge,

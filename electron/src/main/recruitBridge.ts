@@ -399,18 +399,35 @@ async function hydrateOneSite(channelKey: string, partition: string): Promise<vo
     console.log(`[recruitBridge] hydrating ${channelKey} via ${hydrateUrl}`)
     hydratedChannels.add(channelKey)
 
-    // 2. 开个不可见的 BrowserWindow 加载首页，让站点自家 JS 发 XHR 触发 header 抓取
+    // 2. 开个后台窗口加载首页，让站点自家 JS 发 XHR 触发 header 抓取。
+    // macOS 上 `show:false` 的无 parent BrowserWindow 偶尔会短暂闪到前台，表现为启动后
+    // 像弹窗不断打开又关闭。按 hiddenViewRunner 的方案：窗口放到屏幕外、透明、不可聚焦，
+    // 再用 showInactive 保活，既能正常加载也绝不抢焦点或出现在用户屏幕上。
     const win = new BrowserWindow({
+      x: -32000,
+      y: -32000,
       width: 1024,
       height: 768,
       show: false,
+      opacity: 0,
+      focusable: false,
+      skipTaskbar: true,
+      fullscreenable: false,
+      minimizable: false,
+      maximizable: false,
       webPreferences: {
         partition,
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: true
+        sandbox: true,
+        backgroundThrottling: false
       }
     })
+    try {
+      win.showInactive()
+    } catch (err) {
+      console.warn(`[recruitBridge] hydrate ${channelKey} showInactive failed`, err)
+    }
     win.webContents.setUserAgent(desktopChromeUserAgent)
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     win.loadURL(hydrateUrl).catch((err) => {
@@ -623,28 +640,33 @@ export function registerRecruitBridgeIpc(): void {
   })
 
   // openSiteWindow（保留接口名以兼容 SPA；多标签架构下变成"开/激活招聘站 tab"）
-  ipcMain.handle('recruit:openSiteWindow', async (_e, channel: string, url: string) => {
-    if (typeof channel !== 'string' || typeof url !== 'string') {
-      return { success: false, message: 'invalid params' }
+  ipcMain.handle(
+    'recruit:openSiteWindow',
+    async (_e, channel: string, url: string, opts?: { bossMode?: 'main' | 'detail' }) => {
+      if (typeof channel !== 'string' || typeof url !== 'string') {
+        return { success: false, message: 'invalid params' }
+      }
+      if (!/^https?:\/\//i.test(url)) {
+        return { success: false, message: 'url must be http(s)' }
+      }
+      const bossMode =
+        opts?.bossMode === 'detail' ? 'detail' : opts?.bossMode === 'main' ? 'main' : undefined
+      const tabId = tabManager.openOrActivateSiteTab(channel, url, { bossMode })
+      const wc = tabManager.getWebContentsById(tabId)
+      // 站点 tab 加载完后过 2s 主动通知主页 SPA 刷新对应渠道登录态
+      // （登录后 BOSS 自家 JS 会发一批 XHR，足够把 zp_token 抓到 HEADER_STORAGE）
+      if (wc) {
+        wc.once('did-finish-load', () => {
+          setTimeout(() => {
+            if (homeWcRef && !homeWcRef.isDestroyed()) {
+              homeWcRef.send('recruit:siteWindowReady', {
+                channel: channel.toUpperCase()
+              })
+            }
+          }, 2000)
+        })
+      }
+      return { success: true, tabId }
     }
-    if (!/^https?:\/\//i.test(url)) {
-      return { success: false, message: 'url must be http(s)' }
-    }
-    const tabId = tabManager.openOrActivateSiteTab(channel, url)
-    const wc = tabManager.getSiteWebContentsForChannel(channel)
-    // 站点 tab 加载完后过 2s 主动通知主页 SPA 刷新对应渠道登录态
-    // （登录后 BOSS 自家 JS 会发一批 XHR，足够把 zp_token 抓到 HEADER_STORAGE）
-    if (wc) {
-      wc.once('did-finish-load', () => {
-        setTimeout(() => {
-          if (homeWcRef && !homeWcRef.isDestroyed()) {
-            homeWcRef.send('recruit:siteWindowReady', {
-              channel: channel.toUpperCase()
-            })
-          }
-        }, 2000)
-      })
-    }
-    return { success: true, tabId }
-  })
+  )
 }

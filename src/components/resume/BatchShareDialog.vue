@@ -63,6 +63,7 @@ import { ref, defineProps, defineEmits, watch, computed } from 'vue';
 import { getChannelUrl } from 'src/pluginSrc/util/ChannelUrlUtil';
 import { openExternalSiteUrl } from 'src/util/openChannelLoginUrl';
 import { useQuasar } from 'quasar';
+import { formatChannelDisplayName } from 'src/util/channelDisplayName';
 
 const $q = useQuasar();
 const exporting = ref(false);
@@ -172,7 +173,14 @@ const columns = [
   { name: 'experienceYear', label: '经验', field: 'experienceYear',
     format: val => val === -1 ? '应届生' : `${val}年`, align: 'left', sortable: true },
   { name: 'ageDesc', label: '年龄', field: 'ageDesc', align: 'left' },
-  { name: 'channel', label: '渠道', field: 'channel', align: 'left', sortable: true },
+  {
+    name: 'channel',
+    label: '渠道',
+    field: 'channel',
+    format: val => formatChannelDisplayName(val),
+    align: 'left',
+    sortable: true
+  },
   { name: 'score', label: 'AI评分', field: 'score',
     format: val => val === null || val === undefined ? '暂无' : val,
     align: 'center', sortable: true },
@@ -204,7 +212,7 @@ async function exportData() {
       resume.degree || '',
       resume.experienceYear === -1 ? '应届生' : `${resume.experienceYear}年`,
       resume.ageDesc || '',
-      resume.channel || '',
+      formatChannelDisplayName(resume.channel),
       (resume.score === null || resume.score === undefined) ? '暂无' : Math.round(resume.score),
       resume.detailUrl || ''
     ]);

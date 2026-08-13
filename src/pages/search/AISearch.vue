@@ -52,7 +52,7 @@
                   <!--                  {{ channel?.name?.charAt(0)?.toUpperCase() || '?' }}-->
                   <img :src="channel.logo" />
                 </q-avatar>
-                <span class="text-subtitle2">{{ channel.name }}</span>
+                <span class="text-subtitle2">{{ formatChannelDisplayName(channel.name) }}</span>
                 <span class="login-status-container" v-if="!channel.login">
                   (<span
                     class="q-ma-none q-pa-none cursor-pointer text-bold"
@@ -124,7 +124,7 @@
                         <q-avatar size="sm" color="primary" text-color="white" class="q-mr-sm">
                           {{ channel?.name?.charAt(0)?.toUpperCase() || "?" }}
                         </q-avatar>
-                        <span class="text-subtitle2">{{ channel.name }}</span>
+                        <span class="text-subtitle2">{{ formatChannelDisplayName(channel.name) }}</span>
                         <q-badge
                           class="q-ml-xs q-mb-xs"
                           rounded
@@ -405,6 +405,7 @@ import { needForceUpdate } from "src/pluginSrc/util/pluginVersion";
 import ForceUpdateDialog from "src/components/plugins/ForceUpdateDialog.vue";
 import { usePlanVisibility } from "src/hooks/usePlanVisibility";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
+import { formatChannelDisplayName } from "src/util/channelDisplayName";
 
 // 定义组件属性
 const props = defineProps({
@@ -1386,7 +1387,9 @@ const executeSearch = async (searchState, opts = {}) => {
             console.warn("[AISearch] executeSearch: 未登录停任务失败:", e?.message || e);
           }
           notify.warning(
-            `${notLoggedIn.map((c) => c.name).join("、")} 未登录，已暂停搜索，请重新登录后重试`
+            `${notLoggedIn
+              .map((c) => formatChannelDisplayName(c.name))
+              .join("、")} 未登录，已暂停搜索，请重新登录后重试`
           );
           isLoading.value = false;
           clearTimeout(timeoutId);
@@ -1411,7 +1414,9 @@ const executeSearch = async (searchState, opts = {}) => {
           ) {
             promises.push(channel.cardInfoRef.channelSearch(searchRequestData));
           } else {
-            console.warn(`${channel.name}渠道组件不存在或channelSearch方法未定义`);
+            console.warn(
+              `${formatChannelDisplayName(channel.name)}渠道组件不存在或channelSearch方法未定义`
+            );
           }
         });
 
@@ -1713,7 +1718,7 @@ const refreshChannelLogin = async (key, opts = {}) => {
 
     // 静默刷新不弹 toast（客户端自动触发场景）
     if (!silent) {
-      const channelName = allChannelStatus.value[key]?.name || key;
+      const channelName = formatChannelDisplayName(allChannelStatus.value[key]?.name || key);
       // 客户端模式下用户应该"在客户端的新 tab 里登录"，不是浏览器
       const failHint = isElectronClient()
         ? `${channelName} 未登录，请点击顶部「${channelName}」按钮在客户端中登录`

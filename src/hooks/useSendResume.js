@@ -274,38 +274,28 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
       }
     }
 
-    try {
-      // 并行执行异步操作，避免阻塞
-      const [bossRes, zhiLianRes, job51Res] = await Promise.all([
-        bossParams?.length > 0 ? 
-          bossResumeGenerateHtmlFiles(bossParams, isSingle).catch(error => {
-            console.error('Boss简历生成失败:', error);
-            return {}; // 返回默认值
-          }) : Promise.resolve({}),
-        zhiLianParams?.length > 0 ? 
-          zhiLianResumeGenerateHtmlFiles(zhiLianParams, isSingle).catch(error => {
-            console.error('智联简历生成失败:', error);
-            return {}; // 返回默认值
-          }) : Promise.resolve({}),
-        job51Params?.length > 0 ? 
-          job51ResumeGenerateHtmlFiles(job51Params, isSingle).catch(error => {
-            console.error('前程无忧简历生成失败:', error);
-            return {}; // 返回默认值
-          }) : Promise.resolve({})
-      ]);
+    // 任一渠道生成失败时直接中断，避免上传错误简历并继续保存分配职位/人才库。
+    const [bossRes, zhiLianRes, job51Res] = await Promise.all([
+      bossParams?.length > 0
+        ? bossResumeGenerateHtmlFiles(bossParams, isSingle)
+        : Promise.resolve({}),
+      zhiLianParams?.length > 0
+        ? zhiLianResumeGenerateHtmlFiles(zhiLianParams, isSingle)
+        : Promise.resolve({}),
+      job51Params?.length > 0
+        ? job51ResumeGenerateHtmlFiles(job51Params, isSingle)
+        : Promise.resolve({})
+    ]);
       
-      console.log('各渠道处理结果:', { 
-        bossRes: Object.keys(bossRes).length, 
-        zhiLianRes: Object.keys(zhiLianRes).length,
-        job51Res: Object.keys(job51Res).length
-      });
-      
-      return {
-        data: Object.assign(bossRes, zhiLianRes, job51Res),
-        filterZhiLianCount: zlCount
-      }
-    } catch (error) {
-      throw error;
+    console.log('各渠道处理结果:', {
+      bossRes: Object.keys(bossRes).length,
+      zhiLianRes: Object.keys(zhiLianRes).length,
+      job51Res: Object.keys(job51Res).length
+    });
+
+    return {
+      data: Object.assign(bossRes, zhiLianRes, job51Res),
+      filterZhiLianCount: zlCount
     }
   }
 

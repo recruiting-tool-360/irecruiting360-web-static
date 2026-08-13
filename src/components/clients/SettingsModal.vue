@@ -81,6 +81,98 @@
 
             <!-- 正常内容 -->
             <template v-else>
+              <!-- 渠道设置：原右上角齿轮入口合并到左下角「设置功能」 -->
+              <div class="sm-section">
+                <div class="sm-section-title">
+                  <svg
+                    class="sm-section-title-icon primary"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="12" cy="5" r="3" />
+                    <circle cx="5" cy="19" r="3" />
+                    <circle cx="19" cy="19" r="3" />
+                    <path d="M10.5 7.6 6.5 16" />
+                    <path d="m13.5 7.6 4 8.4" />
+                    <path d="M8 19h8" />
+                  </svg>
+                  <span>渠道设置</span>
+                </div>
+
+                <div class="sm-panel">
+                  <div class="sm-panel-header">
+                    <div class="sm-panel-header-left">
+                      <svg
+                        class="sm-panel-header-icon blue"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                      <span class="sm-panel-label">选择需要启用的渠道</span>
+                    </div>
+                    <span v-if="hasActiveTask" class="sm-running-chip">
+                      任务执行中，暂不可修改
+                    </span>
+                  </div>
+
+                  <div class="sm-channel-grid">
+                    <button
+                      v-for="channel in visibleChannelConfig"
+                      :key="channel.key"
+                      type="button"
+                      :class="[
+                        'sm-channel-card',
+                        channel.enableConfig ? 'is-selected' : '',
+                        hasActiveTask ? 'is-disabled' : '',
+                        isChannelSelectionLocked(channel) ? 'is-locked' : ''
+                      ]"
+                      :disabled="hasActiveTask || isChannelSelectionLocked(channel)"
+                      :title="
+                        isChannelSelectionLocked(channel) ? '至少需要启用一个招聘渠道' : ''
+                      "
+                      @click="toggleChannel(channel)"
+                    >
+                      <span
+                        :class="[
+                          'sm-channel-checkbox',
+                          channel.enableConfig ? 'is-checked' : ''
+                        ]"
+                      >
+                        <svg
+                          v-if="channel.enableConfig"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="3"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </span>
+                      <span class="sm-channel-meta">
+                        <span class="sm-channel-name">{{ channel.name }}</span>
+                        <span class="sm-channel-status">
+                          {{ channel.enableConfig ? "已启用" : "已禁用" }}
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                  <p class="sm-foot-hint">
+                    至少需要启用一个招聘渠道。保存后，登录监视及后续任务会按新的状态执行。
+                  </p>
+                </div>
+              </div>
+
               <!-- 工作时间段设置 -->
               <div class="sm-section">
                 <div class="sm-section-title">
@@ -117,7 +209,7 @@
                       </svg>
                       <span class="sm-panel-label">执行工作时段</span>
                     </div>
-                    <span v-if="hasRunningTask" class="sm-running-chip">
+                    <span v-if="hasActiveTask" class="sm-running-chip">
                       任务执行中，暂不可修改
                     </span>
                   </div>
@@ -130,7 +222,7 @@
                       :class="[
                         'sm-slot-card',
                         selectedSlots.includes(slot.id) ? 'is-selected' : '',
-                        hasRunningTask ? 'is-disabled' : ''
+                        hasActiveTask ? 'is-disabled' : ''
                       ]"
                       @click="toggleSlot(slot.id)"
                     >
@@ -257,7 +349,7 @@
 
 <script setup>
 /**
- * 运行策略设置弹框（iHR / 客户端模式底部「设置功能」按钮触发）
+ * 聚合搜索设置弹框（iHR / 客户端模式底部「设置功能」按钮触发）
  *
  * 视觉 1:1 还原 ihraisaas/src/components/AIAssistant/SettingsModal.tsx
  * 接口对接 docs/05-api-contract.md §「查询/保存运行策略配置」(line 334-410)
@@ -267,7 +359,8 @@
  *   - GET：把后端 workPeriods → 反查 WORK_SLOTS → 设 selectedSlots
  *   - PUT：把 selectedSlots → 转回 workPeriods 数组提交
  *
- * allowWeekend / allowHoliday：后端硬编码 false 不接收前端修改，UI 显示但 disabled
+ * - 渠道设置：复用 applyChannelEnableConfig，统一更新渠道配置及登录监视
+ * - allowWeekend / allowHoliday：后端硬编码 false 不接收前端修改，UI 显示但 disabled
  */
 
 import { ref, computed, watch, reactive } from "vue";
@@ -277,6 +370,11 @@ import {
   getRuntimePolicyConfig,
   putRuntimePolicyConfig
 } from "src/api/runtimePolicyApi";
+import { applyChannelEnableConfig } from "src/util/applyChannelEnable";
+import {
+  isClientChannelVisible,
+  normalizeClientChannelConfig
+} from "src/util/clientChannelAvailability";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false }
@@ -304,9 +402,15 @@ const validationError = ref("");
 const includeHolidays = ref(false);
 const selectedSlots = reactive([]);
 
-const hasRunningTask = computed(() => {
+const channelConfig = ref([]);
+const visibleChannelConfig = computed(() =>
+  channelConfig.value.filter((channel) => isClientChannelVisible(channel.key))
+);
+
+const hasActiveTask = computed(() => {
   const runningId = store.state?.SearchTasks?.runningTaskId;
   if (runningId) return true;
+  if (store.getters.getAiAnalyzingActive === true) return true;
   const queueItems = store.state?.SearchTasks?.taskQueue?.items || [];
   return queueItems.some((it) => it?.taskStatus === "RUNNING");
 });
@@ -315,7 +419,7 @@ const canSave = computed(
   () =>
     !loading.value &&
     !loadError.value &&
-    !hasRunningTask.value &&
+    !hasActiveTask.value &&
     !validationError.value &&
     selectedSlots.length >= 1 &&
     selectedSlots.length <= 2
@@ -329,6 +433,7 @@ async function loadConfig() {
   loading.value = true;
   loadError.value = "";
   selectedSlots.splice(0);
+  loadChannelConfig();
   try {
     const res = await getRuntimePolicyConfig();
     const data = res?.data || {};
@@ -357,8 +462,23 @@ async function loadConfig() {
   }
 }
 
+function loadChannelConfig() {
+  channelConfig.value = normalizeClientChannelConfig(store.getters.getUserChannelConfig);
+}
+
+function toggleChannel(channel) {
+  if (hasActiveTask.value || !channel) return;
+  if (isChannelSelectionLocked(channel)) return;
+  channel.enableConfig = !channel.enableConfig;
+}
+
+function isChannelSelectionLocked(channel) {
+  if (!channel?.enableConfig) return false;
+  return visibleChannelConfig.value.filter((item) => item.enableConfig).length <= 1;
+}
+
 function toggleSlot(id) {
-  if (hasRunningTask.value) return;
+  if (hasActiveTask.value) return;
   const idx = selectedSlots.indexOf(id);
   if (idx >= 0) {
     if (selectedSlots.length <= 1) return;
@@ -405,7 +525,7 @@ async function handleSave() {
     });
     return;
   }
-  if (hasRunningTask.value) {
+  if (hasActiveTask.value) {
     $q.notify({
       type: "warning",
       message: "当前有正在执行的任务，请等待任务结束后再修改",
@@ -424,6 +544,14 @@ async function handleSave() {
         .map((s) => ({ startTime: s.start, endTime: s.end }))
     };
     const res = await putRuntimePolicyConfig(payload);
+    applyChannelEnableConfig(
+      store,
+      channelConfig.value.map((channel) => ({
+        key: channel.key,
+        name: channel.name,
+        enableConfig: channel.enableConfig !== false
+      }))
+    );
     $q.notify({
       type: "positive",
       message: "配置已保存",
@@ -657,6 +785,82 @@ function handleBackdropClick() {
   color: #525252;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+// ===== 渠道设置 =====
+.sm-channel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.sm-channel-card {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e5e5;
+  background: rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+
+  &:hover:not(.is-disabled):not(.is-locked) {
+    border-color: #99f6e4;
+    background: #ffffff;
+  }
+  &.is-selected {
+    border-color: #15b8a6;
+    background: #ffffff;
+    box-shadow: 0 0 0 1px rgba(21, 184, 166, 0.15);
+  }
+  &.is-disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  &.is-locked {
+    cursor: not-allowed;
+  }
+}
+.sm-channel-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid #d4d4d4;
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  svg {
+    width: 12px;
+    height: 12px;
+    color: #ffffff;
+  }
+  &.is-checked {
+    border-color: #15b8a6;
+    background: #15b8a6;
+  }
+}
+.sm-channel-meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.sm-channel-name {
+  overflow: hidden;
+  color: #404040;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-channel-status {
+  color: #a3a3a3;
+  font-size: 10px;
 }
 .sm-running-chip {
   font-size: 9px;

@@ -5,7 +5,8 @@
 
   显示的步骤行**完全跟随 task.channels 动态生成**，跟搜索结果列表 tab 显示的渠道一致：
     - 搜索牛人卡片：[分析关键词] + 每个参与的 SEARCH channel 一行 + [汇总] + [完毕]
-    - 推荐牛人卡片：[校对岗位 / 分析关键词 / 获取列表 / AI 匹配 / 汇总 / 完毕]（仅 BOSS-RECOMMEND）
+    - 推荐牛人卡片：RESTART 时先显示[取消上次收藏]，再显示
+      [校对岗位 / 分析关键词 / 获取列表 / AI 匹配 / 汇总 / 完毕]（仅 BOSS-RECOMMEND）
 
   ❌ 旧版（已废弃）会硬编码三行 BOSS/智联/51job，即使任务里没有 BOSS 也会渲染"BOSS 检索"行
        灰色 skipped，看起来仍像"BOSS 在跑"——用户反馈"都没开 BOSS 为什么还有"，根因在此
@@ -154,10 +155,10 @@ const searchChannels = computed(() =>
 const recommendChannels = computed(() =>
   (task.value?.channels || []).filter((c) => c.businessChannel === 'RECOMMEND')
 );
-const hasSearch = computed(() => searchChannels.value.length > 0);
 const hasRecommend = computed(() => recommendChannels.value.length > 0);
 
-const showSearch = computed(() => hasSearch.value && (props.kind === 'search' || props.kind === 'all'));
+// 搜索牛人已下架：旧任务仍可保留 SEARCH 状态，但不再渲染对应流程卡。
+const showSearch = computed(() => false);
 const showRecommend = computed(() => hasRecommend.value && (props.kind === 'recommend' || props.kind === 'all'));
 
 /* ============== 总人数（"已抓取 N 数据"步骤用） ============== */
@@ -377,6 +378,7 @@ const recommendCardContent = computed(() => {
   if (!t) return '推荐牛人数据获取流程';
   const bossRec = findChannel(recommendChannels.value, 'BOSS');
   if (!bossRec) return '推荐牛人数据获取流程';
+  if (t.restartCleanup?.status === 'RUNNING') return '正在清理上次推荐任务收藏...';
   if (bossRec.taskChannelStatus === 'COMPLETED') return '推荐牛人流程已完成';
   if (bossRec.taskChannelStatus === 'FAILED') return '推荐牛人流程异常停止';
   if (bossRec.taskChannelStatus === 'STOPPED') return '推荐牛人流程已停止';
@@ -384,7 +386,9 @@ const recommendCardContent = computed(() => {
 });
 
 /**
- * 推荐卡 6 步骤的真实状态推导（粒度受限：推荐只有一个 channel = BOSS-RECOMMEND）：
+ * 推荐卡步骤的真实状态推导（粒度受限：推荐只有一个 channel = BOSS-RECOMMEND）：
+ * RESTART 任务会在最前面额外插入一行“取消上次任务收藏”，它由 task.restartCleanup
+ * 独立驱动，不占用推荐 phase，清理失败也不会阻断后续步骤。
  *
  *   阶段 0 (channel.status === WAITING/null)：
  *     → step[0..5] 全部 pending
@@ -494,7 +498,7 @@ const recommendCardSteps = computed(() => {
       ? '推荐结果获取失败'
       : '正在汇总推荐结果...';
 
-  return [
+  const steps = [
     { title: '正在校对 BOSS直聘 关联职位特征...', status: s(0) },
     { title: '正在分析画像关键词...', status: s(1) },
     { title: '正在获取平台实时推荐候选人列表...', status: s(2) },
@@ -502,6 +506,44 @@ const recommendCardSteps = computed(() => {
     { title: summaryTitle, status: s(4) },
     { title: '推荐牛人流程执行完毕', status: s(5) }
   ];
+
+  const cleanup = t.restartCleanup;
+  if (!cleanup) return steps;
+
+  const cleanupStatus = cleanup.status || 'PENDING';
+  const total = Number(cleanup.total) || 0;
+  const processed = Math.min(total, Number(cleanup.processed) || 0);
+  const cancelled = Number(cleanup.cancelled) || 0;
+  const alreadyMissing = Number(cleanup.alreadyMissing) || 0;
+  const unconfirmed = (Number(cleanup.unresolved) || 0) + (Number(cleanup.failed) || 0);
+
+  let cleanupTitle = '等待取消上次推荐任务的收藏...';
+  let cleanupStepStatus = 'pending';
+  if (cleanupStatus === 'RUNNING') {
+    cleanupTitle = total > 0
+      ? `正在取消上次推荐任务的收藏（${processed}/${total}）...`
+      : '正在取消上次推荐任务的收藏...';
+    cleanupStepStatus = 'processing';
+  } else if (cleanupStatus === 'COMPLETED') {
+    if (total === 0) {
+      cleanupTitle = '上次任务没有需要取消的收藏';
+    } else if (alreadyMissing > 0) {
+      cleanupTitle = `已取消 ${cancelled} 份收藏，${alreadyMissing} 份已无需取消`;
+    } else {
+      cleanupTitle = `已取消上次任务收藏 ${cancelled} 份`;
+    }
+    cleanupStepStatus = 'complete';
+  } else if (cleanupStatus === 'PARTIAL' || cleanupStatus === 'FAILED') {
+    cleanupTitle = unconfirmed > 0
+      ? `已取消 ${cancelled} 份，${unconfirmed} 份未确认，已继续执行`
+      : '取消收藏未完全完成，已继续执行';
+    cleanupStepStatus = 'complete';
+  } else if (cleanupStatus === 'SKIPPED') {
+    cleanupTitle = '当前环境未执行收藏清理，已继续执行';
+    cleanupStepStatus = 'complete';
+  }
+
+  return [{ title: cleanupTitle, status: cleanupStepStatus }, ...steps];
 });
 </script>
 

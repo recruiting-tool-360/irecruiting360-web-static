@@ -75,11 +75,10 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
   html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
-    /* 半透明白底 + backdrop-blur：底下的 BOSS tab 内容会被柔化，但仍能看见。
-       对齐 ihraisaas PlatformSimulation L300 className 设计。 */
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    /* 使用稳定的半透明暗底，不再模糊底层页面；提示卡和文字在 Windows 下也保持清晰。 */
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     /* 整个 body 接管点击，让 BOSS view 完全不能被用户碰到 */
     pointer-events: auto;
     cursor: not-allowed;
@@ -88,14 +87,15 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-top: 96px;
+    justify-content: center;
+    padding: 24px;
   }
   .card {
-    background: #fff;
+    background: rgba(255, 255, 255, 0.98);
     padding: 24px 32px;
     border-radius: 24px;
-    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.12);
-    border: 1px solid #f5f5f5;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.9);
     display: flex;
     align-items: center;
     gap: 24px;
@@ -200,25 +200,6 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
     text-decoration-thickness: 2px;
   }
 
-  .footer {
-    position: fixed;
-    bottom: 48px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 10px 24px;
-    background: rgba(38, 38, 38, 0.05);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 900;
-    color: #9ca3af;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-    animation: pop .5s cubic-bezier(.22,.61,.36,1) .15s both;
-  }
 </style>
 </head>
 <body>
@@ -235,7 +216,6 @@ function buildOverlayDataUrl(payload: OverlayPayload): string {
       <p class="message">${message}</p>
     </div>
   </div>
-  <div class="footer">客户端模拟模式 · 仅供查看，请勿操作</div>
 </body>
 </html>`
   // base64 编码避免中文 / 特殊字符在 URL 里的转义问题
@@ -289,6 +269,42 @@ export function setActiveChannel(channelKey: string | null): void {
   applyOverlayVisibility()
 }
 
+/**
+ * TabManager 调整子视图 z-order 后，把已显示的蒙层重新放回最上层。
+ *
+ * WebContentsView 的层级由 addChildView 顺序决定。后台渲染 BOSS 推荐页时，
+ * TabManager 会重新挂载当前 active view；如果蒙层此前已经 attached，BOSS view
+ * 会被放到蒙层上方，视觉上像“蒙层消失”。这里不改变业务显隐状态，只修复层级。
+ */
+export function bringOverlayToFront(): void {
+  if (!mainWinRef) return
+  const shouldShow =
+    overlayWanted && !!currentActiveChannel && coverChannels.includes(currentActiveChannel)
+  if (!shouldShow) return
+
+  const view = ensureOverlayView()
+  // overlayAttached 是业务侧记录，导航期间 Chromium 的实际子视图状态可能已经与它不同。
+  // remove 失败时仍继续 add，让这个方法同时具备“重新置顶”和“重新挂载”能力。
+  if (overlayAttached) {
+    try {
+      mainWinRef.contentView.removeChildView(view)
+      overlayAttached = false
+    } catch (e) {
+      console.warn(`[automationOverlay] remove before bring to front err: ${(e as Error).message}`)
+    }
+  }
+  try {
+    mainWinRef.contentView.addChildView(view)
+    overlayAttached = true
+    updateOverlayBounds()
+    console.log(
+      `[automationOverlay] brought to front (activeChannel=${currentActiveChannel}, cover=[${coverChannels.join(',')}])`
+    )
+  } catch (e) {
+    console.warn(`[automationOverlay] bring to front err: ${(e as Error).message}`)
+  }
+}
+
 function ensureOverlayView(): WebContentsView {
   if (overlayView && !overlayView.webContents.isDestroyed()) return overlayView
   overlayView = new WebContentsView({
@@ -331,9 +347,7 @@ function updateOverlayBounds(): void {
 function applyOverlayVisibility(): void {
   if (!mainWinRef) return
   const shouldShow =
-    overlayWanted &&
-    !!currentActiveChannel &&
-    coverChannels.includes(currentActiveChannel)
+    overlayWanted && !!currentActiveChannel && coverChannels.includes(currentActiveChannel)
   if (shouldShow && !overlayAttached) {
     const view = ensureOverlayView()
     try {
@@ -378,9 +392,10 @@ export function showOverlay(payload: OverlayPayload = {}): void {
     return
   }
   overlayWanted = true
-  coverChannels = (payload.coverChannels && payload.coverChannels.length > 0
-    ? payload.coverChannels
-    : DEFAULT_COVER_CHANNELS
+  coverChannels = (
+    payload.coverChannels && payload.coverChannels.length > 0
+      ? payload.coverChannels
+      : DEFAULT_COVER_CHANNELS
   ).map((c) => c.toLowerCase())
 
   // 先 reload data url（payload 可能变了）—— view 复用，content 变化

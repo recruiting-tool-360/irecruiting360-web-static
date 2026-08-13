@@ -66,6 +66,7 @@
           :resume="mapBossGeekToResume(geek)"
           :is-read="false"
           tab-str="推荐牛人"
+          detail-handled-by-parent
           :search-condition-id-override="geek.searchConditionId || null"
           @detail="() => onCardClick(geek)"
         />

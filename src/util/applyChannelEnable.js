@@ -1,11 +1,11 @@
 /**
- * 应用「渠道启用/禁用」配置 —— 与「渠道设置」弹框（ChannelSettingsDialog → AISearch.saveChannelEnable）
+ * 应用「渠道启用/禁用」配置 —— 与左下角「设置功能」及未登录渠道面板
  * 共用同一份数据源（store.getUserChannelConfig）和同一套副作用：
  *   1) commit setUserChannelConfig（持久化 + 全局响应式，弹框/面板互相同步）
  *   2) 起/停各渠道登录态监视（BOSS 单例 tab / 51job / 智联 10s 轮询）
  *   3) 停掉被禁用渠道仍在进行中的 channel 任务
  *
- * 供「渠道设置弹框」和「未检测到登录状态」面板（LoginRequiredPanel）共同调用，
+ * 供「设置功能」和「未检测到登录状态」面板（LoginRequiredPanel）共同调用，
  * 保证两处切换启用状态行为一致。
  *
  * @param {import('vuex').Store} store

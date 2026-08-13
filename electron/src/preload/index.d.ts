@@ -27,7 +27,11 @@ export interface CapturedCookies {
 }
 
 export interface RecruitBridge {
-  openSiteWindow(channel: string, url: string): Promise<{ success: boolean; message?: string }>
+  openSiteWindow(
+    channel: string,
+    url: string,
+    opts?: { bossMode?: 'main' | 'detail' }
+  ): Promise<{ success: boolean; message?: string; tabId?: string }>
 
   getCapturedHeaders(storageKey: string): Promise<CapturedHeaders | null>
 
@@ -73,6 +77,11 @@ export interface AppWindowBridge {
   onFocus(callback: () => void): () => void
 }
 
+/** Vue 根组件完成挂载后通知主进程，供主页白屏自愈逻辑判断启动成功。 */
+export interface ClientRecoveryBridge {
+  markHomeReady(): void
+}
+
 export interface DeepLinkPayload {
   action: string
   version: number
@@ -102,6 +111,8 @@ export interface HandoverBridge {
 export interface TabState {
   id: string
   pinned: boolean
+  role: 'home' | 'boss-main' | 'boss-detail' | 'site'
+  closable: boolean
   channel?: string
   title: string
   url: string
@@ -115,7 +126,12 @@ export interface TabState {
 
 export interface TabsBridge {
   list(): Promise<TabState[]>
-  create(opts: { url: string; channel?: string; title?: string }): Promise<string | null>
+  create(opts: {
+    url: string
+    channel?: string
+    title?: string
+    bossMode?: 'main' | 'detail'
+  }): Promise<string | null>
   activate(id: string): Promise<boolean>
   close(id: string): Promise<boolean>
   setLocked(opts: { id: string; locked: boolean }): Promise<boolean>
@@ -419,6 +435,8 @@ export interface AutomationBridge {
     selector: string
     pressHoldMs?: number
     requireVisible?: boolean
+    hoverSelector?: string
+    hoverWaitMs?: number
   }): Promise<{
     ok: boolean
     data?: {
@@ -601,6 +619,7 @@ declare global {
       recruitBridge: RecruitBridge
       bossWatcher: BossWatcherBridge
       appWindow: AppWindowBridge
+      clientRecovery: ClientRecoveryBridge
       handover: HandoverBridge
       tabs: TabsBridge
       ihrBridge: IhrBridge

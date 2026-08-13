@@ -389,7 +389,7 @@
       </div>
     </div>
 
-    <!-- 设置功能弹框（运行策略配置：工作时段 / 策略只读展示） -->
+    <!-- 设置功能弹框（渠道启停 + 运行策略配置） -->
     <SettingsModal v-model="settingsVisible" />
 
     <!--
@@ -844,7 +844,7 @@ const loadChatList = async (opts = {}) => {
 /**
  * 设置功能按钮点击（iHR / 客户端模式底部固定）。
  *
- * 打开 SettingsModal（运行策略设置）：
+ * 打开 SettingsModal（渠道启停 + 运行策略设置）：
  *   - 当前仅 workPeriods 可编辑（GET/PUT /ai/runtimePolicy/config）
  *   - 其它策略字段（allowWeekend / strategy.* / stopConditions）由后端硬编码，只读展示
  *   - 接口契约：docs/05-api-contract.md §「查询/保存运行策略配置」(line 334-410)

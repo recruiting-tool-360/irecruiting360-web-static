@@ -107,7 +107,7 @@ const emit = defineEmits([
  */
 const TAB_DEFS = [
   { key: 'ALL',     label: '渠道聚合' },
-  { key: 'BOSS',    label: 'boss直聘',  logo: '/index/header/searchPage/boss.ico' },
+  { key: 'BOSS',    label: 'BOSS直聘',  logo: '/index/header/searchPage/boss.ico' },
   { key: 'ZHILIAN', label: '智联招聘',  logo: '/index/header/searchPage/zhilian.svg' },
   { key: 'JOB51',   label: '前程无忧',  logo: '/index/header/searchPage/job51.svg' },
   { key: 'LIEPIN',  label: '猎聘',     logo: '/index/header/searchPage/liepin.svg' }

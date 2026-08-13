@@ -38,7 +38,7 @@
                 <q-avatar size="12px" class="q-mr-xs">
                   <img :src="getChannelImage(resume.channel)"/>
                 </q-avatar>
-                {{ resume.channel }}
+                {{ formatChannelDisplayName(resume.channel) }}
               </q-badge>
             </div>
 
@@ -54,7 +54,10 @@
 
         <!-- 右侧：评分和操作按钮 -->
         <div class="col-4 text-right">
-          <div  v-if="tabStr!=='我的收藏'" class="score-badge q-mb-sm">
+          <div
+            v-if="tabStr!=='我的收藏'"
+            class="score-badge q-mb-sm"
+          >
             <!-- AI评分正常显示 -->
             <q-circular-progress
               v-if="resume.score !== null && resume.score !== undefined && resume.score !== -2"
@@ -65,6 +68,12 @@
               :color="getScoreColor(resume.score)"
               track-color="grey-3"
               class="q-mr-sm text-bold"
+              :class="{ 'score-circle--clickable': canOpenAIEvaluation }"
+              :role="canOpenAIEvaluation ? 'button' : undefined"
+              :tabindex="canOpenAIEvaluation ? 0 : undefined"
+              @click.stop="showAIEvaluationDialog"
+              @keydown.enter.stop="showAIEvaluationDialog"
+              @keydown.space.stop.prevent="showAIEvaluationDialog"
             >
               {{ Math.round(resume.score) }}
             </q-circular-progress>
@@ -96,35 +105,8 @@
           </div>
 
           <div>
-            <q-btn  v-if="tabStr!=='我的收藏'" flat class="q-ma-xs q-px-sm" size="sm" color="primary" @click.stop="showAIEvaluationDialog"
-              :disable="resume.score === null || resume.score === undefined || resume.score < 0">
-              <q-icon class="q-mr-xs" :name="resume.score !== null && resume.score !== undefined && resume.score >= 0 ? 'insights' : (resume.score === -2 ? 'error_outline' : 'hourglass_empty')" />
-              <span class="">{{ resume.score !== null && resume.score !== undefined && resume.score >= 0 ? 'AI评估' : (resume.score === -2 ? 'AI分析失败' : 'AI分析中') }}</span>
-              <q-tooltip v-if="resume.score === null || resume.score === undefined || (resume.score < 0 && resume.score !== -2)">
-                AI分析尚未完成，请稍后再试
-              </q-tooltip>
-              <q-tooltip v-else-if="resume.score === -2">
-                AI分析失败，请检查渠道状态
-              </q-tooltip>
-            </q-btn>
             <q-btn v-if="!isVisible" flat round size="sm" color="orange" :icon="resume.inCollection?'star':'star_outline'" @click.stop="toggleCollect" />
 <!--            <q-btn flat round size="sm" color="primary" icon="visibility" @click.stop="markAsRead" />-->
-
-            <q-btn  v-if="tabStr!=='我的收藏'" flat round size="sm" color="primary" icon="more_vert" @click.stop>
-              <q-menu>
-                <q-list style="min-width: 100px">
-                  <q-item clickable v-close-popup @click="downloadResume">
-                    <q-item-section>分享简历</q-item-section>
-                  </q-item>
-<!--                  <q-item clickable v-close-popup @click="contactCandidate">-->
-<!--                    <q-item-section>联系候选人</q-item-section>-->
-<!--                  </q-item>-->
-<!--                  <q-item clickable v-close-popup @click="addToBlacklist">-->
-<!--                    <q-item-section>加入黑名单</q-item-section>-->
-<!--                  </q-item>-->
-                </q-list>
-              </q-menu>
-            </q-btn>
           </div>
         </div>
       </div>
@@ -215,12 +197,35 @@
               <q-icon size="xs" class="q-mr-xs" name="search"></q-icon>
               <span>{{ similarButtonText }}</span>
             </q-btn>
-            <q-btn flat v-if="resume.channel&&resume.channel==='boss直聘'" class="q-ma-xs" color="primary" size="md"
-              :disable="readOnly"
-              @click.stop="scheduleInterview">
-              <q-icon size="xs" class="q-mr-xs" name="chat"></q-icon>
-              <span>立即沟通</span>
-            </q-btn>
+            <span
+              v-if="resume.channel&&resume.channel==='boss直聘'"
+              class="boss-communication-button-wrap q-ma-xs"
+            >
+              <q-btn flat color="primary" size="md"
+                :disable="readOnly || bossCommunicationLoading || isBossRecommendTaskExecuting"
+                :loading="bossCommunicationLoading"
+                @click.stop="scheduleInterview">
+                <q-icon size="xs" class="q-mr-xs" name="chat"></q-icon>
+                <span>立即沟通</span>
+                <template #loading>
+                  <q-spinner size="16px" class="q-mr-xs" />
+                  <span>{{ bossCommunicationLoadingText }}</span>
+                </template>
+              </q-btn>
+              <span
+                v-if="isBossRecommendTaskExecuting"
+                class="boss-communication-disabled-hit-area"
+                @click.stop.prevent="notifyBossRecommendTaskExecuting"
+              >
+                <q-tooltip
+                  anchor="top middle"
+                  self="bottom middle"
+                  :offset="[10, 10]"
+                >
+                  {{ bossRecommendTaskExecutingMessage }}
+                </q-tooltip>
+              </span>
+            </span>
           </div>
         </div>
       </div>
@@ -270,9 +275,7 @@
 
 <script setup>
 import {defineProps, defineEmits, computed, ref, defineAsyncComponent, onMounted} from 'vue';
-import {bossFindJobDetail, findJobDetail, runCollect} from "src/pluginSrc/channels/BossJobInfoManager";
 import notify from "src/util/notify";
-import {pluginAllUrls} from "src/pluginSrc/config/PluginRequestManager";
 import qs from "qs";
 // 使用Quasar的Dialog显示内容
 import { useQuasar } from 'quasar';
@@ -288,9 +291,19 @@ import { openExternalSiteUrl } from "src/util/openChannelLoginUrl";
 import { useSendResume } from 'src/hooks/useSendResume';
 import { bossDomGenerator } from 'src/hooks/bossDomGenerator';
 import { usePlanVisibility } from 'src/hooks/usePlanVisibility';
+import { greetBossInteractionGeek } from 'src/util/automation/bossInteractionGreet';
+import { formatChannelDisplayName } from 'src/util/channelDisplayName';
 
 const store = useStore();
 const $q = useQuasar();
+const bossCommunicationLoading = ref(false);
+const bossCommunicationLoadingStage = ref('idle');
+const bossCommunicationLoadingText = computed(() =>
+  bossCommunicationLoadingStage.value === 'opening'
+    ? '正在打开'
+    : '正在查找'
+);
+const bossRecommendTaskExecutingMessage = '任务执行中，完成后可立即沟通';
 
 const props = defineProps({
   resume: {
@@ -317,6 +330,16 @@ const props = defineProps({
    * 受影响的按钮：分配职位 / 加入人才库 / 相似简历 / 立即沟通（全部 disabled）
    */
   readOnly: {
+    type: Boolean,
+    default: false
+  },
+  /**
+   * 详情打开动作是否由父组件接管。
+   * 推荐牛人列表需要把原始 geek 一并交给父组件解析 securityId，因此不能先走
+   * ResumeCard 内部的通用 bossUrl()，否则历史结果会打开 securityId=undefined 的空白页。
+   * 仅接管详情，不影响立即沟通、分配职位、加入人才库等按钮。
+   */
+  detailHandledByParent: {
     type: Boolean,
     default: false
   },
@@ -363,6 +386,18 @@ const allChannelStatus = computed(() => store.getters.getChannelConf);
 const userInfo = computed(() => store.getters.getUserInfo);
 //当前chat id
 const chatId = computed(() => store.getters.getLatestChatId);
+
+// AI 评分完成后，匹配度区域本身就是 AI 评估弹窗的唯一入口。
+const canOpenAIEvaluation = computed(() => {
+  const score = props.resume?.score;
+  return score !== null && score !== undefined && Number(score) >= 0;
+});
+
+// 任意职位的 BOSS 推荐 RPA 真正操作页面时，都禁用当前卡片的“立即沟通”。
+// 排队/WAITING 和后续 SCORING 评分阶段不在全局 getter 的锁定范围内。
+const isBossRecommendTaskExecuting = computed(() => {
+  return store.getters['SearchTasks/isBossRecommendRpaExecuting'] === true;
+});
 
 // 三方公司的信息
 const planInfo = computed(() => store.getters.getUserInfo?.extendData);
@@ -479,24 +514,6 @@ const openDetailInNewWindow2 = (url) => {
 
   // 添加到文档
   document.body.appendChild(modal);
-}
-
-//boss聊天
-const bossScheduleInterview = async (resume) => {
-  let boosJobInfo = await bossFindJobDetail(resume);
-  if(boosJobInfo){
-    let bossCollect = await runCollect(boosJobInfo);
-    if(bossCollect){
-      const url = pluginAllUrls.BOSS.baseUrl + pluginAllUrls.BOSS.interactionUrl;
-      // ★ forceReload: BOSS 互动消息 tab 可能已经打开（同 URL），openOrActivateSiteTab
-      //   只会激活不会刷新。这里强制 reload，让 BOSS SPA 重新拉数据 → 显示刚收藏的人。
-      openDetailInNewWindow(url, { forceReload: true });
-    }else{
-      notify.warning(resume.channel+"联系人才失败");
-    }
-  }else{
-    notify.warning(resume.channel+"联系人才异常，请联系管理员");
-  }
 }
 
 //boss 查看详情
@@ -715,7 +732,9 @@ const viewDetail = () => {
   // readOnly=true（BOSS 推荐 tab 等匿名场景）跳过所有 i 人事 / 渠道业务联动，
   // 只 emit 给父组件，由父组件决定后续行为（如打开候选人详情抽屉）
   if (!props.readOnly) {
-    handleViewDetail(props.resume);
+    if (!props.detailHandledByParent) {
+      handleViewDetail(props.resume);
+    }
     //设置已读
     handleIsReadData(props.resume);
   }
@@ -920,9 +939,58 @@ const saveJobListRequestTemplate =()=>{
 
 // 约面试 / 立即沟通
 const scheduleInterview = async () => {
-  // 普通搜索和推荐牛人统一走旧流程：查询详情 → 收藏 → 打开互动消息页。
-  bossScheduleInterview(props.resume);
-  emit('interview', props.resume);
+  // 模板 disable 外再做一次业务拦截，防止全局 RPA 刚上锁、DOM 尚未完成下一帧渲染时误触。
+  if (isBossRecommendTaskExecuting.value) {
+    notifyBossRecommendTaskExecuting();
+    return;
+  }
+  if (bossCommunicationLoading.value) return;
+  bossCommunicationLoadingStage.value = 'searching';
+  bossCommunicationLoading.value = true;
+  try {
+    try {
+      await window?.api?.automation?.showOverlay?.({
+        title: '正在执行立即沟通',
+        message:
+          '客户端正在定位候选人并执行沟通，请耐心等待，请勿同步操作 <span class="channel">BOSS直聘</span> 账号',
+        channelName: 'BOSS直聘',
+        coverChannels: ['boss']
+      });
+    } catch (overlayError) {
+      console.warn('立即沟通蒙层显示失败（继续执行）:', overlayError);
+    }
+
+    const result = await greetBossInteractionGeek(props.resume, {
+      onProgress: (stage) => {
+        bossCommunicationLoadingStage.value = stage;
+      }
+    });
+    if (!result?.ok) {
+      if (result?.code === 'BOSS_ENTITLEMENT_REQUIRED') {
+        notify.warning('BOSS直聘沟通权益不足，请开通权益后重试');
+      } else {
+        notify.warning(result?.message || 'BOSS 互动页面操作失败，请前往 BOSS 检查');
+      }
+      return;
+    }
+    notify.success(`已在 BOSS 互动页面执行“${result.action}”`);
+  } catch (error) {
+    console.error('BOSS 互动页面立即沟通失败:', error);
+    notify.warning('BOSS 互动页面操作失败，请前往 BOSS 检查');
+  } finally {
+    try {
+      await window?.api?.automation?.hideOverlay?.();
+    } catch (overlayError) {
+      console.warn('立即沟通蒙层关闭失败（忽略）:', overlayError);
+    }
+    bossCommunicationLoading.value = false;
+    bossCommunicationLoadingStage.value = 'idle';
+    emit('interview', props.resume);
+  }
+};
+
+const notifyBossRecommendTaskExecuting = () => {
+  notify.warning(bossRecommendTaskExecutingMessage);
 };
 
 //处理已读
@@ -969,7 +1037,7 @@ const handleViewDetail = (resume) => {
   if(channelInfo){
     channelInfo.fn(resume);
   }else{
-    notify.warning(resume.channel+"查询详情异常，请联系管理员");
+    notify.warning(formatChannelDisplayName(resume.channel)+"查询详情异常，请联系管理员");
   }
 };  
 
@@ -1005,6 +1073,7 @@ const commomIHR = async (resume) => {
     return data;
   } catch (error) {
     console.error(error);
+    throw error;
   } finally {
     emit('updateCollectResumeLoading', false);
   }
@@ -1057,7 +1126,12 @@ const addToTalentPool = async (resume) => {
       });
     }
   } catch (error) {
-    console.error(error);
+    console.error('addToTalentPool失败:', error);
+    $q.notify({
+      message: '处理简历失败: ' + error.message,
+      color: 'negative',
+      position: 'top'
+    });
   } finally {
     emit('updateCollectResumeLoading', false);
   }
@@ -1113,6 +1187,7 @@ const shouldShowTalentPoolTooltip = (thirdPartyInfo) => {
 
 // 显示AI评估对话框
 const showAIEvaluationDialog = () => {
+  if (!canOpenAIEvaluation.value) return;
   showAIEvaluation.value = true;
 };
 
@@ -1140,6 +1215,30 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+}
+
+.score-circle--clickable {
+  cursor: pointer;
+  border-radius: 50%;
+  transition: box-shadow 0.2s ease;
+}
+
+.score-circle--clickable:hover,
+.score-circle--clickable:focus-visible {
+  box-shadow: 0 0 0 6px rgba(0, 215, 198, 0.08);
+  outline: none;
+}
+
+.boss-communication-button-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.boss-communication-disabled-hit-area {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: not-allowed;
 }
 
 .description-text {
