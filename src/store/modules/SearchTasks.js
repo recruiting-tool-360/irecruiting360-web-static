@@ -309,7 +309,7 @@ const initialState = () => ({
    * 用户截图反馈"推荐还没开始状态就更新了"。
    *
    * 结构：Map<taskId, { phase, ts }>
-   *   - phase：'IDLE' | 'WAITING' | 'OPENING' | 'FETCHING' | 'FETCHED' | 'SAVED' | 'SCORING' | 'DONE' | 'FAILED'
+   *   - phase：'IDLE' | 'WAITING' | 'OPENING' | 'FETCHING' | 'FETCHED' | 'SAVED' | 'SCORING' | 'DONE' | 'PARTIAL' | 'FAILED'
    *     - IDLE     还没启动
    *     - WAITING  在 await 搜索 AI 跑完（推荐排队中，对应 UI: pending）
    *     - OPENING  打开 BOSS 推荐 tab + dwell
@@ -323,6 +323,12 @@ const initialState = () => ({
    * 不持久化（runtime only）。
    */
   recommendClientPhase: {},
+
+  /**
+   * 推荐流程的业务结果（runtime only）。
+   * 例如查看权益耗尽时，已成功收藏的简历仍需落库并评分，但渠道最终要以 FAILED 收尾。
+   */
+  recommendClientOutcome: {},
 
   /**
    * 用户主动停止的 taskId 集合。
@@ -573,6 +579,19 @@ const mutations = {
     const next = { ...state.recommendClientPhase };
     delete next[taskId];
     state.recommendClientPhase = next;
+  },
+  setRecommendClientOutcome(state, { taskId, outcome }) {
+    if (!taskId || !outcome) return;
+    state.recommendClientOutcome = {
+      ...state.recommendClientOutcome,
+      [taskId]: { ...outcome, ts: Date.now() }
+    };
+  },
+  clearRecommendClientOutcome(state, taskId) {
+    if (!taskId || !state.recommendClientOutcome[taskId]) return;
+    const next = { ...state.recommendClientOutcome };
+    delete next[taskId];
+    state.recommendClientOutcome = next;
   },
 
   /**
@@ -883,6 +902,11 @@ const getters = {
   getRecommendClientPhase: (state) => (taskId) => {
     if (!taskId) return "IDLE";
     return state.recommendClientPhase?.[taskId]?.phase || "IDLE";
+  },
+
+  getRecommendClientOutcome: (state) => (taskId) => {
+    if (!taskId) return null;
+    return state.recommendClientOutcome?.[taskId] || null;
   },
 
   /**
@@ -2251,7 +2275,12 @@ const actions = {
         );
         // 推荐渠道：AI 评分 + 详情都跑完 → 标 DONE，TaskStatusCard 推荐卡进入"完毕"
         if (hasRecommend) {
-          commit("setRecommendClientPhase", { taskId, phase: "DONE" });
+          const recommendOutcome = state.recommendClientOutcome?.[taskId];
+          commit("setRecommendClientPhase", {
+            taskId,
+            phase:
+              recommendOutcome?.code === "BOSS_ENTITLEMENT_REQUIRED" ? "PARTIAL" : "DONE"
+          });
         }
       }
 
@@ -2345,13 +2374,24 @@ const actions = {
         // /results(finished=true) 已经在业务侧 channelDataSavePlus 调过了。/detail 也是
         // 业务侧 saveResumeDetailPlus 之后立刻配对调的。runTask 等到 AI 分析完成后才到这里，
         // 调一次 /finish 标记 channel 结束。
-        const finishPayload = !runFailed
-          ? { status: "COMPLETED" }
-          : {
+        const recommendOutcome =
+          ch.businessChannel === "RECOMMEND" && ch.channelSubType === "BOSS"
+            ? state.recommendClientOutcome?.[taskId]
+            : null;
+        const entitlementFailure = recommendOutcome?.code === "BOSS_ENTITLEMENT_REQUIRED";
+        const finishPayload = entitlementFailure
+          ? {
               status: "FAILED",
-              errorCode: runError?.code || "UNKNOWN",
-              errorMessage: runError?.message || "聚合搜索失败"
-            };
+              errorCode: recommendOutcome.code,
+              errorMessage: recommendOutcome.message || "BOSS直聘查看权益不足，推荐任务已停止"
+            }
+          : !runFailed
+            ? { status: "COMPLETED" }
+            : {
+                status: "FAILED",
+                errorCode: runError?.code || "UNKNOWN",
+                errorMessage: runError?.message || "聚合搜索失败"
+              };
 
         // ★ 该渠道当前未登录 → **不立即 finish**：登记「待 finish」，等用户重新登录 +
         //   AI 重新分析跑完后（reAnalyzeFailedResumes → finishPendingChannelsForChannel）再 finish。
@@ -2432,7 +2472,7 @@ const actions = {
                   );
                   break;
                 }
-                if (phase === "DONE" && !timerOn && pending === 0) {
+                if ((phase === "DONE" || phase === "PARTIAL") && !timerOn && pending === 0) {
                   // phase=DONE 表示 doFetchRecommend 业务流程跑完（含 humanize + /results + /detail）
                   // 同时 scoreUpdater 已停（timer null + pending 0）→ AI 评分也跑完 → 真正可 finish
                   break;
@@ -2474,7 +2514,8 @@ const actions = {
             taskId,
             taskChannelId: ch.taskChannelId,
             patch: {
-              taskChannelStatus: !runFailed ? TASK_STATUS.COMPLETED : TASK_STATUS.FAILED,
+              taskChannelStatus:
+                !runFailed && !entitlementFailure ? TASK_STATUS.COMPLETED : TASK_STATUS.FAILED,
               finishedAt: Date.now()
             }
           });
@@ -2488,7 +2529,8 @@ const actions = {
             taskId,
             taskChannelId: ch.taskChannelId,
             patch: {
-              taskChannelStatus: !runFailed ? TASK_STATUS.COMPLETED : TASK_STATUS.FAILED,
+              taskChannelStatus:
+                !runFailed && !entitlementFailure ? TASK_STATUS.COMPLETED : TASK_STATUS.FAILED,
               finishedAt: Date.now()
             }
           });
@@ -2501,11 +2543,21 @@ const actions = {
         patch: { totalResultsCount: totalCollected }
       });
       const finalTask = state.tasksById[taskId];
+      const recommendOutcome = state.recommendClientOutcome?.[taskId];
+      const entitlementFailure = recommendOutcome?.code === "BOSS_ENTITLEMENT_REQUIRED";
       commit("finishTask", {
         taskId,
         taskStatus:
-          finalTask?.taskStatus || (runFailed ? TASK_STATUS.FAILED : TASK_STATUS.COMPLETED),
-        error: runFailed ? runError : null
+          finalTask?.taskStatus ||
+          (runFailed || entitlementFailure ? TASK_STATUS.FAILED : TASK_STATUS.COMPLETED),
+        error: runFailed
+          ? runError
+          : entitlementFailure
+            ? {
+                code: recommendOutcome.code,
+                message: recommendOutcome.message || "BOSS直聘查看权益不足，推荐任务已停止"
+              }
+            : null
       });
       console.log(
         `[SearchTasks] runTask: 任务收敛 taskId=${taskId} status=${state.tasksById[taskId]?.taskStatus} totalCollected=${totalCollected}`
