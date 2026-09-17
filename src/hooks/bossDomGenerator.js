@@ -87,18 +87,18 @@ export function bossDomGenerator() {
           ${workExpList && workExpList.length > 0 ? `
             <div style="display: flex; align-items: start; margin-top: 30px;">
 
-              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 4px 0 0 0;">工作经历</h4>
+              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 0;line-height: 20px;flex-shrink: 0;">工作经历</h4>
 
               <div style="margin-left: 30px; flex: 1;">
                 ${workExpList.map(work => `
                   <div style="margin-bottom: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <div style="display: flex;justify-content: center;align-items: center;">
-                        <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
+                        <h3 style="font-size: 14px; font-weight: bold; color: #171d26;margin: 0;line-height: 20px;">
                           ${work.company}
                         </h3>
                         <span style="margin: 0 10px;color: #ccc;">|</span>
-                        <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
+                        <h3 style="font-size: 14px; font-weight: bold; color: #171d26;margin: 0;line-height: 20px;">
                           ${work.positionName}${work.department ? ' · ' + work.department : ''}
                         </h3>
                       </div>
@@ -130,18 +130,18 @@ export function bossDomGenerator() {
           ${projExpList && projExpList.length > 0 ? `
             <div style="display: flex; align-items: start; margin-top: 30px;">
 
-              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 4px 0 0 0;">项目经验</h4>
+              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 0;line-height: 20px;flex-shrink: 0;">项目经验</h4>
 
               <div style="margin-left: 30px; flex: 1;">
                 ${projExpList.map(project => `
                   <div style="margin-bottom: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <div style="display: flex;justify-content: center;align-items: center;">
-                        <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
+                        <h3 style="font-size: 14px; font-weight: bold; color: #171d26;margin: 0;line-height: 20px;">
                           ${project.name}
                         </h3>
                         <span style="margin: 0 10px;color: #ccc;">|</span>
-                        <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
+                        <h3 style="font-size: 14px; font-weight: bold; color: #171d26;margin: 0;line-height: 20px;">
                           ${project.roleName}
                         </h3>
                       </div>
@@ -164,24 +164,24 @@ export function bossDomGenerator() {
           ${eduExpList && eduExpList.length > 0 ? `
             <div style="display: flex; align-items: start; margin-top: 30px;">
 
-              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 4px 0 0 0;">教育经历</h4>
+              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 0;line-height: 20px;flex-shrink: 0;">教育经历</h4>
 
               <div style="margin-left: 30px; flex: 1;">
                 ${eduExpList.map(edu => `
                   <div style="margin-bottom: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                       <div style="display: flex;align-items: center;align-items: center;">
-                        <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
+                        <h3 style="font-size: 14px; font-weight: bold; color: #171d26;margin: 0;line-height: 20px;">
                           ${edu.school}
                         </h3>
                         <span style="margin: 0 10px;color: #ccc;">|</span>
-                        <div style="color: #171d26; font-weight: bold; font-size: 14px;">
+                        <div style="color: #171d26; font-weight: bold; font-size: 14px; line-height: 20px;">
                           ${edu.major}
                           <span style="margin: 0 10px;color: #ccc;">|</span>
                           ${edu.degreeName} ${edu.eduType === 2 ? ' · 非全日制' : ''}
                         </div>
                       </div>
-                      <span style="color: #363f4d; font-size: 13px; white-space: nowrap; margin-left: 20px;line-height: 50px;">
+                      <span style="color: #363f4d; font-size: 13px; white-space: nowrap; margin-left: 20px; line-height: 20px;">
                         ${edu.startYearStr} - ${edu.endYearStr}
                       </span>
                     </div>
@@ -201,14 +201,14 @@ export function bossDomGenerator() {
           ${(honorList && honorList.length > 0) ? `
             <div style="display: flex; align-items: start; margin-top: 30px;">
 
-              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 4px 0 0 0;">所获荣誉</h4>
+              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 0;line-height: 20px;flex-shrink: 0;">所获荣誉</h4>
 
               <div style="margin-left: 30px; flex: 1;">
                 ${honorList && honorList.length > 0 ? honorList.map(honor => `
                   <div style="margin-bottom: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <div style="display: flex;align-items: center;">
-                        <h3 style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0; color: #171d26;margin: 0;">
+                        <h3 style="font-size: 14px; font-weight: bold; color: #171d26;margin: 0;line-height: 20px;">
                           ${honor?.honorName || ''}
                         </h3>
                       </div>
@@ -223,7 +223,7 @@ export function bossDomGenerator() {
           ${professionalSkill ? `
             <div style="display: flex; align-items: start; margin-top: 30px;">
  
-              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 0;">专业技能</h4>
+              <h4 style="font-size: 14px; color:#171d26;font-weight: bold;margin: 0;line-height: 20px;flex-shrink: 0;">专业技能</h4>
  
               <div style="margin-left: 30px; flex: 1;">
                 <div style="margin-bottom: 20px;">
@@ -232,13 +232,6 @@ export function bossDomGenerator() {
               </div>
             </div>
           ` : ''}
-
-          <!-- boss声明 -->
-          <div style="margin: 4px 0 0 86px;">
-            <p style="margin: 0; line-height: 1.6; color: #aaaaaa; font-size: 12px; white-space: pre-line;">
-              为妥善保护牛人在BOSS直聘平台提交、发布、展示的简历（包括但不限于在线简历、附件简历）中的个人信息（包括但不限于联系方式、期望职位、教育经历、工作经历等），任何用户原则上仅可出于自身招聘的目的，通过BOSS直聘平台在线浏览牛人简历。未经BOSS直聘及牛人本人书面授权，任何用户不得将牛人在BOSS直聘平台提交、发布、展示的简历中的个人信息，在任何第三方平台进行复制、使用、传播、存储。
-            </p>
-          </div>
 
         </div>
       `;

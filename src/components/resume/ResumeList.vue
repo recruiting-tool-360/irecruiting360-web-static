@@ -13,6 +13,9 @@
       @confirm="handleBatchConfirm"
     />
 
+    <!-- 候选人简历详情弹窗（自绘，替代原先新开页签跳渠道详情页） -->
+    <ResumeDetailDialog v-model="detailDialogVisible" :resume="detailResume" />
+
     <!-- 自定义加载遮罩 -->
     <div v-if="isCollectResumeLoading" class="custom-loading-overlay">
       <q-spinner color="primary" size="3em" />
@@ -124,6 +127,7 @@
                 :resume="resume"
                 :is-read="resume.isRead"
                 :tab-str="channelStr"
+                detail-handled-by-parent
                 :search-condition-id-override="resume.searchConditionId || null"
                 @collect="handleCollect"
                 @read="handleRead"
@@ -173,6 +177,7 @@
 <script setup>
 import { ref, computed, defineProps, defineEmits, watch, inject } from "vue";
 import ResumeCard from "./ResumeCard.vue";
+import ResumeDetailDialog from "./ResumeDetailDialog.vue";
 import BatchShareDialog from "./BatchShareDialog.vue";
 import BatchAddToTalentPoolDialog from "./BatchAddToTalentPoolDialog.vue";
 import { useSendResume } from "src/hooks/useSendResume";
@@ -608,7 +613,14 @@ const handleBlacklist = (resume) => {
   emit("blacklist", resume);
 };
 
+// 简历详情弹窗（自绘）：卡片传 detail-handled-by-parent，由这里统一打开弹窗，
+// 不再走 ResumeCard 内部 openDetailInNewWindow 新开页签。
+const detailDialogVisible = ref(false);
+const detailResume = ref(null);
+
 const handleViewDetail = (resume) => {
+  detailResume.value = resume;
+  detailDialogVisible.value = true;
   emit("detail", resume);
 };
 

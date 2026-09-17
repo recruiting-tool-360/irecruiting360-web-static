@@ -72,6 +72,9 @@
         />
       </div>
     </template>
+
+    <!-- 候选人简历详情弹窗（自绘，替代原先新开页签跳 BOSS 详情页） -->
+    <ResumeDetailDialog v-model="detailDialogVisible" :resume="detailResume" />
   </div>
 </template>
 
@@ -90,10 +93,10 @@
  * Emits:
  *   - refresh    : 用户点工具栏"刷新"按钮
  *   - retry      : 错误态下点"重试"
- *   - open-geek  : 用户点某个候选人卡片，payload 是 geek 原始对象
  */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import ResumeCard from 'src/components/resume/ResumeCard.vue';
+import ResumeDetailDialog from 'src/components/resume/ResumeDetailDialog.vue';
 
 /**
  * BOSS 推荐 API（`/wapi/zpjob/rec/geek/list`）真实返回结构：
@@ -231,8 +234,8 @@ const props = defineProps({
   loading: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['refresh', 'retry', 'open-geek']);
-void emit;
+// refresh / retry 由模板 $emit 触发；候选人卡片点击改为组件内弹窗（不再对外 emit）
+defineEmits(['refresh', 'retry']);
 
 const errorVisible = computed(() => {
   if (!props.bucket?.error) return false;
@@ -266,8 +269,15 @@ function formatTime(ts) {
 }
 
 function onCardClick(geek) {
-  emit('open-geek', geek);
+  // 不再新开页签跳渠道详情页（渠道详情页参数已变更、前端无法复刻），
+  // 改为弹窗自绘详情：把列表 geek 适配成生成器需要的 resume 形态后交给弹窗。
+  detailResume.value = mapBossGeekToResume(geek);
+  detailDialogVisible.value = true;
 }
+
+/** 简历详情弹窗 */
+const detailDialogVisible = ref(false);
+const detailResume = ref(null);
 </script>
 
 <style scoped lang="scss">
