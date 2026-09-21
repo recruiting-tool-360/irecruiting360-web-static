@@ -159,7 +159,6 @@
                 :loading="!!currentRecommendBucket?.fetching"
                 @retry="retryFetchRecommend"
                 @refresh="retryFetchRecommend"
-                @open-geek="onOpenGeek"
               />
             </div>
           </div>
@@ -225,7 +224,7 @@ import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import { runBossRecommend, unlockRecommendTab } from "src/util/automation/bossRecommend";
 import { buildSearchTaskChannels } from "src/util/searchTaskPayloadBuilder";
 import ClearChatConfirmModal from "src/components/clients/ClearChatConfirmModal.vue";
-import { openChannelUrl, isElectronClient } from "src/util/openChannelLoginUrl";
+import { isElectronClient } from "src/util/openChannelLoginUrl";
 import {
   CHANNEL_DISPLAY_NAME,
   markChannelExpired,
@@ -233,7 +232,6 @@ import {
   handleChannelLoginExpired
 } from "src/util/channelLoginGuard";
 import { ensureClientAuthority } from "src/util/checkClientAuthority";
-import { pluginAllUrls } from "src/pluginSrc/config/PluginRequestManager";
 import RecommendList from "src/components/clients/RecommendList.vue";
 import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 const store = useStore();
@@ -616,72 +614,6 @@ async function retryFetchRecommend() {
     return;
   }
   await doFetchRecommend(lastRecommendArgs.value);
-}
-
-/**
- * 推荐 tab 点击候选人卡片 → 新开 BOSS 详情 tab。
- *
- * 跟搜索 tab `bossHandleViewDetail` 走同一条客户端路径：
- *   openChannelUrl('boss', url)
- *     → recruitBridge.openSiteWindow IPC
- *     → tabManager.openOrActivateSiteTab('boss', url)
- *     → 新 tab（同 URL 已存在则复用 + activate）
- *
- * URL 拼法跟 src/pluginSrc/util/ChannelUrlUtil.js → bossUrl() 完全一致——
- * 只是搜索结果是从 resume.originalResumeUrlInfo 取 securityId，
- * 推荐结果直接从 geek.geekCard.securityId 取（BOSS 推荐 API 真实字段，
- * 详见 docs/boss地址资料.md L602）。
- */
-function parseOriginalResumeUrlInfo(value) {
-  if (!value) return null;
-  if (typeof value === "object") return value;
-  if (typeof value !== "string" || value === "null") return null;
-  try {
-    return JSON.parse(value);
-  } catch (_e) {
-    return null;
-  }
-}
-
-function resolveBossGeekSecurityId(geek) {
-  const raw = geek?._raw || {};
-  const info =
-    parseOriginalResumeUrlInfo(geek?.originalResumeUrlInfo) ||
-    parseOriginalResumeUrlInfo(raw?.originalResumeUrlInfo);
-  return (
-    geek?.geekCard?.securityId ||
-    raw?.geekCard?.securityId ||
-    geek?.securityId ||
-    raw?.securityId ||
-    info?.request?.securityId ||
-    info?.securityId ||
-    ""
-  );
-}
-
-function onOpenGeek(geek) {
-  const c = geek?.geekCard || geek?._raw?.geekCard || {};
-  const name = c.geekName || geek?.geekName || geek?.name || "匿名";
-  const securityId = resolveBossGeekSecurityId(geek);
-  if (!securityId) {
-    console.warn("[IndexPage] open geek 失败：候选人 securityId 缺失", geek);
-    notify.warning("候选人详情已失效，请重新执行推荐任务");
-    return;
-  }
-  // 跟 ChannelUrlUtil.bossUrl 同款参数；使用 URLSearchParams 防止安全串被错误拼接。
-  const detailUrl = new URL(pluginAllUrls.BOSS.geekDetailUrl);
-  detailUrl.searchParams.set("isInnerAccount", "0");
-  detailUrl.searchParams.set("isResume", "1");
-  detailUrl.searchParams.set("isPreview", "0");
-  detailUrl.searchParams.set("status", "5");
-  detailUrl.searchParams.set("jobId", "-1");
-  detailUrl.searchParams.set("securityId", String(securityId));
-  const url = detailUrl.toString();
-  console.log(`[IndexPage] open geek: name=${name} → ${url}`);
-  // openChannelUrl 内部按 isElectronClient 判断走 IPC（新 tab）or window.open（新窗口）
-  openChannelUrl("boss", url, { bossMode: "detail" }).catch((e) => {
-    console.warn("[IndexPage] openChannelUrl(boss) 失败:", e?.message || e);
-  });
 }
 
 /**
@@ -2035,6 +1967,66 @@ async function dispatchTaskStore({
 // 也只允许一次跑一个，但 dispatching 阶段可以并行）。
 const _dispatchingChats = new Set(); // Set<chatId>
 
+/**
+ * 取 criteria 的三组字段（统一成字符串数组，避免 undefined 参与比较）。
+ */
+function pickCriteriaOverrideFields(criteria) {
+  const src = criteria || {};
+  const picked = {};
+  CRITERIA_OVERRIDE_FIELDS.forEach((key) => {
+    picked[key] = Array.isArray(src[key]) ? [...src[key]] : [];
+  });
+  return picked;
+}
+
+function isSameStringList(a, b) {
+  return a.length === b.length && a.every((item, idx) => item === b[idx]);
+}
+
+/**
+ * 启动搜索前刷新当前职位的最新搜索条件，三组画像字段以「用户改动优先」合并：
+ *   1. 先记下刷新前本地的三组字段（用户在画像卡 / 标签区改过的值就在这里）
+ *   2. 调 JobSearchFilter.refreshSearchCondition → GET /ihire/chat/getCurrentConditionByChatId
+ *      拿最新条件写入 searchState（覆盖首次打开该职位时 criteria 查不到的场景）
+ *   3. 覆盖优先级：接口最新值 < 本地非空值 < 画像卡编辑确认值
+ *      （本地空值不覆盖接口，避免把接口查回来的数据清掉）
+ *
+ * 调用点：handleAggregateSearch —— 「启动聚合搜索（INITIAL）/ 清空重新搜索（RESTART）/
+ * 保留增量搜索（CONTINUE）」三个入口都走这里，刷新后的 searchState 由
+ * prepareConditionOnly 生成本轮 saveCondition 条件。
+ */
+async function refreshSearchConditionBeforeSearch(chatIdForSearch) {
+  if (!chatIdForSearch) return;
+  const filter = jobSearchFilterRef.value;
+  if (!filter || typeof filter.refreshSearchCondition !== "function") {
+    console.warn("[IndexPage] refreshSearchConditionBeforeSearch: jobSearchFilterRef 不可用，跳过刷新");
+    return;
+  }
+
+  const localBefore = pickCriteriaOverrideFields(searchState.value?.criteria);
+  try {
+    await filter.refreshSearchCondition(chatIdForSearch);
+  } catch (e) {
+    console.warn("[IndexPage] refreshSearchConditionBeforeSearch 异常:", e?.message || e);
+  }
+
+  // 刷新后 searchState.criteria 已是接口最新值 → 只挑出要盖回去的"用户值"
+  const serverAfter = pickCriteriaOverrideFields(searchState.value?.criteria);
+  const userPatch = {};
+  CRITERIA_OVERRIDE_FIELDS.forEach((key) => {
+    if (localBefore[key].length > 0 && !isSameStringList(localBefore[key], serverAfter[key])) {
+      userPatch[key] = localBefore[key];
+    }
+  });
+  const cardPatch = profileCriteriaOverrideByChatId.value?.[chatIdForSearch] || {};
+  const patch = { ...userPatch, ...cardPatch };
+  if (Object.keys(patch).length === 0) return;
+
+  const cur = searchState.value || {};
+  searchState.value = { ...cur, criteria: { ...(cur.criteria || {}), ...patch } };
+  console.log(`[IndexPage] 用户改动覆盖接口最新 criteria chatId=${chatIdForSearch}`, patch);
+}
+
 async function handleAggregateSearch(payload) {
   const chatIdToSearch = payload?.chatId || chatId.value;
   if (!chatIdToSearch) {
@@ -2242,6 +2234,11 @@ async function handleAggregateSearch(payload) {
 
   let condIdForCreate = "";
   let searchRequestDataForExec = null;
+
+  // ★ 本轮条件生成前先拉一次后端最新搜索条件（首次打开职位 criteria 缺失的场景），
+  //   再用用户画像卡确认过的三组字段覆盖（用户修改优先），最后交给 prepareConditionOnly。
+  await refreshSearchConditionBeforeSearch(chatIdToSearch);
+
   if (aiSearchRef.value && typeof aiSearchRef.value.prepareConditionOnly === "function") {
     try {
       const prep = await aiSearchRef.value.prepareConditionOnly();
@@ -2738,6 +2735,23 @@ const chatId = computed(() => store.getters.getLatestChatId);
 let searchStateConfig = createSearchState();
 const searchState = ref(searchStateConfig);
 
+/**
+ * criteria 里允许用户编辑、且优先级高于接口返回值的三组字段
+ * （AI 职位画像卡编辑 / 结果页标签编辑共用同一份 criteria）。
+ */
+const CRITERIA_OVERRIDE_FIELDS = ["professional_skills", "soft_skills", "work_experience"];
+
+/**
+ * 用户通过「AI 职位画像卡」编辑确认过的 criteria（按 chatId 维度）。
+ *
+ * 背景：启动搜索前会重新拉一次 `getCurrentConditionByChatId` 拿后端最新条件，
+ * 但接口返回值不允许冲掉用户改过的画像字段（用户的修改优先级最高）。
+ * 这里按 chatId 记住用户确认过的三组字段，刷新后重新盖回去——好处是：
+ * 即使中途切到别的职位（切职位会重新拉接口、覆盖本地 criteria）再切回来，
+ * 用户的修改依然生效。写入见 onProfileSkillsEdit。
+ */
+const profileCriteriaOverrideByChatId = ref({});
+
 // 用于控制组件的加载顺序
 const panelLoaded = ref(true);
 
@@ -2817,6 +2831,25 @@ const onProfileSkillsEdit = (payload) => {
   }
   searchState.value = next;
   console.log("[IndexPage] 画像卡编辑已同步到 searchState.criteria", criteria);
+
+  // ★ 记住用户改过的三组画像字段（按 chatId）：启动搜索前重新拉后端最新条件时，
+  //   用这份覆盖值盖回去，避免用户的修改被 getCurrentConditionByChatId 的返回值冲掉。
+  const overridePatch = {};
+  if (Array.isArray(payload?.skills)) overridePatch.professional_skills = [...payload.skills];
+  if (Array.isArray(payload?.softSkills)) overridePatch.soft_skills = [...payload.softSkills];
+  if (Array.isArray(payload?.relatedExperience)) {
+    overridePatch.work_experience = [...payload.relatedExperience];
+  }
+  const overrideChatId = payload?.chatId || chatId.value;
+  if (overrideChatId && Object.keys(overridePatch).length > 0) {
+    profileCriteriaOverrideByChatId.value = {
+      ...profileCriteriaOverrideByChatId.value,
+      [overrideChatId]: {
+        ...(profileCriteriaOverrideByChatId.value[overrideChatId] || {}),
+        ...overridePatch
+      }
+    };
+  }
 };
 
 // 引用AISearch组件
