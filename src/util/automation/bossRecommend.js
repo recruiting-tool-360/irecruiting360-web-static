@@ -6,12 +6,12 @@
  *      https://www.zhipin.com/web/frame/recommend/?jobid=<encryptJobId>&status=0&filterParams=&source=0
  *      （参考 docs/boss地址资料.md line 287）
  *   2) `window.api.automation.openOrActivate({ channel: 'boss', url })` 打开 / 激活 BOSS tab
- *   3)（可选）拿到 tabId 后 `runOnTab(tabId, bossRecommendFilterScript, ctx)` 触发筛选浮层
- *      并等接口返回，拿到 `zpData / geekCount`
+ *   3)（可选）拿到 tabId 后通过原生 IPC 触发筛选浮层
+ *      并等 BOSS 自己发出的接口响应，拿到 `zpData / geekCount`
  *
  * 一次 "启动聚合搜索" 勾选推荐牛人时，调用 `openBossRecommendForJob` 一次即可：
  *   - 不传 filters → 仅跳转打开推荐页（默认行为）
- *   - 传 filters   → 跳转后再跑 bossRecommendFilter skill 做条件筛选 + 拿数据
+ *   - 传 filters   → 跳转后通过原生 DOM/点击/网络通道做条件筛选 + 拿数据
  */
 
 import { runOnTab } from "src/util/automation/runScript";
@@ -46,16 +46,13 @@ export async function unlockRecommendTab() {
   try {
     if (typeof window?.api?.tabs?.setLocked === "function") {
       await window.api.tabs.setLocked({ id: tabId, locked: false });
-      console.log(`[bossRecommend] unlockRecommendTab(${tabId}) ok`);
+      console.log(`[任务流程] [bossRecommend] unlockRecommendTab(${tabId}) ok`);
     }
   } catch (e) {
-    console.warn(`[bossRecommend] unlockRecommendTab(${tabId}) 失败（忽略）：`, e?.message || e);
+    console.warn(`[任务流程] [bossRecommend] unlockRecommendTab(${tabId}) 失败（忽略）：`, e?.message || e);
   }
 }
-import {
-  scriptCode as bossRecommendFilterScript,
-  buildCtx as buildRecommendFilterCtx
-} from "src/playwright/bossRecommendFilter";
+import { applyBossRecommendFilters } from "src/util/automation/bossRecommendFilterNative";
 // bossRecommendList.js 抓数据用的 Playwright `page.waitForResponse` 路径已被
 // `window.api.siteNetwork.waitForResponse`（CDP debugger.attach）取代，
 // 见 fetchBossRecommendList 函数注释。脚本本身保留作历史参考，但不再 import。
@@ -67,6 +64,7 @@ import {
   scriptCode as bossRecommendVerifyScript,
   buildCtx as buildRecommendVerifyCtx
 } from "src/playwright/bossRecommendVerify";
+import { normalizeBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
 // bossOpenFilterOnce 仅用于开发期"BOSS Playwright 冒烟测试"，**故意不在这里 import**：
 // 让 Vite 生产 build 能完全 tree-shake 掉调试入口（详见 ./bossRecommendDebug.js）。
 
@@ -96,9 +94,10 @@ function isInElectronClient() {
  *   兼容旧入参（不再用，只是不报错；宿主页一般只识别 jobid，其它参数会被 iframe 自己拼）
  */
 export function buildBossRecommendUrl(encryptJobId, opts = {}) {
-  if (!encryptJobId) return "";
+  const validJobId = normalizeBossJobId(encryptJobId);
+  if (!validJobId) return "";
   // 宿主 chat 页一般只需要 jobid，iframe src 由宿主自己拼 status/filterParams/source
-  const qs = new URLSearchParams({ jobid: String(encryptJobId) }).toString();
+  const qs = new URLSearchParams({ jobid: validJobId }).toString();
   return `${RECOMMEND_HOST_BASE}?${qs}`;
 }
 
@@ -120,10 +119,11 @@ export async function openBossRecommend(encryptJobId, opts = {}) {
       message: "window.api.automation 不可用（非 Electron 客户端）"
     };
   }
-  if (!encryptJobId) {
+  const validJobId = normalizeBossJobId(encryptJobId);
+  if (!validJobId) {
     return { ok: false, errorCode: "BAD_REQUEST", message: "encryptJobId required" };
   }
-  const url = buildBossRecommendUrl(encryptJobId, opts);
+  const url = buildBossRecommendUrl(validJobId, opts);
   try {
     const res = await window.api.automation.openOrActivate({
       channel: BOSS_CHANNEL,
@@ -184,11 +184,9 @@ export async function openBossRecommendForJob(args) {
   const navWaitMs = Math.max(0, opts.navWaitMs ?? 1500);
   if (navWaitMs > 0) await new Promise((r) => setTimeout(r, navWaitMs));
 
-  // 用 boss-recommend-filter skill 输出的脚本字符串触发筛选 + 拿接口数据
-  const ctx = buildRecommendFilterCtx(filters, { waitListMs });
-  const filterRes = await runOnTab(opened.tabId, bossRecommendFilterScript, ctx, {
-    timeoutMs: opts.timeoutMs ?? Math.max(waitListMs + 5000, 20000),
-    expectedHost: "zhipin.com"
+  // 使用 Electron 原生 DOM/点击/网络通道触发筛选，不依赖 automation:runScript。
+  const filterRes = await applyBossRecommendFilters(opened.tabId, filters, {
+    waitListMs: opts.timeoutMs ?? Math.max(waitListMs, 20000)
   });
 
   if (!filterRes.ok) {
@@ -424,7 +422,7 @@ export async function verifyBossRecommend(args) {
   // 1) 打开
   const opened = await openBossRecommend(encryptJobId);
   if (!opened.ok) return opened;
-  console.log("[bossRecommend.verify] opened tabId=", opened.tabId, "url=", opened.url);
+  console.log("[任务流程] [bossRecommend.verify] opened tabId=", opened.tabId, "url=", opened.url);
 
   // 2) dwell
   const range =
@@ -432,7 +430,7 @@ export async function verifyBossRecommend(args) {
   const lo = Math.min(Number(range[0]) || 5000, Number(range[1]) || 15000);
   const hi = Math.max(Number(range[0]) || 5000, Number(range[1]) || 15000);
   const ms = Math.floor(lo + Math.random() * (hi - lo));
-  console.log(`[bossRecommend.verify] 拟人 dwell ${ms}ms (${lo}-${hi})`);
+  console.log(`[任务流程] [bossRecommend.verify] 拟人 dwell ${ms}ms (${lo}-${hi})`);
   await new Promise((r) => setTimeout(r, ms));
 
   // 3) 跑 verify 脚本
@@ -441,7 +439,7 @@ export async function verifyBossRecommend(args) {
     timeoutMs: 20000,
     expectedHost: "zhipin.com"
   });
-  console.log("[bossRecommend.verify] script result:", res);
+  console.log("[任务流程] [bossRecommend.verify] script result:", res);
   return {
     ok: res.ok,
     tabId: opened.tabId,
@@ -499,6 +497,8 @@ export async function verifyBossRecommend(args) {
  * @param {boolean} [args.autoSelectJob=true]     是否主动 CDP 点选职位（推荐路径，确保 BOSS UI 切到目标职位）
  * @param {object} [args.selectJobOpts]           透传给 selectJobInBossRecommend 的 opts
  *                                                （initialDelayMs / dropdownDwellMs / selectSettleMs 等）
+ * @param {boolean} [args.discoverOnly=false]     只发现候选人，不打开详情/收藏。
+ *                                                画像评分任务用：先抓人 → 上传评分 → SSE 通知通过名单 → 再回列表收藏。
  * @param {object} [args.humanizeOpts]   兼容旧调用参数；其中 config 继续用于分页滚动配置。
  * @returns {Promise<{
  *   ok: boolean,
@@ -508,16 +508,19 @@ export async function verifyBossRecommend(args) {
  *   firstPage?: object,
  *   collection?: object,
  *   geekList: Array,           // 本次页面 RPA 新收藏成功的候选人
+ *   pendingGeekList?: Array,   // 当前页面已加载但本批尚未处理的候选人
  *   errorCode?: string,
  *   message?: string
  * }>}
  */
 export async function runBossRecommend(args) {
-  const {
+  let {
     encryptJobId,
     targetCount = 10,
     onProgress,
     humanizeOpts = {},
+    /** 首次选择职位后应用的 BOSS 推荐筛选；后续复用 tab 时不会重复应用。 */
+    bossFilters,
     /**
      * 推荐渠道的 taskChannelId。传了就先拉「该渠道已保存简历 outId(=geekId)」集合，
      * 用于把**已入库**的牛人从候选池中排除，不再重复打开详情或收藏。
@@ -544,6 +547,12 @@ export async function runBossRecommend(args) {
     autoSelectJob = true,
     selectJobOpts = {},
     /**
+     * 只发现、不收藏。
+     *   画像评分链路要求“先评分，后收藏”：本批抓到候选人后先上传评分，
+     *   SSE 返回通过名单后再调用 collectBossRecommendGeeks 回列表逐个收藏。
+     */
+    discoverOnly = false,
+    /**
      * 调试用：在某一阶段提前退出
      *   - 'open'      → 只打开 tab + select/dwell，不跑任何抓数据脚本
      *   - 'verify'    → 打开 tab + select/dwell + 跑 verify 脚本（验证职位选中 + 列表可见）
@@ -558,8 +567,43 @@ export async function runBossRecommend(args) {
      *   新任务状态（未停）→ 永不 break → 旧任务继续收藏并上传（串台 bug）。
      *   传入本运行**自己**的 taskId，isUserAborted 只认这个 id 的停止标记，互不影响。
      */
-    abortTaskId
+    abortTaskId,
+    /**
+     * 已经打开并完成职位选择的推荐 tab。传入后复用当前页面和滚动位置，
+     * 不重新打开页面、不重新选择职位、不重新请求首屏。
+     */
+    reuseTabId,
+    /** 当前推荐页已经加载但上一批尚未处理的候选人。 */
+    pendingGeekList = []
   } = args || {};
+
+  encryptJobId = normalizeBossJobId(encryptJobId);
+  if (!encryptJobId) {
+    return {
+      ok: false,
+      errorCode: "BAD_REQUEST",
+      message: "没有有效的 BOSS 职位 ID，请先选择匹配的 BOSS 职位",
+      geekList: []
+    };
+  }
+
+  const reuseExistingTab = Boolean(reuseTabId);
+  const normalizedBossFilters = normalizeBossFilters(bossFilters);
+  const bossFilterLabels = [
+    ["活跃度", normalizedBossFilters.activeness, ["不限", "刚刚活跃", "今日活跃", "3日内活跃", "本周活跃", "本月活跃"]],
+    ["近期没有看过", normalizedBossFilters.viewResume, ["不限", "近14天没有"]],
+    ["是否与同事交换简历", normalizedBossFilters.exchangeResume, ["不限", "近一个月没有"]]
+  ]
+    .filter(([, value]) => Number(value) !== 0)
+    .map(([name, value, labels]) => ({ name, value: labels[Number(value)] || "" }))
+    .filter((item) => item.value);
+  console.log("[任务流程] [bossRecommend] 筛选参数归一化:", {
+    bossFilters: bossFilters || null,
+    normalizedBossFilters,
+    filterLabels: bossFilterLabels,
+    autoSelectJob,
+    reuseExistingTab
+  });
 
   // 1) 主动 select 分支需要在 open 之前做两件事：
   //    a. clearCache('boss') —— 清旧响应防 sinceTs 过滤后还混入历史数据
@@ -568,27 +612,33 @@ export async function runBossRecommend(args) {
   // BOSS 主签现在永久固定不可关闭；openBossSingleton 每次都会 loadURL，仍能确保重新导航。
   // 候选人详情签属于用户浏览上下文，启动推荐任务时必须保留，不能批量关闭。
   let openStartTs = 0;
-  if (autoSelectJob) {
+  if (autoSelectJob && !reuseExistingTab) {
     // a. 清缓存
     try {
       if (typeof window?.api?.siteNetwork?.clearCache === "function") {
         await window.api.siteNetwork.clearCache("boss");
-        console.log("[bossRecommend] siteNetwork.clearCache(boss) ok（清旧响应防混淆）");
+        console.log("[任务流程] [bossRecommend] siteNetwork.clearCache(boss) ok（清旧响应防混淆）");
       }
     } catch (e) {
-      console.warn("[bossRecommend] clearCache 失败（忽略）：", e?.message || e);
+      console.warn("[任务流程] [bossRecommend] clearCache 失败（忽略）：", e?.message || e);
     }
 
     // b. 记 openStartTs（必须在 openBossRecommend 之前，确保 BOSS 自动发的首屏响应
     //    receivedAt > openStartTs，能被 waitForResponse 命中）
     openStartTs = Date.now();
     console.log(
-      `[bossRecommend] openStartTs=${openStartTs}（如果 alreadySelected 就用这个等 BOSS 自动加载的首屏响应）`
+      `[任务流程] [bossRecommend] openStartTs=${openStartTs}（如果 alreadySelected 就用这个等 BOSS 自动加载的首屏响应）`
     );
   }
 
-  // 2) 打开推荐 tab（幂等：已开则激活）
-  const opened = await openBossRecommend(encryptJobId);
+  // 2) 首批打开推荐 tab；后续批次复用当前 tab，避免页面重新加载和重新搜索。
+  const opened = reuseExistingTab
+    ? {
+        ok: true,
+        tabId: reuseTabId,
+        url: buildBossRecommendUrl(encryptJobId)
+      }
+    : await openBossRecommend(encryptJobId);
   if (!opened.ok) return opened;
   if (typeof onProgress === "function") {
     onProgress("opened", { tabId: opened.tabId, url: opened.url });
@@ -605,17 +655,18 @@ export async function runBossRecommend(args) {
     try {
       await window.api.tabs.setLocked({ id: opened.tabId, locked: true });
       __lockedRecommendTabId = opened.tabId;
-      console.log(`[bossRecommend] tabs.setLocked(${opened.tabId}, true) ok - 任务期间锁定`);
+      console.log(`[任务流程] [bossRecommend] tabs.setLocked(${opened.tabId}, true) ok - 任务期间锁定`);
     } catch (e) {
-      console.warn(`[bossRecommend] tabs.setLocked(true) 失败（忽略）：`, e?.message || e);
+      console.warn(`[任务流程] [bossRecommend] tabs.setLocked(true) 失败（忽略）：`, e?.message || e);
     }
   }
 
   // 2.5) 主动 select 分支 vs 旧被动 dwell 分支
   let sinceTs;
   let selectResult = null;
+  let filteredFirstPage = null;
 
-  if (autoSelectJob) {
+  if (autoSelectJob && !reuseExistingTab) {
     // ★ 主动 CDP 点选职位 + 「已选中目标」短路逻辑
     //
     // BOSS 推荐 tab 打开后会自动发一次 /wapi/zpjob/rec/geek/list（基于 URL 的 jobid）。
@@ -639,7 +690,7 @@ export async function runBossRecommend(args) {
     selectResult = selectRes;
     if (!selectRes.ok) {
       console.warn(
-        `[bossRecommend] selectJob 失败 → 整体放弃: ${selectRes.errorCode} ${selectRes.message}`
+        `[任务流程] [bossRecommend] selectJob 失败 → 整体放弃: ${selectRes.errorCode} ${selectRes.message}`
       );
       return {
         ok: false,
@@ -656,19 +707,19 @@ export async function runBossRecommend(args) {
       // ★ 已经选中目标 → 没点 li，BOSS 没发新 API → 用 openStartTs 等"open 时自动发的"那条
       sinceTs = openStartTs;
       console.log(
-        `[bossRecommend] selectJob: alreadySelected (current===target=${encryptJobId}) ` +
+        "[任务流程]", `[bossRecommend] selectJob: alreadySelected (current===target=${encryptJobId}) ` +
           `→ sinceTs=${openStartTs}（openStartTs），等 BOSS 打开时自动发的首屏响应`
       );
     } else {
       // 切换职位 → BOSS 会发新 API → 用 liClickedAt 等切职位后的响应
       sinceTs = selectRes.liClickedAt || Date.now();
       console.log(
-        `[bossRecommend] selectJob ok (current=${
+        "[任务流程]", `[bossRecommend] selectJob ok (current=${
           selectRes.currentSelectedJobId || "?"
         } → target=${encryptJobId}) ` + `→ sinceTs=${sinceTs}（liClickedAt），等 BOSS 切职位响应`
       );
     }
-  } else {
+  } else if (!reuseExistingTab) {
     // 旧路径：clearCache + loadUrl(_t) + 随机 dwell + 被动等
     //
     // 为什么不用 reload()：经实测 webContents.reload() 对 BOSS 推荐 SPA **没让它重新发**
@@ -680,21 +731,21 @@ export async function runBossRecommend(args) {
         await window.api.siteNetwork.clearCache("boss");
       }
     } catch (e) {
-      console.warn(`[bossRecommend] clearCache 失败（忽略）：`, e?.message || e);
+      console.warn(`[任务流程] [bossRecommend] clearCache 失败（忽略）：`, e?.message || e);
     }
     try {
       const navUrl = `${opened.url}${opened.url.includes("?") ? "&" : "?"}_t=${Date.now()}`;
       if (typeof window?.api?.tabs?.loadUrl === "function") {
         await window.api.tabs.loadUrl(opened.tabId, navUrl);
-        console.log(`[bossRecommend] tabs.loadUrl 已触发 tab=${opened.tabId} url=${navUrl}`);
+        console.log(`[任务流程] [bossRecommend] tabs.loadUrl 已触发 tab=${opened.tabId} url=${navUrl}`);
       } else if (typeof window?.api?.tabs?.reload === "function") {
         await window.api.tabs.reload(opened.tabId);
         console.log(
-          `[bossRecommend] tabs.loadUrl 不可用，降级 reload tab=${opened.tabId}（请重启 Electron 客户端拿到新 preload）`
+          `[任务流程] [bossRecommend] tabs.loadUrl 不可用，降级 reload tab=${opened.tabId}（请重启 Electron 客户端拿到新 preload）`
         );
       }
     } catch (e) {
-      console.warn(`[bossRecommend] loadUrl/reload 失败（忽略，继续）：`, e?.message || e);
+      console.warn(`[任务流程] [bossRecommend] loadUrl/reload 失败（忽略，继续）：`, e?.message || e);
     }
     sinceTs = Date.now();
 
@@ -707,15 +758,22 @@ export async function runBossRecommend(args) {
     const dwellHigh = Math.max(dwellRange[0], dwellRange[1]);
     const dwell = Math.floor(dwellLow + Math.random() * (dwellHigh - dwellLow));
     console.log(
-      `[bossRecommend] open ok, 拟人 dwell ${dwell}ms (${dwellLow}-${dwellHigh}) before next stage`
+      `[任务流程] [bossRecommend] open ok, 拟人 dwell ${dwell}ms (${dwellLow}-${dwellHigh}) before next stage`
     );
     if (typeof onProgress === "function") onProgress("dwell", { ms: dwell });
     await new Promise((r) => setTimeout(r, dwell));
   }
 
+  // 复用已有推荐页时，直接从当前列表位置开始触发下一页加载；不重新抓首屏。
+  if (reuseExistingTab) {
+    console.log(
+      `[任务流程] [bossRecommend] 复用推荐 tab=${opened.tabId}，跳过打开页面/选择职位/首屏请求，继续当前列表`
+    );
+  }
+
   // 2.5) stopAfter='open' → 提前返回
   if (stopAfter === "open") {
-    console.log("[bossRecommend] stopAfter=open, return without running scripts");
+    console.log("[任务流程] [bossRecommend] stopAfter=open, return without running scripts");
     return { ok: true, tabId: opened.tabId, url: opened.url, select: selectResult, geekList: [] };
   }
 
@@ -726,7 +784,7 @@ export async function runBossRecommend(args) {
       timeoutMs: 20000,
       expectedHost: "zhipin.com"
     });
-    console.log("[bossRecommend] stopAfter=verify, script result:", res);
+    console.log("[任务流程] [bossRecommend] stopAfter=verify, script result:", res);
     if (typeof onProgress === "function") onProgress("verified", res.data);
     return {
       ok: res.ok,
@@ -746,9 +804,76 @@ export async function runBossRecommend(args) {
   // select.done 之后到 fetchBossRecommendList 之间有真实的等待（响应延迟可短可长），
   // 这里 emit 'analyzing' 让 IndexPage 切 SELECTED phase，并 sleep 一小段确保 UI 渲染到位。
   // 顺带也降低了"select 完立刻 fetch"的机器人节奏。
-  if (autoSelectJob) {
+  if (autoSelectJob && !reuseExistingTab) {
     if (typeof onProgress === "function") onProgress("analyzing", { dwellMs: 1200 });
     await new Promise((r) => setTimeout(r, 1200));
+
+    if (bossFilterLabels.length > 0) {
+      if (typeof onProgress === "function") {
+        onProgress("filtering", { filters: bossFilterLabels });
+      }
+      console.log(
+        "[任务流程] [bossRecommend] 选择职位后应用 BOSS 筛选:",
+        bossFilterLabels
+      );
+      const filterRes = await applyBossRecommendFilters(opened.tabId, bossFilterLabels, {
+        waitListMs: 15000
+      });
+      if (!filterRes.ok) {
+        console.warn(
+          "[任务流程] [bossRecommend] BOSS 筛选失败:",
+          filterRes.errorCode,
+          filterRes.message
+        );
+        return {
+          ok: false,
+          tabId: opened.tabId,
+          url: opened.url,
+          select: selectResult,
+          filterResult: filterRes.data,
+          errorCode: filterRes.errorCode,
+          message: filterRes.message,
+          geekList: []
+        };
+      }
+      if (typeof onProgress === "function") onProgress("filtered", filterRes.data);
+      console.log("[任务流程] [bossRecommend] BOSS 筛选已确认:", filterRes.data);
+
+      // 筛选脚本已经拿到了点击“确定”后返回的列表，直接使用这份响应作为首屏。
+      // 不能再按 selectJob 的 sinceTs 去等缓存，否则可能先取到选职位时的未筛选响应。
+      const filteredZpData = filterRes.data?.zpData;
+      if (filteredZpData && typeof filteredZpData === "object") {
+        const filteredGeeks = Array.isArray(filteredZpData.geekList)
+          ? filteredZpData.geekList
+          : [];
+        filteredFirstPage = {
+          ok: true,
+          tabId: opened.tabId,
+          url: opened.url,
+          data: {
+            jobId: encryptJobId,
+            page: Number(filteredZpData.page) || 1,
+            totalSize: Number(filteredZpData.totalSize) || filteredGeeks.length,
+            hasMore: !!filteredZpData.hasMore,
+            apiUrl: filterRes.data.apiUrl || null,
+            source: "filter-response",
+            geekList: filteredGeeks,
+            geekCount: filteredGeeks.length,
+            raw: filteredZpData
+          }
+        };
+      } else {
+        return {
+          ok: false,
+          tabId: opened.tabId,
+          url: opened.url,
+          select: selectResult,
+          errorCode: "FILTER_RESPONSE_INVALID",
+          message: "BOSS 筛选已确认，但未返回筛选后的推荐列表",
+          geekList: []
+        };
+      }
+    }
   }
 
   // 3) 抓首屏（不再额外等导航：上面 dwell 已经包含足够的"页面加载稳定"时间）
@@ -763,7 +888,7 @@ export async function runBossRecommend(args) {
       const cache = await window.api.siteNetwork.listCache("boss");
       const arr = Array.isArray(cache) ? cache : cache?.entries || [];
       console.log(
-        `[bossRecommend] fetch 前 siteNetwork.listCache(boss) size=${arr.length}`,
+        `[任务流程] [bossRecommend] fetch 前 siteNetwork.listCache(boss) size=${arr.length}`,
         arr.map((c) => ({
           url: c.url,
           status: c.status,
@@ -773,7 +898,7 @@ export async function runBossRecommend(args) {
       );
     }
   } catch (e) {
-    console.warn(`[bossRecommend] listCache 失败（忽略）：`, e?.message || e);
+    console.warn(`[任务流程] [bossRecommend] listCache 失败（忽略）：`, e?.message || e);
   }
 
   // emit 'fetching'：让 UI 推荐卡切到 step2 "获取候选人列表" processing
@@ -781,20 +906,37 @@ export async function runBossRecommend(args) {
 
   // ★ 复用已打开 + 已选职位的推荐 tab（opened.tabId），不要让 fetchBossRecommendList 再
   //   openBossRecommend 触发整页 reload（会换成另一批牛人，导致后续拟人化/立即沟通匹配不上）。
-  const first = await fetchBossRecommendList({
-    encryptJobId,
-    navWaitMs: 0,
-    sinceTs,
-    tabId: opened.tabId
-  });
+  const first = reuseExistingTab
+    ? {
+        ok: true,
+        tabId: opened.tabId,
+        url: opened.url,
+        data: {
+          jobId: encryptJobId,
+          page: null,
+          totalSize: 0,
+          hasMore: true,
+          apiUrl: null,
+          source: "reuse-current-list",
+          geekList: Array.isArray(pendingGeekList) ? pendingGeekList : [],
+          geekCount: Array.isArray(pendingGeekList) ? pendingGeekList.length : 0,
+          raw: null
+        }
+      }
+    : filteredFirstPage || (await fetchBossRecommendList({
+        encryptJobId,
+        navWaitMs: 0,
+        sinceTs,
+        tabId: opened.tabId
+      }));
   if (!first.ok) return first;
-  if (typeof onProgress === "function") {
+  if (typeof onProgress === "function" && !reuseExistingTab) {
     onProgress("firstPage", first.data);
   }
 
   // 3.5) stopAfter='firstPage' → 不跑 humanize
   if (stopAfter === "firstPage") {
-    console.log("[bossRecommend] stopAfter=firstPage, skip humanize");
+    console.log("[任务流程] [bossRecommend] stopAfter=firstPage, skip humanize");
     const list = (first.data && first.data.geekList) || [];
     return {
       ok: true,
@@ -803,6 +945,7 @@ export async function runBossRecommend(args) {
       select: selectResult,
       firstPage: first.data,
       humanize: null,
+      hasMore: first.data?.hasMore === true,
       geekList: list
     };
   }
@@ -835,17 +978,17 @@ export async function runBossRecommend(args) {
         }
       }
       console.log(
-        `[bossRecommend] 已保存简历过滤：渠道数=${dedupChannelIds.length} 已保存 outId 数=${savedOutIdSet.size}`,
+        `[任务流程] [bossRecommend] 已保存简历过滤：渠道数=${dedupChannelIds.length} 已保存 outId 数=${savedOutIdSet.size}`,
         [...savedOutIdSet].slice(0, 30)
       );
     } catch (e) {
       console.warn(
-        `[bossRecommend] 拉已保存 resumeIds 失败（忽略，按不过滤处理）:`,
+        `[任务流程] [bossRecommend] 拉已保存 resumeIds 失败（忽略，按不过滤处理）:`,
         e?.message || e
       );
     }
   } else {
-    console.log("[bossRecommend] 未传 recommendTaskChannelId(s)，跳过已保存过滤");
+    console.log("[任务流程] [bossRecommend] 未传 recommendTaskChannelId(s)，跳过已保存过滤");
   }
 
   const firstList = (first.data && first.data.geekList) || [];
@@ -859,9 +1002,10 @@ export async function runBossRecommend(args) {
   //   终止条件 = 「未入库新人达到 targetCount」或「hasMore=false（BOSS 没有更多数据）」。
   let lastHasMore = !!(first.data && first.data.hasMore);
   console.log(
-    `[bossRecommend] 首屏 geek=${firstList.length} 新人(未入库)=${firstConsume.mergedAdded} ` +
+    "[任务流程]", `[bossRecommend] 首屏 geek=${firstList.length} 新人(未入库)=${firstConsume.mergedAdded} ` +
       `已保存跳过=${skippedSavedCount} discovered=${discovered.length} ` +
-      `collected=${collectedGeeks.length}/${targetCount} hasMore=${lastHasMore}`
+      `collected=${collectedGeeks.length}/${targetCount} hasMore=${lastHasMore} ` +
+      `mode=${discoverOnly ? "discoverOnly" : "collect"}`
   );
 
   // ============= 页面收藏 + 分页加载循环（safe-only）=============
@@ -909,7 +1053,21 @@ export async function runBossRecommend(args) {
     push(g?.geekCard?.geekId);
     push(g?.geekCard?.encryptGeekId);
     push(g?.uniqSign);
+    // outId 两种口径都兼容：BOSS 推荐既定口径可能返回 geekId，也可能返回 rec_<geekId>。
+    const plainId = g?.geekId || g?.geekCard?.geekId;
+    if (plainId) push(`rec_${plainId}`);
     return out;
+  }
+
+  function getGeekDedupId(g) {
+    return String(
+      g?.encryptGeekId ||
+        g?.geekCard?.encryptGeekId ||
+        g?.geekId ||
+        g?.geekCard?.geekId ||
+        g?.uniqSign ||
+        ""
+    );
   }
   function isSavedGeek(g) {
     if (savedOutIdSet.size === 0) return false;
@@ -925,14 +1083,14 @@ export async function runBossRecommend(args) {
     let sessionNew = 0;
     let mergedAdded = 0;
     for (const g of geeks) {
-      const id = String(g.encryptGeekId || g.geekId || "");
+      const id = getGeekDedupId(g);
       if (!id || seen.has(id)) continue;
       seen.add(id);
       sessionNew++;
       if (isSavedGeek(g)) {
         skippedSavedCount++;
         console.log(
-          `[bossRecommend] 跳过已保存 geek（不计入目标，只滚过）dedupId=${id} ` +
+          "[任务流程]", `[bossRecommend] 跳过已保存 geek（不计入目标，只滚过）dedupId=${id} ` +
             `候选outId=[${geekCandidateIds(g).join(",")}]`
         );
         continue;
@@ -966,7 +1124,7 @@ export async function runBossRecommend(args) {
       }
       return { responses: newResps.length, geeks, hasMore };
     } catch (e) {
-      console.warn(`[bossRecommend] listCache 失败:`, e?.message || e);
+      console.warn(`[任务流程] [bossRecommend] listCache 失败:`, e?.message || e);
       return { responses: 0, geeks: [], hasMore: null };
     }
   }
@@ -997,7 +1155,7 @@ export async function runBossRecommend(args) {
       if (!task) return false;
       return stoppedMap[String(task.taskId)] === true || task.taskStatus === "STOPPED";
     } catch (e) {
-      console.warn("[bossRecommend] isUserAborted check 失败（默认 false）:", e?.message || e);
+      console.warn("[任务流程] [bossRecommend] isUserAborted check 失败（默认 false）:", e?.message || e);
       return false;
     }
   }
@@ -1008,7 +1166,7 @@ export async function runBossRecommend(args) {
     // ★ 每轮先 check 用户是否主动停止；停了就立刻 break，不再产生新的页面收藏。
     if (await isUserAborted()) {
       console.log(
-        `[bossRecommend][collect][round ${rounds}] 用户主动停止任务，立即 break ` +
+        "[任务流程]", `[bossRecommend][collect][round ${rounds}] 用户主动停止任务，立即 break ` +
           `（已新收藏 ${collectedGeeks.length}/${targetCount}）`
       );
       collectionError = { code: "USER_STOPPED", message: "用户主动停止任务" };
@@ -1016,21 +1174,28 @@ export async function runBossRecommend(args) {
     }
 
     // ① 选当前 batch：只处理未入库、且本轮还没尝试过收藏的候选人。
-    const batchGeeks = discovered.filter((g) => {
-      const id = String(g.encryptGeekId || g.geekId || "");
-      return id && !processedGeekIds.has(id);
-    });
+    const batchGeeks = discoverOnly
+      ? []
+      : discovered.filter((g) => {
+          const id = String(g.encryptGeekId || g.geekId || "");
+          return id && !processedGeekIds.has(id);
+        });
 
     // ② 逐个打开详情并点击收藏。记录开始时间，用于判断操作过程中是否触发了 lazy load。
     const collectionStartTs = Date.now();
-    if (batchGeeks.length === 0) {
+    if (discoverOnly) {
       console.log(
-        `[bossRecommend][collect][round ${rounds}] 无待收藏候选人，` +
+        "[任务流程]", `[bossRecommend][discover][round ${rounds}] 只发现不收藏：已发现 ${discovered.length}/${targetCount}，` +
+          `准备加载更多`
+      );
+    } else if (batchGeeks.length === 0) {
+      console.log(
+        "[任务流程]", `[bossRecommend][collect][round ${rounds}] 无待收藏候选人，` +
           `准备加载更多 collected=${collectedGeeks.length}/${targetCount}`
       );
     } else {
       console.log(
-        `[bossRecommend][collect][round ${rounds}] batch=${batchGeeks.length} ` +
+        "[任务流程]", `[bossRecommend][collect][round ${rounds}] batch=${batchGeeks.length} ` +
           `collected=${collectedGeeks.length}/${targetCount}`
       );
       try {
@@ -1070,7 +1235,7 @@ export async function runBossRecommend(args) {
             message: collectRes?.message || ""
           };
           console.warn(
-            `[bossRecommend][collect][round ${rounds}] collectBossRecommendGeeks failed:`,
+            `[任务流程] [bossRecommend][collect][round ${rounds}] collectBossRecommendGeeks failed:`,
             collectionError
           );
           break;
@@ -1078,13 +1243,13 @@ export async function runBossRecommend(args) {
 
         if (collectRes?.aborted) {
           console.log(
-            `[bossRecommend][collect][round ${rounds}] 收藏批次因用户停止中断`
+            `[任务流程] [bossRecommend][collect][round ${rounds}] 收藏批次因用户停止中断`
           );
           collectionError = { code: "USER_STOPPED", message: "用户主动停止任务" };
           break;
         }
         console.log(
-          `[bossRecommend][collect][round ${rounds}] batch done: ` +
+          "[任务流程]", `[bossRecommend][collect][round ${rounds}] batch done: ` +
             `attempted=${collectRes.attemptedGeekIds?.length || 0} ` +
             `newCollected=${collectRes.collectedGeekIds?.length || 0} ` +
             `alreadyCollected=${collectRes.alreadyCollectedGeekIds?.length || 0} ` +
@@ -1094,32 +1259,35 @@ export async function runBossRecommend(args) {
       } catch (e) {
         collectionError = { code: "EXCEPTION", message: e?.message || String(e) };
         console.warn(
-          `[bossRecommend][collect][round ${rounds}] 收藏批次异常:`,
+          `[任务流程] [bossRecommend][collect][round ${rounds}] 收藏批次异常:`,
           collectionError
         );
         break;
       }
     }
 
-    if (collectedGeeks.length >= targetCount) {
+    if ((discoverOnly ? discovered.length : collectedGeeks.length) >= targetCount) {
       console.log(
-        `[bossRecommend][collect][round ${rounds}] 新收藏成功数达到 targetCount=${targetCount}`
+        "[任务流程]", `[bossRecommend][${discoverOnly ? "discover" : "collect"}][round ${rounds}] ` +
+          `达到 targetCount=${targetCount}（${discoverOnly ? "已发现" : "已收藏"} ` +
+          `${discoverOnly ? discovered.length : collectedGeeks.length}）`
       );
       break;
     }
 
     if (lastHasMore === false) {
       console.log(
-        `[bossRecommend][collect][round ${rounds}] BOSS hasMore=false，` +
-          `候选池见底（新收藏 ${collectedGeeks.length}/${targetCount}）`
+        "[任务流程]", `[bossRecommend][${discoverOnly ? "discover" : "collect"}][round ${rounds}] BOSS hasMore=false，` +
+          `候选池见底（${discoverOnly ? "已发现" : "新收藏"} ` +
+          `${discoverOnly ? discovered.length : collectedGeeks.length}/${targetCount}）`
       );
       break;
     }
 
-    // ③ 检查收藏期间 BOSS 自家有没有 lazy load
+    // ③ 检查本轮 BOSS 自家有没有 lazy load
     const lazyAutoLoad = await collectLazyLoadedGeeksSince(collectionStartTs);
     console.log(
-      `[bossRecommend][collect][round ${rounds}] 收藏期间 BOSS 自动发了 ` +
+      "[任务流程]", `[bossRecommend][${discoverOnly ? "discover" : "collect"}][round ${rounds}] 本轮 BOSS 自动发了 ` +
         `${lazyAutoLoad.responses} 条 /rec/geek/list，含 ${lazyAutoLoad.geeks.length} 个 geek`
     );
 
@@ -1133,13 +1301,13 @@ export async function runBossRecommend(args) {
       // 强制滚底 + 等响应最多 12s，是个耗时段；进入前再 check 一次停止，避免停止后还白等一轮
       if (await isUserAborted()) {
         console.log(
-          `[bossRecommend][collect][round ${rounds}] 强制滚底前检测到用户停止，立即 break`
+          `[任务流程] [bossRecommend][collect][round ${rounds}] 强制滚底前检测到用户停止，立即 break`
         );
         collectionError = { code: "USER_STOPPED", message: "用户主动停止任务" };
         break;
       }
       console.log(
-        `[bossRecommend][collect][round ${rounds}] 未自动触发 lazy load，主动 smoothScrollToBottom`
+        `[任务流程] [bossRecommend][collect][round ${rounds}] 未自动触发 lazy load，主动 smoothScrollToBottom`
       );
       const forceTs = Date.now();
       try {
@@ -1149,7 +1317,7 @@ export async function runBossRecommend(args) {
         // smoothScrollToBottom 内部已经打了详细 attempts 日志（每个容器的 scrolled / scrollHeight / clientHeight）
       } catch (e) {
         console.warn(
-          `[bossRecommend][collect][round ${rounds}] smoothScrollToBottom 失败:`,
+          `[任务流程] [bossRecommend][collect][round ${rounds}] smoothScrollToBottom 失败:`,
           e?.message || e
         );
         break;
@@ -1163,7 +1331,7 @@ export async function runBossRecommend(args) {
       });
       if (!next?.ok) {
         console.log(
-          `[bossRecommend][collect][round ${rounds}] 强制滚底后 12s 没等到响应（${next?.code}），结束循环`
+          `[任务流程] [bossRecommend][collect][round ${rounds}] 强制滚底后 12s 没等到响应（${next?.code}），结束循环`
         );
         break;
       }
@@ -1172,12 +1340,12 @@ export async function runBossRecommend(args) {
       if (typeof nextZp?.hasMore === "boolean") lastHasMore = nextZp.hasMore;
       if (geeks.length === 0) {
         console.log(
-          `[bossRecommend][collect][round ${rounds}] BOSS 返回空 geekList，结束循环`
+          `[任务流程] [bossRecommend][collect][round ${rounds}] BOSS 返回空 geekList，结束循环`
         );
         break;
       }
       console.log(
-        `[bossRecommend][collect][round ${rounds}] 强制滚底触发成功，BOSS 返回 ${geeks.length} 个 geek`
+        `[任务流程] [bossRecommend][collect][round ${rounds}] 强制滚底触发成功，BOSS 返回 ${geeks.length} 个 geek`
       );
       newGeeksThisRound = geeks;
     }
@@ -1185,7 +1353,7 @@ export async function runBossRecommend(args) {
     // ⑤ 合并到待收藏候选池，下一轮继续逐个打开详情收藏。
     const consume = mergeNewGeeks(newGeeksThisRound);
     console.log(
-      `[bossRecommend][collect][round ${rounds}] BOSS返回${newGeeksThisRound.length}个，` +
+      "[任务流程]", `[bossRecommend][collect][round ${rounds}] BOSS返回${newGeeksThisRound.length}个，` +
         `本轮新出现=${consume.sessionNew}（其中未入库新人=${consume.mergedAdded}、已保存跳过=${consume.sessionNew - consume.mergedAdded}），` +
         `discovered=${discovered.length} collected=${collectedGeeks.length}/${targetCount} ` +
         `累计已保存跳过=${skippedSavedCount} hasMore=${lastHasMore}`
@@ -1198,27 +1366,28 @@ export async function runBossRecommend(args) {
     //   重复的人不计入 targetCount，靠 MAX_COLLECTION_ROUNDS 兜底防死循环。
     if (lastHasMore === false) {
       console.log(
-        `[bossRecommend][collect][round ${rounds}] BOSS hasMore=false，没有更多数据`
+        `[任务流程] [bossRecommend][collect][round ${rounds}] BOSS hasMore=false，没有更多数据`
       );
       break;
     }
 
     if (consume.sessionNew === 0) {
       console.log(
-        `[bossRecommend][collect][round ${rounds}] 本轮无新候选人但 hasMore=${lastHasMore}，继续翻页`
+        `[任务流程] [bossRecommend][collect][round ${rounds}] 本轮无新候选人但 hasMore=${lastHasMore}，继续翻页`
       );
     }
   }
 
   if (rounds >= MAX_COLLECTION_ROUNDS) {
     console.warn(
-      `[bossRecommend][collect] 达到最大轮数护栏 MAX_COLLECTION_ROUNDS=${MAX_COLLECTION_ROUNDS}，强制结束`
+      `[任务流程] [bossRecommend][collect] 达到最大轮数护栏 MAX_COLLECTION_ROUNDS=${MAX_COLLECTION_ROUNDS}，强制结束`
     );
   }
 
   console.log(
-    `[bossRecommend] collect+pagination 整体结束 rounds=${rounds} ` +
-      `final=${collectedGeeks.length}/${targetCount} 各轮收藏=${collectionPerRoundResults
+    "[任务流程]", `[bossRecommend] ${discoverOnly ? "discover" : "collect"}+pagination 整体结束 rounds=${rounds} ` +
+      `final=${discoverOnly ? discovered.length : collectedGeeks.length}/${targetCount} ` +
+      `各轮收藏=${collectionPerRoundResults
         .map((r) => `${r.collectedGeekIds?.length || 0}/${r.attemptedGeekIds?.length || 0}`)
         .join(", ")}`
   );
@@ -1254,7 +1423,9 @@ export async function runBossRecommend(args) {
       firstPage: first.data,
       collection: collectionAggregate,
       collectionError,
+      hasMore: lastHasMore === true,
       geekList: collectedGeeks.slice(0, targetCount),
+      pendingGeekList: discoverOnly ? discovered.slice(targetCount) : [],
       errorCode: collectionError.code,
       message: collectionError.message || "BOSS直聘查看权益不足，推荐任务已停止"
     };
@@ -1268,7 +1439,11 @@ export async function runBossRecommend(args) {
     firstPage: first.data,
     collection: collectionAggregate,
     collectionError,
-    geekList: collectedGeeks.slice(0, targetCount)
+    // 给画像评分批次循环用：false 表示 BOSS 推荐池已见底，本次任务不可能再抓到更多
+    hasMore: lastHasMore === true,
+    // discoverOnly：返回本批待评分的新候选人；默认模式仍返回本次真实收藏成功的人。
+    geekList: (discoverOnly ? discovered : collectedGeeks).slice(0, targetCount),
+    pendingGeekList: discoverOnly ? discovered.slice(targetCount) : []
   };
 }
 

@@ -28,7 +28,7 @@ export const channelDataSave = async (outId,searchConditionId,channel,channelLis
     let {data:jobListData} = await saveJobList(saveJobListRequest);
     jobList = jobListData;
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   //处理id
@@ -59,7 +59,7 @@ export const channelDataSavePlus = async (outId, searchConditionId, channel, cha
     });
     return Array.isArray(jobList) ? jobList : [];
   } catch (e) {
-    console.warn('[CannelManager] channelDataSavePlus failed:', e?.message || e);
+    console.warn('[任务流程] [CannelManager] channelDataSavePlus failed:', e?.message || e);
     return [];
   }
 }

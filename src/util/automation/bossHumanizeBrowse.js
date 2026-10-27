@@ -187,7 +187,7 @@ function buildPlan(geekIds, clickCount, browseCount) {
     bc = geekIds.length - cc;
     total = cc + bc;
     console.log(
-      `[humanizeBrowse] geekIds (${geekIds.length}) 少于 plan 需求 (${clickCount}+${browseCount})，` +
+      "[任务流程]", `[humanizeBrowse] geekIds (${geekIds.length}) 少于 plan 需求 (${clickCount}+${browseCount})，` +
         `按比例缩到 click=${cc} browse=${bc}`
     );
   }
@@ -444,7 +444,7 @@ async function smoothScrollToGeek(tabId, geekId, config) {
   // 的 requireVisible 判断会通过；否则会 ELEMENT_NOT_VISIBLE
   const r = res.result;
   console.log(
-    `[humanizeBrowse][scroll] geekId=${geekId.slice(0, 12)} method=${r.method} ` +
+    "[任务流程]", `[humanizeBrowse][scroll] geekId=${geekId.slice(0, 12)} method=${r.method} ` +
       `jitterSteps=${r.jitterSteps} container=${r.container} ` +
       `mainViewportTop=${r.elInMainViewport?.top} (viewportH=${r.viewportSize?.h}) ` +
       `iframeOffset=${JSON.stringify(r.iframeOffset)}`
@@ -606,21 +606,21 @@ export async function smoothScrollToBottom(tabId, opts = {}) {
   }
   // 详细日志：列出每一个尝试的容器和结果
   const r = res.result;
-  console.log(`[humanizeBrowse][scrollToBottom] method=${r.method} attempts=${r.attempts.length}`);
+  console.log(`[任务流程] [humanizeBrowse][scrollToBottom] method=${r.method} attempts=${r.attempts.length}`);
   for (const a of r.attempts) {
     if (a.error) {
-      console.log(`  [${a.label}] error=${a.error}`);
+      console.log(`[任务流程]   [${a.label}] error=${a.error}`);
     } else if (a.scrolled !== undefined) {
       console.log(
-        `  [${a.label}] scrolled=${a.scrolled} steps=${a.steps || 0} ` +
+        "[任务流程]", `  [${a.label}] scrolled=${a.scrolled} steps=${a.steps || 0} ` +
           `H=${a.scrollHeight}/${a.clientHeight} ${a.alreadyAtBottom ? "(已在底部)" : ""}`
       );
     } else if (a.lastItemIndex !== undefined) {
       console.log(
-        `  [${a.label}] index=${a.lastItemIndex}/${a.totalItems} rect=${JSON.stringify(a.rect)}`
+        `[任务流程]   [${a.label}] index=${a.lastItemIndex}/${a.totalItems} rect=${JSON.stringify(a.rect)}`
       );
     } else {
-      console.log(`  [${a.label}] ${JSON.stringify(a)}`);
+      console.log(`[任务流程]   [${a.label}] ${JSON.stringify(a)}`);
     }
   }
   return r;
@@ -663,7 +663,7 @@ async function closeDetailPopup(tabId, config) {
   }
   const closeSelector = findRes.result.selector;
   console.log(
-    `[humanizeBrowse] close button found: rawSel=${
+    "[任务流程]", `[humanizeBrowse] close button found: rawSel=${
       findRes.result.rawSelector
     } score=${findRes.result.score?.toFixed(3)} ` +
       `rect=${JSON.stringify(findRes.result.rect)} hitCount=${findRes.result.hitCount} ` +
@@ -754,10 +754,10 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
   const plan = buildPlan(geekIds, clickCount, browseCount);
 
   console.log(
-    `[humanizeBrowse] geekIds.length=${geekIds.length} clickCount=${clickCount} ` +
+    "[任务流程]", `[humanizeBrowse] geekIds.length=${geekIds.length} clickCount=${clickCount} ` +
       `browseCount=${browseCount} plan.length=${plan.length}`
   );
-  console.log("[humanizeBrowse] plan:", plan.map((p) => `${p.action}:${p.geekId}`).join(", "));
+  console.log("[任务流程] [humanizeBrowse] plan:", plan.map((p) => `${p.action}:${p.geekId}`).join(", "));
   onProgress("plan", { plan, clickCount, browseCount });
 
   if (plan.length === 0) {
@@ -776,11 +776,11 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
       try {
         stop = await shouldAbort();
       } catch (e) {
-        console.warn("[humanizeBrowse] shouldAbort 回调异常（忽略）:", e?.message || e);
+        console.warn("[任务流程] [humanizeBrowse] shouldAbort 回调异常（忽略）:", e?.message || e);
       }
       if (stop) {
         console.log(
-          `[humanizeBrowse] 检测到用户停止，中断剩余 plan（已执行 ${executed.length}/${plan.length}）`
+          `[任务流程] [humanizeBrowse] 检测到用户停止，中断剩余 plan（已执行 ${executed.length}/${plan.length}）`
         );
         aborted = true;
         break;
@@ -792,21 +792,21 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
 
     try {
       // 2a) 滚到目标位置（拟人分段慢推）
-      console.log(`${tag} 滚动到目标位置`);
+      console.log(`[任务流程] ${tag} 滚动到目标位置`);
       await smoothScrollToGeek(tabId, item.geekId, config);
 
       if (item.action === "click") {
         // 2b) CDP click geek item
-        console.log(`${tag} CDP click geek item → 等详情弹出`);
+        console.log(`[任务流程] ${tag} CDP click geek item → 等详情弹出`);
         await cdpClickGeekItem(tabId, item.geekId, config);
 
         // 2c) dwell 看简历
         const detailDwell = Math.floor(randomBetween(...config.CLICK_DETAIL_DWELL_MS_RANGE));
-        console.log(`${tag} 看详情 ${detailDwell}ms`);
+        console.log(`[任务流程] ${tag} 看详情 ${detailDwell}ms`);
         await sleep(detailDwell);
 
         // 2d) 关闭弹框（找 close button selector → CDP 点）
-        console.log(`${tag} 关闭详情弹框`);
+        console.log(`[任务流程] ${tag} 关闭详情弹框`);
         await closeDetailPopup(tabId, config);
 
         // 2e) 关闭后停顿
@@ -815,7 +815,7 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
       } else {
         // 2b') 浏览：只 dwell，不点
         const browseDwell = Math.floor(randomBetween(...config.BROWSE_DWELL_MS_RANGE));
-        console.log(`${tag} dwell 浏览 ${browseDwell}ms`);
+        console.log(`[任务流程] ${tag} dwell 浏览 ${browseDwell}ms`);
         await sleep(browseDwell);
       }
 
@@ -823,7 +823,7 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
       onProgress("itemDone", { ...item, index: i, total: plan.length });
     } catch (e) {
       const msg = e?.message || String(e);
-      console.warn(`${tag} 失败:`, msg);
+      console.warn(`[任务流程] ${tag} 失败:`, msg);
       errors.push({ ...item, error: msg });
       onProgress("itemError", { ...item, error: msg });
       // 单项失败不中断整个 plan，继续下一个
@@ -837,7 +837,7 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
   }
 
   console.log(
-    `[humanizeBrowse] DONE executed=${executed.length}/${plan.length} errors=${errors.length}` +
+    "[任务流程]", `[humanizeBrowse] DONE executed=${executed.length}/${plan.length} errors=${errors.length}` +
       `${aborted ? " (aborted by user stop)" : ""}`
   );
   onProgress("done", { executed: executed.length, errors: errors.length, aborted });
@@ -845,7 +845,7 @@ export async function humanizeBrowseGeeks(tabId, geekIds, opts = {}) {
   if (!aborted && errors.length > 0 && errors.length === plan.length) {
     // 全部失败：只打控制台日志，便于排查 selector 失效（不弹 UI 通知打扰用户）
     console.warn(
-      `[humanizeBrowse] ${plan.length} 项全部失败，可能 DOM selector 失效（CONFIG.ITEM_SELECTOR_TEMPLATE / CLOSE_BUTTON_CANDIDATES）`
+      `[任务流程] [humanizeBrowse] ${plan.length} 项全部失败，可能 DOM selector 失效（CONFIG.ITEM_SELECTOR_TEMPLATE / CLOSE_BUTTON_CANDIDATES）`
     );
   }
 

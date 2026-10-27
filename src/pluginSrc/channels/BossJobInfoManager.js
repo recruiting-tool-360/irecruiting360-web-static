@@ -61,7 +61,7 @@ export const getBoosHeader = async (flag) => {
     try {
         header = await getBoosHeaderInfo(flag);
     }catch (e){
-        console.log(e);
+        console.log("[任务流程]", e);
         header = null;
     }
     return header;
@@ -96,7 +96,7 @@ export const channelSearchList = async (channelRequestInfo, channelPage = 1, pag
   try {
     responseJobListData = await boosJobList(channelSearchCondition.conditionData,channelPage);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   if(!pluginBossResultProcessor(responseJobListData)){
@@ -116,7 +116,7 @@ export const channelSearchList = async (channelRequestInfo, channelPage = 1, pag
           });
         }
       } catch (e) {
-        console.warn('[BossJobInfoManager] 未发布职位停止任务失败:', e?.message || e);
+        console.warn('[任务流程] [BossJobInfoManager] 未发布职位停止任务失败:', e?.message || e);
       }
     }
     return;
@@ -143,7 +143,7 @@ export const channelSearchListSimilar = async (channelRequestInfo, channelPage =
   try {
     responseJobListData = await boosJobList(channelSearchCondition.conditionData,channelPage);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   if(!pluginBossResultProcessor(responseJobListData)){
@@ -203,7 +203,7 @@ export const runCollect = async (geekDetailINfo) => {
   try {
     bossCollect = await i360Request(pluginEmptyRequestTemplate.action, pluginEmptyRequestTemplate);
   }catch (e){
-    console.log(e)
+    console.log("[任务流程]", e)
   }
   if(pluginBossResultProcessor(bossCollect)){
     return bossCollect;
@@ -218,17 +218,48 @@ export const bossFindJobDetail = async (data)=>{
   const requestParams = JSON.parse(data.originalResumeUrlInfo);
   //构造参数
   const queryString = `securityId=${requestParams.request.securityId}&segs=${requestParams.request.lidTag}&lid=${requestParams.request.lid}`;
+  console.log('[任务流程] [BossJobInfoManager] bossFindJobDetail >>> geek/info', {
+    securityId: requestParams.request.securityId,
+    lidTag: requestParams.request.lidTag,
+    lid: requestParams.request.lid
+  });
   let boosJobInfo = null;
   try {
     boosJobInfo = await findJobDetail({queryString});
   }catch (e){
-    console.log(e)
+    console.warn('[任务流程] [BossJobInfoManager] bossFindJobDetail !!! request exception:', e?.message || e);
     return;
   }
-  if(pluginBossResultProcessor(boosJobInfo)) {
-    geekDetailINfo = boosJobInfo.responseData.data.zpData;
-    geekDetailINfo.newLid = requestParams.request.lid;
+  const body = boosJobInfo?.responseData?.data;
+  const passed = pluginBossResultProcessor(boosJobInfo);
+  if (!passed) {
+    console.warn('[任务流程] [BossJobInfoManager] bossFindJobDetail !!! BOSS 详情接口未通过校验', {
+      success: boosJobInfo?.success,
+      responseSuccess: boosJobInfo?.responseData?.success,
+      code: body?.code,
+      message: body?.message,
+      bodyKeys: body && typeof body === 'object' ? Object.keys(body) : typeof body,
+      bodyPreview:
+        body && typeof body === 'object'
+          ? JSON.stringify(body).slice(0, 800)
+          : String(body)
+    });
+    return null;
   }
+  geekDetailINfo = body?.zpData;
+  if (!geekDetailINfo) {
+    console.warn('[任务流程] [BossJobInfoManager] bossFindJobDetail !!! BOSS 返回成功但 zpData 为空', {
+      code: body?.code,
+      message: body?.message,
+      bodyKeys: body ? Object.keys(body) : []
+    });
+    return null;
+  }
+  geekDetailINfo.newLid = requestParams.request.lid;
+  console.log('[任务流程] [BossJobInfoManager] bossFindJobDetail <<< ok', {
+    keys: Object.keys(geekDetailINfo).slice(0, 20),
+    hasBaseInfo: !!geekDetailINfo.geekBaseInfo
+  });
   return geekDetailINfo;
 }
 
@@ -251,7 +282,7 @@ export const exeJobInfo = async (data) => {
             await saveResumeDetail(data);
         }catch (e){
             // ElMessage.error('后台服务异常导致系统无法分析本渠道信息！请联系管理员！')
-          console.log(e)
+          console.log("[任务流程]", e)
         }
 
     }
@@ -269,7 +300,7 @@ export const exeQueueJobInfo = async (data) => {
       try {
         await postDetailToTaskResume({ data, channelSubType: 'BOSS', serializeChannel: 'boss直聘' });
       } catch (e) {
-        console.warn('[BossJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
+        console.warn('[任务流程] [BossJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
       }
     }else{
       const allChannelData = store.getters.getChannelConfByAll;
@@ -277,6 +308,6 @@ export const exeQueueJobInfo = async (data) => {
       allChannelData.cardInfoRef.updateResumeScoreFN(data.resume);
     }
   } catch (error) {
-    console.error('处理BOSS直聘简历任务失败:', error);
+    console.error('[任务流程] 处理BOSS直聘简历任务失败:', error);
   }
 }

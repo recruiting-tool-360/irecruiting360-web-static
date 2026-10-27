@@ -66,7 +66,7 @@ export const getJob51Header = async (flag) => {
     try {
         header = await getJob51HeaderInfo(flag);
     }catch (e){
-        console.log(e);
+        console.log("[任务流程]", e);
         header = null;
     }
     return header;
@@ -162,7 +162,7 @@ export const channelSearchList = async (channelRequestInfo, channelPage = 1, pag
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   if(!pluginJob51ResultProcessor(responseJobListData)){
@@ -201,7 +201,7 @@ export const channelSearchListSimilar = async (channelRequestInfo, channelPage =
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   if(!pluginJob51ResultProcessor(responseJobListData)){
@@ -271,7 +271,7 @@ export const job51FindJobDetailFN = async (data)=>{
     jobInfo = await searchResumeInfo(requestParams.request);
     // jobInfo = {};
   }catch (e){
-    console.log(e)
+    console.log("[任务流程]", e)
     return ;
   }
   if(pluginJob51ResultProcessor(jobInfo)){
@@ -347,7 +347,7 @@ export const exeQueueJobInfo = async (data) => {
       try {
         await postDetailToTaskResume({ data, channelSubType: 'JOB51', serializeChannel: '前程无忧' });
       } catch (e) {
-        console.warn('[Job51InfoManager] postDetailToTaskResume failed:', e?.message || e);
+        console.warn('[任务流程] [Job51InfoManager] postDetailToTaskResume failed:', e?.message || e);
       }
     }else{
       const allChannelData = store.getters.getChannelConfByAll;
@@ -355,7 +355,7 @@ export const exeQueueJobInfo = async (data) => {
       allChannelData.cardInfoRef.updateResumeScoreFN(data.resume);
     }
   } catch (error) {
-    console.error('处理前程无忧直聘简历任务失败:', error);
+    console.error('[任务流程] 处理前程无忧直聘简历任务失败:', error);
   }
 }
 
@@ -368,7 +368,7 @@ function generateGUID() {
     try {
         crypto && crypto.randomUUID && (e = crypto.randomUUID())
     } catch (t) {
-        console.log("error",t)
+        console.log("[任务流程] error",t)
     }
     return e || (e = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (function(e) {
             var t = 16 * Math.random() | 0

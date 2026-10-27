@@ -1,4 +1,6 @@
 
+import { normalizeBossFilters } from "src/util/bossSearchFilters";
+
 export const createSearchState = ()=>{
     return {
 
@@ -169,6 +171,10 @@ export const createSearchState = ()=>{
             "有搜索引擎、推荐系统等相关领域经验者优先"
           ]
         },
+        // BOSS 筛选条件（原始整数编码，0 表示不限）
+        activeness: 0,
+        viewResume: 0,
+        exchangeResume: 0,
         //用户id
         userId:null
     };
@@ -213,6 +219,7 @@ export const convertSearchState = (obj) => {
     }
 
     searchState.criteria = newCriteria;
+    Object.assign(searchState, normalizeBossFilters(obj));
     searchState.userId =obj.userId
     // console.log("新的值：",searchState)
     return searchState;

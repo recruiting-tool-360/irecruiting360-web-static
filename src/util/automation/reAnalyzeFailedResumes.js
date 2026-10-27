@@ -49,7 +49,7 @@ export async function reAnalyzeFailedResumesForChannel(store, channelKey) {
     }
     return;
   }
-  console.log(`[reAnalyze] ${channelKey} 重新登录成功 → 重新分析 ${failed.length} 条 AI 分析异常简历`);
+  console.log(`[任务流程] [reAnalyze] ${channelKey} 重新登录成功 → 重新分析 ${failed.length} 条 AI 分析异常简历`);
 
   // 1) 重新登记 taskResumeId 映射（停止后可能被清）
   try {
@@ -62,7 +62,7 @@ export async function reAnalyzeFailedResumesForChannel(store, channelKey) {
       }));
     if (mappings.length > 0) store.commit("SearchTasks/patchTaskResumeIds", mappings);
   } catch (e) {
-    console.warn("[reAnalyze] patchTaskResumeIds 失败:", e?.message || e);
+    console.warn("[任务流程] [reAnalyze] patchTaskResumeIds 失败:", e?.message || e);
   }
 
   // 2) score 重置为 null（重新进入"分析中"）
@@ -99,7 +99,7 @@ export async function reAnalyzeFailedResumesForChannel(store, channelKey) {
       });
     });
   } catch (e) {
-    console.warn("[reAnalyze] addResumeTask 失败:", e?.message || e);
+    console.warn("[任务流程] [reAnalyze] addResumeTask 失败:", e?.message || e);
   }
 
   // 5) 触发 JobInfo 重启评分轮询

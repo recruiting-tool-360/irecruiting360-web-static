@@ -1,11 +1,18 @@
 import request from "../request";
+import { traceApiCall } from "src/util/apiTrace";
 
 //生成搜索条件
 export const saveCondition = (data) => {
-    return request({
-        method:'POST',
-        url:'/search/saveCondition',
-        data:data
+    return traceApiCall({
+        tag: 'search-api',
+        method: 'POST',
+        path: '/search/saveCondition',
+        payload: data,
+        run: () => request({
+            method:'POST',
+            url:'/search/saveCondition',
+            data:data
+        })
     });
 }
 
@@ -23,11 +30,17 @@ export const saveCondition = (data) => {
  *   - 客户端重启 / 跨设备查看任务结果时
  *   - 本地缓存失效 / 没命中时的兜底
  */
-export const getCondition = (searchConditionId) => {
+export const getCondition = (searchConditionId, searchChannels) => {
+    const params = { searchConditionId };
+    if (searchChannels) {
+        params.searchChannels = Array.isArray(searchChannels)
+            ? searchChannels.join(',')
+            : searchChannels;
+    }
     return request({
         method: 'GET',
         url: '/search/getCondition',
-        params: { searchConditionId }
+        params
     });
 }
 

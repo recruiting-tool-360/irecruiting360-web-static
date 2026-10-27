@@ -15,13 +15,13 @@
         chatId,
         originalTaskId,
         selectedModules: { search, recommend },
-        matchedBossJobId,
+        matchedBossJobId,                            // 原职位不可用时为 null，由用户重新选择
         initialResumeCount: number,                  // 从原任务复原的默认值
         actionExecuted: boolean,                     // 已点过启动 → 锁定 input + 按钮文字变化
       }
 
     emit:
-      start({ resumeCount })  用户点「启动聚合搜索」时携带最终份数
+      start({ resumeCount, matchedBossJobId })  用户点「启动聚合搜索」时携带最终配置
   -->
   <div class="rcc-root">
     <!-- 头部：闪电 icon + 标题 -->
@@ -47,6 +47,55 @@
 
     <!-- 输入区：浅 teal 框 + 简历数输入 + 时间预估 -->
     <div class="rcc-input-block">
+      <div v-if="isRecommend" class="rcc-select-row">
+        <div class="rcc-select-label-wrap">
+          <svg
+            class="rcc-icon-target"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="2" />
+          </svg>
+          <label class="rcc-select-label">匹配 BOSS直聘职位</label>
+        </div>
+        <div class="rcc-select-cell">
+          <div class="rcc-select-wrap">
+          <select
+            v-model="matchedBossJobId"
+            class="rcc-select"
+            :class="{ 'rcc-select--unset': matchedBossJobId === null }"
+            :disabled="actionExecuted || bossJobOptions.length === 0"
+          >
+            <option :value="null" disabled>
+              {{ bossJobOptions.length ? "请选择匹配的 BOSS 职位" : "暂无 BOSS 我的职位" }}
+            </option>
+            <option v-for="option in bossJobOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+          <svg
+            class="rcc-select-caret"
+            viewBox="0 0 24 24"
+            width="12"
+            height="12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+          </div>
+        </div>
+      </div>
+
       <div class="rcc-input-row">
         <div class="rcc-label-wrap">
           <svg
@@ -63,7 +112,7 @@
             <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
             <path d="M16 3.13a4 4 0 0 1 0 7.75" />
           </svg>
-          <label class="rcc-label">本次期望最大推荐牛人"简历数"</label>
+          <label class="rcc-label">期望找到的合格简历数</label>
         </div>
         <div class="rcc-input-cell">
           <input
@@ -76,6 +125,63 @@
           />
           <span class="rcc-unit">份</span>
         </div>
+      </div>
+
+      <div v-if="isRecommend" class="rcc-filter-row">
+        <label class="rcc-filter-label">BOSS活跃度</label>
+        <q-select
+          v-model="bossFilters.activeness"
+          :options="BOSS_ACTIVE_OPTIONS"
+          option-label="label"
+          option-value="value"
+          emit-value
+          map-options
+          dense
+          outlined
+          options-dense
+          hide-bottom-space
+          :disable="actionExecuted"
+          class="rcc-filter-select"
+          @update:model-value="onBossFilterChange"
+        />
+      </div>
+
+      <div v-if="isRecommend" class="rcc-filter-row">
+        <label class="rcc-filter-label">近期没有看过</label>
+        <q-select
+          v-model="bossFilters.viewResume"
+          :options="BOSS_NOT_VIEWED_OPTIONS"
+          option-label="label"
+          option-value="value"
+          emit-value
+          map-options
+          dense
+          outlined
+          options-dense
+          hide-bottom-space
+          :disable="actionExecuted"
+          class="rcc-filter-select"
+          @update:model-value="onBossFilterChange"
+        />
+      </div>
+
+      <div v-if="isRecommend" class="rcc-filter-row">
+        <label class="rcc-filter-label">是否与同事交换简历</label>
+        <q-select
+          v-model="bossFilters.exchangeResume"
+          :options="BOSS_RESUME_EXCHANGE_OPTIONS"
+          option-label="label"
+          option-value="value"
+          emit-value
+          map-options
+          dense
+          outlined
+          options-dense
+          hide-bottom-space
+          :disable="actionExecuted"
+          class="rcc-filter-select"
+          @update:model-value="onBossFilterChange"
+        />
       </div>
 
       <!--
@@ -128,6 +234,14 @@ import { formatScheduleTime } from "src/util/scheduleEstimator";
 import { estimateSearchTask } from "src/api/searchTaskApi";
 import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
 import notify from "src/util/notify";
+import {
+  BOSS_FILTER_DEFAULTS,
+  BOSS_ACTIVE_OPTIONS,
+  BOSS_NOT_VIEWED_OPTIONS,
+  BOSS_RESUME_EXCHANGE_OPTIONS,
+  extractBossFilters
+} from "src/util/bossSearchFilters";
+import { getCondition } from "src/api/search/SearchApi";
 
 const props = defineProps({
   cardData: {
@@ -157,6 +271,58 @@ watch(
 );
 
 const actionExecuted = computed(() => !!props.cardData?.actionExecuted);
+const isRecommend = computed(() => !!props.cardData?.selectedModules?.recommend);
+
+const bossJobOptions = computed(() =>
+  (store.getters.getBossJobList || [])
+    .filter((job) => Number(job?.jobStatus) === 0)
+    .map((job) => ({
+      value: job.encryptJobId || job.encryptId || String(job.jobId || ""),
+      label: `${job.jobName || job.positionName || "未命名职位"}${
+        job.salaryDesc ? ` (${job.salaryDesc})` : ""
+      }`
+    }))
+    .filter((option) => option.value)
+);
+
+const matchedBossJobId = ref(props.cardData?.matchedBossJobId || null);
+watch(
+  () => props.cardData?.matchedBossJobId,
+  (value) => {
+    matchedBossJobId.value = value || null;
+  }
+);
+
+const bossFilters = ref(extractBossFilters(props.cardData?.bossFilters || BOSS_FILTER_DEFAULTS));
+const bossFiltersTouched = ref(false);
+let conditionLoadSeq = 0;
+
+function onBossFilterChange() {
+  bossFiltersTouched.value = true;
+}
+
+async function hydrateBossFilters() {
+  const searchConditionId = props.cardData?.searchConditionId;
+  const seq = ++conditionLoadSeq;
+  if (!searchConditionId) return;
+  try {
+    const response = await getCondition(searchConditionId, "BOSS");
+    if (seq !== conditionLoadSeq) return;
+    if (bossFiltersTouched.value) return;
+    bossFilters.value = extractBossFilters(response?.data || response);
+  } catch (error) {
+    console.warn("[任务流程] [RetryConfigCard] 读取 BOSS 筛选条件失败:", error?.message || error);
+  }
+}
+watch(
+  () => [props.cardData?.searchConditionId, props.cardData?.bossFilters],
+  () => {
+    bossFiltersTouched.value = false;
+    bossFilters.value = extractBossFilters(props.cardData?.bossFilters || BOSS_FILTER_DEFAULTS);
+    hydrateBossFilters();
+  },
+  { immediate: true, deep: true }
+);
 
 const titleText = computed(() =>
   props.cardData?.configType === "CONTINUE" ? "保留增量搜索配置" : "清空重新搜索配置"
@@ -177,7 +343,11 @@ const buttonText = computed(() => {
 const canStart = computed(() => {
   if (actionExecuted.value) return false;
   const n = Number(resumeCount.value);
-  return Number.isFinite(n) && n > 0;
+  return (
+    Number.isFinite(n) &&
+    n > 0 &&
+    (!isRecommend.value || Boolean(matchedBossJobId.value))
+  );
 });
 
 /* ===== 时间预估 =====
@@ -193,7 +363,9 @@ const effectiveCount = computed(() => {
 });
 
 const cfgList = computed(() => store.getters.getUserChannelConfig || []);
-const positionId = computed(() => store.getters.getLatestPositionId || "");
+const positionId = computed(
+  () => props.cardData?.positionId || store.getters.getLatestPositionId || ""
+);
 
 /** estimate 用的 taskType：CONTINUE（保留增量）/ RESTART（清空重搜） */
 const estimateTaskType = computed(() =>
@@ -229,8 +401,10 @@ async function runEstimate() {
     positionId: positionId.value,
     cfgList: cfgList.value,
     selectedModules: props.cardData?.selectedModules || {},
-    matchedBossJobId: props.cardData?.matchedBossJobId || null,
+    matchedBossJobId: matchedBossJobId.value,
+    bossFilters: bossFilters.value,
     resumeCount: effectiveCount.value,
+    targetCount: effectiveCount.value,
     taskType: estimateTaskType.value
   });
   if (!payload) {
@@ -258,15 +432,18 @@ async function runEstimate() {
     };
   } catch (e) {
     if (seq !== _estimateSeq) return;
-    console.warn("[RetryConfigCard] estimate 接口失败:", e?.message || e);
+    console.warn("[任务流程] [RetryConfigCard] estimate 接口失败:", e?.message || e);
     estimateRemote.value = null;
   } finally {
     if (seq === _estimateSeq) estimateLoading.value = false;
   }
 }
 
-// 份数 / 渠道配置变化都重新预估（debounce 300ms）
-watch([effectiveCount, cfgList], scheduleEstimate, { immediate: true, deep: true });
+// 份数 / 渠道配置 / BOSS 职位变化都重新预估（debounce 300ms）
+watch([effectiveCount, cfgList, matchedBossJobId, bossFilters, positionId], scheduleEstimate, {
+  immediate: true,
+  deep: true
+});
 
 onBeforeUnmount(() => {
   if (_estimateTimer) clearTimeout(_estimateTimer);
@@ -309,7 +486,11 @@ function onInput(e) {
 
 function handleStart() {
   if (!canStart.value) return;
-  emit("start", { resumeCount: Number(resumeCount.value) });
+  emit("start", {
+    resumeCount: Number(resumeCount.value),
+    matchedBossJobId: matchedBossJobId.value,
+    bossFilters: { ...bossFilters.value }
+  });
 }
 </script>
 
@@ -382,6 +563,123 @@ $neutral-800: #262626;
   padding: 16px;
   border-radius: 8px;
   border: 1px solid $primary-100;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rcc-select-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rcc-select-label {
+  color: $neutral-700;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rcc-select-label-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rcc-icon-target {
+  width: 16px;
+  height: 16px;
+  color: $primary-500;
+  flex-shrink: 0;
+}
+.rcc-select-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+}
+.rcc-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: min(240px, 100%);
+  max-width: 280px;
+}
+.rcc-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  padding: 6px 28px 6px 10px;
+  color: $neutral-700;
+  background: #ffffff;
+  border: 1px solid $neutral-200;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+
+  &:focus {
+    border-color: $primary-500;
+    box-shadow: 0 0 0 3px rgba(21, 184, 166, 0.15);
+  }
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+.rcc-select-caret {
+  position: absolute;
+  right: 8px;
+  pointer-events: none;
+  color: #71717a;
+}
+.rcc-select--unset {
+  color: #a1a1aa;
+  border-color: #fcd34d;
+}
+.rcc-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rcc-filter-label {
+  color: $neutral-700;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rcc-filter-select {
+  width: 240px;
+  max-width: 280px;
+  font-size: 12px;
+}
+.rcc-filter-select :deep(.q-field__control) {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 6px;
+  background: #fff;
+  padding-right: 4px;
+}
+.rcc-filter-select :deep(.q-field__native) {
+  height: 30px;
+  min-height: 30px;
+  font-size: 12px;
+  font-weight: 600;
+  color: $neutral-700;
+}
+.rcc-filter-select :deep(.q-field__append) {
+  padding-left: 4px;
+  color: #a3a3a3;
+}
+.rcc-filter-select :deep(.q-icon) {
+  color: #a3a3a3;
+}
+.rcc-filter-select :deep(.q-field--outlined .q-field__control:before) {
+  border-color: $neutral-200;
 }
 .rcc-input-row {
   display: flex;
@@ -403,8 +701,8 @@ $neutral-800: #262626;
 }
 .rcc-label {
   /* text-xs font-bold text-neutral-700 */
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   color: $neutral-700;
 }
 .rcc-input-cell {
@@ -415,16 +713,17 @@ $neutral-800: #262626;
 .rcc-input {
   /* w-16 bg-white border border-neutral-200 rounded px-2 py-1 text-xs font-mono font-bold text-[#15B8A6] */
   width: 64px;
+  height: 32px;
   background: #ffffff;
   border: 1px solid $neutral-200;
-  border-radius: 4px;
-  padding: 4px 8px;
+  border-radius: 6px;
+  padding: 6px 8px;
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700;
   color: $primary-500;
   outline: none;
-  text-align: center;
+  text-align: right;
   transition: box-shadow 0.18s;
 
   &:focus {
@@ -445,7 +744,6 @@ $neutral-800: #262626;
 /* 时间预估子块 —— 1:1 ihraisaas ConfigCard 内"预计本次时长 / 开始 / 结束"
    space-y-2 p-3 bg-white/60 border border-[#CCFBF1] rounded-lg */
 .rcc-estimate-block {
-  margin-top: 12px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid $primary-100;

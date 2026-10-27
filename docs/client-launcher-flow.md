@@ -406,6 +406,10 @@ interface DeepLinkPayload_v1 {
   positionIds?: string[]                  // 与 positionList 同步,用于客户端再调 API 拉 JD
   sysConfig?: ThemeConfig                 // 企业主题色快照(可选)
   companyConfig?: { companyId: string }
+
+  // === 公司信息(client/launch 返回,随 deep link 透传给桌面端)===
+  companyId?: string                      // 桌面端登录调 /sso/generateToken 时作为参数带上
+  companyName?: string                    // 同上
 }
 ```
 

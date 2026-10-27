@@ -34,6 +34,7 @@
  */
 
 import type { Debugger, WebContents } from 'electron'
+import { traceBossResumeNetwork, type BossResumeTrace } from './bossResumeNetworkTrace'
 
 /** 缓冲单条响应（解析后的业务格式） */
 export interface CapturedResponse {
@@ -79,6 +80,8 @@ interface AttachedRecord {
   siteKey: string
   /** 内部记录：requestId → 暂存的 response meta（等 loadingFinished 后取 body） */
   pendingMeta: Map<string, { url: string; method: string; status: number }>
+  cleanup?: () => void
+  onTrace?: (entry: BossResumeTrace) => void
 }
 
 const buckets = new Map<string, SiteBucket>()
@@ -122,7 +125,7 @@ export function ensureAttached(
   wc: WebContents,
   siteKey: string,
   matchers: string[],
-  opts?: { cap?: number }
+  opts?: { cap?: number; onBossResumeTrace?: (entry: BossResumeTrace) => void }
 ): { ok: boolean; reason?: string } {
   if (!wc || wc.isDestroyed()) return { ok: false, reason: 'webContents destroyed' }
   if (!siteKey || !Array.isArray(matchers) || matchers.length === 0) {
@@ -133,9 +136,9 @@ export function ensureAttached(
   getOrCreateBucket(siteKey, matchers, opts?.cap ?? DEFAULT_CAP)
 
   // 已经 attach 过 → 只合并 matchers，不重 attach
-  if (attachedByWcId.has(wc.id)) {
-    return { ok: true }
-  }
+  const existing = attachedByWcId.get(wc.id)
+  if (existing && wc.debugger.isAttached()) return { ok: true }
+  existing?.cleanup?.()
 
   let dbg: Debugger
   try {
@@ -147,47 +150,86 @@ export function ensureAttached(
     const msg = (e as Error).message
     // "Another debugger is already attached"：可能 DevTools 正打开了，此时 debugger 被 DevTools 占用
     // 直接放弃 attach 但保留 bucket（之后 DevTools 关掉再 attach 会成功）
-    console.warn(`[siteNetworkCapture] attach failed siteKey=${siteKey} wcId=${wc.id}: ${msg}`)
+    console.warn(
+      `[任务流程] [siteNetworkCapture] attach failed siteKey=${siteKey} wcId=${wc.id}: ${msg}`
+    )
     return { ok: false, reason: msg }
   }
 
-  const record: AttachedRecord = { wc, siteKey, pendingMeta: new Map() }
+  const record: AttachedRecord = {
+    wc,
+    siteKey,
+    pendingMeta: new Map(),
+    onTrace: opts?.onBossResumeTrace
+  }
   attachedByWcId.set(wc.id, record)
+  let disposeTrace: (() => void) | undefined
 
-  // Network.enable 失败一般是 wc 半 destroyed，记录后退出
-  dbg
-    .sendCommand('Network.enable')
-    .then(() => {
-      console.log(`[siteNetworkCapture] attached siteKey=${siteKey} wcId=${wc.id}`)
-    })
-    .catch((e) => {
-      console.warn(
-        `[siteNetworkCapture] Network.enable failed siteKey=${siteKey} wcId=${wc.id}: ${(e as Error).message}`
-      )
-    })
-
-  dbg.on('message', (_e, method, params) => onCdpMessage(record, method, params))
-
-  // wc 销毁时清理
-  wc.once('destroyed', () => {
+  const reportState = (stage: string, error?: string): void => {
+    try {
+      opts?.onBossResumeTrace?.({
+        stage,
+        timestamp: Date.now(),
+        wcId: wc.id,
+        sessionId: '',
+        url: wc.isDestroyed() ? '' : wc.getURL(),
+        error
+      })
+    } catch {
+      console.warn('[任务流程] [siteNetworkCapture] 监听状态日志转发失败')
+    }
+  }
+  const onMessage = (
+    _event: Electron.Event,
+    method: string,
+    params: Record<string, unknown>,
+    sessionId?: string
+  ): void => onCdpMessage(record, method, params, sessionId)
+  const cleanup = (): void => {
+    disposeTrace?.()
+    dbg.removeListener('message', onMessage)
+    dbg.removeListener('detach', onDetach)
+    wc.removeListener('destroyed', onDestroyed)
+    record.pendingMeta.clear()
+    if (attachedByWcId.get(wc.id) === record) attachedByWcId.delete(wc.id)
+  }
+  const onDetach = (_event: Electron.Event, reason: string): void => {
+    cleanup()
+    console.warn(
+      `[任务流程] [siteNetworkCapture] debugger detached siteKey=${siteKey} wcId=${wc.id}: ${reason}`
+    )
+    reportState('NETWORK_DETACHED', reason)
+  }
+  const onDestroyed = (): void => {
+    cleanup()
     try {
       if (dbg.isAttached()) dbg.detach()
     } catch {
       /* noop */
     }
-    attachedByWcId.delete(wc.id)
-    console.log(`[siteNetworkCapture] detached on wc destroyed siteKey=${siteKey} wcId=${wc.id}`)
-  })
+  }
+  record.cleanup = cleanup
+  dbg.on('message', onMessage)
+  dbg.on('detach', onDetach)
+  wc.once('destroyed', onDestroyed)
 
-  // 用户手动打开 DevTools 时 Electron 会自动 detach 我们；监听一下记录日志
-  dbg.on('detach', (_e, reason) => {
-    console.log(
-      `[siteNetworkCapture] debugger detached siteKey=${siteKey} wcId=${wc.id} reason=${reason}`
-    )
-    // 不删 attachedByWcId：DevTools 关闭后 ensureAttached 还能重新 attach
-    // 但要把 detach 状态映射出来，让下次 ensureAttached 重试
-    attachedByWcId.delete(wc.id)
-  })
+  // Network.enable 失败一般是 wc 半 destroyed，记录后退出
+  dbg
+    .sendCommand('Network.enable')
+    .then(() => {
+      if (attachedByWcId.get(wc.id) !== record || !dbg.isAttached()) return
+      console.log(`[任务流程] [siteNetworkCapture] attached siteKey=${siteKey} wcId=${wc.id}`)
+      reportState('NETWORK_ATTACHED')
+    })
+    .catch((e) => {
+      console.warn(
+        `[任务流程] [siteNetworkCapture] Network.enable failed siteKey=${siteKey} wcId=${wc.id}: ${(e as Error).message}`
+      )
+      cleanup()
+      reportState('NETWORK_ENABLE_ERROR', String(e))
+    })
+
+  if (siteKey === 'boss') disposeTrace = traceBossResumeNetwork(wc)
 
   return { ok: true }
 }
@@ -196,13 +238,16 @@ export function ensureAttached(
 function onCdpMessage(
   record: AttachedRecord,
   method: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  sessionId?: string
 ): void {
+  if (attachedByWcId.get(record.wc.id) !== record) return
   const bucket = buckets.get(record.siteKey)
   if (!bucket) return
 
   if (method === 'Network.responseReceived') {
     const requestId = String(params['requestId'])
+    const key = `${sessionId || ''}:${requestId}`
     const resp = params['response'] as
       | { url?: string; status?: number; mimeType?: string }
       | undefined
@@ -210,31 +255,31 @@ function onCdpMessage(
     if (!url) return
     if (!isUrlMatched(url, bucket.matchers)) return
     // CDP 在 responseReceived 里不一定带 request.method，先记 GET，后面 loadingFinished 再补
-    const method2 = String(
-      (params as { request?: { method?: string } }).request?.method || 'GET'
-    )
-    record.pendingMeta.set(requestId, {
+    const method2 = String((params as { request?: { method?: string } }).request?.method || 'GET')
+    record.pendingMeta.set(key, {
       url,
       method: method2,
       status: resp?.status ?? 0
     })
     // 命中日志：让"BOSS 推荐列表到底有没有发"在主进程 stdout 上一眼可见
     console.log(
-      `[siteNetworkCapture] HIT siteKey=${record.siteKey} ${method2} ${resp?.status ?? '?'} ${url}`
+      `[任务流程] [siteNetworkCapture] HIT siteKey=${record.siteKey} ${method2} ${resp?.status ?? '?'} ${url}`
     )
     return
   }
 
   if (method === 'Network.loadingFinished') {
     const requestId = String(params['requestId'])
-    const meta = record.pendingMeta.get(requestId)
+    const key = `${sessionId || ''}:${requestId}`
+    const meta = record.pendingMeta.get(key)
     if (!meta) return
-    record.pendingMeta.delete(requestId)
+    record.pendingMeta.delete(key)
 
     // 异步去拿 body，拿到后 push 进缓冲 + 唤醒 waiters
     record.wc.debugger
-      .sendCommand('Network.getResponseBody', { requestId })
+      .sendCommand('Network.getResponseBody', { requestId }, sessionId || undefined)
       .then((res) => {
+        if (attachedByWcId.get(record.wc.id) !== record) return
         const r = res as { body?: string; base64Encoded?: boolean }
         const rawBody = r.body ?? ''
         const isB64 = !!r.base64Encoded
@@ -263,14 +308,14 @@ function onCdpMessage(
           }
         } catch (e) {
           console.warn(
-            `[siteNetworkCapture] decode body err siteKey=${record.siteKey} url=${meta.url}: ${(e as Error).message}`
+            `[任务流程] [siteNetworkCapture] decode body err siteKey=${record.siteKey} url=${meta.url}: ${(e as Error).message}`
           )
         }
 
         // body 拿到后再打一行（区分"响应到达"和"body 解析完成"两阶段——
         // BOSS 偶发 loadingFinished 但 getResponseBody 拿不到的情况，靠这行能定位）
         console.log(
-          `[siteNetworkCapture] BODY siteKey=${record.siteKey} bytes=${bodyBytes} json=${
+          `[任务流程] [siteNetworkCapture] BODY siteKey=${record.siteKey} bytes=${bodyBytes} json=${
             bodyJson !== null ? 'ok' : 'no'
           } ${meta.url}`
         )
@@ -291,8 +336,21 @@ function onCdpMessage(
       .catch((e) => {
         // body 取不到（流式 / 大文件 / 已 GC）不影响后续接口，吞掉错误
         console.warn(
-          `[siteNetworkCapture] getResponseBody err siteKey=${record.siteKey} url=${meta.url}: ${(e as Error).message}`
+          `[任务流程] [siteNetworkCapture] getResponseBody err siteKey=${record.siteKey} url=${meta.url}: ${(e as Error).message}`
         )
+        try {
+          record.onTrace?.({
+            stage: 'CAPTURE_BODY_ERROR',
+            timestamp: Date.now(),
+            wcId: record.wc.id,
+            sessionId: sessionId || '',
+            requestId,
+            url: meta.url,
+            error: String(e)
+          })
+        } catch {
+          console.warn('[任务流程] [siteNetworkCapture] 响应读取错误日志转发失败')
+        }
       })
   }
 }
@@ -371,6 +429,18 @@ export async function waitForResponse(opts: {
     return { ok: true, data: c }
   }
 
+  const listening = [...attachedByWcId.values()].some(
+    (record) =>
+      record.siteKey === siteKey && !record.wc.isDestroyed() && record.wc.debugger.isAttached()
+  )
+  if (!listening) {
+    return {
+      ok: false,
+      code: 'NOT_ATTACHED',
+      message: `siteKey=${siteKey} 网络监听已断开，未能接收页面接口响应`
+    }
+  }
+
   // 2) 挂 waiter
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -402,7 +472,8 @@ export function getLatest(opts: {
 }): { ok: true; data: CapturedResponse } | { ok: false; code: string; message: string } {
   const { siteKey, urlPattern } = opts || {}
   const bucket = buckets.get(siteKey)
-  if (!bucket) return { ok: false, code: 'NOT_ATTACHED', message: `siteKey=${siteKey} not attached` }
+  if (!bucket)
+    return { ok: false, code: 'NOT_ATTACHED', message: `siteKey=${siteKey} not attached` }
   for (let i = bucket.cache.length - 1; i >= 0; i--) {
     const c = bucket.cache[i]
     if (urlPattern && c.url.indexOf(urlPattern) === -1) continue
@@ -416,7 +487,7 @@ export function clearCache(siteKey: string): void {
   const bucket = buckets.get(siteKey)
   if (!bucket) return
   bucket.cache.length = 0
-  console.log(`[siteNetworkCapture] cache cleared siteKey=${siteKey}`)
+  console.log(`[任务流程] [siteNetworkCapture] cache cleared siteKey=${siteKey}`)
 }
 
 /** 调试：列出某个 siteKey 当前缓存里所有响应的 URL+ts */

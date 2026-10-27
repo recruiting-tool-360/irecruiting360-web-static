@@ -93,6 +93,15 @@ export const userCollectResume = (data)=>{
     });
 }
 
+// 立即沟通成功后，通知招聘服务更新候选人的沟通状态
+export const userImmediateCommunicate = (data) => {
+    return request({
+        method: 'POST',
+        url: '/resume/userImmediateCommunicate',
+        data
+    });
+}
+
 //获取ai评估
 export const getScoreListDetailed = (resumeBlindIds) => {
     return request({
@@ -107,6 +116,15 @@ export const getScoreListDetailedPlus = (data) => {
         method:'POST',
         url:'/resume/getScoreListDetailedPlus',
         data:data
+    });
+}
+
+// 查询候选人 AI 匹配详情报告（任务简历维度）
+export const queryEvaluationReport = (data) => {
+    return request({
+        method: 'POST',
+        url: '/resume/queryEvaluationReport',
+        data: data
     });
 }
 

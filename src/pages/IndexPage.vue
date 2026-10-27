@@ -222,7 +222,10 @@ import WorkspaceContainer from "src/components/clients/WorkspaceContainer.vue";
 import ChatCard from "src/components/common/ChatCard.vue";
 import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import { runBossRecommend, unlockRecommendTab } from "src/util/automation/bossRecommend";
-import { buildSearchTaskChannels } from "src/util/searchTaskPayloadBuilder";
+import { sealScoreBatch, waitForScoreBatchCompleted } from "src/util/scoringBatch";
+import { SCORE_BATCH_SIZE } from "src/config/searchTaskConfig";
+import { buildSearchTaskChannels, pickBossFilters } from "src/util/searchTaskPayloadBuilder";
+import { extractBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
 import ClearChatConfirmModal from "src/components/clients/ClearChatConfirmModal.vue";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import {
@@ -235,6 +238,8 @@ import { ensureClientAuthority } from "src/util/checkClientAuthority";
 import RecommendList from "src/components/clients/RecommendList.vue";
 import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 const store = useStore();
+
+// 推荐通道的 BOSS 详情（zpData）已经拿到，直接复用「分配职位」同一套 HTML 模板。
 
 /* ===== 客户端 / iHR 融合：嵌入式工作台模式 ===== */
 
@@ -545,7 +550,7 @@ watch(
       try {
         store.commit("clearCurrentViewingTask", oldChatId);
       } catch (e) {
-        console.warn("[IndexPage] clearCurrentViewingTask 失败（忽略）:", e?.message || e);
+        console.warn("[任务流程] [IndexPage] clearCurrentViewingTask 失败（忽略）:", e?.message || e);
       }
     }
 
@@ -589,7 +594,7 @@ watch(
     }
 
     console.log(
-      `[IndexPage] chatId 切到 ${newChatId}，结果页无隔离数据，自动重载 taskId=${savedTaskId}`
+      `[任务流程] [IndexPage] chatId 切到 ${newChatId}，结果页无隔离数据，自动重载 taskId=${savedTaskId}`
     );
     // 复用 handleViewResults 的加载逻辑：从 API 拉结果并写进按 taskId 隔离的 bucket，
     // 切职位互不影响。source=task_completion_card 让它走完整数据加载 + 记 viewingTaskId。
@@ -610,7 +615,7 @@ const lastRecommendArgs = ref(null);
 
 async function retryFetchRecommend() {
   if (!lastRecommendArgs.value) {
-    console.warn("[IndexPage] retryFetchRecommend: no last args, skip");
+    console.warn("[任务流程] [IndexPage] retryFetchRecommend: no last args, skip");
     return;
   }
   await doFetchRecommend(lastRecommendArgs.value);
@@ -911,8 +916,221 @@ function mapBossRecommendGeekToSearchRaw(geek) {
   };
 }
 
+function normalizeCandidateId(value) {
+  return String(value === undefined || value === null ? "" : value).replace(/~+$/, "");
+}
+
+/** 一个候选人可能被后端/SSE 用任意一种 ID 引用，统一收集起来做反查。 */
+function collectGeekCandidateIds(geek, row) {
+  const card = geek?.geekCard || {};
+  const plainGeekId = card.geekId || geek?.geekId || "";
+  const outId =
+    extractTaskResumeRowOutId(row) ||
+    (plainGeekId ? `rec_${plainGeekId}` : "");
+  return [
+    row?.taskResumeId,
+    row?.resumeBlindId,
+    row?.id,
+    row?.channelResumeId,
+    row?.outId,
+    outId,
+    geek?.encryptGeekId,
+    geek?.geekId,
+    geek?.uniqSign,
+    card?.encryptGeekId,
+    card?.geekId,
+    plainGeekId ? `rec_${plainGeekId}` : ""
+  ]
+    .map(normalizeCandidateId)
+    .filter(Boolean);
+}
+
+function geekIdentityKey(geek) {
+  return normalizeCandidateId(
+    geek?.encryptGeekId ||
+      geek?.geekCard?.encryptGeekId ||
+      geek?.geekId ||
+      geek?.geekCard?.geekId ||
+      geek?.uniqSign
+  );
+}
+
+/** 从 /results 返回的 jobList 行里提取 outId（优先直接字段，其次 originalResumeUrlInfo.request.rowId）。 */
+function extractTaskResumeRowOutId(row) {
+  // /results 可能把渠道侧 ID 放在 outId / channelResumeId / uniqSign 任一字段。
+  const direct = row?.outId ?? row?.channelResumeId ?? row?.uniqSign;
+  if (direct !== undefined && direct !== null && direct !== "") return String(direct);
+  const info = row?.originalResumeUrlInfo;
+  if (!info) return "";
+  try {
+    const obj = typeof info === "string" ? JSON.parse(info) : info;
+    const rowId = obj?.request?.rowId;
+    return rowId === undefined || rowId === null || rowId === "" ? "" : String(rowId);
+  } catch (_e) {
+    return "";
+  }
+}
+
+/**
+ * /results 返回的 taskResumes 不保证跟抓取顺序一致（后端可能去重/重排）。
+ * 用 outId（= uniqSign = rec_<geekId>）配对；只有整行都没有可识别 outId 时才按位置兜底。
+ */
+function buildTaskResumeRowMatcher(jobList, expectedCount = 0) {
+  const byOutId = new Map();
+  for (const row of jobList || []) {
+    const key = normalizeCandidateId(extractTaskResumeRowOutId(row));
+    if (key) byOutId.set(key, row);
+  }
+  return (geek, index) => {
+    const card = geek?.geekCard || {};
+    const plainGeekId = card.geekId || geek?.geekId || "";
+    const candidates = [];
+    if (plainGeekId) candidates.push(`rec_${plainGeekId}`, String(plainGeekId));
+    const encryptIds = [
+      card.encryptGeekId,
+      card.encGeekId,
+      geek?.encryptGeekId,
+      geek?.encGeekId,
+      geek?.uniqSign
+    ];
+    for (const id of encryptIds) {
+      if (id !== undefined && id !== null && id !== "") candidates.push(String(id));
+    }
+    for (const key of candidates) {
+      const normalized = normalizeCandidateId(key);
+      if (byOutId.has(normalized)) return byOutId.get(normalized);
+    }
+    // 后端可能返回自己的 outId 口径，跟 uniqSign/geekId 都不一致。
+    // /results 的 taskResumes 与本次上送 resultItems 一一对应时，按索引兜底，
+    // 避免 5 条全部匹配失败 → 一条详情都不发。
+    const byIndex = jobList?.[index];
+    if (
+      byIndex &&
+      (!extractTaskResumeRowOutId(byIndex) ||
+        (expectedCount > 0 && jobList.length === expectedCount))
+    ) {
+      return byIndex;
+    }
+    return null;
+  };
+}
+
+function base64ToArrayBuffer(base64) {
+  const binary = atob(String(base64 || ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+/**
+ * 推荐候选人 → 打开 BOSS 详情 → 截图 → /resume/upload 拿 fileId。
+ *
+ * BOSS 的 zpitem/web/boss/search/geek/info 已不可用，这里不再调用详情接口、
+ * 也不再生成简历 HTML，改为截取详情面板图片交给后端解析/评分。
+ * iframe 内 canvas 采用滚动分片截图，拼成长图后上传。
+ */
+async function buildAndUploadBossRecommendResume(geek, localId, tabId, shouldAbort) {
+  if (!tabId) throw new Error("缺少 BOSS tabId，无法打开候选人详情");
+  const automation = window?.api?.automation;
+  const ihrBridge = window?.api?.ihrBridge;
+  if (!automation?.sendCdp) {
+    throw new Error("当前客户端版本不支持页面截图，请升级客户端");
+  }
+  if (!ihrBridge || typeof ihrBridge.uploadFile !== "function") {
+    throw new Error("ihrBridge.uploadFile 不可用");
+  }
+
+  const card = geek?.geekCard || {};
+  const displayName = card.geekName || geek?.geekName || String(localId);
+  const safeName =
+    String(displayName).replace(/[\\/:*?"<>|]/g, "_").trim() || String(localId);
+
+  const collectMod = await import("src/util/automation/bossRecommendCollect");
+  const checkStopped = () => {
+    if (shouldAbort?.()) {
+      const error = new Error("任务已停止，取消候选人截图上传");
+      error.code = "TASK_STOPPED";
+      throw error;
+    }
+  };
+  checkStopped();
+  try {
+    await collectMod.openBossRecommendDetail(tabId, geek);
+    console.log(`[任务流程] [IndexPage] 推荐详情已打开 localId=${localId} tabId=${tabId}，准备截图`);
+
+    const { captureBossResumeLongScreenshot } = await import("src/util/automation/bossResumeScreenshot");
+    const screenshot = await captureBossResumeLongScreenshot(tabId, { shouldAbort });
+    console.log(
+      "[任务流程]", `[IndexPage] 详情长图完成 localId=${localId} ${screenshot.width}x${screenshot.height}` +
+        ` bytes=${screenshot.bytes} slices=${screenshot.sliceCount}`
+    );
+
+    const fileName = `boss直聘-${safeName}.png`;
+    const arrayBuffer = base64ToArrayBuffer(screenshot.base64);
+    checkStopped();
+    const uploadStartedAt = Date.now();
+    console.log(
+      "[任务流程]", `[IndexPage] resume/upload >>> name=${fileName} bytes=${arrayBuffer.byteLength}` +
+        ` localId=${localId} mime=image/png`
+    );
+    const uploadRes = await ihrBridge.uploadFile({
+      arrayBuffer,
+      name: fileName,
+      mime: "image/png"
+    });
+    const uploadCost = Date.now() - uploadStartedAt;
+    if (!uploadRes?.success) {
+      console.warn(
+        "[任务流程]", `[IndexPage] resume/upload !!! failed ${uploadCost}ms localId=${localId} name=${fileName}` +
+          ` success=${uploadRes?.success} code=${uploadRes?.code} message=${
+            uploadRes?.message ?? "-"
+          }`
+      );
+      throw new Error(uploadRes?.message || uploadRes?.errorCode || "截图上传失败");
+    }
+    const fileId =
+      typeof uploadRes.data === "string"
+        ? uploadRes.data
+        : uploadRes.data?.fileId || uploadRes.data?.id || "";
+    if (!fileId) {
+      console.warn(
+        `[任务流程] [IndexPage] resume/upload !!! 响应缺少 fileId ${uploadCost}ms localId=${localId} data=`,
+        uploadRes.data
+      );
+      throw new Error("截图上传后未返回 fileId");
+    }
+    console.log(
+      "[任务流程]", `[IndexPage] resume/upload <<< ok ${uploadCost}ms localId=${localId} fileId=${fileId}` +
+        ` screenshot=${screenshot.width}x${screenshot.height}`
+    );
+
+    return {
+      fileId,
+      content: JSON.stringify({
+        source: "boss-recommend-screenshot",
+        fileName,
+        mime: "image/png",
+        width: screenshot.width,
+        height: screenshot.height,
+        bytes: screenshot.bytes,
+        captureMode: "scroll-stitch",
+        sliceCount: screenshot.sliceCount
+      }),
+      detailSource: "recommend-screenshot"
+    };
+  } finally {
+    try {
+      await collectMod.closeBossRecommendDetail(tabId);
+    } catch (e) {
+      console.warn("[任务流程] [IndexPage] 关闭推荐详情失败（忽略）:", e?.message || e);
+    }
+  }
+}
+
 async function doFetchRecommend(args) {
-  const jobId = args?.encryptJobId;
+  const jobId = normalizeBossJobId(args?.encryptJobId);
   if (!jobId) return;
 
   // 拿当前 task 的 taskId，用于驱动 recommendClientPhase（让 TaskStatusCard 推荐卡的
@@ -922,6 +1140,8 @@ async function doFetchRecommend(args) {
     ? store.getters["SearchTasks/getLatestTaskByChat"](_cidForPhase)
     : null;
   const _taskIdForPhase = _taskForPhase?.taskId || "";
+  // 跨批次累计展示的候选人（推荐 tab 不会因为进入下一批而只剩当前批）
+  const cumulativeGeeks = [];
 
   // ★ 若本任务的 RECOMMEND/BOSS 渠道已终态（COMPLETED/FAILED/SKIPPED），说明推荐这一路本轮
   //   不需要再跑：不 execute、不开 tab、不 finish，直接返回。
@@ -938,7 +1158,7 @@ async function doFetchRecommend(args) {
         recChannel.taskChannelStatus === "SKIPPED");
     if (recTerminal) {
       console.log(
-        `[IndexPage] doFetchRecommend: RECOMMEND/BOSS 已终态 ${recChannel.taskChannelStatus}，跳过整个推荐流程（不 execute/不开 tab/不 finish）`
+        `[任务流程] [IndexPage] doFetchRecommend: RECOMMEND/BOSS 已终态 ${recChannel.taskChannelStatus}，跳过整个推荐流程（不 execute/不开 tab/不 finish）`
       );
       return;
     }
@@ -954,14 +1174,14 @@ async function doFetchRecommend(args) {
   // 同时跑"搜索 BOSS API"+"推荐 BOSS tab"双流量被风控识别为爬虫。
   // 详见 handleAggregateSearch 注释。
   if (args?.awaitBeforeStart && typeof args.awaitBeforeStart.then === "function") {
-    console.log("[IndexPage] doFetchRecommend 等搜索完成后再启动推荐...");
+    console.log("[任务流程] [IndexPage] doFetchRecommend 等搜索完成后再启动推荐...");
     try {
       await args.awaitBeforeStart;
     } catch (e) {
       // 搜索失败不阻塞推荐（用户至少能拿到推荐数据）
-      console.warn("[IndexPage] 搜索 promise rejected，推荐流程继续:", e?.message || e);
+      console.warn("[任务流程] [IndexPage] 搜索 promise rejected，推荐流程继续:", e?.message || e);
     }
-    console.log("[IndexPage] 搜索 fetch 已完成，等搜索的 AI 分析也完成再启动推荐...");
+    console.log("[任务流程] [IndexPage] 搜索 fetch 已完成，等搜索的 AI 分析也完成再启动推荐...");
 
     // 用户明确要求：推荐要等搜索的 AI 评分跑完才能启动
     // 否则两路 AI 同时跑会让"完成卡片"时序错乱，且 BOSS 同账号双流量被风控盯
@@ -1006,12 +1226,12 @@ async function doFetchRecommend(args) {
         await new Promise((r) => setTimeout(r, AI_POLL_MS));
       }
       console.log(
-        `[IndexPage] AI 等待结束 耗时=${Date.now() - startWaitAi}ms aiSeenActive=${aiSeenActive}` +
+        "[任务流程]", `[IndexPage] AI 等待结束 耗时=${Date.now() - startWaitAi}ms aiSeenActive=${aiSeenActive}` +
           ` queueTotal=${queueManager?.queueStatus?.totalTasks || 0}` +
           ` scorePending=${scoreUpdater?.pendingResumeIds?.size || 0}`
       );
     } catch (e) {
-      console.warn("[IndexPage] 加载 queueManager/scoreUpdater 失败，跳过等 AI:", e?.message || e);
+      console.warn("[任务流程] [IndexPage] 加载 queueManager/scoreUpdater 失败，跳过等 AI:", e?.message || e);
     }
   }
 
@@ -1027,13 +1247,13 @@ async function doFetchRecommend(args) {
         const { postExecuteChannel } = await import("src/api/searchTaskApi");
         await postExecuteChannel(recCh.taskChannelId);
         console.log(
-          `[IndexPage] postExecuteChannel ok RECOMMEND/BOSS taskChannelId=${recCh.taskChannelId}`
+          `[任务流程] [IndexPage] postExecuteChannel ok RECOMMEND/BOSS taskChannelId=${recCh.taskChannelId}`
         );
         // execute 后刷新一次后端队列，让排队/等待信息及时更新
         store.dispatch("SearchTasks/fetchTaskQueue").catch(() => {});
       } catch (e) {
         console.warn(
-          `[IndexPage] postExecuteChannel RECOMMEND/BOSS failed taskChannelId=${recCh.taskChannelId}:`,
+          `[任务流程] [IndexPage] postExecuteChannel RECOMMEND/BOSS failed taskChannelId=${recCh.taskChannelId}:`,
           e?.message || e
         );
         // execute 失败不阻塞推荐流程（业务侧 /results 仍然会落库，后端能补救）
@@ -1047,7 +1267,7 @@ async function doFetchRecommend(args) {
   store.commit("SearchTasks/setBossRecommendRpaActive", true);
   store.commit("setCurrentRecommendJobId", jobId);
   store.commit("setBossRecommendFetching", { jobId, fetching: true });
-  console.log("[IndexPage] runBossRecommend", args);
+  console.log("[任务流程] [IndexPage] runBossRecommend", args);
 
   // 蒙层：BOSS 推荐任务期间**只锁 BOSS 站 tab**，提示"客户端执行中，请勿同步操作"。
   // 蒙层是主进程 WebContentsView，盖在 BOSS view 之上；用户切回主页 / 智联等其它 tab 不受影响。
@@ -1059,7 +1279,7 @@ async function doFetchRecommend(args) {
       coverChannels: ["boss"]
     });
   } catch (e) {
-    console.warn("[IndexPage] showOverlay failed (browser mode?):", e?.message || e);
+    console.warn("[任务流程] [IndexPage] showOverlay failed (browser mode?):", e?.message || e);
   }
 
   // 阶段回调：让用户在 UI 上看到推进
@@ -1073,45 +1293,58 @@ async function doFetchRecommend(args) {
   //   SCORING / DONE = AI 评分 / 全部完成
   function onProgress(stage, payload) {
     if (stage === "opened") {
-      console.log("[IndexPage] BOSS 推荐 tab 已打开:", payload?.url);
+      console.log("[任务流程] [IndexPage] BOSS 推荐 tab 已打开:", payload?.url);
     } else if (stage === "dwell") {
       // 旧被动路径（autoSelectJob=false）：没有 select，直接被动等响应
       // 这里 emit FETCHING 是合理的（已经在等数据了）
-      console.log(`[IndexPage] 拟人 dwell ${payload?.ms}ms 模拟用户加载后停留观察`);
+      console.log(`[任务流程] [IndexPage] 拟人 dwell ${payload?.ms}ms 模拟用户加载后停留观察`);
       setPhase("FETCHING");
     } else if (stage === "select.waiting") {
       // autoSelectJob=true 路径：select 流程开始（15s 初始 dwell）
       // 进入 SELECTING：step 0 "校对岗位" 仍显示 processing（让用户知道还在准备）
-      console.log(`[IndexPage] BOSS 主动选职位流程开始，initial dwell ${payload?.delayMs}ms`);
+      console.log(`[任务流程] [IndexPage] BOSS 主动选职位流程开始，initial dwell ${payload?.delayMs}ms`);
       setPhase("SELECTING");
     } else if (stage === "select.openingDropdown") {
-      console.log("[IndexPage] CDP click 打开 BOSS 职位下拉");
+      console.log("[任务流程] [IndexPage] CDP click 打开 BOSS 职位下拉");
     } else if (stage === "select.browsingDropdown") {
-      console.log(`[IndexPage] 下拉已打开，浏览 dwell ${payload?.dwellMs}ms`);
+      console.log(`[任务流程] [IndexPage] 下拉已打开，浏览 dwell ${payload?.dwellMs}ms`);
     } else if (stage === "select.selectingItem") {
-      console.log(`[IndexPage] CDP click 选中目标职位 ${payload?.selector}`);
+      console.log(`[任务流程] [IndexPage] CDP click 选中目标职位 ${payload?.selector}`);
     } else if (stage === "select.done") {
       // select 完成（li 已 click 或 alreadySelected）但还没进 analyzing → 仍 SELECTING
       // 由 bossRecommend.js 下一行立刻 emit 'analyzing' 切到 SELECTED，避免闪烁
-      console.log("[IndexPage] BOSS 职位选中完成，等 analyzing 模拟");
+      console.log("[任务流程] [IndexPage] BOSS 职位选中完成，等 analyzing 模拟");
     } else if (stage === "analyzing") {
       // bossRecommend.js select 成功后 emit：模拟 1.2s "分析画像关键词"
       // 切到 SELECTED phase → step 0 complete + step 1 processing
-      console.log(`[IndexPage] 模拟分析画像关键词 ${payload?.dwellMs}ms`);
+      console.log(`[任务流程] [IndexPage] 模拟分析画像关键词 ${payload?.dwellMs}ms`);
       setPhase("SELECTED");
     } else if (stage === "fetching") {
       // 发 fetchBossRecommendList 之前 emit → step 1 complete + step 2 processing
-      console.log("[IndexPage] 开始抓取 BOSS 推荐候选人列表（等响应）");
+      console.log("[任务流程] [IndexPage] 开始抓取 BOSS 推荐候选人列表（等响应）");
       setPhase("FETCHING");
     } else if (stage === "verified") {
-      console.log("[IndexPage] BOSS 推荐 verify 通过:", payload);
+      console.log("[任务流程] [IndexPage] BOSS 推荐 verify 通过:", payload);
     } else if (stage === "firstPage" && payload?.geekList?.length > 0) {
       setPhase("FETCHED");
       // 先把首屏数据落进 store，让推荐 tab 立刻显示
+      const mergedGeeks = [...cumulativeGeeks];
+      for (const geek of payload.geekList) {
+        const geekKey = geek?.encryptGeekId || geek?.geekId || geek?.geekCard?.geekId;
+        if (!geekKey) {
+          mergedGeeks.push(geek);
+          continue;
+        }
+        const exists = mergedGeeks.some(
+          (item) =>
+            (item?.encryptGeekId || item?.geekId || item?.geekCard?.geekId) === geekKey
+        );
+        if (!exists) mergedGeeks.push(geek);
+      }
       store.commit("setBossRecommendList", {
         jobId,
-        geekList: payload.geekList,
-        totalSize: payload.totalSize,
+        geekList: mergedGeeks,
+        totalSize: mergedGeeks.length,
         hasMore: payload.hasMore,
         fetchedAt: Date.now()
       });
@@ -1121,22 +1354,23 @@ async function doFetchRecommend(args) {
     } else if (stage === "collect.itemStart") {
       setPhase("FETCHING");
       console.log(
-        `[IndexPage] 正在收藏候选人 ${Number(payload?.index) + 1}/${payload?.total} ` +
+        "[任务流程]", `[IndexPage] 正在收藏候选人 ${Number(payload?.index) + 1}/${payload?.total} ` +
           `geekId=${payload?.geekId || ""}`
       );
     } else if (stage === "collected") {
       setPhase("FETCHED");
-      console.log("[IndexPage] BOSS 推荐候选人收藏完成:", payload);
+      console.log("[任务流程] [IndexPage] BOSS 推荐候选人收藏完成:", payload);
     }
   }
 
-  // 推荐渠道 taskChannelId：传给 runBossRecommend 拉「已保存简历」过滤已入库的人（不计入目标）
-  const recommendTaskChannelId =
+  // 推荐渠道：用于 /results 开批、封批及现有简历去重。
+  const recommendTaskChannel =
     _taskForPhase &&
     Array.isArray(_taskForPhase.channels) &&
     _taskForPhase.channels.find(
       (c) => c.businessChannel === "RECOMMEND" && c.channelSubType === "BOSS"
-    )?.taskChannelId;
+    );
+  const recommendTaskChannelId = recommendTaskChannel?.taskChannelId;
 
   // ★ 该会话**所有**推荐(BOSS)渠道 taskChannelId（含历史任务）：保留增量(CONTINUE)时当前渠道是新建空的，
   //   只用它去重会漏掉之前几次推荐已入库的人 → 采集时不跳过 → 最终新增少几个。合并全部渠道一起去重。
@@ -1158,172 +1392,245 @@ async function doFetchRecommend(args) {
       }
     }
   } catch (e) {
-    console.warn("[IndexPage] 收集推荐渠道 id 失败（忽略）:", e?.message || e);
+    console.warn("[任务流程] [IndexPage] 收集推荐渠道 id 失败（忽略）:", e?.message || e);
   }
 
-  let res;
-  try {
-    res = await runBossRecommend({
-      encryptJobId: jobId,
-      targetCount: args?.targetCount || 10,
-      humanizeOpts: args?.humanizeOpts || {},
-      onProgress,
-      recommendTaskChannelId: recommendTaskChannelId || null,
-      recommendTaskChannelIds,
-      stopAfter: args?.stopAfter,
-      // ★ 传本次运行所属 taskId：用户停旧任务→开新任务时，humanize 循环只认这个 id 的停止标记，
-      //   不会因"最新任务变成新任务"而漏判（修复停止后仍在跑/串台）
-      abortTaskId: _taskIdForPhase
-    });
-  } finally {
-    store.commit("SearchTasks/setBossRecommendRpaActive", false);
-    // 流程结束 / 失败都要关蒙层；放 finally 防止 throw 时蒙层卡住
-    try {
-      await window?.api?.automation?.hideOverlay?.();
-    } catch (e) {
-      console.warn("[IndexPage] hideOverlay failed:", e?.message || e);
-    }
-    // 解锁 BOSS 推荐 tab（用户可以重新 X 关掉它）
-    // 覆盖所有退出路径：正常完成 / runBossRecommend throw / 内部短路 return
-    try {
-      await unlockRecommendTab();
-    } catch (e) {
-      console.warn("[IndexPage] unlockRecommendTab failed:", e?.message || e);
-    }
-  }
-
-  const entitlementStopped = res?.errorCode === "BOSS_ENTITLEMENT_REQUIRED";
-  const partialGeekCount = Array.isArray(res?.geekList) ? res.geekList.length : 0;
-  const hasPartialEntitlementResults = entitlementStopped && partialGeekCount > 0;
-
-  if (!res || (!res.ok && !hasPartialEntitlementResults)) {
-    console.warn("[IndexPage] runBossRecommend failed:", res?.errorCode, res?.message);
-    setPhase("FAILED");
-    store.commit("setBossRecommendError", {
-      jobId,
-      error: { code: res?.errorCode, message: res?.message }
-    });
-
-    // ★ LOGIN_EXPIRED 路径：顶部红 banner + 停止当前 chat 所有任务 + 上报后端
-    //   ClientHeader / 渠道按钮自动 reactive 到红色状态
-    //   详见 src/util/channelLoginGuard.js handleChannelLoginExpired
-    if (res?.errorCode === "LOGIN_EXPIRED") {
-      const cidForStop = args?.chatId || store.getters.getLatestChatId;
-      const taskForStop = cidForStop
-        ? store.getters["SearchTasks/getLatestTaskByChat"](cidForStop)
-        : null;
-      const recommendChannel = taskForStop?.channels?.find(
-        (c) => c.businessChannel === "RECOMMEND"
-      );
-      handleChannelLoginExpired(store, {
-        channelKey: "BOSS",
-        chatId: cidForStop,
-        taskChannelId: recommendChannel?.taskChannelId,
-        errorMessage: res?.message || "BOSS 推荐接口返回登录失效"
-      }).catch((e) =>
-        console.warn("[IndexPage] handleChannelLoginExpired error:", e?.message || e)
-      );
-      notify.warning(
-        `检测到「${CHANNEL_DISPLAY_NAME.BOSS}」账号异常/已下线，相关任务已自动停止。请重新登录后恢复。`
-      );
-    } else if (res?.errorCode === "BOSS_ENTITLEMENT_REQUIRED") {
-      store.commit("SearchTasks/setRecommendClientOutcome", {
-        taskId: _taskIdForPhase,
-        outcome: {
-          code: "BOSS_ENTITLEMENT_REQUIRED",
-          message: "BOSS直聘查看权益不足，推荐任务已停止"
-        }
-      });
-      notify.warning("BOSS直聘查看权益不足，推荐任务已停止");
-    }
-    return;
-  }
-
-  // 查看权益在本轮中途耗尽时，runBossRecommend 会带回此前已经真实收藏成功的人。
-  // 这些结果必须继续落库、触发 AI 评分；仅在所有结果处理完成后，将推荐渠道以权益不足失败收尾。
-  if (hasPartialEntitlementResults) {
-    store.commit("setBossRecommendError", {
-      jobId,
-      error: { code: res.errorCode, message: res.message }
-    });
-    store.commit("SearchTasks/setRecommendClientOutcome", {
-      taskId: _taskIdForPhase,
-      outcome: {
-        code: "BOSS_ENTITLEMENT_REQUIRED",
-        message: res.message || "BOSS直聘查看权益不足，推荐任务已停止",
-        partialResultCount: partialGeekCount
-      }
-    });
-    notify.warning(
-      `BOSS直聘查看权益不足，已保留已获取的 ${partialGeekCount} 份简历，任务停止`
-    );
-  }
-  // ★ 上传前最后一道关：本任务若已被用户主动停止，**丢弃本次推荐结果**——
-  //   不写缓存、不 POST /results 落库、不发 /detail 触发 AI 评分、不启动评分轮询。
-  //   修复："任务进行中手动停止后，又开新任务时，上一次推荐缓存里的牛人仍被继续做 AI 分析并上传"。
-  //   用 _taskIdForPhase（流程开始时捕获的本任务 id），即便此刻已开了新任务也能精确判定。
-  if (
-    _taskIdForPhase &&
-    store.state?.SearchTasks?.userStoppedTaskIds?.[String(_taskIdForPhase)] === true
-  ) {
-    console.warn(
-      `[IndexPage] 推荐流程返回但本任务(${_taskIdForPhase})已被用户停止，丢弃结果：不写缓存/不落库/不评分/不上传`
-    );
-    setPhase("FAILED");
-    return;
-  }
-
-  // 只把本次通过页面 RPA 新收藏成功的候选人写回 store。
-  // ⚠️ totalSize 用实际合并后的数量（res.geekList.length），不是 firstPage.totalSize。
-  // firstPage.totalSize 只反映 BOSS 单页响应的 totalSize 字段（通常 15），跟我们实际累计
-  // 抓到的数量不一致 → UI header 显示「共 15 人」但实际 60 人，bug。
-  store.commit("setBossRecommendList", {
-    jobId,
-    geekList: res.geekList || [],
-    totalSize: (res.geekList || []).length,
-    hasMore: res.firstPage?.hasMore,
-    fetchedAt: Date.now()
-  });
-  console.log(
-    `[IndexPage] BOSS 推荐流程完成 jobId=${jobId} total=${
-      (res.geekList || []).length
-    } collection=${JSON.stringify(res.collection || res.collectionError)}`
-  );
-
-  // ===== 推荐 geekList → 落库 → 配对调 /detail 触发 AI 评分 =====
-  //
-  // 跟 SEARCH 通道两阶段（列表 → 详情）不同，BOSS 推荐 API 一次性返回的 geek 数据本身
-  // 就含有完整详情，所以这里：
-  //   1) POST /results 把整批 geek 当 rawResume 落库 → 后端返回 taskResumes 映射
-  //      （含 taskResumeId / resumeBlindId）
-  //   2) 为每条 geek 配对调 POST /resume/task/{taskResumeId}/detail，content 直接
-  //      塞完整 geek JSON，**触发后端 AI 评分**
-  //   3) commit taskResumeIdMap → scoreAutoUpdater 会自然 pick up 这些 taskResumeId
-  //      去轮询 queryTaskScoreList，UI 卡片上的"AI 分析中"会逐条变成评分
   const cid = args?.chatId || store.getters.getLatestChatId;
-  const geekList = res.geekList || [];
-  if (cid && geekList.length > 0) {
-    try {
-      const { postBatchResultsToTaskChannel } = await import("src/pluginSrc/util/taskResumeBridge");
-      const { postTaskResumeDetail } = await import("src/api/searchTaskApi");
+  // 画像评分批次：人数由公共配置统一控制（保存 → 上传 → 评分 → SSE 通过名单 → 回列表收藏）。
+  const batchSize = SCORE_BATCH_SIZE;
+  const targetCount = Math.max(0, Number(args?.targetCount) || 0);
+  const MAX_SCORE_BATCHES = 50;
 
-      // step 1: /results 落库
-      //
-      // ⚠️ 把推荐 geek 适配成跟搜索接口一致的 rawResume 形态，否则后端 BOSS 反序列化器
-      // （按搜索 geekCard 字段名写：name/gender/workYear/current.name/eduSchool/works[]/...）
-      // 解析推荐数据时全部失败，返回 SYSTEM_005 "no valid resultItems converted"。
-      // 详见 mapBossRecommendGeekToSearchRaw 顶部注释。
-      const adaptedResumeList = geekList.map((g) => mapBossRecommendGeekToSearchRaw(g));
-      const jobList = await postBatchResultsToTaskChannel({
-        chatId: cid,
-        channelDesc: "boss直聘",
-        businessChannel: "RECOMMEND",
-        resumeList: adaptedResumeList,
-        finished: true
+  const cumulativeBlindIds = new Set();
+  // 本任务累计的候选人 ID → geek，用于 SSE 返回通过 ID 后回 BOSS 推荐列表收藏。
+  const candidateGeekById = new Map();
+  // /results 上送的 uniqSign → BOSS encryptGeekId（DOM data-geekid）。
+  // 约定：SSE 结果回到前端的是 uniqSign，必须靠这份映射找到可点击收藏的候选人。
+  const uniqSignToEncryptGeekId = new Map();
+  // 已收藏过的候选人（按 geek 维度去重），避免 SSE 返回累计 ID 时重复打开详情。
+  const collectedCandidateIds = new Set();
+  // SSE 的 passedUniqSigns 是任务累计名单：这里按 uniqSign 级别再记一层，
+  // 前面批次已处理过的 ID 直接跳过，不再反查/滚动/打开详情。
+  const collectedUniqSigns = new Set();
+  // 同一个 geek 可能对应多个 ID 口径，记录 geek → 其 uniqSign，收藏后一并标记。
+  const uniqSignsByGeekKey = new Map();
+  let scoreBatchNo = 1;
+  let processedBatchCount = 0;
+  let hardFailed = false;
+  let entitlementNotified = false;
+  let recommendTabId = null;
+  let pendingRecommendGeeks = [];
+
+  /** 本任务是否已被用户主动停止（停止后不再抓下一批 / 不再封批） */
+  const isUserStopped = () =>
+    Boolean(
+      _taskIdForPhase &&
+        store.state?.SearchTasks?.userStoppedTaskIds?.[String(_taskIdForPhase)] === true
+    );
+
+  try {
+    while (scoreBatchNo <= MAX_SCORE_BATCHES) {
+      if (isUserStopped()) {
+        console.log(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 任务已被用户停止，结束抓取（不封批/不等待评分）`
+        );
+        hardFailed = true;
+        break;
+      }
+
+      console.log(
+        `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 开始：targetCount=${targetCount} batchSize=${batchSize}`
+      );
+      console.log("[任务流程] [IndexPage] 推荐任务 BOSS 筛选条件:", args?.bossFilters || null);
+      store.commit("setCurrentRecommendJobId", jobId);
+      store.commit("setBossRecommendFetching", { jobId, fetching: true });
+      setPhase("FETCHING");
+
+      let res;
+      try {
+        res = await runBossRecommend({
+          encryptJobId: jobId,
+          // 每批最多发现 batchSize 个未入库候选人；本批先评分，SSE 返回通过名单后再收藏。
+          targetCount: batchSize,
+          discoverOnly: true,
+          bossFilters: args?.bossFilters || null,
+          humanizeOpts: args?.humanizeOpts || {},
+          onProgress,
+          recommendTaskChannelId: recommendTaskChannelId || null,
+          recommendTaskChannelIds,
+          // 首批打开并选择职位；后续批次复用同一个推荐页，从当前列表继续往后加载。
+          reuseTabId: recommendTabId,
+          pendingGeekList: pendingRecommendGeeks,
+          stopAfter: args?.stopAfter,
+          // ★ 传本次运行所属 taskId：用户停旧任务→开新任务时，humanize 循环只认这个 id 的停止标记，
+          //   不会因"最新任务变成新任务"而漏判（修复停止后仍在跑/串台）
+          abortTaskId: _taskIdForPhase
+        });
+      } catch (e) {
+        console.warn(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} runBossRecommend 异常:`,
+          e?.message || e
+        );
+        res = { ok: false, errorCode: "EXCEPTION", message: e?.message || String(e) };
+      }
+
+      if (res?.tabId) recommendTabId = res.tabId;
+      pendingRecommendGeeks = Array.isArray(res?.pendingGeekList) ? res.pendingGeekList : [];
+
+      const entitlementStopped = res?.errorCode === "BOSS_ENTITLEMENT_REQUIRED";
+      const partialGeekCount = Array.isArray(res?.geekList) ? res.geekList.length : 0;
+      const hasPartialEntitlementResults = entitlementStopped && partialGeekCount > 0;
+
+      if (!res || (!res.ok && !hasPartialEntitlementResults)) {
+        console.warn("[任务流程] [IndexPage] runBossRecommend failed:", res?.errorCode, res?.message);
+        if (processedBatchCount === 0) {
+          setPhase("FAILED");
+          store.commit("setBossRecommendError", {
+            jobId,
+            error: { code: res?.errorCode, message: res?.message }
+          });
+        }
+
+        // ★ LOGIN_EXPIRED 路径：顶部红 banner + 停止当前 chat 所有任务 + 上报后端
+        if (res?.errorCode === "LOGIN_EXPIRED") {
+          hardFailed = true;
+          const cidForStop = args?.chatId || store.getters.getLatestChatId;
+          const taskForStop = cidForStop
+            ? store.getters["SearchTasks/getLatestTaskByChat"](cidForStop)
+            : null;
+          const recommendChannel = taskForStop?.channels?.find(
+            (c) => c.businessChannel === "RECOMMEND"
+          );
+          handleChannelLoginExpired(store, {
+            channelKey: "BOSS",
+            chatId: cidForStop,
+            taskChannelId: recommendChannel?.taskChannelId,
+            errorMessage: res?.message || "BOSS 推荐接口返回登录失效"
+          }).catch((e) =>
+            console.warn("[任务流程] [IndexPage] handleChannelLoginExpired error:", e?.message || e)
+          );
+          notify.warning(
+            `检测到「${CHANNEL_DISPLAY_NAME.BOSS}」账号异常/已下线，相关任务已自动停止。请重新登录后恢复。`
+          );
+        } else if (res?.errorCode === "BOSS_ENTITLEMENT_REQUIRED") {
+          hardFailed = true;
+          store.commit("SearchTasks/setRecommendClientOutcome", {
+            taskId: _taskIdForPhase,
+            outcome: {
+              code: "BOSS_ENTITLEMENT_REQUIRED",
+              message: "BOSS直聘查看权益不足，推荐任务已停止"
+            }
+          });
+          notify.warning("BOSS直聘查看权益不足，推荐任务已停止");
+        } else {
+          hardFailed = true;
+          store.commit("SearchTasks/setRecommendClientOutcome", {
+            taskId: _taskIdForPhase,
+            outcome: {
+              code: res?.errorCode || "RECOMMEND_FAILED",
+              message: res?.message || "获取 BOSS 推荐候选人失败"
+            }
+          });
+          if (["TIMEOUT", "NOT_ATTACHED"].includes(res?.errorCode)) {
+            notify.warning("未获取到 BOSS 推荐列表接口响应，任务已停止。请检查 BOSS 页面是否正常加载及网络监听日志。");
+          }
+        }
+        break;
+      }
+
+      // 查看权益在本轮中途耗尽时，runBossRecommend 会带回此前已经真实收藏成功的人。
+      // 这些结果必须继续落库、触发 AI 评分；仅在所有结果处理完成后，将推荐渠道以权益不足失败收尾。
+      const mustStopAfterBatch = hasPartialEntitlementResults;
+      if (hasPartialEntitlementResults && !entitlementNotified) {
+        entitlementNotified = true;
+        hardFailed = true;
+        store.commit("setBossRecommendError", {
+          jobId,
+          error: { code: res.errorCode, message: res.message }
+        });
+        store.commit("SearchTasks/setRecommendClientOutcome", {
+          taskId: _taskIdForPhase,
+          outcome: {
+            code: "BOSS_ENTITLEMENT_REQUIRED",
+            message: res.message || "BOSS直聘查看权益不足，推荐任务已停止",
+            partialResultCount: partialGeekCount
+          }
+        });
+        notify.warning(
+          `BOSS直聘查看权益不足，已保留已获取的 ${partialGeekCount} 份简历，任务停止`
+        );
+      }
+
+      // 上传前最后一道关：本任务若已被用户主动停止，丢弃本次推荐结果
+      if (isUserStopped()) {
+        console.warn(
+          `[任务流程] [IndexPage] 推荐流程返回但本任务(${_taskIdForPhase})已被用户停止，丢弃结果：不落库/不评分/不上传`
+        );
+        hardFailed = true;
+        break;
+      }
+
+      const geekList = Array.isArray(res.geekList) ? res.geekList : [];
+      if (geekList.length === 0) {
+        console.log(`[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 本批无新增候选人，结束`);
+        break;
+      }
+
+      const cumulativeKeys = new Set(
+        cumulativeGeeks.map(
+          (item) => item?.encryptGeekId || item?.geekId || item?.geekCard?.geekId || ""
+        )
+      );
+      for (const geek of geekList) {
+        const geekKey = geek?.encryptGeekId || geek?.geekId || geek?.geekCard?.geekId || "";
+        if (geekKey && cumulativeKeys.has(geekKey)) continue;
+        cumulativeGeeks.push(geek);
+        if (geekKey) cumulativeKeys.add(geekKey);
+      }
+      store.commit("setBossRecommendList", {
+        jobId,
+        geekList: [...cumulativeGeeks],
+        totalSize: cumulativeGeeks.length,
+        hasMore: res.hasMore,
+        fetchedAt: Date.now()
       });
+      store.commit("setBossRecommendFetching", { jobId, fetching: true });
+
+      console.log(
+        `[任务流程] [IndexPage] BOSS 推荐批次 ${scoreBatchNo} 完成 total=${
+          geekList.length
+        } cumulative=${cumulativeGeeks.length} hasMore=${res.hasMore}`
+      );
+
+      // ===== 1) /results 开批：落库本批候选，显式标记批次尚未结束 =====
+      const adaptedResumeList = geekList.map((g) => mapBossRecommendGeekToSearchRaw(g));
+      let jobList = [];
+      try {
+        const { postBatchResultsToTaskChannel } = await import(
+          "src/pluginSrc/util/taskResumeBridge"
+        );
+        jobList = await postBatchResultsToTaskChannel({
+          chatId: cid,
+          channelDesc: "boss直聘",
+          businessChannel: "RECOMMEND",
+          resumeList: adaptedResumeList,
+          scoreBatchNo,
+          scoreBatchComplete: false
+        });
+      } catch (e) {
+        console.warn(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} /results 异常:`,
+          e?.message || e
+        );
+        hardFailed = true;
+        break;
+      }
+
       const savedCount = Array.isArray(jobList) ? jobList.length : 0;
       console.log(
-        `[IndexPage] 推荐 /results ok: geekList=${geekList.length} → taskResumes=${savedCount}` +
+        "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} /results ok: geekList=${
+          geekList.length
+        } → taskResumes=${savedCount}` +
           ` (jobList 前 3 条 ID 样例: ${
             savedCount > 0
               ? jobList
@@ -1334,195 +1641,591 @@ async function doFetchRecommend(args) {
           })`
       );
 
-      // ⚠️ jobList 为空时**不立即 return**，仍然尝试发 detail。
-      //
-      // 场景：后端 /results 接受了请求但 taskResumes 响应字段为空（可能是 BOSS-RECOMMEND
-      // 解析器返回的 taskResumes 字段缺失，但实际后端已经入库了 task_resume）。这时如果
-      // 直接 FAILED return，前端再也不会调 detail → AI 评分永远不会启动。
-      // 改成"jobList 空也警告但继续"——但显然没 taskResumeId 也发不了 detail，所以会自然
-      // skip 掉每条；至少给用户清晰的诊断日志看到根因是后端没返 taskResumes。
       if (savedCount === 0) {
         console.warn(
-          "[IndexPage] 推荐 /results 没拿到 taskResumes，后端可能未触发 AI 评分链路；" +
+          "[任务流程]", "[IndexPage] 推荐 /results 没拿到 taskResumes，后端可能未触发 AI 评分链路；" +
             "请检查 Network 里这条 /results 的 Response Body 看 data.taskResumes 字段"
         );
-        setPhase("FAILED");
-        return;
+        if (processedBatchCount === 0) setPhase("FAILED");
+        hardFailed = true;
+        break;
       }
+      processedBatchCount++;
       setPhase("SAVED");
       setPhase("SCORING");
 
-      // step 2: 先回填 ID 映射 + 启动 scoreAutoUpdater（跟搜索通道一致：detail 跟查分并发）
-      //
-      // 搜索通道流程：业务侧每条 resume 拿到详情 → fire-and-forget /detail → scoreUpdater
-      // 2-3s 轮询查分 → 边发 detail 边能拿到分数。
-      // 我之前推荐通道写成 for-await（串行发完所有 detail 才启动 scoreUpdater），
-      // 导致 queryTaskScoreList 只能在 detail 全发完之后才开始。
-      // 现在改成跟搜索一样：scoreUpdater 先启动 → 并发 (Promise.allSettled) 发所有 detail。
-
-      // 2a) 先把 resumeBlindId / taskResumeId 回填给 BossRecommendData.geekList[i]
-      //     scoreUpdater 回调时按 resumeBlindId 反查 geek 写回 score
-      //   同时把「id → encryptGeekId」写进 sessionStorage，供「查看结果」时的「立即沟通」
-      //   反查出真·长 encryptGeekId（DOM data-geekid）精确匹配卡片。
-      //
-      //   ★ 关键映射键 = outId(=uniqSign=`rec_<geekId>`)：
-      //     /results 上送的 rawResume 同时带 outId 和 geekCard.encryptGeekId；
-      //     /search/task/results/query 回来的简历里 outId（=originalResumeUrlInfo.request.rowId）
-      //     就是同一个值。所以用 outId 当 key 最稳（跨"查看结果"也能反查），
-      //     再附带 resumeBlindId/taskResumeId 当 key 兜底。
+      // ===== 2) 回填 ID 映射（供 UI / 「立即沟通」反查）=====
+      const matchTaskResumeRow = buildTaskResumeRowMatcher(jobList, geekList.length);
       const geekIdPairs = [];
-      for (let i = 0; i < jobList.length; i++) {
-        const row = jobList[i];
+      let uniqSignMappedCount = 0;
+      for (let i = 0; i < geekList.length; i++) {
         const geek = geekList[i] || {};
+        const row = matchTaskResumeRow(geek, i);
         const card = geek.geekCard || {};
         const taskResumeId = row?.taskResumeId;
         const resumeBlindId = row?.resumeBlindId || row?.id;
-        // 长 encryptGeekId（不要 fallback 到 geek.geekId 那个纯数字短 id）
         const encryptGeekId = geek?.encryptGeekId || card?.encryptGeekId || "";
-        if (!encryptGeekId) continue;
-        // outId / uniqSign：跟 mapBossRecommendGeekToSearchRaw 的 uniqSign 算法一致
         const plainGeekId = card?.geekId || geek?.geekId || "";
-        const outId = plainGeekId ? `rec_${plainGeekId}` : "";
-        if (resumeBlindId && taskResumeId) {
-          store.commit("patchBossRecommendGeek", {
-            jobId,
-            encryptGeekId,
-            patch: { resumeBlindId: String(resumeBlindId), taskResumeId: String(taskResumeId) }
-          });
-          geekIdPairs.push({ localId: resumeBlindId, geekId: encryptGeekId });
-          geekIdPairs.push({ localId: taskResumeId, geekId: encryptGeekId });
+        // ★ 以后端实际收到的那份 uniqSign 为准（mapBossRecommendGeekToSearchRaw 生成）。
+        const uniqSign = normalizeCandidateId(adaptedResumeList[i]?.uniqSign);
+
+        for (const id of collectGeekCandidateIds(geek, row)) {
+          candidateGeekById.set(id, geek);
         }
-        if (outId) geekIdPairs.push({ localId: outId, geekId: encryptGeekId });
+
+        if (uniqSign) {
+          candidateGeekById.set(uniqSign, geek);
+          const geekKey = geekIdentityKey(geek);
+          if (geekKey) {
+            let signs = uniqSignsByGeekKey.get(geekKey);
+            if (!signs) {
+              signs = new Set();
+              uniqSignsByGeekKey.set(geekKey, signs);
+            }
+            signs.add(uniqSign);
+          }
+          if (encryptGeekId) {
+            uniqSignToEncryptGeekId.set(uniqSign, encryptGeekId);
+            // 同步写入 sessionStorage（跨步骤/跨页面都能按 uniqSign 反查到 encryptGeekId）。
+            geekIdPairs.push({ localId: uniqSign, geekId: encryptGeekId });
+            uniqSignMappedCount++;
+          }
+        }
+
+        if (!row) continue;
+        const outId = plainGeekId ? `rec_${plainGeekId}` : "";
+
+        if (resumeBlindId && taskResumeId) {
+          cumulativeBlindIds.add(String(resumeBlindId));
+          if (encryptGeekId) {
+            store.commit("patchBossRecommendGeek", {
+              jobId,
+              encryptGeekId,
+              patch: {
+                resumeBlindId: String(resumeBlindId),
+                taskResumeId: String(taskResumeId)
+              }
+            });
+            geekIdPairs.push({ localId: resumeBlindId, geekId: encryptGeekId });
+            geekIdPairs.push({ localId: taskResumeId, geekId: encryptGeekId });
+          }
+        }
+        if (outId && encryptGeekId) geekIdPairs.push({ localId: outId, geekId: encryptGeekId });
       }
+      console.log(
+        `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} uniqSign→encryptGeekId 映射 ${uniqSignMappedCount}/${geekList.length}`
+      );
       try {
         const { rememberGeekIds } = await import("src/util/automation/recommendGeekIdMap");
         rememberGeekIds(geekIdPairs);
       } catch (e) {
-        console.warn("[IndexPage] 写入 recommendGeekIdMap 失败（忽略）:", e?.message || e);
+        console.warn("[任务流程] [IndexPage] 写入 recommendGeekIdMap 失败（忽略）:", e?.message || e);
       }
 
-      // 2b) 启动**推荐独立**的 recommendScoreUpdater（跟搜索的 scoreAutoUpdater 单例零干扰）
-      //
-      // 之前用 scoreAutoUpdater 单例，搜索通道 JobInfo.vue 也在用它做 polling，
-      // 推荐通道再调 start() 会 reset 它的 pending + 覆盖 updateCallback → 搜索的 AI 评分
-      // 查询直接返回空。改用独立模块后两条 polling 不再互相干扰。
+      // ===== 3) 推荐评分轮询（累计 ID，跨批次继续查）=====
       try {
         const rsu = await import("src/utils/recommendScoreUpdater");
         const recommendScoreUpdater = rsu.default || rsu;
-        const recommendBlindIds = jobList
-          .map((r) => r?.resumeBlindId || r?.id)
-          .filter(Boolean)
-          .map(String);
-
-        if (recommendBlindIds.length > 0) {
-          const onUpdate = (data) => {
-            const arr = Array.isArray(data) ? data : [];
-            let patched = 0;
-            for (const item of arr) {
-              const resumeId = item?.resumeBlindId;
-              if (!resumeId) continue;
-              const score = item?.score;
-              const scoreStatus = item?.scoreStatus;
-
-              // 只对终态简历 patch，避免 WAITING/SCORING 用 null 覆盖已写入的分数
-              const isTerminal =
-                scoreStatus === "SUCCESS" ||
-                scoreStatus === "FAILED" ||
-                scoreStatus === "NOT_SUPPORTED" ||
-                scoreStatus === "TIMEOUT" ||
-                (typeof score === "number" && score >= 0);
-              if (!isTerminal) continue;
-
-              const finalScore =
-                typeof score === "number"
-                  ? score
-                  : scoreStatus === "FAILED" ||
-                    scoreStatus === "NOT_SUPPORTED" ||
-                    scoreStatus === "TIMEOUT"
-                  ? -2
-                  : null;
-              store.commit("patchBossRecommendGeek", {
-                jobId,
-                resumeBlindId: String(resumeId),
-                patch: { score: finalScore, scoreStatus: scoreStatus || null }
-              });
-              patched++;
-            }
-            console.log(`[IndexPage] 推荐分数 patch 写回 in=${arr.length} patched=${patched}`);
-          };
-
+        const allIds = [...cumulativeBlindIds];
+        if (allIds.length > 0) {
           recommendScoreUpdater.start({
-            resumeBlindIds: recommendBlindIds,
-            onUpdate,
-            onAllDone: () => console.log(`[IndexPage] 推荐评分全部完成 jobId=${jobId}`),
-            intervalMs: 3000, // 推荐通道独立轮询，不影响搜索；3s 一轮比较积极
-            tag: `jobId=${jobId}`
+            resumeBlindIds: allIds,
+            onUpdate: (data) => {
+              const arr = Array.isArray(data) ? data : [];
+              let patched = 0;
+              for (const item of arr) {
+                const resumeId = item?.resumeBlindId;
+                if (!resumeId) continue;
+                const score = item?.score;
+                const scoreStatus = item?.scoreStatus;
+                const isTerminal =
+                  scoreStatus === "SUCCESS" ||
+                  scoreStatus === "FAILED" ||
+                  scoreStatus === "NOT_SUPPORTED" ||
+                  scoreStatus === "TIMEOUT" ||
+                  (typeof score === "number" && score >= 0);
+                if (!isTerminal) continue;
+                const finalScore =
+                  typeof score === "number"
+                    ? score
+                    : scoreStatus === "FAILED" ||
+                      scoreStatus === "NOT_SUPPORTED" ||
+                      scoreStatus === "TIMEOUT"
+                    ? -2
+                    : null;
+                store.commit("patchBossRecommendGeek", {
+                  jobId,
+                  resumeBlindId: String(resumeId),
+                  patch: { score: finalScore, scoreStatus: scoreStatus || null }
+                });
+                patched++;
+              }
+              console.log(
+                `[任务流程] [IndexPage] 推荐分数 patch 写回 in=${arr.length} patched=${patched}`
+              );
+            },
+            onAllDone: () =>
+              console.log(
+                `[任务流程] [IndexPage] 推荐评分全部完成 jobId=${jobId} 累计 ${allIds.length} 条`
+              ),
+            intervalMs: 3000,
+            tag: `jobId=${jobId} batch=${scoreBatchNo}`
           });
-          console.log(
-            `[IndexPage] recommendScoreUpdater 已启动（detail 并发发送中） ids=${recommendBlindIds.length}`
-          );
-        } else {
-          console.warn("[IndexPage] recommendScoreUpdater 未启动: blindIds 为空");
         }
       } catch (e) {
-        console.warn("[IndexPage] recommendScoreUpdater 启动失败:", e?.message || e);
+        console.warn("[任务流程] [IndexPage] recommendScoreUpdater 启动失败:", e?.message || e);
       }
 
-      // 2c) **串行**发 /detail（跟搜索通道 AsyncTaskQueue 串行 dispatch 行为一致）
-      //
-      // 之前用 Promise.allSettled 并发发 15 条 detail，Network 面板里 detail 全部挤
-      // 在一起，跟搜索"queryTaskScoreList × N 跟 detail × N 交替"的节奏完全不一样。
-      // 搜索通道是 AsyncTaskQueueManager 串行 dispatch task，每个 task 内 await
-      // bossFindJobDetail + postDetailToTaskResume，前一条完才进下一条 → detail 天然
-      // 按时间分散 → scoreUpdater 的 setInterval 轮询正好穿插其中。
-      //
-      // 这里 fire-and-forget 一条接一条 await（不阻塞 doFetchRecommend 返回），跟搜索
-      // 节奏对齐。scoreUpdater 此时已 start，setInterval(3000) 会在 detail 串行发送
-      // 期间交替触发 queryTaskScoreList，Network 上呈现 detail / query 穿插。
+      // ===== 4) 逐条：打开 BOSS 详情 → 截图 → upload(fileId) → /detail =====
+      const { postTaskResumeDetail } = await import("src/api/searchTaskApi");
+      let uploadOk = 0;
+      let uploadFail = 0;
       let detailOk = 0;
       let detailFail = 0;
-      for (let i = 0; i < jobList.length; i++) {
-        const row = jobList[i];
+
+      console.log(
+        `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 开始上传简历 total=${geekList.length} jobList=${jobList.length}`
+      );
+      for (let i = 0; i < geekList.length; i++) {
+        if (isUserStopped()) break;
         const geek = geekList[i] || {};
-        const adapted = adaptedResumeList[i] || {};
-        const taskResumeId = row?.taskResumeId;
-        const resumeBlindId = row?.resumeBlindId || row?.id;
-        if (!taskResumeId || !resumeBlindId) {
+        const row = matchTaskResumeRow(geek, i);
+        if (!row) {
+          const card = geek.geekCard || {};
+          console.warn(
+            "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} 无法匹配 taskResumeId，跳过上传 index=${i} ` +
+              `geekId=${card.geekId || geek.geekId || ""} uniqSign=${adaptedResumeList[i]?.uniqSign || ""} ` +
+              `jobList.outIds=[${(jobList || []).map((r) => extractTaskResumeRowOutId(r) || "(empty)").join(", ")}]`
+          );
           detailFail++;
           continue;
         }
-        const encryptGeekId =
-          geek?.encryptGeekId || geek?.geekId || geek?.geekCard?.encryptGeekId || "";
+        const card = geek.geekCard || {};
+        const taskResumeId = row?.taskResumeId;
+        const resumeBlindId = row?.resumeBlindId || row?.id;
+        if (!taskResumeId || !resumeBlindId) {
+          console.warn(
+            "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} /results 行缺少 ID，跳过上传 index=${i} ` +
+              `taskResumeId=${taskResumeId || "(empty)"} resumeBlindId=${resumeBlindId || "(empty)"} ` +
+              `rowKeys=[${Object.keys(row || {}).slice(0, 20).join(",")}]`
+          );
+          detailFail++;
+          continue;
+        }
+
+        const encryptGeekId = geek?.encryptGeekId || card?.encryptGeekId || "";
+        const plainGeekId = card?.geekId || geek?.geekId || "";
+        const outId = plainGeekId
+          ? `rec_${plainGeekId}`
+          : encryptGeekId
+          ? String(encryptGeekId)
+          : "";
+
+        let uploaded;
+        try {
+          console.log(
+            "[任务流程]", `[IndexPage] 上传简历 ${i + 1}/${geekList.length} taskResumeId=${taskResumeId} ` +
+              `blindId=${resumeBlindId} securityId=${card?.securityId ? "yes" : "no"} ` +
+              `encryptGeekId=${encryptGeekId || "(empty)"}`
+          );
+          uploaded = await buildAndUploadBossRecommendResume(
+            geek,
+            resumeBlindId,
+            res?.tabId,
+            isUserStopped
+          );
+          uploadOk++;
+
+          // 结果卡片后续的分配职位 / 加入人才库直接使用上传得到的 fileId。
+          // /search/task/results/query 不保证返回 fileId，因此同时回写当前列表和会话缓存。
+          store.commit("patchBossRecommendGeek", {
+            jobId,
+            encryptGeekId,
+            resumeBlindId,
+            patch: { fileId: uploaded.fileId }
+          });
+          try {
+            const { rememberFileIds } = await import(
+              "src/util/automation/recommendFileIdMap"
+            );
+            rememberFileIds([
+              { localId: resumeBlindId, fileId: uploaded.fileId },
+              { localId: taskResumeId, fileId: uploaded.fileId },
+              { localId: adaptedResumeList[i]?.uniqSign, fileId: uploaded.fileId }
+            ]);
+          } catch (e) {
+            console.warn(
+              "[任务流程] [IndexPage] 写入 recommendFileIdMap 失败（忽略）:",
+              e?.message || e
+            );
+          }
+        } catch (e) {
+          uploadFail++;
+          console.warn(
+            `[任务流程] [IndexPage] 推荐简历上传失败 batch=${scoreBatchNo} taskResumeId=${taskResumeId} blindId=${resumeBlindId}:`,
+            e?.message || e
+          );
+          if (e?.code === "BOSS_ENTITLEMENT_REQUIRED") {
+            hardFailed = true;
+            store.commit("SearchTasks/setRecommendClientOutcome", {
+              taskId: _taskIdForPhase,
+              outcome: {
+                code: "BOSS_ENTITLEMENT_REQUIRED",
+                message: "BOSS直聘查看权益不足，推荐任务已停止"
+              }
+            });
+            notify.warning("BOSS直聘查看权益不足，推荐任务已停止");
+            break;
+          }
+          if (e?.code === "TASK_STOPPED") break;
+          continue;
+        }
+
+        if (isUserStopped()) break;
         const payload = {
+          fileId: uploaded.fileId,
           serializeChannel: "boss直聘",
           channelSubType: "BOSS",
-          content: JSON.stringify(adapted),
+          channel: "BOSS直聘",
+          content: uploaded.content,
           resume: {
             id: String(resumeBlindId),
-            outId: encryptGeekId ? String(encryptGeekId) : ""
+            outId
           }
         };
+        const detailStartedAt = Date.now();
+        console.log(
+          "[任务流程]", `[IndexPage] /detail >>> taskResumeId=${taskResumeId} resumeBlindId=${resumeBlindId}` +
+            ` outId=${outId || "(empty)"} fileId=${uploaded.fileId}` +
+            ` contentLen=${payload.content?.length || 0} (batch=${scoreBatchNo} ${i + 1}/${geekList.length})`
+        );
         try {
-          await postTaskResumeDetail(taskResumeId, payload);
+          const detailResp = await postTaskResumeDetail(taskResumeId, payload);
           detailOk++;
+          console.log(
+            "[任务流程]", `[IndexPage] /detail <<< ok ${Date.now() - detailStartedAt}ms taskResumeId=${taskResumeId}` +
+              ` success=${detailResp?.success ?? "-"} code=${detailResp?.code ?? "-"}`
+          );
         } catch (e) {
           detailFail++;
           console.warn(
-            `[IndexPage] 推荐 /detail 失败 taskResumeId=${taskResumeId} blindId=${resumeBlindId}:`,
+            "[任务流程]", `[IndexPage] /detail !!! failed ${Date.now() - detailStartedAt}ms taskResumeId=${taskResumeId}` +
+              ` blindId=${resumeBlindId} fileId=${uploaded.fileId}:`,
             e?.message || e
           );
         }
       }
       console.log(
-        `[IndexPage] 推荐 /detail 串行发送完成 ok=${detailOk} fail=${detailFail} total=${jobList.length}`
+        "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} 简历处理完成 uploadOk=${uploadOk} uploadFail=${uploadFail}` +
+          ` detailOk=${detailOk} detailFail=${detailFail} total=${jobList.length}`
       );
-    } catch (e) {
-      console.warn("[IndexPage] 推荐 /results+/detail 调用异常:", e?.message || e);
-      setPhase("FAILED");
+
+      // 没有任何详情保存成功 = 后端不会进入评分链路，封批后也等不到 SSE。
+      if (detailOk === 0) {
+        console.warn(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 本批没有一条 /detail 成功，跳过封批与 SSE 等待`
+        );
+        hardFailed = true;
+        break;
+      }
+
+      if (isUserStopped()) {
+        console.log(`[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 用户已停止，不封批`);
+        hardFailed = true;
+        break;
+      }
+
+      const latestTaskForScoring = cid
+        ? store.getters["SearchTasks/getLatestTaskByChat"](cid)
+        : null;
+      const taskIdForScoring = latestTaskForScoring?.taskId || _taskIdForPhase;
+      if (!taskIdForScoring) {
+        console.warn(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 缺 taskId，无法等待评分结果，结束`
+        );
+        hardFailed = true;
+        break;
+      }
+
+      // ===== 5) /results 封批：与开批使用同一个 scoreBatchNo =====
+      const scoringTaskChannel =
+        latestTaskForScoring?.channels?.find(
+          (channel) =>
+            channel.businessChannel === "RECOMMEND" && channel.channelSubType === "BOSS"
+        ) || recommendTaskChannel;
+      try {
+        await sealScoreBatch({
+          taskChannelId: scoringTaskChannel?.taskChannelId || recommendTaskChannelId,
+          chatId: cid,
+          taskId: taskIdForScoring,
+          searchConditionId: scoringTaskChannel?.searchConditionId,
+          businessChannel: "RECOMMEND",
+          channelSubType: "BOSS",
+          serializeChannel: "boss直聘",
+          scoreBatchNo
+        });
+      } catch (e) {
+        console.warn(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 封批失败:`,
+          e?.message || e
+        );
+        hardFailed = true;
+        break;
+      }
+
+      // ===== 6) 等 SSE 决定是否继续 =====
+      // 只有封批请求成功后才等待后端完成本批评分。
+      const batchCompletion = await waitForScoreBatchCompleted({
+        taskId: taskIdForScoring,
+        scoreBatchNo,
+        timeoutMs: 10 * 60 * 1000
+      });
+      const passedIds = Array.isArray(batchCompletion.passedIds)
+        ? batchCompletion.passedIds
+        : [];
+      console.log(
+        `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 评分完成: received=${
+          batchCompletion.received
+        } passedCount=${batchCompletion.passedCount} passedIds=${
+          passedIds.length
+        } targetCount=${
+          batchCompletion.targetCount ?? targetCount
+        } shouldContinue=${batchCompletion.shouldContinue}`
+      );
+
+      if (!batchCompletion.received) {
+        console.warn(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 未收到 RESUME_SCORE_BATCH_COMPLETED，停止继续抓取`
+        );
+        break;
+      }
+
+      // ===== 7) SSE 通过名单 → 回 BOSS 推荐列表逐个打开详情收藏 =====
+      // 这一批先评分后收藏：只有通过画像评分的人才打开详情，不通过的人不产生收藏动作。
+      // 后端统一返回 uniqSign：先按 uniqSign → encryptGeekId 反查，再定位 geek 卡片。
+      let lookupPersistedGeekId = () => null;
+      try {
+        const idMap = await import("src/util/automation/recommendGeekIdMap");
+        if (typeof idMap.lookupGeekId === "function") {
+          lookupPersistedGeekId = idMap.lookupGeekId;
+        }
+      } catch (e) {
+        console.warn("[任务流程] [IndexPage] 加载 uniqSign→encryptGeekId 持久映射失败（忽略）:", e?.message || e);
+      }
+
+      let passedGeeks = [];
+      const passedGeekKeys = new Set();
+      let skippedCollectedUniqSigns = 0;
+      let unmatchedUniqSigns = 0;
+      for (const rawId of passedIds) {
+        const id = normalizeCandidateId(rawId);
+        if (!id) continue;
+
+        // ★ passedUniqSigns 是任务累计名单：上一批已经收藏过的人直接跳过。
+        if (collectedUniqSigns.has(id)) {
+          skippedCollectedUniqSigns++;
+          continue;
+        }
+
+        const mappedEncryptGeekId = normalizeCandidateId(
+          uniqSignToEncryptGeekId.get(id) || lookupPersistedGeekId(id) || ""
+        );
+        const geek =
+          candidateGeekById.get(id) ||
+          (mappedEncryptGeekId
+            ? candidateGeekById.get(mappedEncryptGeekId)
+            : null) ||
+          candidateGeekById.get(`rec_${id}`);
+        if (!geek) {
+          unmatchedUniqSigns++;
+          console.warn(
+            "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo}: 通过 uniqSign 未找到候选人 uniqSign=${id} ` +
+              `encryptGeekId=${mappedEncryptGeekId || "(none)"}`
+          );
+          continue;
+        }
+        const geekKey = geekIdentityKey(geek);
+        if (!geekKey) {
+          unmatchedUniqSigns++;
+          continue;
+        }
+
+        // 兼容同一 geek 被多个 ID 口径重复推送：geek 已经收藏过也直接跳过。
+        if (collectedCandidateIds.has(geekKey)) {
+          collectedUniqSigns.add(id);
+          skippedCollectedUniqSigns++;
+          continue;
+        }
+
+        let signs = uniqSignsByGeekKey.get(geekKey);
+        if (!signs) {
+          signs = new Set();
+          uniqSignsByGeekKey.set(geekKey, signs);
+        }
+        signs.add(id);
+
+        if (passedGeekKeys.has(geekKey)) continue;
+        passedGeekKeys.add(geekKey);
+        passedGeeks.push(geek);
+      }
+      console.log(
+        "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} SSE 累计通过 ${passedIds.length} 个 uniqSign：` +
+          `已收藏跳过=${skippedCollectedUniqSigns} 未匹配=${unmatchedUniqSigns} 本批新增=${passedGeeks.length}`
+      );
+
+      // 兜底：后端只给 passedCount、没给通过 ID 时，只有“整批都通过”才能安全推断名单。
+      if (passedGeeks.length === 0 && passedIds.length === 0 && batchCompletion.passedCount > 0) {
+        if (batchCompletion.passedCount >= geekList.length) {
+          passedGeeks = [...geekList];
+          console.warn(
+            `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: SSE 未返回通过 ID，但整批 ${geekList.length} 人全部通过，按全批收藏`
+          );
+        } else {
+          console.warn(
+            "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo}: SSE passedCount=${batchCompletion.passedCount} 但未返回通过 ID，` +
+              `无法安全定位候选人，本批跳过收藏`
+          );
+        }
+      } else if (passedIds.length > 0 && passedGeeks.length === 0 && unmatchedUniqSigns > 0) {
+        console.warn(
+          "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo}: SSE 返回了 ${passedIds.length} 个通过 ID，` +
+            `其中 ${unmatchedUniqSigns} 个无法匹配到候选人（其余已在之前批次收藏）`,
+          passedIds
+        );
+      } else if (passedIds.length > 0 && passedGeeks.length === 0) {
+        console.log(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: SSE 累计通过名单均已在前序批次收藏，无需重复打开详情`
+        );
+      }
+
+      const geeksToCollect = passedGeeks.filter((geek) => {
+        const key = geekIdentityKey(geek);
+        return key && !collectedCandidateIds.has(key);
+      });
+      console.log(
+        "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} 待收藏候选人: passed=${passedGeeks.length} ` +
+          `needOpenDetail=${geeksToCollect.length}`
+      );
+
+      if (geeksToCollect.length > 0) {
+        if (isUserStopped()) {
+          console.log(
+            `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 用户已停止，跳过本批通过候选人的收藏`
+          );
+          hardFailed = true;
+          break;
+        }
+
+        const { collectBossRecommendGeeks } = await import(
+          "src/util/automation/bossRecommendCollect"
+        );
+        let collectRes = null;
+        try {
+          collectRes = await collectBossRecommendGeeks(res.tabId, geeksToCollect, {
+            targetCount: geeksToCollect.length,
+            shouldAbort: isUserStopped,
+            onProgress: (stage, payload) => onProgress(`collect.${stage}`, payload)
+          });
+        } catch (e) {
+          console.warn(
+            `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 通过候选人收藏异常:`,
+            e?.message || e
+          );
+          collectRes = { ok: false, errorCode: "EXCEPTION", message: e?.message || String(e) };
+        }
+
+        // 无论单个收藏是否成功，都记入去重集合，避免下一批 SSE 返回累计名单时重复打开详情。
+        for (const geek of geeksToCollect) {
+          const key = geekIdentityKey(geek);
+          if (!key) continue;
+          collectedCandidateIds.add(key);
+          for (const sign of uniqSignsByGeekKey.get(key) || []) {
+            collectedUniqSigns.add(sign);
+          }
+        }
+
+        console.log(
+          "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} 收藏完成: attempted=${
+            collectRes?.attemptedGeekIds?.length || 0
+          } collected=${collectRes?.collectedGeekIds?.length || 0} ` +
+            `alreadyCollected=${collectRes?.alreadyCollectedGeekIds?.length || 0} ` +
+            `errors=${collectRes?.errors?.length || 0}`
+        );
+        if (Array.isArray(collectRes?.errors) && collectRes.errors.length > 0) {
+          console.warn(
+            `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 部分候选人收藏失败:`,
+            collectRes.errors
+          );
+        }
+
+        const entitlementError =
+          collectRes?.errorCode === "BOSS_ENTITLEMENT_REQUIRED" ||
+          (Array.isArray(collectRes?.errors) &&
+            collectRes.errors.some((item) => item?.errorCode === "BOSS_ENTITLEMENT_REQUIRED"));
+        if (entitlementError) {
+          hardFailed = true;
+          store.commit("SearchTasks/setRecommendClientOutcome", {
+            taskId: _taskIdForPhase,
+            outcome: {
+              code: "BOSS_ENTITLEMENT_REQUIRED",
+              message: "BOSS直聘查看权益不足，推荐任务已停止"
+            }
+          });
+          notify.warning("BOSS直聘查看权益不足，推荐任务已停止");
+          break;
+        }
+        if (collectRes?.aborted) {
+          console.log(
+            `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 收藏过程被用户停止，结束任务`
+          );
+          hardFailed = true;
+          break;
+        }
+        if (!collectRes?.ok) {
+          console.warn(
+            `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 收藏批次失败:`,
+            collectRes?.errorCode,
+            collectRes?.message
+          );
+        }
+      } else {
+        console.log(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 本批无待收藏的通过候选人，不打开详情`
+        );
+      }
+      // 权益已耗尽或上传阶段失败：本批评分与通过名单处理完再停，不再抓下一批。
+      if (mustStopAfterBatch || hardFailed) break;
+      // 是否继续只看 SSE 的 shouldContinue；只有明确为 false 才结束。
+      if (batchCompletion.shouldContinue === false) break;
+
+      scoreBatchNo++;
     }
-  } else {
-    setPhase("DONE");
+
+    if (scoreBatchNo > MAX_SCORE_BATCHES) {
+      console.warn(
+        `[任务流程] [IndexPage] 推荐批次达到护栏上限 ${MAX_SCORE_BATCHES}，停止继续抓取`
+      );
+    }
+  } catch (e) {
+    console.warn("[任务流程] [IndexPage] 推荐批次流程异常:", e?.message || e);
+    hardFailed = true;
+  } finally {
+    store.commit("SearchTasks/setBossRecommendRpaActive", false);
+    // 流程结束 / 失败都要关蒙层；放 finally 防止 throw 时蒙层卡住
+    try {
+      await window?.api?.automation?.hideOverlay?.();
+    } catch (e) {
+      console.warn("[任务流程] [IndexPage] hideOverlay failed:", e?.message || e);
+    }
+    // 解锁 BOSS 推荐 tab（用户可以重新 X 关掉它）
+    try {
+      await unlockRecommendTab();
+    } catch (e) {
+      console.warn("[任务流程] [IndexPage] unlockRecommendTab failed:", e?.message || e);
+    }
   }
+
+  setPhase(hardFailed ? "FAILED" : "DONE");
 }
 
 /** 同步已就绪 badge（绿色），跟 ihraisaas selectedJob.isAutoSearchCompleted 一致；先 mock false */
@@ -1707,17 +2410,27 @@ async function runRealAggregateSearch(opts) {
     return { status: "FAILED", message: "no chatId" };
   }
   if (store.getters.getAggregateSearchInFlight) {
-    console.log("[IndexPage] runRealAggregateSearch SKIPPED: 已有聚合搜索在跑");
+    console.log("[任务流程] [IndexPage] runRealAggregateSearch SKIPPED: 已有聚合搜索在跑");
     return { status: "SKIPPED", message: "already in flight" };
   }
   const modules = opts?.selectedModules || {};
   // 搜索牛人已下架，旧消息或历史任务即使仍携带 search=true 也不能重新触发。
   const searchChecked = false;
   const recommendChecked = !!modules.recommend;
-  const jobId = opts?.matchedBossJobId;
+  const jobId = normalizeBossJobId(opts?.matchedBossJobId);
 
   store.commit("setAggregateSearchInFlight", true);
   try {
+    if (recommendChecked && !jobId) {
+      console.warn(
+        "[任务流程] [IndexPage] runRealAggregateSearch: 推荐牛人缺少有效 BOSS 职位 ID，停止执行"
+      );
+      return {
+        status: "FAILED",
+        message: "没有有效的 BOSS 职位，请先选择匹配的 BOSS 职位"
+      };
+    }
+
     // 搜索：跟 handleAggregateSearch 同步骤的"refreshSearchCondition + executeSearch"
     let searchPromise = null;
     if (searchChecked) {
@@ -1725,7 +2438,7 @@ async function runRealAggregateSearch(opts) {
         !jobSearchFilterRef.value ||
         typeof jobSearchFilterRef.value.refreshSearchCondition !== "function"
       ) {
-        console.warn("[IndexPage] runRealAggregateSearch: jobSearchFilterRef 不可用");
+        console.warn("[任务流程] [IndexPage] runRealAggregateSearch: jobSearchFilterRef 不可用");
       } else {
         searchPromise = (async () => {
           await jobSearchFilterRef.value.refreshSearchCondition(effectiveChatId);
@@ -1742,29 +2455,42 @@ async function runRealAggregateSearch(opts) {
     // 推荐：和 handleAggregateSearch 同步骤的 doFetchRecommend；await 搜索串行
     let recommendPromise = null;
     if (recommendChecked && jobId) {
-      const targetCount = Number(opts?.resumeCount) > 0 ? Number(opts.resumeCount) : 10;
-      // ⚠️ 不再传 stopAfter: 'firstPage'。原因：
-      //   - 早期 runBossRecommend 只支持"抓首屏"，stopAfter='firstPage' 是当时的临时设计
-      //   - 现在 runBossRecommend 内置了 humanize + 分页循环（详见 bossRecommend.js
-      //     "拟人浏览 + 分页加载循环"一节），会自动滚到 targetCount 或 BOSS 见底为止
-      //   - 必须等完整循环跑完拿到目标数量的 geek，再调 /results + AI 评分（IndexPage
-      //     doFetchRecommend 里在 await runBossRecommend 之后才调 postBatchResults +
-      //     postTaskResumeDetail），否则会出现"才 15 条就触发 AI 评分，后续滚动加载的
-      //     数据没机会评分"的问题。
+      // targetCount：用户期望的「通过画像评分的合格简历数」
+      // batchSize：每批最多新增的候选人数，统一读取公共配置
+      const targetCount =
+        Number(opts?.targetCount) > 0
+          ? Number(opts.targetCount)
+          : Number(opts?.resumeCount) > 0
+          ? Number(opts.resumeCount)
+          : 10;
+      const batchSize = SCORE_BATCH_SIZE;
+      // 批次化流程（见 doFetchRecommend）：
+      //   1) 每批 runBossRecommend（discoverOnly）发现最多 batchSize 个未入库候选人，不收藏；
+      //   2) /results(scoreBatchNo) → 逐条 upload(fileId) + /detail → /results 封批；
+      //   3) 等 SSE RESUME_SCORE_BATCH_COMPLETED，拿到本批打分的通过 ID；
+      //   4) 回 BOSS 推荐列表，只对通过的人打开详情收藏；无通过名单则跳过收藏；
+      //   5) 按 shouldContinue 决定是否抓下一批。
+      // targetCount 传给后端计算 shouldContinue，前端不再自行判断目标数量。
       const args = {
         encryptJobId: jobId,
         targetCount,
+        batchSize,
+        // 保存条件是本轮实际提交给后端的权威筛选值；本地 task.bossFilters 只作为兜底。
+        bossFilters: opts?.searchRequestData
+          ? extractBossFilters(opts.searchRequestData)
+          : pickBossFilters(opts?.bossFilters || {}),
         humanizeOpts: {},
         awaitBeforeStart: searchPromise
       };
+      lastRecommendArgs.value = args;
       recommendPromise = doFetchRecommend(args);
     }
     if (searchPromise) await searchPromise;
     if (recommendPromise) await recommendPromise;
-    console.log("[IndexPage] runRealAggregateSearch 完成 chatId=", effectiveChatId);
+    console.log("[任务流程] [IndexPage] runRealAggregateSearch 完成 chatId=", effectiveChatId);
     return { status: "SUCCESS" };
   } catch (e) {
-    console.error("[IndexPage] runRealAggregateSearch 异常:", e?.message || e);
+    console.error("[任务流程] [IndexPage] runRealAggregateSearch 异常:", e?.message || e);
     return { status: "FAILED", message: e?.message || String(e) };
   } finally {
     store.commit("setAggregateSearchInFlight", false);
@@ -1817,7 +2543,7 @@ async function hasPublishedBossJob() {
     if (Array.isArray(list)) return list.some(isPublished);
     return true; // 拿不到 → 放行
   } catch (e) {
-    console.warn("[IndexPage] hasPublishedBossJob 检查失败，放行:", e?.message || e);
+    console.warn("[任务流程] [IndexPage] hasPublishedBossJob 检查失败，放行:", e?.message || e);
     return true;
   }
 }
@@ -1827,6 +2553,7 @@ async function dispatchTaskStore({
   searchChecked,
   recommendChecked,
   jobId,
+  positionId = null,
   taskType = "INITIAL",
   sourceTaskId = null,
   payload,
@@ -1854,12 +2581,12 @@ async function dispatchTaskStore({
     }
     if (!condId) {
       console.warn(
-        "[IndexPage] dispatchTaskStore: searchConditionId 30s 内未就绪（runRealAggregateSearch 可能失败），跳过任务创建"
+        "[任务流程] [IndexPage] dispatchTaskStore: searchConditionId 30s 内未就绪（runRealAggregateSearch 可能失败），跳过任务创建"
       );
       return { ok: false, errorCode: "NO_SEARCH_CONDITION", message: "searchConditionId 未就绪" };
     }
     console.log(
-      `[IndexPage] dispatchTaskStore: 使用 condId=${condId} (explicit=${!!explicitCondId})`
+      `[任务流程] [IndexPage] dispatchTaskStore: 使用 condId=${condId} (explicit=${!!explicitCondId})`
     );
 
     // 从 settings 读取启用的渠道 + 组装 channels[] —— 走共用工具 buildSearchTaskChannels
@@ -1867,7 +2594,7 @@ async function dispatchTaskStore({
     // 详见 src/util/searchTaskPayloadBuilder.js 顶部注释
     const cfgList = store.getters.getUserChannelConfig || [];
     console.log(
-      "[IndexPage] dispatchTaskStore: cfgList=",
+      "[任务流程] [IndexPage] dispatchTaskStore: cfgList=",
       cfgList
         .map(
           (c) =>
@@ -1883,6 +2610,7 @@ async function dispatchTaskStore({
       selectedModules: { search: searchChecked, recommend: recommendChecked },
       matchedBossJobId: jobId,
       resumeCount: payload?.resumeCount,
+      bossFilters: payload?.bossFilters,
       condId
     });
     channels.push(...builtChannels);
@@ -1904,11 +2632,11 @@ async function dispatchTaskStore({
     }
 
     if (channels.length === 0) {
-      console.warn("[IndexPage] dispatchTaskStore: 无启用渠道，跳过任务创建");
+      console.warn("[任务流程] [IndexPage] dispatchTaskStore: 无启用渠道，跳过任务创建");
       return { ok: false, errorCode: "NO_ENABLED_CHANNEL", message: "没有启用的渠道" };
     }
     console.log(
-      `[IndexPage] dispatchTaskStore: 实际下发渠道=${channels
+      `[任务流程] [IndexPage] dispatchTaskStore: 实际下发渠道=${channels
         .map((c) => `${c.channelSubType}-${c.businessChannel}`)
         .join(",")}`
     );
@@ -1924,27 +2652,46 @@ async function dispatchTaskStore({
     //   - RESTART：新任务真正执行时，客户端先清理上游推荐任务产生的 BOSS 收藏
     const createPayload = {
       chatId: chatIdToSearch,
-      positionId: store.getters.getLatestPositionId,
+      // 结果卡片重搜使用原任务职位；普通首次搜索再使用当前选中职位。
+      positionId: positionId || store.getters.getLatestPositionId,
       taskType,
       triggerSource: "USER_CLICK",
       channels,
       // searchRequestData：handleAggregateSearch 已 prepareConditionOnly 拿到本轮 saveCondition data，
       // 透传到 task 上，runTask 调 executor 时再透回 runRealAggregateSearch，
       // 让 executeSearch 复用，避免重复发一次 saveCondition。
-      searchRequestData
+      searchRequestData,
+      // 本地任务执行阶段的兜底数据；后端不依赖该字段，避免 saveCondition 响应未回显
+      // 三个外层筛选字段时，current 驱动执行丢失用户选择。
+      // prepareConditionOnly 已生成本轮实际保存的条件，优先从它回写任务，避免
+      // action panel 初始的 {0,0,0} 覆盖用户刚选择的筛选值。
+      bossFilters: searchRequestData
+        ? extractBossFilters(searchRequestData)
+        : pickBossFilters(payload?.bossFilters || {})
     };
+    console.log("[任务流程] [IndexPage] 创建搜索任务使用职位", {
+      taskType,
+      chatId: chatIdToSearch,
+      positionId: createPayload.positionId,
+      matchedBossJobId: jobId || null
+    });
+    // 期望合格简历总数：后端用它 + 累计合格人数计算 shouldContinue
+    const targetCount = Number(payload?.targetCount);
+    if (Number.isFinite(targetCount) && targetCount > 0) {
+      createPayload.targetCount = targetCount;
+    }
     if (sourceTaskId && (taskType === "CONTINUE" || taskType === "RESTART")) {
       createPayload.sourceTaskId = sourceTaskId;
     }
     const res = await store.dispatch("SearchTasks/create", createPayload);
     if (res?.ok) {
-      console.log(`[IndexPage] SearchTasks/create ok, taskId=${res.taskId}`);
+      console.log(`[任务流程] [IndexPage] SearchTasks/create ok, taskId=${res.taskId}`);
     } else {
-      console.warn("[IndexPage] SearchTasks/create 失败:", res?.errorCode, res?.message);
+      console.warn("[任务流程] [IndexPage] SearchTasks/create 失败:", res?.errorCode, res?.message);
     }
     return res || { ok: false, errorCode: "UNKNOWN", message: "create 无返回值" };
   } catch (e) {
-    console.warn("[IndexPage] SearchTasks/create 异常:", e?.message || e);
+    console.warn("[任务流程] [IndexPage] SearchTasks/create 异常:", e?.message || e);
     return { ok: false, errorCode: "EXCEPTION", message: e?.message || String(e) };
   } finally {
     // 无论成功/失败/异常，都清掉 pendingCreate 标记，避免桥接工具继续无意义等待
@@ -1999,7 +2746,7 @@ async function refreshSearchConditionBeforeSearch(chatIdForSearch) {
   if (!chatIdForSearch) return;
   const filter = jobSearchFilterRef.value;
   if (!filter || typeof filter.refreshSearchCondition !== "function") {
-    console.warn("[IndexPage] refreshSearchConditionBeforeSearch: jobSearchFilterRef 不可用，跳过刷新");
+    console.warn("[任务流程] [IndexPage] refreshSearchConditionBeforeSearch: jobSearchFilterRef 不可用，跳过刷新");
     return;
   }
 
@@ -2007,7 +2754,7 @@ async function refreshSearchConditionBeforeSearch(chatIdForSearch) {
   try {
     await filter.refreshSearchCondition(chatIdForSearch);
   } catch (e) {
-    console.warn("[IndexPage] refreshSearchConditionBeforeSearch 异常:", e?.message || e);
+    console.warn("[任务流程] [IndexPage] refreshSearchConditionBeforeSearch 异常:", e?.message || e);
   }
 
   // 刷新后 searchState.criteria 已是接口最新值 → 只挑出要盖回去的"用户值"
@@ -2024,13 +2771,13 @@ async function refreshSearchConditionBeforeSearch(chatIdForSearch) {
 
   const cur = searchState.value || {};
   searchState.value = { ...cur, criteria: { ...(cur.criteria || {}), ...patch } };
-  console.log(`[IndexPage] 用户改动覆盖接口最新 criteria chatId=${chatIdForSearch}`, patch);
+  console.log(`[任务流程] [IndexPage] 用户改动覆盖接口最新 criteria chatId=${chatIdForSearch}`, patch);
 }
 
 async function handleAggregateSearch(payload) {
   const chatIdToSearch = payload?.chatId || chatId.value;
   if (!chatIdToSearch) {
-    console.warn("[IndexPage] aggregate-search: 没拿到 chatId，跳过真实搜索");
+    console.warn("[任务流程] [IndexPage] aggregate-search: 没拿到 chatId，跳过真实搜索");
     return;
   }
 
@@ -2043,14 +2790,14 @@ async function handleAggregateSearch(payload) {
   // ★ 兜底防抖：上一次的 dispatch 还在跑，静默忽略（ChatCard 时间窗已挡，这里防御性二次防御）
   if (_dispatchingChats.has(chatIdToSearch)) {
     console.warn(
-      `[IndexPage] aggregate-search 静默忽略：chat=${chatIdToSearch} 的任务创建链路还在跑`
+      `[任务流程] [IndexPage] aggregate-search 静默忽略：chat=${chatIdToSearch} 的任务创建链路还在跑`
     );
     return;
   }
 
   // ★ 创建任务前校验使用权限：无权限 → 清登录态 + 弹登录框，并清掉 ChatCard 已 push 的在途占位卡
   if (!(await ensureClientAuthority(store, { reason: "create_task" }))) {
-    console.warn("[IndexPage] aggregate-search 被拒绝：当前用户无使用权限");
+    console.warn("[任务流程] [IndexPage] aggregate-search 被拒绝：当前用户无使用权限");
     embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
     return;
   }
@@ -2065,7 +2812,16 @@ async function handleAggregateSearch(payload) {
   const searchChecked = false;
   // 当前只保留推荐牛人；未传 selectedModules 的老入口也按推荐任务处理。
   const recommendChecked = modules.recommend !== false;
-  const jobId = payload?.matchedBossJobId;
+  const jobId = normalizeBossJobId(payload?.matchedBossJobId);
+
+  if (recommendChecked && !jobId) {
+    console.warn(
+      "[任务流程] [IndexPage] aggregate-search 被拒绝：没有有效的 BOSS 职位 ID"
+    );
+    notify.warning("请先选择匹配的 BOSS 职位");
+    embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
+    return;
+  }
 
   // ===== 拒绝重复点击 =====
   //
@@ -2083,10 +2839,10 @@ async function handleAggregateSearch(payload) {
       latestTask?.taskStatus === "COMPLETED" &&
       store.getters["SearchTasks/isAiAnalyzingForChat"](chatIdToSearch);
     if (isAiAnalyzingPhase) {
-      console.warn("[IndexPage] aggregate-search 被拒绝：AI 分析还在跑");
+      console.warn("[任务流程] [IndexPage] aggregate-search 被拒绝：AI 分析还在跑");
       notify.warning("搜索已完成，AI 分析还在进行中，请等分析完成后再启动新任务");
     } else {
-      console.warn("[IndexPage] aggregate-search 被拒绝：该职位已有任务在进行中");
+      console.warn("[任务流程] [IndexPage] aggregate-search 被拒绝：该职位已有任务在进行中");
       notify.warning("该职位已有搜索任务在进行中，请等待完成后再启动");
     }
     // 拒绝创建 → 清掉 ChatCard 已 push 的在途占位卡，避免 _hasInflightTaskForChat 卡死
@@ -2100,7 +2856,7 @@ async function handleAggregateSearch(payload) {
   // （AIProfileActionPanel 也默认勾搜索），不会出现两个都 false。但用户**手动取消**了
   // 默认勾选时（业务允许）会走到这里，必须提示，不能让 dispatchTaskStore 拿到空 channels。
   if (!searchChecked && !recommendChecked) {
-    console.warn("[IndexPage] aggregate-search 被拒绝：未选择任何搜索模块");
+    console.warn("[任务流程] [IndexPage] aggregate-search 被拒绝：未选择任何搜索模块");
     notify.warning("请启用推荐牛人");
     embeddedChatRef.value?.clearInflightTaskForChat?.(chatIdToSearch);
     return;
@@ -2128,7 +2884,7 @@ async function handleAggregateSearch(payload) {
     //   （可勾选启用渠道 + 去登录），而不是静默无反应。
     //   （之前只在「仅勾搜索」时拦截，勾了推荐就放行 → 全渠道禁用点启动没反应。）
     if (userChannels.length > 0 && enabledKeys.length === 0) {
-      console.warn("[IndexPage] aggregate-search 被拒绝：用户禁用了所有渠道 → 弹渠道选择/登录面板");
+      console.warn("[任务流程] [IndexPage] aggregate-search 被拒绝：用户禁用了所有渠道 → 弹渠道选择/登录面板");
       currentView.value = "chat";
       nextTick(() => {
         const chatCard = embeddedChatRef.value;
@@ -2239,6 +2995,20 @@ async function handleAggregateSearch(payload) {
   //   再用用户画像卡确认过的三组字段覆盖（用户修改优先），最后交给 prepareConditionOnly。
   await refreshSearchConditionBeforeSearch(chatIdToSearch);
 
+  // ★ 三个 BOSS 筛选条件：只进 saveCondition 请求体外层，不参与画像 structuredContent。
+  //   必须在 refreshSearchCondition 之后写，否则会被接口返回值覆盖。
+  if (payload?.bossFilters) {
+    const filters = pickBossFilters(payload.bossFilters);
+    const cur = searchState.value || {};
+    searchState.value = {
+      ...cur,
+      ...filters
+    };
+    // searchState 通过 v-model 传给 AISearch，子组件的 props 更新要等当前渲染周期结束。
+    // prepareConditionOnly 立即读取子组件里的 searchState 时如果不等待，会继续拿到旧的 0。
+    await nextTick();
+  }
+
   if (aiSearchRef.value && typeof aiSearchRef.value.prepareConditionOnly === "function") {
     try {
       const prep = await aiSearchRef.value.prepareConditionOnly();
@@ -2246,19 +3016,19 @@ async function handleAggregateSearch(payload) {
         condIdForCreate = String(prep.conditionId);
         searchRequestDataForExec = prep.data || null;
         console.log(
-          `[IndexPage] handleAggregateSearch: prepareConditionOnly ok condId=${condIdForCreate}`
+          `[任务流程] [IndexPage] handleAggregateSearch: prepareConditionOnly ok condId=${condIdForCreate}`
         );
       } else {
         console.warn(
-          "[IndexPage] handleAggregateSearch: prepareConditionOnly 失败/无 condId",
+          "[任务流程] [IndexPage] handleAggregateSearch: prepareConditionOnly 失败/无 condId",
           prep
         );
       }
     } catch (e) {
-      console.warn("[IndexPage] handleAggregateSearch: prepareConditionOnly 异常", e?.message || e);
+      console.warn("[任务流程] [IndexPage] handleAggregateSearch: prepareConditionOnly 异常", e?.message || e);
     }
   } else {
-    console.warn("[IndexPage] handleAggregateSearch: aiSearchRef.prepareConditionOnly 不可用");
+    console.warn("[任务流程] [IndexPage] handleAggregateSearch: aiSearchRef.prepareConditionOnly 不可用");
   }
 
   // ⚠️ 把 prepareConditionOnly 拿到的 searchRequestData 挂到 payload 上，
@@ -2270,6 +3040,7 @@ async function handleAggregateSearch(payload) {
     searchChecked,
     recommendChecked,
     jobId,
+    positionId: payload?.positionId || store.getters.getLatestPositionId,
     taskType,
     sourceTaskId,
     payload,
@@ -2286,7 +3057,7 @@ async function handleAggregateSearch(payload) {
         }
       }
     })
-    .catch((e) => console.warn("[IndexPage] dispatchTaskStore unexpected:", e?.message || e))
+    .catch((e) => console.warn("[任务流程] [IndexPage] dispatchTaskStore unexpected:", e?.message || e))
     .finally(() => {
       // 关闭顶部"正在创建搜索任务…"loading（无论成功/失败）
       try {
@@ -2317,12 +3088,12 @@ async function handleAggregateSearch(payload) {
   //
   //   好处：前端不再越权决定"何时开始执行"，完全听后端调度（工作时段 / 排队顺序）
   console.log(
-    `[IndexPage] handleAggregateSearch: 任务已请求创建，执行由 current 接口驱动（不再前端直接调 runRealAggregateSearch）`
+    `[任务流程] [IndexPage] handleAggregateSearch: 任务已请求创建，执行由 current 接口驱动（不再前端直接调 runRealAggregateSearch）`
   );
 
   if (recommendChecked && !jobId) {
     console.warn(
-      "[IndexPage] aggregate-search: 勾选了推荐牛人但 matchedBossJobId 为空，跳过打开 BOSS 推荐页"
+      "[任务流程] [IndexPage] aggregate-search: 勾选了推荐牛人但 matchedBossJobId 为空，跳过打开 BOSS 推荐页"
     );
   }
 
@@ -2354,7 +3125,7 @@ async function handleViewResults(payload) {
     // 切到 results 视图，但不动 viewing 状态（继续显示当前 chat 已有数据，无论 runtime / 上次 viewing）
     return;
   }
-  console.log("[handleViewResults] ▶ 开始，payload=", payload);
+  console.log("[任务流程] [handleViewResults] ▶ 开始，payload=", payload);
 
   // ⚠️ 注意：之前的 runningTaskId 拦截已删除。
   // 现在通过 ViewingResults store（按 taskId 隔离）实现：handleViewResults 把数据写到
@@ -2362,7 +3133,7 @@ async function handleViewResults(payload) {
   // ZHILIANJobInfo / JobInfo 等) 通过 getEffectiveChannelConfByAll getter 优先读 viewing
   // 数据。runtime task 继续往 ChannelConfig 写完全不受影响 → 跑任务时也能自由查看历史。
   console.log(
-    "[handleViewResults] aiSearchRef.value=",
+    "[任务流程] [handleViewResults] aiSearchRef.value=",
     aiSearchRef.value,
     "hasResetFn=",
     typeof aiSearchRef.value?.resetToAggregateTab
@@ -2371,10 +3142,10 @@ async function handleViewResults(payload) {
   // 重置到渠道聚合 tab（不管 store 里有没有数据都要做）
   await nextTick();
   if (aiSearchRef.value && typeof aiSearchRef.value.resetToAggregateTab === "function") {
-    console.log("[handleViewResults] 调用 resetToAggregateTab");
+    console.log("[任务流程] [handleViewResults] 调用 resetToAggregateTab");
     aiSearchRef.value.resetToAggregateTab().catch(() => {});
   } else {
-    console.warn("[handleViewResults] aiSearchRef 或 resetToAggregateTab 不可用！");
+    console.warn("[任务流程] [handleViewResults] aiSearchRef 或 resetToAggregateTab 不可用！");
   }
 
   const taskId = payload.taskId;
@@ -2397,7 +3168,7 @@ async function handleViewResults(payload) {
   const sameTaskAsLastView =
     lastViewedTaskIdForCache.value && String(lastViewedTaskIdForCache.value) === String(taskId);
   console.log(
-    `[handleViewResults] ViewingResults bucket 条数=${
+    "[任务流程]", `[handleViewResults] ViewingResults bucket 条数=${
       existingBucket?.byChannel?.ALL?.length ?? "null"
     }` +
       ` lastViewedTaskId=${lastViewedTaskIdForCache.value} curTaskId=${taskId}` +
@@ -2410,15 +3181,15 @@ async function handleViewResults(payload) {
     existingBucket.byChannel.ALL.length > 0
   ) {
     console.log(
-      "[handleViewResults] ✅ 同 task + 已有 ViewingResults 缓存，跳过 API + 设置 viewing 切换"
+      "[任务流程] [handleViewResults] ✅ 同 task + 已有 ViewingResults 缓存，跳过 API + 设置 viewing 切换"
     );
     if (cid) store.commit("setCurrentViewingTask", { chatId: cid, taskId });
     return;
   }
-  console.log("[handleViewResults] 重新拉 API");
+  console.log("[任务流程] [handleViewResults] 重新拉 API");
 
   if (!taskId) {
-    console.warn("[handleViewResults] 缺少 taskId，无法调 /search/task/results/query");
+    console.warn("[任务流程] [handleViewResults] 缺少 taskId，无法调 /search/task/results/query");
     return;
   }
 
@@ -2445,7 +3216,7 @@ async function handleViewResults(payload) {
       rawList = pageData.list;
       totalCount = Number(pageData.total) || Number(pageData.totalCount) || rawList.length;
     } else {
-      console.warn("[IndexPage] /search/task/results/query 响应结构未识别，pageData=", pageData);
+      console.warn("[任务流程] [IndexPage] /search/task/results/query 响应结构未识别，pageData=", pageData);
     }
 
     // ===== 关键：normalize 成跟老 AISearch 路径完全一致的 resume 形态 =====
@@ -2475,11 +3246,13 @@ async function handleViewResults(payload) {
     };
 
     const normalized = rawList.map((item) => {
+      const taskResume =
+        item?.taskResume && typeof item.taskResume === "object" ? item.taskResume : {};
       const blind =
         item?.resumeBlind && typeof item.resumeBlind === "object" ? item.resumeBlind : {};
       // 摊平时 item 顶层字段优先（扁平响应里它本身就是 blind 摊平结果）；
-      // blind 仅在嵌套响应里补字段。
-      const flat = { ...blind, ...item };
+      // taskResume / blind 仅在嵌套响应里补字段。
+      const flat = { ...taskResume, ...blind, ...item };
       const blindId = item.resumeBlindId || blind.resumeBlindId || blind.id || flat.id;
       const channelSubType = flat.channelSubType || blind.channelSubType || item.channelSubType;
       // channel 必须是中文 desc（如 'boss直聘'），fallback 到 channelSubType→desc 映射
@@ -2492,6 +3265,18 @@ async function handleViewResults(payload) {
         id: blindId,
         resumeBlindId: blindId,
         taskResumeId: item.taskResumeId || flat.taskResumeId,
+        fileId:
+          item.fileId ||
+          flat.fileId ||
+          item.taskResume?.fileId ||
+          flat.taskResume?.fileId ||
+          item.resumeFile?.fileId ||
+          flat.resumeFile?.fileId ||
+          item.resumeInfo?.fileId ||
+          flat.resumeInfo?.fileId ||
+          item.detail?.fileId ||
+          flat.detail?.fileId ||
+          null,
         channel: channelDesc,
         channelSubType,
         businessChannel,
@@ -2523,12 +3308,12 @@ async function handleViewResults(payload) {
         }
         if (marked > 0) {
           console.log(
-            `[handleViewResults] task=${taskId} 已停止/失败，${marked} 条未评分简历标记为分析异常(score=-2)`
+            `[任务流程] [handleViewResults] task=${taskId} 已停止/失败，${marked} 条未评分简历标记为分析异常(score=-2)`
           );
         }
       }
     } catch (e) {
-      console.warn("[handleViewResults] 标记未评分简历为分析异常失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [handleViewResults] 标记未评分简历为分析异常失败（忽略）:", e?.message || e);
     }
 
     // ★ 按 businessChannel 分流：
@@ -2543,7 +3328,7 @@ async function handleViewResults(payload) {
     const list = [];
     const recommendList = normalized.filter((x) => x.businessChannel === "RECOMMEND");
     console.log(
-      `[IndexPage] /search/task/results/query 分流: hiddenSearch=${hiddenSearchCount} recommend=${recommendList.length}`
+      `[任务流程] [IndexPage] /search/task/results/query 分流: hiddenSearch=${hiddenSearchCount} recommend=${recommendList.length}`
     );
 
     // 「查看结果」路径**不再**往映射里写 outId（后端给的 outId 是 rec_xxx 短 id，不是
@@ -2573,7 +3358,7 @@ async function handleViewResults(payload) {
     });
     store.commit("setCurrentRecommendJobId", recommendBucketKey);
     console.log(
-      `[IndexPage] 推荐数据已切到 task bucket=${recommendBucketKey} count=${recommendList.length}`
+      `[任务流程] [IndexPage] 推荐数据已切到 task bucket=${recommendBucketKey} count=${recommendList.length}`
     );
 
     // ★ 显式按本次 task 的数据情况切 activeResultTab，避免上一次的选中态污染本次：
@@ -2590,7 +3375,7 @@ async function handleViewResults(payload) {
     const hasRecommendData = recommendList.length > 0;
     activeResultTab.value = "recommend";
     console.log(
-      `[handleViewResults] activeResultTab → ${activeResultTab.value}` +
+      "[任务流程]", `[handleViewResults] activeResultTab → ${activeResultTab.value}` +
         ` (hasSearchData=${hasSearchData} hasRecommendData=${hasRecommendData})`
     );
 
@@ -2603,7 +3388,7 @@ async function handleViewResults(payload) {
       grouped[k].push(item);
     }
     console.log(
-      `[IndexPage] /search/task/results/query ok | taskId=${taskId} totalCount=${totalCount} 搜索分组=`,
+      `[任务流程] [IndexPage] /search/task/results/query ok | taskId=${taskId} totalCount=${totalCount} 搜索分组=`,
       Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.length]))
     );
 
@@ -2659,7 +3444,7 @@ async function handleViewResults(payload) {
       { nullCount: 0, failedCount: 0, scoredCount: 0, otherCount: 0 }
     );
     console.log(
-      `[handleViewResults] viewing 模式 commit ok taskId=${taskId} chatId=${cid} 总条数=${list.length}` +
+      "[任务流程]", `[handleViewResults] viewing 模式 commit ok taskId=${taskId} chatId=${cid} 总条数=${list.length}` +
         ` 分组=${JSON.stringify(
           Object.fromEntries(
             ["BOSS", "ZHILIAN", "JOB51", "LIEPIN"].map((k) => [k, (grouped[k] || []).length])
@@ -2694,10 +3479,10 @@ async function handleViewResults(payload) {
       }));
     if (taskResumeMappings.length > 0) {
       store.commit("SearchTasks/patchTaskResumeIds", taskResumeMappings);
-      console.log("[handleViewResults] patchTaskResumeIds", taskResumeMappings.length, "条映射");
+      console.log("[任务流程] [handleViewResults] patchTaskResumeIds", taskResumeMappings.length, "条映射");
     }
 
-    console.log("[handleViewResults] ✅ 注入完成，list.length=", list.length, "各分组=", {
+    console.log("[任务流程] [handleViewResults] ✅ 注入完成，list.length=", list.length, "各分组=", {
       BOSS: grouped.BOSS.length,
       ZHILIAN: grouped.ZHILIAN.length,
       JOB51: grouped.JOB51.length
@@ -2707,7 +3492,7 @@ async function handleViewResults(payload) {
     await nextTick();
     const effectiveAfter = store.getters.getEffectiveChannelConfByAll;
     console.log(
-      "[handleViewResults] nextTick 后 effective ALL.data 条数=",
+      "[任务流程] [handleViewResults] nextTick 后 effective ALL.data 条数=",
       effectiveAfter?.data?.length,
       "(viewing 模式应该等于 list 长度)"
     );
@@ -2715,7 +3500,7 @@ async function handleViewResults(payload) {
     // 数据已写入 store，resetToAggregateTab 在函数开头已经调过，无需再调
   } catch (e) {
     console.warn(
-      "[IndexPage] /search/task/results/query failed:",
+      "[任务流程] [IndexPage] /search/task/results/query failed:",
       e?.message || e,
       e?.response?.data
     );
@@ -2771,7 +3556,7 @@ const handlePanelMounted = () => {
 //   跟"清空重新搜索"一致（taskType=RESTART）创建任务，并切回聊天记录展示任务状态卡。
 //   搜索关键字/条件由 handleAggregateSearch → prepareConditionOnly 读 searchState 自动带入。
 const searchJobList = () => {
-  console.log("searchJobList → 走任务流程(RESTART)", searchState.value);
+  console.log("[任务流程] searchJobList → 走任务流程(RESTART)", searchState.value);
   // 浏览器/插件模式（非嵌入式）：没有聊天记录视图，沿用旧的即时搜索
   if (!embeddedMode.value) {
     if (aiSearchRef.value) {
@@ -2806,7 +3591,7 @@ const searchJobList = () => {
 const resetSearchConnect = () => {
   searchState.value = createSearchState();
   jobSearchFilterRef.value.resetCurrentWorkPlace();
-  console.log("resetSearchConnect", searchState.value);
+  console.log("[任务流程] resetSearchConnect", searchState.value);
 };
 
 /**
@@ -2830,7 +3615,7 @@ const onProfileSkillsEdit = (payload) => {
     next.positionInpValue = prof.position.trim();
   }
   searchState.value = next;
-  console.log("[IndexPage] 画像卡编辑已同步到 searchState.criteria", criteria);
+  console.log("[任务流程] [IndexPage] 画像卡编辑已同步到 searchState.criteria", criteria);
 
   // ★ 记住用户改过的三组画像字段（按 chatId）：启动搜索前重新拉后端最新条件时，
   //   用这份覆盖值盖回去，避免用户的修改被 getCurrentConditionByChatId 的返回值冲掉。
@@ -2919,12 +3704,12 @@ onMounted(() => {
     try {
       await store.dispatch("SearchTasks/cleanupOrphanRunningAndResume");
     } catch (e) {
-      console.warn("[IndexPage] cleanupOrphanRunningAndResume threw:", e?.message || e);
+      console.warn("[任务流程] [IndexPage] cleanupOrphanRunningAndResume threw:", e?.message || e);
     }
     try {
       store.dispatch("SearchTasks/cleanupZombies");
     } catch (e) {
-      console.warn("[IndexPage] cleanupZombies threw:", e?.message || e);
+      console.warn("[任务流程] [IndexPage] cleanupZombies threw:", e?.message || e);
     }
 
     // ★ 启动 current 轮询（后端 queue 有数据但本地没活跃任务）
@@ -2956,16 +3741,16 @@ onMounted(() => {
         // intervalMs=10s（用户要求快速反馈），maxTicks=360 ≈ 60min 兜底
         poller.start({ store, taskApi, intervalMs: 10_000, maxTicks: 360 });
         console.log(
-          `[IndexPage] 后端 queue 非空 (totalCount=${totalCount}) 但本客户端无活跃任务 → 启动 CurrentTaskPoller (10s/tick)`
+          `[任务流程] [IndexPage] 后端 queue 非空 (totalCount=${totalCount}) 但本客户端无活跃任务 → 启动 CurrentTaskPoller (10s/tick)`
         );
       } else {
         console.log(
-          `[IndexPage] queue 状态正常 (totalCount=${totalCount} hasActiveLocal=${hasActiveLocal})，无需启动 CurrentTaskPoller`
+          `[任务流程] [IndexPage] queue 状态正常 (totalCount=${totalCount} hasActiveLocal=${hasActiveLocal})，无需启动 CurrentTaskPoller`
         );
       }
     } catch (e) {
       console.warn(
-        "[IndexPage] CurrentTaskPoller 启动失败（忽略，不影响主流程）:",
+        "[任务流程] [IndexPage] CurrentTaskPoller 启动失败（忽略，不影响主流程）:",
         e?.message || e
       );
     }

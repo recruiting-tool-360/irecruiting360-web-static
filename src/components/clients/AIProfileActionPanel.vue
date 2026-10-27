@@ -165,7 +165,7 @@
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
               </svg>
-              <span class="row-label">本次期望最大推荐牛人"简历数"</span>
+              <span class="row-label">期望找到的合格简历数</span>
             </div>
             <div class="config-right">
               <input
@@ -179,6 +179,70 @@
               />
               <span class="config-unit">份</span>
             </div>
+          </div>
+
+          <!-- 候选人筛选条件：任务执行时在 BOSS 推荐页实际选择的条件，只进搜索条件 -->
+          <div class="config-row">
+            <div class="config-left">
+              <span class="row-label">BOSS活跃度</span>
+            </div>
+            <q-select
+              v-model="bossFilters.activeness"
+              :options="BOSS_ACTIVE_OPTIONS"
+              option-label="label"
+              option-value="value"
+              emit-value
+              map-options
+              dense
+              outlined
+              options-dense
+              hide-bottom-space
+              :disable="locked"
+              class="boss-filter-select"
+              @update:model-value="onBossFilterChange"
+            />
+          </div>
+
+          <div class="config-row">
+            <div class="config-left">
+              <span class="row-label">近期没有看过</span>
+            </div>
+            <q-select
+              v-model="bossFilters.viewResume"
+              :options="BOSS_NOT_VIEWED_OPTIONS"
+              option-label="label"
+              option-value="value"
+              emit-value
+              map-options
+              dense
+              outlined
+              options-dense
+              hide-bottom-space
+              :disable="locked"
+              class="boss-filter-select"
+              @update:model-value="onBossFilterChange"
+            />
+          </div>
+
+          <div class="config-row">
+            <div class="config-left">
+              <span class="row-label">是否与同事交换简历</span>
+            </div>
+            <q-select
+              v-model="bossFilters.exchangeResume"
+              :options="BOSS_RESUME_EXCHANGE_OPTIONS"
+              option-label="label"
+              option-value="value"
+              emit-value
+              map-options
+              dense
+              outlined
+              options-dense
+              hide-bottom-space
+              :disable="locked"
+              class="boss-filter-select"
+              @update:model-value="onBossFilterChange"
+            />
           </div>
 
           <!-- 行 3：输入简历数后展开 Schedule Info（参考 ihraisaas predictSchedule 简化版）
@@ -296,6 +360,14 @@ import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
 import { estimateSearchTask, matchBestPosition } from "src/api/searchTaskApi";
 import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
+import {
+  BOSS_FILTER_DEFAULTS,
+  BOSS_ACTIVE_OPTIONS,
+  BOSS_NOT_VIEWED_OPTIONS,
+  BOSS_RESUME_EXCHANGE_OPTIONS,
+  extractBossFilters
+} from "src/util/bossSearchFilters";
+import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import notify from "src/util/notify";
 
 const props = defineProps({
@@ -436,6 +508,98 @@ function onBossJobManualChange() {
   bossMatchState.value = "matched";
 }
 
+function parseSearchTaskConfig(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function getRecommendJobIdFromTask(task) {
+  const channel = task?.channels?.find(
+    (item) => item?.businessChannel === "RECOMMEND" && item?.channelSubType === "BOSS"
+  );
+  const config = parseSearchTaskConfig(channel?.searchTaskConfig);
+  const matchedPosition = config?.matchedPosition;
+  if (config?.relatedPositionValue) return String(config.relatedPositionValue);
+  if (config?.matchedBossJobId) return String(config.matchedBossJobId);
+  if (typeof matchedPosition === "string" || typeof matchedPosition === "number") {
+    return String(matchedPosition);
+  }
+  return (
+    matchedPosition?.encryptJobId ||
+    matchedPosition?.encryptId ||
+    matchedPosition?.jobId ||
+    null
+  );
+}
+
+function normalizeTimestamp(value) {
+  const timestamp = Number(value) || 0;
+  // chat history 的 created 通常是秒，SearchTasks.createdAt 是毫秒。
+  return timestamp > 0 && timestamp < 1e11 ? timestamp * 1000 : timestamp;
+}
+
+function findHistoricalTask() {
+  const taskGetter = store.getters["SearchTasks/getTaskById"];
+  const taskId =
+    props.message?.previousSearchTaskId ||
+    props.message?.searchTaskId ||
+    props.message?.taskId;
+  if (taskId && typeof taskGetter === "function") {
+    const task = taskGetter(taskId);
+    if (task) return task;
+  }
+
+  const conditionId = props.message?.searchConditionId;
+  const tasks = Object.values(store.state?.SearchTasks?.tasksById || {});
+  if (!conditionId || !tasks.length) return null;
+  const sameChatTasks = tasks.filter(
+    (task) =>
+      (!panelChatId.value || String(task?.chatId) === String(panelChatId.value)) &&
+      task?.channels?.some(
+        (channel) => String(channel?.searchConditionId) === String(conditionId)
+      )
+  );
+  if (sameChatTasks.length === 0) return null;
+  const messageTime = normalizeTimestamp(props.message?.created || props.message?.timestamp);
+  return sameChatTasks.sort((a, b) => {
+    const aTime = normalizeTimestamp(a?.createdAt);
+    const bTime = normalizeTimestamp(b?.createdAt);
+    return Math.abs(aTime - messageTime) - Math.abs(bTime - messageTime);
+  })[0];
+}
+
+function restoreHistoricalBossPosition() {
+  if (_userPickedBoss || matchedBossJobId.value !== null) return false;
+  const task = findHistoricalTask();
+  const matchedId = getRecommendJobIdFromTask(task);
+  if (!matchedId) return false;
+  // 职位列表还未加载完成时，交给下一次 watch 重试。
+  if (bossJobOptions.value.length === 0) return false;
+  const matchedOption = bossJobOptions.value.find(
+    (option) =>
+      [option.value, option.raw?.encryptJobId, option.raw?.encryptId, option.raw?.jobId]
+        .filter((value) => value != null && value !== "")
+        .some((value) => String(value) === String(matchedId))
+  );
+  if (!matchedOption) {
+    // 原职位可能已经关闭，不允许自动匹配成另一个职位。
+    bossMatchState.value = "no-match";
+    bossMatchReason.value = "历史任务中的职位已不在当前 BOSS 职位列表中";
+    return true;
+  }
+  matchedBossJobId.value = matchedOption.value;
+  bossMatchState.value = "matched";
+  console.log(
+    `[任务流程] [AIProfileActionPanel] 历史画像卡恢复 BOSS 职位：${matchedOption.value}`
+  );
+  return true;
+}
+
 // 初始默认值：本 chatId 上次填写过的简历份数（持久化在 AiSerachConfig.lastResumeCountByChatId）
 const resumeCountInput = ref("");
 {
@@ -454,6 +618,68 @@ function onResumeCountInput(e) {
     });
   }
 }
+
+const bossFilters = ref({ ...BOSS_FILTER_DEFAULTS });
+const bossFiltersTouched = ref(false);
+
+/**
+ * 三个筛选条件的回显：切回会话时从 getCurrentConditionByChatId 的 criteria 里读。
+ * 历史消息会渲染多张卡，用模块级缓存避免每个面板都打一次接口。
+ */
+const bossFilterCache = new Map();
+const bossFilterPromise = new Map();
+
+async function hydrateBossFilters() {
+  const chatId = panelChatId.value;
+  if (!chatId) return;
+  if (bossFilterCache.has(chatId)) {
+    bossFilters.value = { ...bossFilterCache.get(chatId) };
+    return;
+  }
+  // 同一 chat 的多个历史卡片共用一次请求
+  let promise = bossFilterPromise.get(chatId);
+  if (!promise) {
+    promise = getCurrentConditionByChatId(chatId)
+      .then(({ data }) => {
+        const next = extractBossFilters(data);
+        bossFilterCache.set(chatId, next);
+        return next;
+      })
+      .catch((e) => {
+        console.warn("[任务流程] [AIProfileActionPanel] 读取 BOSS 筛选条件失败:", e?.message || e);
+        return null;
+      })
+      .finally(() => {
+        bossFilterPromise.delete(chatId);
+      });
+    bossFilterPromise.set(chatId, promise);
+  }
+  const next = await promise;
+  // 期间切换了会话 → 丢弃
+  if (!next || panelChatId.value !== chatId || bossFiltersTouched.value) return;
+  bossFilters.value = { ...next };
+}
+
+watch(
+  panelChatId,
+  () => {
+    bossFiltersTouched.value = false;
+    hydrateBossFilters();
+  },
+  { immediate: true }
+);
+
+function onBossFilterChange() {
+  bossFiltersTouched.value = true;
+}
+
+watch(
+  bossFilters,
+  (val) => {
+    if (panelChatId.value) bossFilterCache.set(panelChatId.value, { ...val });
+  },
+  { deep: true }
+);
 
 const resumeCountNum = computed(() => {
   const n = Number(resumeCountInput.value);
@@ -528,7 +754,7 @@ async function autoMatchBossPosition() {
         matchedBossJobId.value = id; // 命中且在当前选项里 → 选中
         bossMatchState.value = "matched";
         console.log(
-          `[AIProfileActionPanel] matchBestPosition 命中：${id} score=${data.score} reason=${data.reason}`
+          `[任务流程] [AIProfileActionPanel] matchBestPosition 命中：${id} score=${data.score} reason=${data.reason}`
         );
         return;
       }
@@ -538,13 +764,13 @@ async function autoMatchBossPosition() {
     bossMatchState.value = "no-match";
     bossMatchReason.value = data?.reason || "";
     console.log(
-      `[AIProfileActionPanel] matchBestPosition 无匹配 → 不自动选中（score=${data?.score} reason=${data?.reason}）`
+      `[任务流程] [AIProfileActionPanel] matchBestPosition 无匹配 → 不自动选中（score=${data?.score} reason=${data?.reason}）`
     );
   } catch (e) {
     if (seq !== _matchSeq) return;
     // 接口异常：保持现状不强行选中，避免误选不相关职位
     bossMatchState.value = "idle";
-    console.warn("[AIProfileActionPanel] matchBestPosition 失败:", e?.message || e);
+    console.warn("[任务流程] [AIProfileActionPanel] matchBestPosition 失败:", e?.message || e);
   }
 }
 
@@ -559,6 +785,7 @@ watch(latestChatId, () => {
 watch(
   [bossJobOptions, () => selectedModules.value.recommend, latestChatId, latestPositionId],
   ([opts, recommend]) => {
+    if (restoreHistoricalBossPosition()) return;
     // ★ 搜索已启动 → 卡片只读，保持已选匹配职位不动（不清空、不重新匹配）
     if (props.disabled || searchLocked.value) return;
     if (!recommend) {
@@ -610,6 +837,8 @@ async function runEstimate() {
     selectedModules: selectedModules.value,
     matchedBossJobId: matchedBossJobId.value,
     resumeCount: resumeCountNum.value,
+    targetCount: resumeCountNum.value,
+    bossFilters: bossFilters.value,
     taskType: "INITIAL"
   });
   if (!payload) {
@@ -637,7 +866,7 @@ async function runEstimate() {
     };
   } catch (e) {
     if (seq !== _estimateSeq) return;
-    console.warn("[AIProfileActionPanel] estimate 接口失败，回落本地公式:", e?.message || e);
+    console.warn("[任务流程] [AIProfileActionPanel] estimate 接口失败，回落本地公式:", e?.message || e);
     estimateRemote.value = null; // fallback 走本地公式
   } finally {
     if (seq === _estimateSeq) estimateLoading.value = false;
@@ -709,7 +938,8 @@ function getState() {
   return {
     selectedModules: selectedModules.value,
     matchedBossJobId: matchedBossJobId.value,
-    resumeCount: resumeCountInput.value === "" ? null : Number(resumeCountInput.value)
+    resumeCount: resumeCountInput.value === "" ? null : Number(resumeCountInput.value),
+    bossFilters: { ...bossFilters.value }
   };
 }
 
@@ -750,7 +980,11 @@ const aggregateDisabled = computed(() => {
   return false;
 });
 
-defineExpose({ getState });
+function unlockSearch() {
+  searchLocked.value = false;
+}
+
+defineExpose({ getState, unlockSearch });
 
 void props;
 </script>
@@ -770,7 +1004,6 @@ $accent-border: #ccfbf1;
 */
 .ai-panel {
   padding-top: 16px;
-  border-top: 1px dotted #e5e7eb;
   font-size: 12px;
   display: flex;
   flex-direction: column;
@@ -960,6 +1193,27 @@ $accent-border: #ccfbf1;
 .native-select--unset {
   color: #a1a1aa;
   border-color: #fcd34d; /* amber-300：提示尚未选定 */
+}
+.boss-filter-select {
+  width: 240px;
+  max-width: 280px;
+  font-size: 12px;
+}
+.boss-filter-select :deep(.q-field__control) {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 6px;
+  background: #fff;
+}
+.boss-filter-select :deep(.q-field__native) {
+  height: 30px;
+  min-height: 30px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #52525b;
+}
+.boss-filter-select :deep(.q-field--outlined .q-field__control:before) {
+  border-color: #e4e4e7;
 }
 .select-caret {
   position: absolute;

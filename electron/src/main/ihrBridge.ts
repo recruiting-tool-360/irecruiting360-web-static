@@ -521,7 +521,26 @@ export async function syncCookiesFromLauncher(cookieStr: string | undefined | nu
 //   POST /candidate/AiManager/client/noauth/resume/upload      ← 2026-05-18 上线
 
 async function getApplicationPosition(): Promise<IhrApiResult<unknown>> {
-  return noauthFetch<unknown>('application/position', { method: 'GET' })
+  console.log('[ihrBridge] getApplicationPosition 查询 i 人事在招职位')
+  const result = await noauthFetch<unknown>('application/position', { method: 'GET' })
+  console.log(
+    '[API-TRACE] GET /candidate/AiManager/client/noauth/application/position 原始返回值:',
+    JSON.stringify(result)
+  )
+  const list = Array.isArray(result.data) ? result.data : []
+  const positionIds = list
+    .map((item) => item?.headcountId ?? item?.positionId)
+    .filter((id) => id != null && id !== '')
+  console.log(
+    `[ihrBridge] getApplicationPosition 结果: success=${result.success} count=${list.length}` +
+      (positionIds.length ? ` ids=${JSON.stringify(positionIds)}` : '')
+  )
+  if (!result.success) {
+    console.warn(
+      `[ihrBridge] getApplicationPosition 失败: code=${result.code} errorCode=${result.errorCode ?? '-'} message=${result.message ?? '-'}`
+    )
+  }
+  return result
 }
 
 /**
@@ -534,24 +553,79 @@ async function hasAuthority(): Promise<IhrApiResult<unknown>> {
 }
 
 async function batchGetPositionDetailByIds(ids: string[]): Promise<IhrApiResult<unknown>> {
-  return noauthFetch<unknown>('headcount/v2/batch/getDetailByIds', {
+  console.log(
+    `[ihrBridge] batchGetPositionDetailByIds 查询职位详情: count=${ids.length} ids=${JSON.stringify(ids)}`
+  )
+  const result = await noauthFetch<unknown>('headcount/v2/batch/getDetailByIds', {
     method: 'POST',
     body: JSON.stringify(ids)
   })
+  console.log(
+    '[API-TRACE] POST /candidate/AiManager/client/noauth/headcount/v2/batch/getDetailByIds 原始返回值:',
+    JSON.stringify(result)
+  )
+  const list = Array.isArray(result.data) ? result.data : []
+  const headcountIds = list
+    .map((item) => item?.headcountBasic?.headcountId)
+    .filter((id) => id != null && id !== '')
+  console.log(
+    `[ihrBridge] batchGetPositionDetailByIds 结果: success=${result.success} count=${list.length}` +
+      (headcountIds.length ? ` headcountIds=${JSON.stringify(headcountIds)}` : '')
+  )
+  if (!result.success) {
+    console.warn(
+      `[ihrBridge] batchGetPositionDetailByIds 失败: code=${result.code} errorCode=${result.errorCode ?? '-'} message=${result.message ?? '-'}`
+    )
+  }
+  return result
 }
 
 async function assignPositions(req: Record<string, unknown>): Promise<IhrApiResult<unknown>> {
-  return noauthFetch<unknown>('import', {
+  console.info('[IHR Action][ihrBridge] assignPositions:invoke', {
+    isSelectPosition: req?.isSelectPosition === true,
+    headcountId: req?.headcountId ?? '',
+    resumeInfoCount: Array.isArray(req?.resumeInfo) ? req.resumeInfo.length : 0,
+    hasPhase2ResumeInfos:
+      Array.isArray(req?.newResumeInfos) ||
+      Array.isArray(req?.maybeResumeInfos) ||
+      Array.isArray(req?.repeatResumeInfos)
+  })
+  const result = await noauthFetch<unknown>('import', {
     method: 'POST',
     body: JSON.stringify(req)
   })
+  console.info('[IHR Action][ihrBridge] assignPositions:returned', {
+    success: result.success,
+    code: result.code ?? '-',
+    errorCode: result.errorCode ?? '-',
+    httpStatus: result.httpStatus ?? '-',
+    message: result.message ?? '-'
+  })
+  return result
 }
 
 async function addPools(req: Record<string, unknown>): Promise<IhrApiResult<unknown>> {
-  return noauthFetch<unknown>('addPools', {
+  console.info('[IHR Action][ihrBridge] addPools:invoke', {
+    isSelectPosition: req?.isSelectPosition === true,
+    talentPoolIds: req?.talentPoolIds ?? [],
+    resumeInfoCount: Array.isArray(req?.resumeInfo) ? req.resumeInfo.length : 0,
+    hasPhase2ResumeInfos:
+      Array.isArray(req?.newResumeInfos) ||
+      Array.isArray(req?.maybeResumeInfos) ||
+      Array.isArray(req?.repeatResumeInfos)
+  })
+  const result = await noauthFetch<unknown>('addPools', {
     method: 'POST',
     body: JSON.stringify(req)
   })
+  console.info('[IHR Action][ihrBridge] addPools:returned', {
+    success: result.success,
+    code: result.code ?? '-',
+    errorCode: result.errorCode ?? '-',
+    httpStatus: result.httpStatus ?? '-',
+    message: result.message ?? '-'
+  })
+  return result
 }
 
 // ------- resume/init + resume/upload：后端 2026-05-18 上线新 noauth 包装版本 -------
@@ -578,16 +652,40 @@ async function uploadFile(arg: {
   centralUpload?: boolean // ← 已忽略，仅向后兼容
 }): Promise<IhrApiResult<unknown>> {
   if (!arg || !arg.arrayBuffer) return fail('missing file payload')
-  const fd = new FormData()
-  fd.append(
-    'file',
-    new Blob([arg.arrayBuffer], { type: arg.mime ?? 'application/octet-stream' }),
-    arg.name
+  const startedAt = Date.now()
+  const mime = arg.mime ?? 'application/octet-stream'
+  const byteLength = arg.arrayBuffer.byteLength
+  console.log(
+    `[任务流程] [ihrBridge] uploadFile >>> resume/upload | name=${arg.name} bytes=${byteLength} mime=${mime}`
   )
-  return noauthFetch<unknown>('resume/upload', {
-    method: 'POST',
-    body: fd as unknown as BodyInit
-  })
+  const fd = new FormData()
+  fd.append('file', new Blob([arg.arrayBuffer], { type: mime }), arg.name)
+  try {
+    const result = await noauthFetch<unknown>('resume/upload', {
+      method: 'POST',
+      body: fd as unknown as BodyInit
+    })
+    const data = result?.data as { fileId?: string; id?: string } | string | undefined
+    const fileId = typeof data === 'string' ? data : data?.fileId || data?.id || ''
+    const cost = Date.now() - startedAt
+    if (result?.success) {
+      console.log(
+        `[任务流程] [ihrBridge] uploadFile <<< ok ${cost}ms | fileId=${fileId || '(empty)'} bytes=${byteLength}`
+      )
+    } else {
+      console.warn(
+        `[任务流程] [ihrBridge] uploadFile !!! failed ${cost}ms | success=${result?.success} code=${result?.code} message=${result?.message ?? '-'}`
+      )
+    }
+    return result
+  } catch (e) {
+    const cost = Date.now() - startedAt
+    console.warn(
+      `[任务流程] [ihrBridge] uploadFile !!! exception ${cost}ms | name=${arg.name} bytes=${byteLength} error=`,
+      e
+    )
+    throw e
+  }
 }
 
 // =============== 鉴权辅助：检查 cookie / 引导登录 ===============

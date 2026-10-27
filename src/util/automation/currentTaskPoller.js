@@ -58,12 +58,12 @@ class CurrentTaskPoller {
    */
   start(opts = {}) {
     if (this.timer) {
-      console.log("[CurrentTaskPoller] 已在跑（tickCount=" + this.tickCount + "），跳过 start");
+      console.log("[任务流程]", "[CurrentTaskPoller] 已在跑（tickCount=" + this.tickCount + "），跳过 start");
       return;
     }
     const { store, taskApi, intervalMs, maxTicks } = opts;
     if (!store || !taskApi) {
-      console.warn("[CurrentTaskPoller] 缺 store / taskApi，跳过 start");
+      console.warn("[任务流程] [CurrentTaskPoller] 缺 store / taskApi，跳过 start");
       return;
     }
     this._store = store;
@@ -73,7 +73,7 @@ class CurrentTaskPoller {
     this.startedAt = Date.now();
     this.tickCount = 0;
     console.log(
-      "[CurrentTaskPoller] 启动 intervalMs=" + this.intervalMs + " maxTicks=" + this.maxTicks
+      "[任务流程]", "[CurrentTaskPoller] 启动 intervalMs=" + this.intervalMs + " maxTicks=" + this.maxTicks
     );
     // 不立即跑一次，等 intervalMs 后才第一次 tick（开机时刚跑过 resumeFromCurrent，
     // 立刻再跑一次没意义）
@@ -90,7 +90,7 @@ class CurrentTaskPoller {
     this.timer = null;
     const elapsed = Date.now() - this.startedAt;
     console.log(
-      "[CurrentTaskPoller] 停止 reason=" +
+      "[任务流程]", "[CurrentTaskPoller] 停止 reason=" +
         reason +
         " tickCount=" +
         this.tickCount +
@@ -117,7 +117,7 @@ class CurrentTaskPoller {
     // 超过上限直接停
     if (this.tickCount > this.maxTicks) {
       console.warn(
-        "[CurrentTaskPoller] 达到 maxTicks=" +
+        "[任务流程]", "[CurrentTaskPoller] 达到 maxTicks=" +
           this.maxTicks +
           "，自动停（" +
           this.tickCount +
@@ -135,7 +135,7 @@ class CurrentTaskPoller {
       const queueLen = Array.isArray(st?.queue) ? st.queue.length : 0;
       if (runningTaskId || queueLen > 0) {
         console.log(
-          "[CurrentTaskPoller] tick " +
+          "[任务流程]", "[CurrentTaskPoller] tick " +
             this.tickCount +
             ": 本地已有活跃任务 (running=" +
             runningTaskId +
@@ -147,7 +147,7 @@ class CurrentTaskPoller {
         return;
       }
     } catch (e) {
-      console.warn("[CurrentTaskPoller] 读 state 异常（继续轮询）:", e?.message || e);
+      console.warn("[任务流程] [CurrentTaskPoller] 读 state 异常（继续轮询）:", e?.message || e);
     }
 
     // 每 tick 顺带刷新后端排队信息（state.taskQueue）——让 LeftMenu 的"预计开始/结束时间"、
@@ -157,7 +157,7 @@ class CurrentTaskPoller {
       await this._store.dispatch("SearchTasks/fetchTaskQueue");
     } catch (e) {
       console.warn(
-        "[CurrentTaskPoller] tick " + this.tickCount + " 刷新 queue 异常（继续轮询 current）:",
+        "[任务流程]", "[CurrentTaskPoller] tick " + this.tickCount + " 刷新 queue 异常（继续轮询 current）:",
         e?.message || e
       );
     }
@@ -169,7 +169,7 @@ class CurrentTaskPoller {
       const taskId = data?.taskId;
       if (taskId) {
         console.log(
-          "[CurrentTaskPoller] tick " +
+          "[任务流程]", "[CurrentTaskPoller] tick " +
             this.tickCount +
             ": 拿到 current taskId=" +
             taskId +
@@ -181,21 +181,21 @@ class CurrentTaskPoller {
           await this._store.dispatch("SearchTasks/resumeFromCurrent");
         } catch (e) {
           console.warn(
-            "[CurrentTaskPoller] resumeFromCurrent 异常（但 poller 仍 stop）:",
+            "[任务流程] [CurrentTaskPoller] resumeFromCurrent 异常（但 poller 仍 stop）:",
             e?.message || e
           );
         }
         this.stop("got-current");
       } else {
         console.log(
-          "[CurrentTaskPoller] tick " +
+          "[任务流程]", "[CurrentTaskPoller] tick " +
             this.tickCount +
             ": current 仍为空（后端排队中本客户端没轮到），继续等下一轮"
         );
       }
     } catch (e) {
       console.warn(
-        "[CurrentTaskPoller] tick " + this.tickCount + " 调 current 异常（继续轮询）:",
+        "[任务流程]", "[CurrentTaskPoller] tick " + this.tickCount + " 调 current 异常（继续轮询）:",
         e?.message || e
       );
     }

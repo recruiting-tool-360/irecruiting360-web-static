@@ -46,7 +46,7 @@ async function fetchTaskScores(blindIds) {
     store = storeMod.default || storeMod
     taskApi = apiMod.default || apiMod
   } catch (e) {
-    console.warn('[recommendScoreUpdater] lazy import 失败:', e?.message || e)
+    console.warn('[任务流程] [recommendScoreUpdater] lazy import 失败:', e?.message || e)
     return null
   }
 
@@ -62,26 +62,43 @@ async function fetchTaskScores(blindIds) {
 
   if (taskResumeIds.length === 0) {
     console.warn(
-      `[recommendScoreUpdater] 没拿到 taskResumeIds（taskResumeIdMap 为空 / 映射没建？） blindIds=${blindIds.length}`
+      `[任务流程] [recommendScoreUpdater] 没拿到 taskResumeIds（taskResumeIdMap 为空 / 映射没建？） blindIds=${blindIds.length}`
     )
     return null
   }
 
   if (!taskApi?.postTaskScoreList) {
-    console.warn('[recommendScoreUpdater] taskApi.postTaskScoreList 不可用')
+    console.warn('[任务流程] [recommendScoreUpdater] taskApi.postTaskScoreList 不可用')
     return null
   }
 
   try {
     console.log(
-      `[recommendScoreUpdater] queryTaskScoreList taskResumeIds=${taskResumeIds.length}/${blindIds.length}`
+      `[任务流程] [recommendScoreUpdater] queryTaskScoreList >>> taskResumeIds=${taskResumeIds.length}/${blindIds.length}`,
+      { taskResumeIds: taskResumeIds.slice(0, 10), blindIds: blindIds.slice(0, 10) }
     )
+    const startedAt = Date.now()
     const resp = await taskApi.postTaskScoreList(taskResumeIds)
     const data = resp?.data
-    if (Array.isArray(data)) return data
+    if (Array.isArray(data)) {
+      const statusCount = {}
+      for (const row of data) {
+        const key = row?.scoreStatus || '(none)'
+        statusCount[key] = (statusCount[key] || 0) + 1
+      }
+      console.log(
+        `[任务流程] [recommendScoreUpdater] queryTaskScoreList <<< ok ${Date.now() - startedAt}ms rows=${data.length}`,
+        { statusCount }
+      )
+      return data
+    }
+    console.warn(
+      `[任务流程] [recommendScoreUpdater] queryTaskScoreList <<< 响应 data 不是数组，按无结果处理 | data=`,
+      resp?.data
+    )
     return null
   } catch (e) {
-    console.warn('[recommendScoreUpdater] postTaskScoreList 异常:', e?.message || e)
+    console.warn('[任务流程] [recommendScoreUpdater] postTaskScoreList 异常:', e?.message || e)
     return null
   }
 }
@@ -123,7 +140,7 @@ class RecommendScoreUpdater {
    */
   start(opts) {
     if (!opts || !Array.isArray(opts.resumeBlindIds) || typeof opts.onUpdate !== 'function') {
-      console.error('[recommendScoreUpdater] start 缺少必要参数', opts)
+      console.error('[任务流程] [recommendScoreUpdater] start 缺少必要参数', opts)
       return false
     }
     // 启动新一轮前先清掉上一轮（推荐场景一般每次任务结束都已经清，但兜底）
@@ -143,12 +160,12 @@ class RecommendScoreUpdater {
     this.tag = opts.tag || ''
 
     if (this.pendingBlindIds.size === 0) {
-      console.log(`[recommendScoreUpdater] start: pending=0, skip (${this.tag})`)
+      console.log(`[任务流程] [recommendScoreUpdater] start: pending=0, skip (${this.tag})`)
       return false
     }
 
     console.log(
-      `[recommendScoreUpdater] 启动 pending=${this.pendingBlindIds.size} interval=${this.intervalMs}ms (${this.tag})`
+      `[任务流程] [recommendScoreUpdater] 启动 pending=${this.pendingBlindIds.size} interval=${this.intervalMs}ms (${this.tag})`
     )
     // 立刻跑一次 + 周期循环
     void this.queryOnce()
@@ -193,7 +210,7 @@ class RecommendScoreUpdater {
 
     if (this.retryCount > this.maxRetries) {
       console.log(
-        `[recommendScoreUpdater] 已达 maxRetries=${this.maxRetries}，停止轮询 (${this.tag})` +
+        "[任务流程]", `[recommendScoreUpdater] 已达 maxRetries=${this.maxRetries}，停止轮询 (${this.tag})` +
           ` 残余 pending=${this.pendingBlindIds.size}`
       )
       this.markPendingAsIgnored()
@@ -232,7 +249,7 @@ class RecommendScoreUpdater {
     else this.noProgressCount++
 
     console.log(
-      `[recommendScoreUpdater] 第${this.retryCount}轮 in=${data.length}` +
+      "[任务流程]", `[recommendScoreUpdater] 第${this.retryCount}轮 in=${data.length}` +
         ` 本轮终态=${removedThisRound} 剩余pending=${this.pendingBlindIds.size}` +
         ` noProgress=${this.noProgressCount}/${this.maxNoProgress} (${this.tag})`
     )
@@ -241,11 +258,11 @@ class RecommendScoreUpdater {
     try {
       this.onUpdate(data, { pendingLeft: this.pendingBlindIds.size })
     } catch (e) {
-      console.warn('[recommendScoreUpdater] onUpdate 回调异常（忽略）:', e?.message || e)
+      console.warn('[任务流程] [recommendScoreUpdater] onUpdate 回调异常（忽略）:', e?.message || e)
     }
 
     if (this.pendingBlindIds.size === 0) {
-      console.log(`[recommendScoreUpdater] 全部终态，停止轮询 (${this.tag})`)
+      console.log(`[任务流程] [recommendScoreUpdater] 全部终态，停止轮询 (${this.tag})`)
       this.clearTimer()
       this.fireAllDone()
       return
@@ -257,7 +274,7 @@ class RecommendScoreUpdater {
   checkNoProgressBreak() {
     if (this.noProgressCount < this.maxNoProgress) return
     console.log(
-      `[recommendScoreUpdater] 连续 ${this.maxNoProgress} 轮无进展，停止轮询 (${this.tag})` +
+      "[任务流程]", `[recommendScoreUpdater] 连续 ${this.maxNoProgress} 轮无进展，停止轮询 (${this.tag})` +
         ` 残余 pending=${this.pendingBlindIds.size}`
     )
     this.markPendingAsIgnored()
@@ -277,7 +294,7 @@ class RecommendScoreUpdater {
     try {
       this.onUpdate(synthetic, { pendingLeft: 0 })
     } catch (e) {
-      console.warn('[recommendScoreUpdater] markPendingAsIgnored onUpdate 异常:', e?.message || e)
+      console.warn('[任务流程] [recommendScoreUpdater] markPendingAsIgnored onUpdate 异常:', e?.message || e)
     }
   }
 
@@ -286,7 +303,7 @@ class RecommendScoreUpdater {
       try {
         this.onAllDone()
       } catch (e) {
-        console.warn('[recommendScoreUpdater] onAllDone 异常:', e?.message || e)
+        console.warn('[任务流程] [recommendScoreUpdater] onAllDone 异常:', e?.message || e)
       }
     }
   }

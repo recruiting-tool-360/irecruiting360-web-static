@@ -714,7 +714,7 @@ const getChatConditionRequest = async (chatId) => {
     let {data} = await getCurrentConditionByChatId(chatId);
     return data;
   } catch (error) {
-    console.error('获取聊天条件出错:', error);
+    console.error('[任务流程] 获取聊天条件出错:', error);
     return null;
   }
 }
@@ -733,10 +733,10 @@ const refreshSearchCondition = async (chatId) => {
       // console.log("2",searchStateValues)
       setSearchState(searchStateValues);
     } else {
-      console.warn('没有获取到聊天条件数据');
+      console.warn('[任务流程] 没有获取到聊天条件数据');
     }
   } catch (error) {
-    console.error('刷新搜索条件出错:', error);
+    console.error('[任务流程] 刷新搜索条件出错:', error);
   }
 }
 

@@ -58,25 +58,23 @@
             v-if="tabStr!=='我的收藏'"
             class="score-badge q-mb-sm"
           >
-            <!-- AI评分正常显示 -->
-            <q-circular-progress
+            <!-- AI评分正常显示：点击进入新版 AI 评分详情 -->
+            <button
               v-if="resume.score !== null && resume.score !== undefined && resume.score !== -2"
-              show-value
-              font-size="14px"
-              :value="resume.score < 0 ? 0 : resume.score"
-              size="xl"
-              :color="getScoreColor(resume.score)"
-              track-color="grey-3"
-              class="q-mr-sm text-bold"
-              :class="{ 'score-circle--clickable': canOpenAIEvaluation }"
-              :role="canOpenAIEvaluation ? 'button' : undefined"
-              :tabindex="canOpenAIEvaluation ? 0 : undefined"
+              type="button"
+              class="ai-score-box"
+              :class="{ 'ai-score-box--clickable': canOpenAIEvaluation }"
+              :disabled="!canOpenAIEvaluation"
               @click.stop="showAIEvaluationDialog"
-              @keydown.enter.stop="showAIEvaluationDialog"
-              @keydown.space.stop.prevent="showAIEvaluationDialog"
             >
-              {{ Math.round(resume.score) }}
-            </q-circular-progress>
+              <span class="ai-score-box__num">{{ Math.round(resume.score) }}<small>分</small></span>
+              <span class="ai-score-box__detail">
+                AI匹配详情
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+              </span>
+            </button>
 
             <!-- 显示评分为-2（无法获取渠道信息）的特殊状态 -->
             <q-avatar v-else-if="resume.score === -2" size="xl" class="bg-grey-2 text-red-7 q-mr-sm">
@@ -99,8 +97,11 @@
               <q-tooltip>正在进行AI分析</q-tooltip>
             </q-circular-progress>
 
-            <span class="text-caption text-grey-7">
-              {{ resume.score === -2 ? '渠道数据异常' : (resume.score === null || resume.score === undefined ? 'AI分析中...' : 'AI 匹配度') }}
+            <span
+              v-if="resume.score === -2 || resume.score === null || resume.score === undefined"
+              class="text-caption text-grey-7"
+            >
+              {{ resume.score === -2 ? '渠道数据异常' : 'AI分析中...' }}
             </span>
           </div>
 
@@ -157,7 +158,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary" 
-                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)"
+                :disable="readOnly || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)"
                 @click.stop="assignJob(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
@@ -175,7 +176,7 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary"
-                :disable="readOnly || !(resume.score !== null && resume.score !== undefined && resume.score >= 0) || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)" 
+                :disable="readOnly || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)"
                 @click.stop="addToTalentPool(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
@@ -206,7 +207,7 @@
                 :loading="bossCommunicationLoading"
                 @click.stop="scheduleInterview">
                 <q-icon size="xs" class="q-mr-xs" name="chat"></q-icon>
-                <span>立即沟通</span>
+                <span>{{ bossCommunicationButtonText }}</span>
                 <template #loading>
                   <q-spinner size="16px" class="q-mr-xs" />
                   <span>{{ bossCommunicationLoadingText }}</span>
@@ -271,10 +272,18 @@
     @assign-job="assignJob"
     @add-to-talent-pool="addToTalentPool"
   />
+
+  <!-- 新版 AI 评分详情（AI 人才评估报告，如图 4）。旧版详情保留，可通过报告页入口进入 -->
+  <AIEvaluationReport
+    v-model="showAIEvaluationReport"
+    :resume-data="resume"
+    :task-resume-id="evaluationTaskResumeId"
+    @open-legacy="openLegacyEvaluation"
+  />
 </template>
 
 <script setup>
-import {defineProps, defineEmits, computed, ref, defineAsyncComponent, onMounted} from 'vue';
+import {defineProps, defineEmits, computed, ref, watch, defineAsyncComponent, onMounted} from 'vue';
 import notify from "src/util/notify";
 import qs from "qs";
 // 使用Quasar的Dialog显示内容
@@ -285,7 +294,8 @@ import {saveCondition} from "src/api/search/SearchApi";
 import SimilarResumesDialog from 'src/components/resume/SimilarResumesDialog.vue';
 import {getSearchConditionRequest, getSearchStateValues} from "src/pluginSrc/util/SearchParamUtils";
 import AIResumeEvaluation from 'src/components/resume/AIResumeEvaluation.vue';
-import {markResumeBlindReadStatus, userCollectResume} from "src/api/jobList/JobListApi";
+import AIEvaluationReport from 'src/components/resume/AIEvaluationReport.vue';
+import {markResumeBlindReadStatus, userCollectResume, userImmediateCommunicate} from "src/api/jobList/JobListApi";
 import {getChannelUrl} from "src/pluginSrc/util/ChannelUrlUtil";
 import { openExternalSiteUrl } from "src/util/openChannelLoginUrl";
 import { useSendResume } from 'src/hooks/useSendResume';
@@ -298,10 +308,16 @@ const store = useStore();
 const $q = useQuasar();
 const bossCommunicationLoading = ref(false);
 const bossCommunicationLoadingStage = ref('idle');
+const locallyCommunicated = ref(false);
 const bossCommunicationLoadingText = computed(() =>
   bossCommunicationLoadingStage.value === 'opening'
     ? '正在打开'
     : '正在查找'
+);
+const bossCommunicationButtonText = computed(() =>
+  props.resume?.immediateChat === true || locallyCommunicated.value
+    ? '再次沟通'
+    : '立即沟通'
 );
 const bossRecommendTaskExecutingMessage = '任务执行中，完成后可立即沟通';
 
@@ -360,6 +376,13 @@ const props = defineProps({
   }
 });
 
+watch(
+  () => props.resume?.immediateChat,
+  () => {
+    locallyCommunicated.value = false;
+  }
+);
+
 const emit = defineEmits([
   'collect',
   'read',
@@ -393,6 +416,21 @@ const canOpenAIEvaluation = computed(() => {
   return score !== null && score !== undefined && Number(score) >= 0;
 });
 
+// AI 匹配详情接口需要 taskResumeId；个别历史/实时数据只带 resumeBlindId，这里用任务映射兜底。
+const evaluationTaskResumeId = computed(() => {
+  const direct =
+    props.resume?.taskResumeId ||
+    props.resume?.taskResumeID ||
+    props.resume?._raw?.taskResumeId;
+  if (direct !== undefined && direct !== null && direct !== '') return String(direct);
+  const blindId = props.resume?.resumeBlindId || props.resume?.id;
+  const getTaskResumeId = store.getters['SearchTasks/getTaskResumeId'];
+  const mapped = blindId && typeof getTaskResumeId === 'function'
+    ? getTaskResumeId(String(blindId))
+    : null;
+  return mapped ? String(mapped) : '';
+});
+
 // 任意职位的 BOSS 推荐 RPA 真正操作页面时，都禁用当前卡片的“立即沟通”。
 // 排队/WAITING 和后续 SCORING 评分阶段不在全局 getter 的锁定范围内。
 const isBossRecommendTaskExecuting = computed(() => {
@@ -401,6 +439,14 @@ const isBossRecommendTaskExecuting = computed(() => {
 
 // 三方公司的信息
 const planInfo = computed(() => store.getters.getUserInfo?.extendData);
+
+const logIhrAction = (action, stage, details = {}) => {
+  console.info(`[IHR Action][ResumeCard] ${action}:${stage}`, {
+    resumeId: props.resume?.id || props.resume?.resumeBlindId || props.resume?.taskResumeId || "",
+    channel: props.resume?.channel || "",
+    ...details
+  });
+};
 
 // 添加相似简历按钮状态的computed属性来确保响应式更新
 const similarButtonText = computed(() => {
@@ -430,7 +476,7 @@ const getChannelDisable = (key) => {
 };
 
 // 初始化发送简历hook 
-const { handleResume, sendResume } = useSendResume('resumeList');
+const { sendDirectResume } = useSendResume('resumeList');
 
 // 默认planA企业可见， 无plan或plan不匹配时默认不可见
 const { isVisible } = usePlanVisibility({
@@ -584,15 +630,6 @@ const getChannelServiceConfig = ref([
   }
 ])
 
-// 根据分数获取颜色
-const getScoreColor = (score) => {
-  if (score === null || score === undefined) return 'grey-5';
-  if (score >= 80) return 'positive';
-  if (score >= 60) return 'primary';
-  if (score >= 40) return 'warning';
-  return 'negative';
-};
-
 //获取渠道图片
 const getChannelImage = (channel) => {
   const channelInfo = getChannelServiceConfig.value.find(item => item.channel === channel);
@@ -742,6 +779,8 @@ const viewDetail = () => {
 };
 
 const showAIEvaluation = ref(false);
+// 新版 AI 评分详情（AI 人才评估报告）
+const showAIEvaluationReport = ref(false);
 
 //查找相似的简历
 const searchSimilarResumes = () => {
@@ -973,6 +1012,20 @@ const scheduleInterview = async () => {
       }
       return;
     }
+    const taskResumeId = evaluationTaskResumeId.value || props.resume?.taskResumeId;
+    if (!taskResumeId) {
+      notify.warning('立即沟通已执行，但缺少 taskResumeId，无法同步沟通状态');
+      return;
+    }
+    const communicateResult = await userImmediateCommunicate({
+      taskResumeId: String(taskResumeId),
+      immediateChat: true
+    });
+    if (communicateResult?.success !== 'success') {
+      notify.warning(communicateResult?.errorMessage || '立即沟通状态同步失败');
+      return;
+    }
+    locallyCommunicated.value = true;
     notify.success(`已在 BOSS 互动页面执行“${result.action}”`);
   } catch (error) {
     console.error('BOSS 互动页面立即沟通失败:', error);
@@ -1044,60 +1097,127 @@ const handleViewDetail = (resume) => {
 /**
  * @param resume 简历
  */
-const commomIHR = async (resume) => {
-  try {
-    emit('updateCollectResumeLoading', true);
-
-    let allResume = [{ ...resume, type: "normal", isMaster: true }];
-
-    // 单个请求获取相似简历
-    const similarResumes = await getSimilarResumes(resume);
-    console.log(similarResumes, "similarResumes-相似简历");
-    
-    // 有相似简历->合并修改type
-    if(similarResumes.length > 0) {
-      allResume = [...allResume, ...similarResumes].map(item => {
-        return { isMaster: false, ...item, type: "similar" }
-      })
-    }
-    console.log(allResume, "similarResumes-合并后");
-
-    const { data, filterZhiLianCount } = await handleResume(allResume, true);
-    if(filterZhiLianCount > 0) {
-      $q.notify({
-        message: `智联招聘渠道查看简历数量已达上限，已过滤${filterZhiLianCount}份智联候选人`,
-        color: 'negative',
-        position: 'top'
+const sendResumeByFileId = async (resume, action) => {
+  logIhrAction(action, "prepare:start", {
+    hasResume: !!resume,
+    resumeThirdPartyInfo: resume?.resumeThirdPartyInfo || null,
+    hasDirectFileId: !!resume?.fileId,
+    resumePositionId: resume?.positionId || resume?.headcountId || "",
+    latestPositionId: store.getters.getLatestPositionId || "",
+    talentPoolIds: Array.isArray(resume?.talentPoolIds) ? resume.talentPoolIds : []
+  });
+  let fileId =
+    resume?.fileId ||
+    resume?.resumeFileId ||
+    resume?.resumeFile?.fileId ||
+    resume?.resumeInfo?.fileId ||
+    resume?._raw?.fileId ||
+    resume?._raw?.resumeFile?.fileId;
+  if (!fileId) {
+    try {
+      const { lookupFileId } = await import("src/util/automation/recommendFileIdMap");
+      for (const localId of [
+        resume?.taskResumeId,
+        resume?.resumeBlindId,
+        resume?.id,
+        resume?._raw?.taskResumeId,
+        resume?._raw?.resumeBlindId,
+        resume?._raw?.uniqSign
+      ]) {
+        fileId = lookupFileId(localId);
+        if (fileId) break;
+      }
+    } catch (error) {
+      console.warn("读取候选人 fileId 映射失败（忽略）:", error?.message || error);
+      logIhrAction(action, "prepare:file-id-map-error", {
+        message: error?.message || String(error)
       });
     }
-    return data;
-  } catch (error) {
-    console.error(error);
-    throw error;
-  } finally {
-    emit('updateCollectResumeLoading', false);
   }
-}
+  if (!fileId) {
+    logIhrAction(action, "prepare:blocked", {
+      reason: "missing fileId",
+      checkedIds: [
+        resume?.taskResumeId,
+        resume?.resumeBlindId,
+        resume?.id,
+        resume?._raw?.taskResumeId,
+        resume?._raw?.resumeBlindId,
+        resume?._raw?.uniqSign
+      ].filter(Boolean)
+    });
+    throw new Error('当前候选人没有可用的 fileId');
+  }
+  const id = resume?.id || resume?.resumeBlindId || resume?.taskResumeId;
+  if (!id) {
+    logIhrAction(action, "prepare:blocked", {
+      reason: "missing resume id",
+      hasFileId: true
+    });
+    throw new Error('当前候选人没有可用的简历 id');
+  }
+  const extraParams = {
+    action,
+    ...(Array.isArray(resume?.talentPoolIds)
+      ? { talentPoolIds: resume.talentPoolIds }
+      : {})
+  };
+  const positionId = resume?.positionId || resume?.headcountId;
+  if (positionId) extraParams.positionId = positionId;
+
+  logIhrAction(action, "prepare:ready", {
+    resumeId: id,
+    fileId,
+    positionId: extraParams.positionId || store.getters.getLatestPositionId || "",
+    talentPoolIds: extraParams.talentPoolIds || []
+  });
+
+  return sendDirectResume({
+    ...resume,
+    id,
+    fileId,
+    type: 'normal'
+  }, extraParams);
+};
 
 // 分配职位
 const assignJob = async (resume) => {
+  logIhrAction("assign-position", "click", {
+    hasAuth: !!planInfo.value?.assignPositionAuth,
+    readOnly: props.readOnly,
+    isVisible: isVisible.value,
+    isActionDone: isThirdPartyActionDone(resume?.resumeThirdPartyInfo)
+  });
   if(!planInfo.value?.assignPositionAuth) {
+    logIhrAction("assign-position", "blocked", { reason: "assignPositionAuth=false" });
     notify.warning("您没有候选人模块添加候选人权限，不能将候选人添加至职位下，请联系管理员分配权限");
     return;
   }
   try {
     emit('updateCollectResumeLoading', true);
 
-    const res = await commomIHR(resume);
-    console.log(res, 'result222');
-
-    if(Object.keys(res).length > 0) {
-      await sendResume(res, {
-        action: 'assign-position',
+    const response = await sendResumeByFileId(resume, 'assign-position');
+    const result = response?.data || response;
+    logIhrAction("assign-position", "response", {
+      success: result?.success,
+      code: result?.code,
+      errorCode: result?.errorCode,
+      message: result?.message || result?.errorMessage || ""
+    });
+    if (result?.success === true || result?.success === 'success') {
+      resume.resumeThirdPartyInfo = { type: 'ASSIGN_POSITIONS', status: '1' };
+      logIhrAction("assign-position", "success");
+    } else {
+      logIhrAction("assign-position", "business-failed", {
+        response: result || null
       });
     }
   } catch (error) {
     console.error('assignJob失败:', error);
+    logIhrAction("assign-position", "error", {
+      message: error?.message || String(error),
+      stack: error?.stack || ""
+    });
     $q.notify({
       message: '处理简历失败: ' + error.message,
       color: 'negative',
@@ -1110,23 +1230,42 @@ const assignJob = async (resume) => {
 
 // 加入人才库
 const addToTalentPool = async (resume) => {
+  logIhrAction("talent-pool", "click", {
+    hasAuth: !!planInfo.value?.talentPoolAuth,
+    readOnly: props.readOnly,
+    isVisible: isVisible.value,
+    isActionDone: isThirdPartyActionDone(resume?.resumeThirdPartyInfo)
+  });
   if(!planInfo.value?.talentPoolAuth) {
+    logIhrAction("talent-pool", "blocked", { reason: "talentPoolAuth=false" });
     notify.warning("您没有人才库模块添加候选人权限，不能将候选人添加至人才库，请联系管理员分配权限");
     return;
   }
   try {
     emit('updateCollectResumeLoading', true);
 
-    const res = await commomIHR(resume);
-    console.log(res, 'result222');
-
-    if(Object.keys(res).length > 0) {
-      await sendResume(res, { 
-        action: 'talent-pool',
+    const response = await sendResumeByFileId(resume, 'talent-pool');
+    const result = response?.data || response;
+    logIhrAction("talent-pool", "response", {
+      success: result?.success,
+      code: result?.code,
+      errorCode: result?.errorCode,
+      message: result?.message || result?.errorMessage || ""
+    });
+    if (result?.success === true || result?.success === 'success') {
+      resume.resumeThirdPartyInfo = { type: 'JOIN_POOLS', status: '1' };
+      logIhrAction("talent-pool", "success");
+    } else {
+      logIhrAction("talent-pool", "business-failed", {
+        response: result || null
       });
     }
   } catch (error) {
     console.error('addToTalentPool失败:', error);
+    logIhrAction("talent-pool", "error", {
+      message: error?.message || String(error),
+      stack: error?.stack || ""
+    });
     $q.notify({
       message: '处理简历失败: ' + error.message,
       color: 'negative',
@@ -1185,9 +1324,15 @@ const shouldShowTalentPoolTooltip = (thirdPartyInfo) => {
   );
 };
 
-// 显示AI评估对话框
+// 点击评分：进入新版 AI 评分详情（AI 人才评估报告）
 const showAIEvaluationDialog = () => {
   if (!canOpenAIEvaluation.value) return;
+  showAIEvaluationReport.value = true;
+};
+
+// 新版详情页内的「查看旧版详情」入口：打开保留的旧版 AI 评估弹窗
+const openLegacyEvaluation = () => {
+  showAIEvaluationReport.value = false;
   showAIEvaluation.value = true;
 };
 
@@ -1195,6 +1340,23 @@ const showAIEvaluationDialog = () => {
 onMounted(() => {
   let id = props.resume.id;
   let dataset = document.querySelector(`[data-resume-id="${props.resume.id}"]`)?.dataset;
+  logIhrAction("buttons", "availability", {
+    isVisible: isVisible.value,
+    readOnly: props.readOnly,
+    assignPositionAuth: !!planInfo.value?.assignPositionAuth,
+    talentPoolAuth: !!planInfo.value?.talentPoolAuth,
+    thirdPartyInfo: props.resume?.resumeThirdPartyInfo || null,
+    assignEnabled:
+      !props.readOnly && !isThirdPartyActionDone(props.resume?.resumeThirdPartyInfo),
+    talentPoolEnabled:
+      !props.readOnly && !isThirdPartyActionDone(props.resume?.resumeThirdPartyInfo),
+    hasFileId: !!(
+      props.resume?.fileId ||
+      props.resume?.resumeFileId ||
+      props.resume?.resumeFile?.fileId ||
+      props.resume?.resumeInfo?.fileId
+    )
+  });
   // console.log('ResumeCard mounted, resume ID:', props.resume.id);
   // console.log('Element dataset:', document.querySelector(`[data-resume-id="${props.resume.id}"]`)?.dataset);
 });
@@ -1217,16 +1379,58 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
-.score-circle--clickable {
-  cursor: pointer;
-  border-radius: 50%;
-  transition: box-shadow 0.2s ease;
+/* 右上角 AI 评分卡片：分数 + AI匹配详情 */
+.ai-score-box {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 104px;
+  padding: 10px 16px;
+  border: 1px solid #e6eaf2;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f4f8ff 0%, #ffffff 55%, #f7f4ff 100%);
+  box-shadow: 0 2px 8px rgba(43, 84, 160, 0.06);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
-.score-circle--clickable:hover,
-.score-circle--clickable:focus-visible {
-  box-shadow: 0 0 0 6px rgba(0, 215, 198, 0.08);
+.ai-score-box--clickable {
+  cursor: pointer;
+}
+
+.ai-score-box--clickable:hover,
+.ai-score-box--clickable:focus-visible {
+  border-color: #b7e4dd;
+  box-shadow: 0 4px 14px rgba(0, 215, 198, 0.16);
+  transform: translateY(-1px);
   outline: none;
+}
+
+.ai-score-box__num {
+  color: #1f2329;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.ai-score-box__num small {
+  margin-left: 2px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.ai-score-box__detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: #8e929b;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.ai-score-box__detail svg {
+  color: #b0b2b7;
 }
 
 .boss-communication-button-wrap {

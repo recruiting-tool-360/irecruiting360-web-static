@@ -591,13 +591,15 @@ function detectIhrManageOrigin() {
  *     return {
  *       accessToken: body?.accessToken,
  *       accessTokenExpireAt: body?.accessTokenExpireAt,
- *       tokenParamName: body?.tokenParamName || 'accessToken'
+ *       tokenParamName: body?.tokenParamName || 'accessToken',
+ *       companyId: body?.companyId,
+ *       companyName: body?.companyName
  *     };
  *   });
  *
  * 详见 docs/07-ihr-client-usage.md §3 + docs/client-launcher-flow.md。
  *
- * @returns {Promise<null | { accessToken: string, accessTokenExpireAt?: string, tokenParamName?: string }>}
+ * @returns {Promise<null | { accessToken: string, accessTokenExpireAt?: string, tokenParamName?: string, companyId?: string, companyName?: string }>}
  */
 async function tryFetchAccessToken() {
   if (!iframeMsg || typeof iframeMsg.post !== "function") {
@@ -624,7 +626,11 @@ async function tryFetchAccessToken() {
     return {
       accessToken: body.accessToken,
       accessTokenExpireAt: body.accessTokenExpireAt,
-      tokenParamName: body.tokenParamName || "accessToken"
+      tokenParamName: body.tokenParamName || "accessToken",
+      // 父页 client/launch 新返回的公司信息，随 deep link 透传给桌面端，
+      // 桌面端登录调用 /sso/generateToken 时作为参数带上。
+      companyId: body.companyId,
+      companyName: body.companyName
     };
   } catch (e) {
     // 常见原因：父页没注册 handler / 15s 超时 / 父页 fetch 失败
@@ -705,7 +711,9 @@ async function launchWithPayload(payload, prefetchedTokenInfo = null) {
           ? {
               accessToken: tokenInfo.accessToken,
               accessTokenExpireAt: tokenInfo.accessTokenExpireAt,
-              tokenParamName: tokenInfo.tokenParamName
+              tokenParamName: tokenInfo.tokenParamName,
+              companyId: tokenInfo.companyId,
+              companyName: tokenInfo.companyName
             }
           : {})
       }
@@ -716,7 +724,9 @@ async function launchWithPayload(payload, prefetchedTokenInfo = null) {
           ? {
               accessToken: tokenInfo.accessToken,
               accessTokenExpireAt: tokenInfo.accessTokenExpireAt,
-              tokenParamName: tokenInfo.tokenParamName
+              tokenParamName: tokenInfo.tokenParamName,
+              companyId: tokenInfo.companyId,
+              companyName: tokenInfo.companyName
             }
           : {})
       };

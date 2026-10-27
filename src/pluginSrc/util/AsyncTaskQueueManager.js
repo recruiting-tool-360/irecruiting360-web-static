@@ -65,7 +65,7 @@ class AsyncTaskQueueManager {
    */
   createQueue(queueId, config = {}) {
     if (this.queueInstances[queueId]) {
-      console.warn(`队列 ${queueId} 已存在，返回现有实例`);
+      console.warn(`[任务流程] 队列 ${queueId} 已存在，返回现有实例`);
       return this.queueInstances[queueId];
     }
 
@@ -104,7 +104,7 @@ class AsyncTaskQueueManager {
     const queue = this.queueInstances[queueId] || this.defaultQueue;
 
     if (!queue) {
-      console.error(`队列 ${queueId} 不存在`);
+      console.error(`[任务流程] 队列 ${queueId} 不存在`);
       return false;
     }
 

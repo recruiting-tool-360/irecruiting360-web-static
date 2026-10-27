@@ -82,6 +82,8 @@ async function fileToTransfer(file, fallbackName) {
  * 优先级：channelsMap（真实来源）→ DEFAULT_CHANNEL_ID（默认推测）→ 原 string
  */
 function mapChannel(label, channelsMap) {
+  if (typeof label === "number" && Number.isFinite(label)) return label;
+  if (typeof label === "string" && /^\d+$/.test(label.trim())) return Number(label.trim());
   if (channelsMap && channelsMap.has(label)) return channelsMap.get(label);
   // 常见 alias 容错（拿到 channelsMap 但 label 不完全匹配时）
   if (channelsMap && channelsMap.size > 0) {
@@ -123,6 +125,48 @@ function flattenTalentPools(tree) {
   return out;
 }
 
+async function callIhrBridge(ihrBridge, method, body, action) {
+  console.info(`[IHR Action][ihrAdapter] ${action}:ipc-invoke`, {
+    method,
+    body
+  });
+  if (typeof ihrBridge?.[method] !== "function") {
+    console.error(`[IHR Action][ihrAdapter] ${action}:ipc-unavailable`, {
+      method,
+      availableMethods: Object.keys(ihrBridge || {})
+    });
+    return {
+      success: false,
+      code: -1,
+      errorCode: "OTHER",
+      message: `ihrBridge.${method} 不可用`
+    };
+  }
+  const startedAt = Date.now();
+  try {
+    const result = await ihrBridge[method](body);
+    console.info(`[IHR Action][ihrAdapter] ${action}:ipc-returned`, {
+      method,
+      elapsedMs: Date.now() - startedAt,
+      success: result?.success,
+      code: result?.code ?? "-",
+      errorCode: result?.errorCode ?? "-",
+      httpStatus: result?.httpStatus ?? "-",
+      message: result?.message ?? "-",
+      data: result?.data ?? null
+    });
+    return result;
+  } catch (error) {
+    console.error(`[IHR Action][ihrAdapter] ${action}:ipc-error`, {
+      method,
+      elapsedMs: Date.now() - startedAt,
+      message: error?.message || String(error),
+      stack: error?.stack || ""
+    });
+    throw error;
+  }
+}
+
 // ============= 拉 init / 上传文件（best-effort） =============
 
 let _initCache = null;
@@ -134,7 +178,14 @@ let _initCache = null;
  *    现在改成只有真正拿到数据才落缓存。
  */
 async function fetchInitBestEffort(ihrBridge) {
-  if (_initCache) return _initCache;
+  if (_initCache) {
+    console.info("[IHR Action][ihrAdapter] init:cache-hit", {
+      channelCount: _initCache.channelsMap?.size || 0,
+      talentPoolCount: _initCache.talentPools?.length || 0
+    });
+    return _initCache;
+  }
+  console.info("[IHR Action][ihrAdapter] init:start");
   const emptyFallback = {
     channelsMap: new Map(),
     talentPools: [],
@@ -150,6 +201,11 @@ async function fetchInitBestEffort(ihrBridge) {
         res?.errorCode || "",
         res?.message
       );
+      console.warn("[IHR Action][ihrAdapter] init:failed", {
+        code: res?.code ?? "-",
+        errorCode: res?.errorCode ?? "-",
+        message: res?.message ?? "-"
+      });
       return emptyFallback;
     }
     const init = res.data || {};
@@ -165,12 +221,20 @@ async function fetchInitBestEffort(ihrBridge) {
     console.log(
       `[ihrAdapter] init ok: channels=${channelsMap.size} pools=${_initCache.talentPools.length} central=${_initCache.resumeCenteralUpload}`
     );
+    console.info("[IHR Action][ihrAdapter] init:finished", {
+      channelCount: channelsMap.size,
+      talentPoolCount: _initCache.talentPools.length,
+      centralUpload: _initCache.resumeCenteralUpload
+    });
     return _initCache;
   } catch (e) {
     console.warn(
       "[ihrAdapter] getSharedCandidateResume 异常（不写缓存，下次重试）",
       e?.message || e
     );
+    console.error("[IHR Action][ihrAdapter] init:error", {
+      message: e?.message || String(e)
+    });
     return emptyFallback;
   }
 }
@@ -180,16 +244,24 @@ async function fetchInitBestEffort(ihrBridge) {
  * 单个文件上传失败时该项 fileId 留空，但不阻断整体流程。
  */
 async function buildResumeInfoBestEffort(resumeFile, channelsMap, centralUpload, ihrBridge) {
+  console.info("[IHR Action][ihrAdapter] resume-info:start", {
+    resumeCount: Array.isArray(resumeFile) ? resumeFile.length : 0,
+    channelCount: channelsMap?.size || 0,
+    centralUpload: !!centralUpload
+  });
   if (!Array.isArray(resumeFile) || resumeFile.length === 0) return [];
-  return Promise.all(
+  const resumeInfo = await Promise.all(
     resumeFile.map(async (item) => {
       const base = {
         id: item?.id,
         channel: mapChannel(item?.channel, channelsMap),
-        link: item?.url || "",
+        link: item?.link || item?.url || "",
         type: item?.type || "normal",
         isMaster: !!item?.isMaster
       };
+      if (item?.fileId) {
+        return { ...base, fileId: item.fileId };
+      }
       const transfer = await fileToTransfer(
         item?.file,
         `${item?.channel || "ch"}-${item?.id || "unknown"}.${item?.fileType || "bin"}`
@@ -224,6 +296,76 @@ async function buildResumeInfoBestEffort(resumeFile, channelsMap, centralUpload,
       }
     })
   );
+  console.info("[IHR Action][ihrAdapter] resume-info:finished", {
+    resumeCount: resumeInfo.length,
+    items: resumeInfo.map((item) => ({
+      id: item.id,
+      channel: item.channel,
+      hasFileId: !!item.fileId,
+      fileId: item.fileId,
+      type: item.type
+    }))
+  });
+  return resumeInfo;
+}
+
+/**
+ * phase-1 返回的候选人对象不包含源文件 fileId，但 phase-2 仍需要用它确认导入。
+ * 优先用简历编号/详情链接匹配 phase-1 请求项，无法唯一定位时仅在数量一致时按序兜底。
+ */
+function attachSourceFileIds(resumeInfos, sourceResumeInfo) {
+  if (!Array.isArray(resumeInfos) || resumeInfos.length === 0) return resumeInfos;
+  const sources = Array.isArray(sourceResumeInfo) ? sourceResumeInfo : [];
+  const usedSourceIndexes = new Set();
+
+  return resumeInfos.map((resumeInfo, index) => {
+    if (resumeInfo?.fileId) return resumeInfo;
+
+    const sourceResumeNo =
+      resumeInfo?.candidateSource?.sourceResumeNo ||
+      resumeInfo?.resume?.sourceResumeNo ||
+      resumeInfo?.aiResumeId ||
+      resumeInfo?.resumeId;
+    let sourceIndex = sourceResumeNo
+      ? sources.findIndex(
+          (source, sourceIndex) =>
+            !usedSourceIndexes.has(sourceIndex) &&
+            String(source?.id || "") === String(sourceResumeNo)
+        )
+      : -1;
+
+    const sourceLink =
+      resumeInfo?.candidateSource?.sourceResumeLink ||
+      resumeInfo?.resume?.sourceResumeLink;
+    if (sourceIndex < 0 && sourceLink) {
+      sourceIndex = sources.findIndex(
+        (source, sourceIndex) =>
+          !usedSourceIndexes.has(sourceIndex) && source?.link === sourceLink
+      );
+    }
+
+    if (sourceIndex < 0 && sources.length === resumeInfos.length) {
+      sourceIndex = index;
+    }
+
+    const source = sources[sourceIndex];
+    if (!source?.fileId) {
+      console.warn("[IHR Action][ihrAdapter] phase-2:fileId-missing", {
+        index,
+        hasSourceResumeNo: !!sourceResumeNo,
+        hasSourceLink: !!sourceLink,
+        sourceCount: sources.length,
+        resumeCount: resumeInfos.length
+      });
+      return resumeInfo;
+    }
+
+    usedSourceIndexes.add(sourceIndex);
+    return {
+      ...resumeInfo,
+      fileId: source.fileId
+    };
+  });
 }
 
 // ============= 主流程：talent-pool / assign-position =============
@@ -239,6 +381,7 @@ async function buildResumeInfoBestEffort(resumeFile, channelsMap, centralUpload,
  * 注：phase-1 401 / 字段不全时直接返回，不跑 phase-2。
  */
 async function runTalentPoolFlow(h5Payload, ihrBridge) {
+  console.info("[IHR Action][ihrAdapter] talent-pool:flow-start");
   const init = await fetchInitBestEffort(ihrBridge);
   const resumeInfo = await buildResumeInfoBestEffort(
     h5Payload?.resumeFile,
@@ -276,7 +419,7 @@ async function runTalentPoolFlow(h5Payload, ihrBridge) {
     resumeInfo
   };
   console.log("[ihrAdapter] phase-1 addPools(去重) body:", phase1Body);
-  const p1 = await ihrBridge.addPools(phase1Body);
+  const p1 = await callIhrBridge(ihrBridge, "addPools", phase1Body, "talent-pool");
   if (!p1?.success) {
     console.warn("[ihrAdapter] phase-1 失败（HTTP/网关层），跳过 phase-2:", p1?.message);
     return p1;
@@ -313,8 +456,12 @@ async function runTalentPoolFlow(h5Payload, ihrBridge) {
   //   - isMaybeResumeInfos 默认 false（原项目 importChecked 默认 false，用户在"校验完成 modal"
   //     里勾选才传 true；客户端目前没移植这个 modal，保守用 false 避免误导入疑似重复）
   //   - talentPoolIds 优先用后端回的（带上去重信息），落到本地传的
+  const phase2NewResumeInfos =
+    newCount > 0
+      ? attachSourceFileIds(dedup.newResumeInfos, resumeInfo)
+      : dedup.newResumeInfos;
   const phase2Body = {
-    newResumeInfos: newCount > 0 ? dedup.newResumeInfos : null,
+    newResumeInfos: newCount > 0 ? phase2NewResumeInfos : null,
     maybeResumeInfos: maybeCount > 0 ? dedup.maybeResumeInfos : null,
     repeatResumeInfos: repeatCount > 0 ? dedup.repeatResumeInfos : null,
     isSelectPosition: true,
@@ -322,7 +469,7 @@ async function runTalentPoolFlow(h5Payload, ihrBridge) {
     talentPoolIds: dedup.talentPoolIds || talentPoolIds
   };
   console.log("[ihrAdapter] phase-2 addPools(确认导入) body:", phase2Body);
-  return ihrBridge.addPools(phase2Body);
+  return callIhrBridge(ihrBridge, "addPools", phase2Body, "talent-pool");
 }
 
 /**
@@ -331,7 +478,13 @@ async function runTalentPoolFlow(h5Payload, ihrBridge) {
  */
 async function runAssignPositionFlow(h5Payload, ihrBridge) {
   const headcountId = h5Payload?.positionId;
+  console.info("[IHR Action][ihrAdapter] assign-position:flow-start", {
+    headcountId: headcountId || ""
+  });
   if (!headcountId) {
+    console.error("[IHR Action][ihrAdapter] assign-position:blocked", {
+      reason: "missing positionId/headcountId"
+    });
     return { success: false, code: -1, message: "缺少 positionId（headcountId）" };
   }
   const init = await fetchInitBestEffort(ihrBridge);
@@ -352,7 +505,12 @@ async function runAssignPositionFlow(h5Payload, ihrBridge) {
     resumeInfo
   };
   console.log("[ihrAdapter] phase-1 assignPositions(去重) body:", phase1Body);
-  const p1 = await ihrBridge.assignPositions(phase1Body);
+  const p1 = await callIhrBridge(
+    ihrBridge,
+    "assignPositions",
+    phase1Body,
+    "assign-position"
+  );
   if (!p1?.success) return p1;
   const dedup = p1.data || {};
   // ⚠️ 同 talent-pool：原项目只判 code===0，不看 dedup.success（phase-1 后它一定是 false）。
@@ -374,8 +532,12 @@ async function runAssignPositionFlow(h5Payload, ihrBridge) {
     };
   }
 
+  const phase2NewResumeInfos =
+    newCount > 0
+      ? attachSourceFileIds(dedup.newResumeInfos, resumeInfo)
+      : dedup.newResumeInfos;
   const phase2Body = {
-    newResumeInfos: newCount > 0 ? dedup.newResumeInfos : null,
+    newResumeInfos: newCount > 0 ? phase2NewResumeInfos : null,
     maybeResumeInfos: maybeCount > 0 ? dedup.maybeResumeInfos : null,
     repeatResumeInfos: repeatCount > 0 ? dedup.repeatResumeInfos : null,
     isSelectPosition: true,
@@ -383,7 +545,12 @@ async function runAssignPositionFlow(h5Payload, ihrBridge) {
     headcountId: dedup.headcountId || headcountId
   };
   console.log("[ihrAdapter] phase-2 assignPositions(确认导入) body:", phase2Body);
-  return ihrBridge.assignPositions(phase2Body);
+  return callIhrBridge(
+    ihrBridge,
+    "assignPositions",
+    phase2Body,
+    "assign-position"
+  );
 }
 
 // ============= 公开入口 =============
@@ -395,7 +562,17 @@ async function runAssignPositionFlow(h5Payload, ihrBridge) {
  * @returns {Promise<IhrApiResult>}  最终阶段 addPools/assignPositions 的返回
  */
 export async function processResumeList(h5Payload, ihrBridge) {
+  console.info("[IHR Action][ihrAdapter] process:start", {
+    action: h5Payload?.action || "",
+    resumeCount: Array.isArray(h5Payload?.resumeFile) ? h5Payload.resumeFile.length : 0,
+    positionId: h5Payload?.positionId || "",
+    directFileId: h5Payload?.directFileId === true,
+    talentPoolIds: h5Payload?.talentPoolIds || []
+  });
   if (!ihrBridge) {
+    console.error("[IHR Action][ihrAdapter] process:error", {
+      reason: "ihrBridge 未注入"
+    });
     return { success: false, code: -1, message: "ihrBridge 未注入（非客户端模式？）" };
   }
   // 前置 token 检查：避免没 token 时白白发一次带占位字段的 addPools / 把 _initCache 污染。
@@ -406,6 +583,11 @@ export async function processResumeList(h5Payload, ihrBridge) {
       const ts = await ihrBridge.getAccessTokenStatus();
       if (!ts?.hasToken || ts?.expired) {
         console.warn("[ihrAdapter] aborted: accessToken missing/expired", ts);
+        console.warn("[IHR Action][ihrAdapter] auth:blocked", {
+          hasToken: !!ts?.hasToken,
+          expired: !!ts?.expired,
+          remainMs: ts?.remainMs ?? "-"
+        });
         return {
           success: false,
           code: -1,
@@ -419,10 +601,22 @@ export async function processResumeList(h5Payload, ihrBridge) {
   }
   const action = h5Payload?.action;
   try {
-    if (action === "talent-pool") return await runTalentPoolFlow(h5Payload, ihrBridge);
-    if (action === "assign-position") return await runAssignPositionFlow(h5Payload, ihrBridge);
+    if (action === "talent-pool") {
+      console.info("[IHR Action][ihrAdapter] branch:talent-pool");
+      return await runTalentPoolFlow(h5Payload, ihrBridge);
+    }
+    if (action === "assign-position") {
+      console.info("[IHR Action][ihrAdapter] branch:assign-position");
+      return await runAssignPositionFlow(h5Payload, ihrBridge);
+    }
+    console.error("[IHR Action][ihrAdapter] branch:unknown", { action: action || "" });
     return { success: false, code: -1, message: `unknown action: ${action}` };
   } catch (e) {
+    console.error("[IHR Action][ihrAdapter] process:error", {
+      action: action || "",
+      message: e?.message || String(e),
+      stack: e?.stack || ""
+    });
     return {
       success: false,
       code: -1,

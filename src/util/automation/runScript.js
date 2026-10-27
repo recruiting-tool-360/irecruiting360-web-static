@@ -87,10 +87,10 @@ export async function runOnTab(tabId, scriptCode, ctx, opts = {}) {
   })
   const result = normalize(raw)
   if (!result.ok) {
-    console.warn('[runScript] failed:', result.errorCode, result.message)
+    console.warn('[任务流程] [runScript] failed:', result.errorCode, result.message)
     if (Array.isArray(result.logs) && result.logs.length) {
-      console.warn('[runScript] script logs:')
-      for (const line of result.logs) console.warn('  ' + line)
+      console.warn('[任务流程] [runScript] script logs:')
+      for (const line of result.logs) console.warn("[任务流程]", '  ' + line)
     }
   }
   return result

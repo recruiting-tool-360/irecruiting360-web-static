@@ -38,17 +38,18 @@
  *   - 走 webContents.debugger 同进程 CDP（不开 --remote-debugging-port、不连 WS、
  *     不暴露 navigator.webdriver）
  *   - Input.dispatchMouseEvent 产生的事件 `isTrusted=true`
- *   - 节奏控制：打开 tab → 15s dwell → 点 select → 800ms 等下拉渲染 → 点 li →
+ *   - 节奏控制：打开 tab → 15s 初始等待 → 点 select → 15s 浏览下拉 → 点 li →
  *     1.5s 等 BOSS 切职位并自动拉新数据，全程跟真实用户操作节奏接近
  *   - **不要**短时间内反复调本函数切换不同职位（明显爬虫节奏），切换间隔保持 10s+
  */
 
 import notify from "src/util/notify";
+import { normalizeBossJobId } from "src/util/bossSearchFilters";
 
-const DEFAULT_INITIAL_DELAY_MS = 15_000;       // 打开 tab 后等多久才开始点（iframe + SPA + 反爬脚本稳定）
-const DEFAULT_DROPDOWN_DWELL_MS = 15_000;      // 打开下拉后等多久才点目标 li（拟人化：人会扫一眼列表才选，
-                                               // 同时也防止 BOSS 风控盯"打开下拉 → 立刻点"的机器节奏）
+const DEFAULT_INITIAL_DELAY_MS = 15_000;       // 等 BOSS 宿主页把目标 jobid 同步到 iframe，并完成 Vue 渲染
+const DEFAULT_DROPDOWN_DWELL_MS = 15_000;      // 拟人化浏览下拉列表，避免打开后立即选择
 const DEFAULT_SELECT_SETTLE_MS = 1500;         // 选中 li 后等 BOSS 重新拉数据
+const CURRENT_JOB_READ_TIMEOUT_MS = 3_000;
 
 /** 触发职位下拉的元素 selector（业务方可覆盖） */
 const DEFAULT_TRIGGER_SELECTOR = ".job-selecter-wrap";
@@ -79,6 +80,14 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /**
  * 在已打开的 BOSS 推荐 tab 上，主动点选指定 encryptJobId 的职位。
  *
@@ -89,9 +98,8 @@ function sleep(ms) {
  * @param {string} tabId
  * @param {string} encryptJobId  目标职位的 encryptJobId（DOM 里 li.job-item 的 value 属性值）
  * @param {object} [opts]
- * @param {number} [opts.initialDelayMs=15000]    打开后多久才开始点（建议 ≥10s 让 BOSS 完全加载）
- * @param {number} [opts.dropdownDwellMs=15000]   打开下拉后多久才点目标 li（≥15s 拟人化要求，
- *                                                别短于 5s——短时间内"打开下拉 → 立刻点"非常机器化）
+ * @param {number} [opts.initialDelayMs=15000]    打开后等待宿主页和职位 iframe 完成渲染
+ * @param {number} [opts.dropdownDwellMs=15000]   打开下拉后拟人化浏览列表
  * @param {number} [opts.selectSettleMs=1500]
  * @param {string} [opts.triggerSelector=".job-selecter-wrap"]  触发下拉的元素 selector（可覆盖）
  * @param {(stage: string, payload?: object) => void} [opts.onProgress]  阶段回调
@@ -126,7 +134,11 @@ async function readCurrentSelectedJobId(tabId) {
   return { ok: false, error: 'NO_CURR_FOUND' };
 })();
 `;
-  const res = await window.api.automation.evalOnTab({ tabId, code });
+  const res = await withTimeout(
+    window.api.automation.evalOnTab({ tabId, code }),
+    CURRENT_JOB_READ_TIMEOUT_MS,
+    `读取当前职位超时（${CURRENT_JOB_READ_TIMEOUT_MS}ms）`
+  );
   if (!res?.ok) return { ok: false, error: `EVAL_FAILED: ${res?.error?.message}` };
   return res.result || { ok: false, error: "NO_RESULT" };
 }
@@ -159,7 +171,8 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
   if (!tabId || typeof tabId !== "string") {
     return { ok: false, errorCode: "BAD_REQUEST", message: "tabId required" };
   }
-  if (!encryptJobId || typeof encryptJobId !== "string") {
+  encryptJobId = normalizeBossJobId(encryptJobId);
+  if (!encryptJobId) {
     return { ok: false, errorCode: "BAD_REQUEST", message: "encryptJobId required" };
   }
 
@@ -174,7 +187,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
   const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
 
   console.log(
-    `[bossSelectJob] start tabId=${tabId} encryptJobId=${encryptJobId} ` +
+    "[任务流程]", `[bossSelectJob] start tabId=${tabId} encryptJobId=${encryptJobId} ` +
       `initialDelay=${initialDelayMs}ms dropdownDwell=${dropdownDwellMs}ms ` +
       `selectSettle=${selectSettleMs}ms triggerSelector=${triggerSelector}`
   );
@@ -187,10 +200,11 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     //   - iframe 内部跑大量 BOSS 自家 JS 初始化（include 反爬探针、Vue mount、首屏请求）
     //   - 顶部 `.job-selecter-wrap` 是 Vue 渲染的，DOM ready ≠ Vue 渲染完成
     //
-    // 15s 是经验值（业务方要求）；如果你后续测试发现 10s 也稳，可以调小。
+    // BOSS 宿主页会先渲染一个 jobid=null 的 iframe，再异步同步目标职位并挂载 Vue。
+    // 这个切换完成前用选择器找不到 .job-selecter-wrap，必须等页面真正稳定。
     onProgress("waiting", { delayMs: initialDelayMs });
     if (initialDelayMs > 0) {
-      console.log(`[bossSelectJob] 等待 ${initialDelayMs}ms 让 iframe + Vue + 反爬脚本稳定`);
+      console.log(`[任务流程] [bossSelectJob] 等待 ${initialDelayMs}ms 让 iframe + Vue + 反爬脚本稳定`);
       await sleep(initialDelayMs);
     }
 
@@ -200,7 +214,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     // 会自动扫主 frame → 同源 iframe，命中后用 iframe contentWindow + frameElement
     // 的 offset 算 viewport 绝对坐标，所以这里直接传 selector 就行。
     onProgress("openingDropdown", { selector: triggerSelector });
-    console.log(`[bossSelectJob] CDP click ${triggerSelector}（打开职位下拉）`);
+    console.log(`[任务流程] [bossSelectJob] CDP click ${triggerSelector}（打开职位下拉）`);
     const openRes = await window.api.automation.clickOnTab({
       tabId,
       selector: triggerSelector,
@@ -210,7 +224,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
 
     if (!openRes?.ok) {
       console.warn(
-        "[bossSelectJob] 打开下拉失败:",
+        "[任务流程] [bossSelectJob] 打开下拉失败:",
         openRes?.error?.code,
         openRes?.error?.message
       );
@@ -223,7 +237,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       };
     }
     console.log(
-      `[bossSelectJob] 下拉已打开 at (${openRes.data?.x},${openRes.data?.y}) in ${openRes.data?.foundIn}`
+      `[任务流程] [bossSelectJob] 下拉已打开 at (${openRes.data?.x},${openRes.data?.y}) in ${openRes.data?.foundIn}`
     );
 
     // ============= Step 3: 下拉打开后浏览 dwell（拟人化关键）=============
@@ -232,11 +246,10 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     // .ui-dropmenu-list 下的 .job-list ul。渲染本身大概 100-300ms，但**不能**
     // 渲染完就立刻点目标 li——这是典型机器特征，BOSS 风控会盯。
     //
-    // 默认 15s dwell 模拟真实用户「打开下拉 → 视线扫一遍列表 → 找到目标 → 点」
-    // 的节奏。业务方可调小，但**强烈不建议低于 5s**。
+    // 默认停留 15s 模拟真实用户浏览下拉列表；业务方可通过 opts 显式覆盖。
     onProgress("browsingDropdown", { dwellMs: dropdownDwellMs });
     if (dropdownDwellMs > 0) {
-      console.log(`[bossSelectJob] 下拉已打开，dwell ${dropdownDwellMs}ms 模拟人眼浏览列表`);
+      console.log(`[任务流程] [bossSelectJob] 下拉已打开，dwell ${dropdownDwellMs}ms 模拟人眼浏览列表`);
       await sleep(dropdownDwellMs);
     }
 
@@ -250,16 +263,27 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     // → 这时**不要点 li**，直接关闭下拉。上层用 tab open 之前的 sinceTs 等首屏响应即可。
     //
     // 关闭下拉的方式：再次 CDP click `.job-selecter-wrap` toggle 关闭（BOSS ui-dropmenu 标准行为）。
-    const currRead = await readCurrentSelectedJobId(tabId);
+    console.log("[任务流程] [bossSelectJob] 开始读取当前已选职位（最多等待 3s）");
+    let currRead;
+    try {
+      currRead = await readCurrentSelectedJobId(tabId);
+    } catch (error) {
+      // 读取当前职位只是优化项，不能阻塞后续目标职位点击。
+      console.warn(
+        "[任务流程] [bossSelectJob] 读取当前已选职位失败，继续点击目标职位:",
+        error?.message || error
+      );
+      currRead = { ok: false, error: "CURRENT_JOB_READ_TIMEOUT" };
+    }
     const currentSelectedJobId = currRead?.ok ? currRead.value : null;
     console.log(
-      `[bossSelectJob] 当前选中 currentJobId=${currentSelectedJobId} (foundIn=${currRead?.foundIn || "N/A"}), ` +
+      "[任务流程]", `[bossSelectJob] 当前选中 currentJobId=${currentSelectedJobId} (foundIn=${currRead?.foundIn || "N/A"}), ` +
         `目标 targetJobId=${encryptJobId}, match=${currentSelectedJobId === encryptJobId}`
     );
 
     if (currentSelectedJobId && currentSelectedJobId === encryptJobId) {
       // ★ 已经选中目标 → 不点 li，关闭下拉
-      console.log(`[bossSelectJob] ✅ 已经选中目标职位 → 跳过 li click，关闭下拉`);
+      console.log(`[任务流程] [bossSelectJob] ✅ 已经选中目标职位 → 跳过 li click，关闭下拉`);
       const closeRes = await window.api.automation.clickOnTab({
         tabId,
         selector: triggerSelector,
@@ -269,7 +293,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       if (!closeRes?.ok) {
         // 关下拉失败不影响业务（下拉就在那里，后续 humanize 也无所谓）
         console.warn(
-          `[bossSelectJob] 关闭下拉失败（忽略，业务不影响）：`,
+          `[任务流程] [bossSelectJob] 关闭下拉失败（忽略，业务不影响）：`,
           closeRes?.error?.code,
           closeRes?.error?.message
         );
@@ -278,7 +302,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       if (selectSettleMs > 0) await sleep(selectSettleMs);
       onProgress("done");
       console.log(
-        `[bossSelectJob] DONE alreadySelected=true encryptJobId=${encryptJobId} ` +
+        "[任务流程]", `[bossSelectJob] DONE alreadySelected=true encryptJobId=${encryptJobId} ` +
           `（不点 li，上层用 tab open 前的 sinceTs 等首屏响应）`
       );
       return {
@@ -297,7 +321,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     const optionSelector = buildOptionSelector(encryptJobId);
     onProgress("selectingItem", { selector: optionSelector });
     console.log(
-      `[bossSelectJob] CDP click ${optionSelector}（切换：${currentSelectedJobId || "未知"} → ${encryptJobId}）`
+      `[任务流程] [bossSelectJob] CDP click ${optionSelector}（切换：${currentSelectedJobId || "未知"} → ${encryptJobId}）`
     );
     // 记录 li click 之前的时间戳，给上层 waitForResponse 当 sinceTs。
     // BOSS 点 li 后会发 /wapi/zpjob/rec/geek/list 拉新职位数据，
@@ -313,7 +337,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
 
     if (!selectRes?.ok) {
       console.warn(
-        "[bossSelectJob] 选中目标职位失败:",
+        "[任务流程] [bossSelectJob] 选中目标职位失败:",
         selectRes?.error?.code,
         selectRes?.error?.message
       );
@@ -332,7 +356,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       };
     }
     console.log(
-      `[bossSelectJob] 已选中 at (${selectRes.data?.x},${selectRes.data?.y}) in ${selectRes.data?.foundIn}`
+      `[任务流程] [bossSelectJob] 已选中 at (${selectRes.data?.x},${selectRes.data?.y}) in ${selectRes.data?.foundIn}`
     );
 
     // ============= Step 6: 等 BOSS 切职位 + 拉新数据稳定 =============
@@ -342,7 +366,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     }
 
     onProgress("done");
-    console.log(`[bossSelectJob] DONE encryptJobId=${encryptJobId} liClickedAt=${liClickedAt}`);
+    console.log(`[任务流程] [bossSelectJob] DONE encryptJobId=${encryptJobId} liClickedAt=${liClickedAt}`);
     return {
       ok: true,
       encryptJobId,
@@ -354,7 +378,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       logs: [...(openRes.logs || []), ...(selectRes.logs || [])]
     };
   } catch (e) {
-    console.error("[bossSelectJob] 异常:", e);
+    console.error("[任务流程] [bossSelectJob] 异常:", e);
     return {
       ok: false,
       encryptJobId,
@@ -435,7 +459,7 @@ export async function openAndSelectBossRecommend(args) {
     if (wait?.ok) {
       firstPage = wait;
     } else {
-      console.warn("[bossSelectJob] 等首屏响应超时:", wait?.error);
+      console.warn("[任务流程] [bossSelectJob] 等首屏响应超时:", wait?.error);
     }
   }
 

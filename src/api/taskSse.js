@@ -63,7 +63,7 @@ class TaskSseClient {
       return Promise.reject(new Error("taskChannelId required"));
     }
     console.log(
-      `[taskSse] connect noop（task/connect 已下架；runTask 走主动驱动，不依赖 SSE）taskChannelId=${taskChannelId}`
+      `[任务流程] [taskSse] 旧 task/connect 已下架；任务主动执行，评分批次通知使用全局 SSE，taskChannelId=${taskChannelId}`
     );
     this.taskChannelId = taskChannelId; // 记录绑定，让 disconnect/isOpen 调用兼容
     // 立刻触发 open 事件，让 SearchTasks 中可能注册的 open 监听器收到
@@ -111,7 +111,7 @@ class TaskSseClient {
       try {
         cb(payload);
       } catch (e) {
-        console.error(`[taskSse] listener of '${event}' threw:`, e);
+        console.error(`[任务流程] [taskSse] listener of '${event}' threw:`, e);
       }
     }
   }

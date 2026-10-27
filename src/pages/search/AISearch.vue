@@ -406,6 +406,7 @@ import ForceUpdateDialog from "src/components/plugins/ForceUpdateDialog.vue";
 import { usePlanVisibility } from "src/hooks/usePlanVisibility";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { formatChannelDisplayName } from "src/util/channelDisplayName";
+import { normalizeBossFilters } from "src/util/bossSearchFilters";
 
 // 定义组件属性
 const props = defineProps({
@@ -1286,7 +1287,7 @@ const executeSearch = async (searchState, opts = {}) => {
     let searchRequestData;
     if (opts && opts.searchRequestData && opts.searchRequestData.id) {
       console.log(
-        `[AISearch] executeSearch 复用外部 searchRequestData (跳过内部 saveCondition) id=${opts.searchRequestData.id}`
+        `[任务流程] [AISearch] executeSearch 复用外部 searchRequestData (跳过内部 saveCondition) id=${opts.searchRequestData.id}`
       );
       searchRequestData = opts.searchRequestData;
       // 复用路径仍要清空聚合数据 + queue（保证本次搜索从干净的状态开始）
@@ -1349,7 +1350,7 @@ const executeSearch = async (searchState, opts = {}) => {
         //清空正在执行的任务
         asyncTaskQueueManager.clearAllQueues();
       } catch (e) {
-        console.error("保存搜索条件失败:", e);
+        console.error("[任务流程] 保存搜索条件失败:", e);
         $q.notify({
           message: "后端服务异常，请联系管理员",
           color: "negative",
@@ -1384,7 +1385,7 @@ const executeSearch = async (searchState, opts = {}) => {
               skipFinish: true
             });
           } catch (e) {
-            console.warn("[AISearch] executeSearch: 未登录停任务失败:", e?.message || e);
+            console.warn("[任务流程] [AISearch] executeSearch: 未登录停任务失败:", e?.message || e);
           }
           notify.warning(
             `${notLoggedIn
@@ -1415,7 +1416,7 @@ const executeSearch = async (searchState, opts = {}) => {
             promises.push(channel.cardInfoRef.channelSearch(searchRequestData));
           } else {
             console.warn(
-              `${formatChannelDisplayName(channel.name)}渠道组件不存在或channelSearch方法未定义`
+              `[任务流程] ${formatChannelDisplayName(channel.name)}渠道组件不存在或channelSearch方法未定义`
             );
           }
         });
@@ -1423,22 +1424,22 @@ const executeSearch = async (searchState, opts = {}) => {
         // 执行所有有效的promise
         if (promises.length > 0) {
           await Promise.all(promises);
-          console.log("所有渠道搜索完成");
+          console.log("[任务流程] 所有渠道搜索完成");
         } else {
-          console.warn("没有可执行的渠道搜索方法");
+          console.warn("[任务流程] 没有可执行的渠道搜索方法");
         }
 
         // 渠道执行完毕后，执行 JobInfo 的逻辑
         if (jobInfoRef.value && typeof jobInfoRef.value.channelSearch === "function") {
           await jobInfoRef.value.channelSearch(1);
         } else {
-          console.warn("JobInfo组件不存在或search方法未定义");
+          console.warn("[任务流程] JobInfo组件不存在或search方法未定义");
         }
       } catch (channelError) {
-        console.error("渠道搜索执行错误:", channelError);
+        console.error("[任务流程] 渠道搜索执行错误:", channelError);
       }
     } catch (error) {
-      console.error("搜索执行错误:", error);
+      console.error("[任务流程] 搜索执行错误:", error);
       $q.notify({
         message: "搜索执行过程中发生错误",
         color: "warning",
@@ -1449,7 +1450,7 @@ const executeSearch = async (searchState, opts = {}) => {
     // 搜索完成后设置数据状态
     hasData.value = true;
   } catch (error) {
-    console.error("搜索执行错误:", error);
+    console.error("[任务流程] 搜索执行错误:", error);
     $q.notify({
       message: "搜索执行失败，请稍后再试",
       color: "negative",
@@ -1496,6 +1497,7 @@ const getSearchConditionRequest = (data, channels) => {
   searchConditionRequest.experienceTo = workElSliderValue.max;
   searchConditionRequest.ageFrom = ageElSliderValue.min;
   searchConditionRequest.ageTo = ageElSliderValue.max;
+  Object.assign(searchConditionRequest, normalizeBossFilters(searchDto));
   //用户信息
   searchConditionRequest.userId = userInfo.value.id;
   searchConditionRequest.chatId = chatId.value;
@@ -1508,12 +1510,12 @@ const getSearchConditionRequest = (data, channels) => {
  */
 const resetToAggregateTab = async () => {
   console.log(
-    "[AISearch] resetToAggregateTab 被调用，当前 selectedChannel=",
+    "[任务流程] [AISearch] resetToAggregateTab 被调用，当前 selectedChannel=",
     selectedChannel.value
   );
   selectedChannel.value = "ALL";
   await nextTick();
-  console.log("[AISearch] resetToAggregateTab 完成，selectedChannel=", selectedChannel.value);
+  console.log("[任务流程] [AISearch] resetToAggregateTab 完成，selectedChannel=", selectedChannel.value);
 };
 
 /**
@@ -1574,12 +1576,12 @@ const prepareConditionOnly = async () => {
       }
     }
 
-    console.log("[AISearch] prepareConditionOnly 完成，conditionId=", data.id);
+    console.log("[任务流程] [AISearch] prepareConditionOnly 完成，conditionId=", data.id);
     // 返回完整 data：caller (IndexPage.handleAggregateSearch) 可以把它传给 executeSearch
     // 让 executeSearch 跳过内部第二次 saveCondition（避免 Network 上重复出现）
     return { ok: true, conditionId: data.id, data };
   } catch (e) {
-    console.error("[AISearch] prepareConditionOnly 失败:", e?.message || e);
+    console.error("[任务流程] [AISearch] prepareConditionOnly 失败:", e?.message || e);
     return { ok: false, message: e?.message || String(e) };
   }
 };

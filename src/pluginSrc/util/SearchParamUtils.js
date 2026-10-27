@@ -1,6 +1,7 @@
 import {convertSearchState} from "src/pjo/dto/request/SearchStateConfig";
 import {convertSearchConditionRequest} from "src/pjo/dto/request/SaveSearchRequest";
 import {getCurrentConditionByChatId} from "src/api/chat/ChatApi";
+import {normalizeBossFilters} from "src/util/bossSearchFilters";
 
 export const getSearchStateValues = (data) => {
   let convertSearchStateVal = convertSearchState(data);
@@ -59,10 +60,11 @@ export const getSearchConditionRequest = (data,chatId,userId,searchChannels) => 
   searchConditionRequest.experienceTo = workElSliderValue.max;
   searchConditionRequest.ageFrom = ageElSliderValue.min;
   searchConditionRequest.ageTo = ageElSliderValue.max;
+  Object.assign(searchConditionRequest, normalizeBossFilters(searchDto));
   //用户信息
   searchConditionRequest.userId=userId;
   searchConditionRequest.chatId=chatId;
-  console.log(searchConditionRequest)
+  console.log("[任务流程]", searchConditionRequest)
   return searchConditionRequest;
 }
 
@@ -74,11 +76,11 @@ const getChatConditionRequest = async (chatId) => {
     if (response && response.data) {
       return response.data;
     } else {
-      console.warn('API 返回的数据为空');
+      console.warn('[任务流程] API 返回的数据为空');
       return null;
     }
   } catch (error) {
-    console.error('获取聊天条件出错:', error);
+    console.error('[任务流程] 获取聊天条件出错:', error);
     return null;
   }
 }

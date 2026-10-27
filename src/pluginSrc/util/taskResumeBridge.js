@@ -34,7 +34,7 @@ async function loadDeps() {
     };
     return _depsCache;
   } catch (e) {
-    console.warn("[taskResumeBridge] lazy import 失败:", e?.message || e);
+    console.warn("[任务流程] [taskResumeBridge] lazy import 失败:", e?.message || e);
     return { store: null, taskApi: null };
   }
 }
@@ -77,12 +77,14 @@ function backfillRecommendWorkList(r) {
  * @param {Array}  args.resumeList        本批简历对象数组
  * @param {string} args.searchConditionId 搜索条件 ID
  * @param {boolean} [args.filterByRead]   是否过滤已读
- * @param {boolean} [args.finished]       默认 false（分批保存）；runTask 末尾才传 true
+ * @param {number}  [args.scoreBatchNo]   画像评分批次号（1 开始）；新版 /results 使用
+ * @param {boolean} [args.scoreBatchComplete] 本批是否封批（空 resultItems 的那次调用传 true）
+ * @param {boolean} [args.finished]       旧协议字段，仅保留兼容；画像评分链路不再使用
  */
 export async function postBatchResultsToTaskChannel(args) {
   const { store, taskApi } = await loadDeps();
   if (!store || !taskApi) {
-    console.warn("[taskResumeBridge] postSearchResults: deps 未就绪");
+    console.warn("[任务流程] [taskResumeBridge] postSearchResults: deps 未就绪");
     return [];
   }
 
@@ -91,7 +93,7 @@ export async function postBatchResultsToTaskChannel(args) {
   const businessChannel = args?.businessChannel || "SEARCH";
   if (!chatId || !channelDesc) {
     console.warn(
-      `[taskResumeBridge] postSearchResults SKIP: chatId/channelDesc 缺失 (chatId=${chatId}, channelDesc=${channelDesc})`
+      `[任务流程] [taskResumeBridge] postSearchResults SKIP: chatId/channelDesc 缺失 (chatId=${chatId}, channelDesc=${channelDesc})`
     );
     return [];
   }
@@ -117,7 +119,7 @@ export async function postBatchResultsToTaskChannel(args) {
     const POLL_INTERVAL = 200;
     const startWait = Date.now();
     console.log(
-      `[taskResumeBridge] postSearchResults: pendingCreate=true，等任务创建 (chatId=${chatId} ${channelDesc}, 上限 ${WAIT_TASK_MS}ms)`
+      `[任务流程] [taskResumeBridge] postSearchResults: pendingCreate=true，等任务创建 (chatId=${chatId} ${channelDesc}, 上限 ${WAIT_TASK_MS}ms)`
     );
     while (Date.now() - startWait < WAIT_TASK_MS) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
@@ -128,7 +130,7 @@ export async function postBatchResultsToTaskChannel(args) {
       );
       if (channel && channel.taskChannelId) {
         console.log(
-          `[taskResumeBridge] postSearchResults: 任务就绪 ✓ 等了 ${
+          `[任务流程] [taskResumeBridge] postSearchResults: 任务就绪 ✓ 等了 ${
             Date.now() - startWait
           }ms (${channelDesc} → ${channel.channelSubType}#${channel.taskChannelId})`
         );
@@ -153,7 +155,7 @@ export async function postBatchResultsToTaskChannel(args) {
       ? t.channels.map((c) => `${c.channelSubType}/${c.businessChannel}#${c.taskChannelId}`)
       : null;
     console.log(
-      `[taskResumeBridge] postSearchResults SKIP: 无活跃 taskChannel` +
+      "[任务流程]", `[taskResumeBridge] postSearchResults SKIP: 无活跃 taskChannel` +
         ` | chatId=${chatId} channelDesc=${channelDesc}` +
         ` | hasPending=${hasPending}` +
         ` | latestTask=${t ? `taskId=${t.taskId} status=${t.taskStatus}` : "(null)"}` +
@@ -185,11 +187,23 @@ export async function postBatchResultsToTaskChannel(args) {
     // 之前写 channel.channelSubType 后端拒 SYSTEM_005 "Invalid serializeChannel: BOSS"。
     serializeChannel: channelDesc,
     filterByRead: !!args.filterByRead,
-    finished: !!args.finished,
     resultItems: (args.resumeList || []).map((r) => ({
       rawResume: backfillRecommendWorkList(r)
     }))
   };
+
+  // 新版画像评分批次协议：开批和封批都带同一个 scoreBatchNo。开批显式传 false，
+  // 封批由 sealScoreBatch 传空 resultItems + true。旧链路显式传 finished=true 时仍保留兼容。
+  const batchNo = Number(args?.scoreBatchNo);
+  if (Number.isFinite(batchNo) && batchNo > 0) {
+    payload.scoreBatchNo = batchNo;
+  }
+  if (typeof args?.scoreBatchComplete === "boolean") {
+    payload.scoreBatchComplete = args.scoreBatchComplete;
+  }
+  if (args?.finished === true && !payload.scoreBatchNo) {
+    payload.finished = true;
+  }
 
   // 诊断：如果 args.searchConditionId 跟 channel.searchConditionId 不一致，提示用户业务侧
   // 跑了第二次 saveCondition（比如分页/加载更多/编辑筛选条件）。这种情况后端会以 channel
@@ -200,7 +214,7 @@ export async function postBatchResultsToTaskChannel(args) {
     String(args.searchConditionId) !== String(channel.searchConditionId)
   ) {
     console.warn(
-      `[taskResumeBridge] searchConditionId 不一致：argsCondId=${args.searchConditionId} channelCondId=${channel.searchConditionId}` +
+      "[任务流程]", `[taskResumeBridge] searchConditionId 不一致：argsCondId=${args.searchConditionId} channelCondId=${channel.searchConditionId}` +
         ` | 取 channel 绑定值 ${channel.searchConditionId}（任务侧契约）`
     );
   }
@@ -220,7 +234,7 @@ export async function postBatchResultsToTaskChannel(args) {
     .map(([k]) => k);
   if (missingFields.length > 0) {
     console.warn(
-      `[taskResumeBridge] /results SKIP: 必填字段缺失 [${missingFields.join(
+      `[任务流程] [taskResumeBridge] /results SKIP: 必填字段缺失 [${missingFields.join(
         ", "
       )}]，避免发残缺 payload`,
       { chatId, channelDesc, channel, taskFromStore: task }
@@ -231,7 +245,7 @@ export async function postBatchResultsToTaskChannel(args) {
   try {
     // 打出顶级字段全集（不展开 resultItems 内部，避免 console 被几十条简历内容刷屏）
     console.log(
-      `[taskResumeBridge] >>> POST /search/taskChannel/${channel.taskChannelId}/results | 顶级字段:`,
+      `[任务流程] [taskResumeBridge] >>> POST /search/taskChannel/${channel.taskChannelId}/results | 顶级字段:`,
       {
         chatId: payload.chatId,
         taskId: payload.taskId,
@@ -240,10 +254,23 @@ export async function postBatchResultsToTaskChannel(args) {
         channelSubType: payload.channelSubType,
         serializeChannel: payload.serializeChannel,
         filterByRead: payload.filterByRead,
+        scoreBatchNo: payload.scoreBatchNo,
+        scoreBatchComplete: payload.scoreBatchComplete,
         finished: payload.finished,
-        "resultItems.length": payload.resultItems.length
+        "resultItems.length": payload.resultItems.length,
+        resultItems: (payload.resultItems || []).map((item, idx) => {
+          const raw = item?.rawResume || {};
+          return {
+            idx,
+            uniqSign: raw.uniqSign,
+            geekId: raw.geekId,
+            encryptGeekId: raw.encryptGeekId,
+            resumeBlindId: raw.resumeBlindId || raw.id
+          };
+        })
       }
     );
+    const resultsStartedAt = Date.now();
     const resp = await taskApi.postSearchResults(channel.taskChannelId, payload);
 
     // ⚠️ request.js 拦截器逻辑：res.data.success!=='success' 时**返回 undefined**（业务失败）。
@@ -251,7 +278,7 @@ export async function postBatchResultsToTaskChannel(args) {
     // 此时 console 已经会有 "服务异常,请联系管理员"。
     if (resp == null) {
       console.warn(
-        `[taskResumeBridge] >>> /results 返回 undefined（后端业务失败 / success!=='success'）${channelDesc}` +
+        "[任务流程]", `[taskResumeBridge] >>> /results 返回 undefined（后端业务失败 / success!=='success'）${channelDesc}` +
           ` | 请检查 Network 里这条 /search/taskChannel/${channel.taskChannelId}/results 的实际响应 body` +
           ` | 上送的 payload=`,
         { ...payload, resultItems: `[${payload.resultItems?.length || 0} items]` }
@@ -263,6 +290,19 @@ export async function postBatchResultsToTaskChannel(args) {
     // 形态：{ success: 'success', code: 0, data: { taskResumes: [...], accepted, ... } }
     const respData = resp?.data || {};
     const taskResumes = Array.isArray(respData?.taskResumes) ? respData.taskResumes : null;
+    console.log(
+      "[任务流程]", `[taskResumeBridge] <<< /results ok ${Date.now() - resultsStartedAt}ms (${channelDesc} → ${
+        channel.channelSubType
+      }) accepted=${respData?.accepted ?? "-"} taskResumes=${taskResumes ? taskResumes.length : "(none)"}` +
+        ` scoreBatchNo=${payload.scoreBatchNo ?? "-"} scoreBatchComplete=${payload.scoreBatchComplete === true}`,
+      (taskResumes || []).slice(0, 10).map((tr) => ({
+        taskResumeId: tr?.taskResumeId,
+        resumeBlindId: tr?.resumeBlindId ?? tr?.resume?.resumeBlindId ?? tr?.resume?.id,
+        outId: tr?.outId ?? tr?.channelResumeId,
+        duplicateFlag: tr?.duplicateFlag,
+        visibleInResultSet: tr?.visibleInResultSet
+      }))
+    );
     if (taskResumes && taskResumes.length > 0) {
       // commit taskResumeId 映射
       store.commit("SearchTasks/patchTaskResumeIds", taskResumes);
@@ -280,11 +320,19 @@ export async function postBatchResultsToTaskChannel(args) {
       // searchId 等上层字段，让业务方拿到的 jobList 跟 saveSearchPlus 时代完全兼容。
       const jobList = taskResumes.map((tr) => {
         const r = tr?.resume || {};
+        const resumeBlindId =
+          tr?.resumeBlindId ?? r?.resumeBlindId ?? r?.id ?? undefined;
+        const outId =
+          tr?.outId ?? tr?.channelResumeId ?? r?.outId ?? r?.uniqSign ?? undefined;
         return {
           ...r, // ResumeBlindVO 投影所有字段
-          id: r.id || tr.resumeBlindId, // 兜底 id = resumeBlindId
-          resumeBlindId: tr.resumeBlindId,
+          id: r.id || resumeBlindId, // 兜底 id = resumeBlindId
+          resumeBlindId,
           taskResumeId: tr.taskResumeId,
+          // 保留 /results 顶层的 outId：推荐通道用它跟 geek 的 uniqSign 配对，
+          // 避免 taskResumes 顺序变化时把详情写到错误的任务简历上。
+          outId,
+          channelResumeId: outId,
           channel: channelDesc, // 渠道中文 desc（业务方按这个 group）
           channelSubType: tr.channelSubType,
           duplicateFlag: tr.duplicateFlag,
@@ -293,7 +341,7 @@ export async function postBatchResultsToTaskChannel(args) {
         };
       });
       console.log(
-        `[taskResumeBridge] /results ok ✓ 组装 jobList ${jobList.length} 条 (${channelDesc} → ${channel.channelSubType}) | mapSize 现 ${mapSize}`
+        `[任务流程] [taskResumeBridge] /results ok ✓ 组装 jobList ${jobList.length} 条 (${channelDesc} → ${channel.channelSubType}) | mapSize 现 ${mapSize}`
       );
       return jobList;
     } else {
@@ -304,7 +352,7 @@ export async function postBatchResultsToTaskChannel(args) {
         /* keep default */
       }
       console.warn(
-        `[taskResumeBridge] /results ok 但 taskResumes 为空/缺失 (${channelDesc}) | respData 字段=`,
+        `[任务流程] [taskResumeBridge] /results ok 但 taskResumes 为空/缺失 (${channelDesc}) | respData 字段=`,
         respData ? Object.keys(respData) : "(null)",
         "| 完整响应预览:",
         respPreview
@@ -313,7 +361,7 @@ export async function postBatchResultsToTaskChannel(args) {
     }
   } catch (e) {
     console.warn(
-      `[taskResumeBridge] /results failed (${channelDesc}):`,
+      `[任务流程] [taskResumeBridge] /results failed (${channelDesc}):`,
       e?.message || e,
       e?.response?.data
     );
@@ -347,7 +395,7 @@ export async function postDetailToTaskResume(args) {
     data?.resume?.id || data?.resume?.resumeBlindId || data?.resume?.blindId || null;
   if (!resumeBlindId) {
     console.warn(
-      "[taskResumeBridge] postDetail: data.resume.{id|resumeBlindId|blindId} 都缺失。data.resume 字段=",
+      "[任务流程] [taskResumeBridge] postDetail: data.resume.{id|resumeBlindId|blindId} 都缺失。data.resume 字段=",
       data?.resume ? Object.keys(data.resume) : "(null)"
     );
     return;
@@ -360,7 +408,7 @@ export async function postDetailToTaskResume(args) {
     const fullMap = typeof fullMapGetter === "function" ? fullMapGetter() : {};
     const mapKeys = Object.keys(fullMap || {});
     console.warn(
-      `[taskResumeBridge] postDetail SKIP: 没找到 taskResumeId` +
+      "[任务流程]", `[taskResumeBridge] postDetail SKIP: 没找到 taskResumeId` +
         ` | blindId=${resumeBlindId} (type=${typeof resumeBlindId})` +
         ` | map size=${mapKeys.length}` +
         ` | map 前 5 key=[${mapKeys.slice(0, 5).join(", ")}]`
@@ -390,11 +438,11 @@ export async function postDetailToTaskResume(args) {
   try {
     await taskApi.postTaskResumeDetail(taskResumeId, payload);
     console.log(
-      `[taskResumeBridge] postDetail ok (taskResumeId=${taskResumeId}, blindId=${resumeBlindId}, serializeChannel=${serializeChannel})`
+      `[任务流程] [taskResumeBridge] postDetail ok (taskResumeId=${taskResumeId}, blindId=${resumeBlindId}, serializeChannel=${serializeChannel})`
     );
   } catch (e) {
     console.warn(
-      `[taskResumeBridge] postDetail failed (taskResumeId=${taskResumeId}):`,
+      `[任务流程] [taskResumeBridge] postDetail failed (taskResumeId=${taskResumeId}):`,
       e?.message || e
     );
   }

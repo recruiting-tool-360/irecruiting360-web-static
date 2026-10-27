@@ -78,7 +78,7 @@ class AsyncTaskQueue {
 
     // 使用随机间隔启动第一个任务
     const interval = this.getRandomInterval();
-    console.log(`队列${channelKey}将在${interval}ms后开始处理`);
+    console.log(`[任务流程] 队列${channelKey}将在${interval}ms后开始处理`);
 
     this.timers[channelKey] = setTimeout(() => {
       this.processNextTask(channelKey);
@@ -134,13 +134,13 @@ class AsyncTaskQueue {
       }
 
       // 继续处理下一个任务（使用新的随机间隔）
-      console.log(`队列${channelKey}的下一个任务将在${nextInterval}ms后处理`);
+      console.log(`[任务流程] 队列${channelKey}的下一个任务将在${nextInterval}ms后处理`);
       this.timers[channelKey] = setTimeout(() => {
         this.processNextTask(channelKey);
       }, nextInterval);
 
     } catch (error) {
-      console.error(`处理队列${channelKey}任务失败:`, error);
+      console.error(`[任务流程] 处理队列${channelKey}任务失败:`, error);
 
       // 发生错误时，仍然继续处理队列中的其它任务
       const nextInterval = this.getRandomInterval();
@@ -165,7 +165,7 @@ class AsyncTaskQueue {
       this.queues[channelKey] = [];
       this.queueSizes.value[channelKey] = 0;
 
-      console.log(`已清空渠道${channelKey}的所有任务`);
+      console.log(`[任务流程] 已清空渠道${channelKey}的所有任务`);
     }
     
     return removedTasks;
@@ -182,7 +182,7 @@ class AsyncTaskQueue {
       allRemovedTasks[channelKey] = this.clearChannelQueue(channelKey);
     });
 
-    console.log('已清空所有渠道的任务队列');
+    console.log('[任务流程] 已清空所有渠道的任务队列');
     return allRemovedTasks;
   }
 

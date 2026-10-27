@@ -215,11 +215,33 @@ export function createElectronMessengerShim() {
       case 'resumeList': {
         if (!ihrBridge) {
           console.error('[electronShim] window.api.ihrBridge missing');
+          console.error('[IHR Action][electronShim] resumeList:error', {
+            reason: 'window.api.ihrBridge missing',
+            action: data?.action || ''
+          });
           return { data: { code: -1, message: 'ihrBridge unavailable' } };
         }
         const action = data?.action;
+        console.info('[IHR Action][electronShim] request:received', {
+          action: action || '',
+          resumeCount: Array.isArray(data?.resumeFile) ? data.resumeFile.length : 0,
+          positionId: data?.positionId || '',
+          directFileId: data?.directFileId === true,
+          talentPoolIds: data?.talentPoolIds || [],
+          resumeItems: (data?.resumeFile || []).map((item) => ({
+            id: item?.id,
+            channel: item?.channel,
+            hasFile: !!item?.file,
+            hasFileId: !!item?.fileId,
+            type: item?.type || 'normal'
+          }))
+        });
         if (action !== 'assign-position' && action !== 'talent-pool') {
           console.warn('[electronShim] unknown resumeList action:', action);
+          console.warn('[IHR Action][electronShim] request:rejected', {
+            reason: 'unknown action',
+            action: action || ''
+          });
           return { data: { code: -1, message: `unknown action: ${action}` } };
         }
         console.log(
@@ -233,6 +255,14 @@ export function createElectronMessengerShim() {
           //   4. phase-1 noauth/addPools(去重) → phase-2 noauth/addPools(自动确认导入)
           // 详见 src/util/ihrPayloadAdapter.js
           const result = await processResumeList(data ?? {}, ihrBridge);
+          console.info('[IHR Action][electronShim] adapter:returned', {
+            action,
+            success: result?.success,
+            code: result?.code ?? '-',
+            errorCode: result?.errorCode ?? '-',
+            httpStatus: result?.httpStatus ?? '-',
+            message: result?.message ?? '-'
+          });
           console.log(
             `[electronShim] resumeList result: success=${result?.success} code=${result?.code ?? '-'} errorCode=${result?.errorCode ?? '-'} httpStatus=${result?.httpStatus ?? '-'} message=${result?.message ?? '-'}`
           );
@@ -250,12 +280,8 @@ export function createElectronMessengerShim() {
             return { data: result };
           }
 
-          // 模拟 iframe 模式下父端 onConfirm 后回推 ihrSuccessIds 的语义
-          // （让业务代码 iframeMsg.on('ihrSuccessIds') 监听器在客户端模式下也能触发）
-          //
-          // ⚠️ 真接入完整流程是"两次 addPools + 用户决策 modal"，当前 shim 只做单次直调，
-          //    待 i 快招 SPA 移植 TalentPoolModal / 校验结果 Modal 后，这里改为只转发
-          //    单次 API 调用，由 SPA 自己控制两次 addPools 的时序。
+          // 模拟 iframe 模式下父端确认后回推 ihrSuccessIds 的语义。
+          // adapter 已完成 phase-1 去重和 phase-2 自动确认导入，这里只同步最终结果。
           if (result?.success && result.data) {
             const successPayload = {
               type: result.data.type,
@@ -284,6 +310,9 @@ export function createElectronMessengerShim() {
 
       default:
         console.warn('[electronShim] unknown post type:', type);
+        console.warn('[IHR Action][electronShim] post:unknown-type', {
+          type: type || ''
+        });
         return { data: null };
     }
   }

@@ -23,8 +23,25 @@ export async function fetchJdMapForPositions(positionIds) {
   const ids = (positionIds || []).filter((id) => id != null && id !== "");
   if (ids.length === 0) return map;
   try {
+    console.log(
+      `[positionJdFetcher] batchGetPositionDetailByIds 请求: count=${ids.length} ids=${JSON.stringify(ids)}`
+    );
     const res = await ihrBridge.batchGetPositionDetailByIds(ids);
+    console.log(
+      "[API-TRACE] POST /candidate/AiManager/client/noauth/headcount/v2/batch/getDetailByIds 返回值:",
+      res
+    );
     const list = res?.success && Array.isArray(res.data) ? res.data : [];
+    console.log(
+      `[positionJdFetcher] batchGetPositionDetailByIds 结果: success=${!!res?.success} count=${list.length}`
+    );
+    if (!res?.success) {
+      console.warn(
+        "[positionJdFetcher] batchGetPositionDetailByIds 查询失败:",
+        res?.errorCode,
+        res?.message
+      );
+    }
     for (const item of list) {
       const headcountBasic = item?.headcountBasic;
       if (!headcountBasic?.headcountId) continue;

@@ -191,6 +191,10 @@ async function handleClientDeepLink(data) {
       const ihrBridge = window?.api?.ihrBridge;
       if (ihrBridge?.getApplicationPosition) {
         const resp = await ihrBridge.getApplicationPosition();
+        console.log(
+          "[API-TRACE] GET /candidate/AiManager/client/noauth/application/position 返回值:",
+          resp
+        );
         if (resp?.success) {
           const positionList = resp?.data?.list || resp?.data || [];
           if (Array.isArray(positionList) && positionList.length > 0) {

@@ -200,6 +200,7 @@ function mapBossGeekToResume(geek) {
     // 没回填前 null → ResumeCard 显示 "AI 分析中"；回填后显示具体分数 / "评分失败"
     score: typeof g.score === 'number' ? g.score : (g.score ?? null),
     scoreStatus: g.scoreStatus || null,
+    fileId: g.fileId || g.resumeFileId || g.resumeFile?.fileId || null,
     workExp,
     eduExp,
     isRead: false,
