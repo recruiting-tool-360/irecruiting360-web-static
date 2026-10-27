@@ -44,7 +44,7 @@ function saveMap(map) {
   try {
     ss.setItem(STORAGE_KEY, JSON.stringify(map));
   } catch (e) {
-    console.warn("[recommendGeekIdMap] 写入 sessionStorage 失败（忽略）:", e?.message || e);
+    console.warn("[任务流程] [recommendGeekIdMap] 写入 sessionStorage 失败（忽略）:", e?.message || e);
   }
 }
 
@@ -79,7 +79,7 @@ export function rememberGeekId(localId, geekId) {
   if (!isUsable(localId) || !isUsable(geekId)) return;
   // 只存「真·长 encryptGeekId」，挡掉 uniqSign(rec_xxx) / 纯数字短 id，避免污染/覆盖正确值
   if (!isLikelyEncryptGeekId(geekId)) {
-    console.warn(`[recommendGeekIdMap] 跳过非 encryptGeekId 值：localId=${localId} geekId=${geekId}`);
+    console.warn(`[任务流程] [recommendGeekIdMap] 跳过非 encryptGeekId 值：localId=${localId} geekId=${geekId}`);
     return;
   }
   const map = loadMap();
@@ -109,10 +109,10 @@ export function rememberGeekIds(pairs) {
   if (changed) {
     saveMap(map);
     console.log(
-      `[recommendGeekIdMap] 记录 id→encryptGeekId 映射（本次有效 ${pairs.length - skipped}/${pairs.length}，累计 ${Object.keys(map).length}）`
+      `[任务流程] [recommendGeekIdMap] 记录 id→encryptGeekId 映射（本次有效 ${pairs.length - skipped}/${pairs.length}，累计 ${Object.keys(map).length}）`
     );
   } else if (skipped > 0) {
-    console.warn(`[recommendGeekIdMap] 本次 ${skipped} 条均非 encryptGeekId（如 rec_/纯数字），未写入`);
+    console.warn(`[任务流程] [recommendGeekIdMap] 本次 ${skipped} 条均非 encryptGeekId（如 rec_/纯数字），未写入`);
   }
 }
 

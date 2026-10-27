@@ -84,7 +84,7 @@ export const getZhiLianHeader = async (flag) => {
     try {
         header = await getZhiLianHeaderInfo(flag);
     }catch (e){
-        console.log(e);
+        console.log("[任务流程]", e);
         header = null;
     }
     return header;
@@ -142,7 +142,7 @@ export const channelSearchList = async (channelRequestInfo, channelPage = 1, pag
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   if(!pluginZhiLianResultProcessor(responseJobListData)){
@@ -173,7 +173,7 @@ export const channelSearchListSimilar = async (channelRequestInfo, channelPage =
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   if(!pluginZhiLianResultProcessor(responseJobListData)){
@@ -233,10 +233,10 @@ export const zhiLianFindJobDetail = async (data)=>{
     jobInfo = await searchResumeInfo(requestParams.request);
     // jobInfo = {};
   }catch (e){
-    console.log(e)
+    console.log("[任务流程]", e)
     return ;
   }
-  console.log("zhilian参数3",jobInfo)
+  console.log("[任务流程] zhilian参数3",jobInfo)
   if(pluginZhiLianResultProcessor(jobInfo)){
     geekDetailINfo = jobInfo.responseData.data;
   }else{
@@ -249,7 +249,7 @@ export const zhiLianFindJobDetail = async (data)=>{
 
 //详细信息查询
 const searchResumeInfo = async (requestParam) => {
-  console.log("zhilian参数：",requestParam)
+  console.log("[任务流程] zhilian参数：",requestParam)
     const headers = await getZhiLianHeader(true);
     if(!headers||headers.length===0){
         //ElMessage.error(`系统无法监测到${channelConfig.value.name}网站认证信息！如果问题还没解决请联系管理员！`);
@@ -281,7 +281,7 @@ export const exeZhiLianJobInfo = async (data) => {
             await saveResumeDetail(data);
         }catch (e){
             // ElMessage.error('后台服务异常导致系统无法分析本渠道信息！请联系管理员！')
-          console.log(e)
+          console.log("[任务流程]", e)
         }
 
     }
@@ -299,7 +299,7 @@ export const exeQueueJobInfo = async (data) => {
       try {
         await postDetailToTaskResume({ data, channelSubType: 'ZHILIAN', serializeChannel: '智联招聘' });
       } catch (e) {
-        console.warn('[ZhiLianJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
+        console.warn('[任务流程] [ZhiLianJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
       }
     }else{
       const allChannelData = store.getters.getChannelConfByAll;
@@ -307,6 +307,6 @@ export const exeQueueJobInfo = async (data) => {
       allChannelData.cardInfoRef.updateResumeScoreFN(data.resume);
     }
   } catch (error) {
-    console.error('处理智联直聘简历任务失败:', error);
+    console.error('[任务流程] 处理智联直聘简历任务失败:', error);
   }
 }

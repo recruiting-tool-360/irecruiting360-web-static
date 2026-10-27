@@ -266,8 +266,19 @@ function handleSseMessage(data) {
           // 处理系统通知
           updateChannelScore(message.data);
           break;
+        case 'RESUME_SCORE_BATCH_COMPLETED': {
+          // 实际消费方是 src/util/scoringBatch.js 的 waitForScoreBatchCompleted，
+          // 这里只打日志，避免落进 default 被当成"未知场景"。
+          const d = message.data || {};
+          console.log(
+            `[任务流程] [SseManager] 评分批次完成 taskId=${d.taskId ?? '-'} scoreBatchNo=${
+              d.scoreBatchNo ?? '-'
+            } passedCount=${d.passedCount ?? '-'} shouldContinue=${d.shouldContinue ?? '-'}`
+          );
+          break;
+        }
         default:
-          console.log(`未知场景(${message.scenario})的消息:`, message.data);
+          console.log(`[任务流程] 未知场景(${message.scenario})的消息:`, message.data);
       }
     } else {
       // 兼容处理旧格式消息
@@ -275,12 +286,12 @@ function handleSseMessage(data) {
       // console.log('旧格式消息:', displayMessage);
     }
   } catch (e) {
-    console.warn('处理个人消息出错:', e);
+    console.warn('[任务流程] 处理个人消息出错:', e);
   }
 }
 
 function handleSseError(error) {
-  console.error('SSE连接错误:', error)
+  console.error('[任务流程] SSE连接错误:', error)
 }
 
 // 监听用户信息变化

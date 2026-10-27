@@ -548,6 +548,10 @@ export function bossDomGenerator() {
 
   return [
     resumeGenerateHtmlFiles,
-    cssContent
+    cssContent,
+    // 推荐通道已经拿到了 BOSS 详情（zpData），不需要再走一次 bossFindJobDetail。
+    // 直接复用同一套 HTML 模板，保证画像评分上传的文件与「分配职位」生成的简历一致。
+    async (geekDetail, overrideName) =>
+      generateBossResume(JSON.stringify({ geekDetail }), overrideName)
   ]
 }

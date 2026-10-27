@@ -17,6 +17,7 @@
  */
 
 import service from "src/api/request";
+import { traceApiCall } from "src/util/apiTrace";
 
 /**
  * 创建一个任务。
@@ -42,7 +43,13 @@ import service from "src/api/request";
  * @returns {Promise<{ data: { taskId, taskStatus, resultSetId, channels: [...] } }>}
  */
 export function createSearchTask(payload) {
-  return service.post("/search/task/create", payload);
+  return traceApiCall({
+    tag: "task-api",
+    method: "POST",
+    path: "/search/task/create",
+    payload,
+    run: () => service.post("/search/task/create", payload)
+  });
 }
 
 /**
@@ -73,7 +80,14 @@ export function createSearchTask(payload) {
  * } }>}
  */
 export function estimateSearchTask(payload) {
-  return service.post("/search/task/estimate", payload);
+  // 预估接口跟创建接口同构；加日志方便对比"预估 vs 实际"参数差异
+  return traceApiCall({
+    tag: "task-api",
+    method: "POST",
+    path: "/search/task/estimate",
+    payload,
+    run: () => service.post("/search/task/estimate", payload)
+  });
 }
 
 /**
@@ -149,7 +163,14 @@ export function getTaskQueue() {
  *   实际响应字段以后端定义为准
  */
 export function postExecuteChannel(taskChannelId) {
-  return service.post(`/search/taskChannel/${encodeURIComponent(taskChannelId)}/execute`);
+  const path = `/search/taskChannel/${encodeURIComponent(taskChannelId)}/execute`;
+  return traceApiCall({
+    tag: "task-api",
+    method: "POST",
+    path,
+    payload: { taskChannelId },
+    run: () => service.post(path)
+  });
 }
 
 /**
@@ -162,7 +183,25 @@ export function postExecuteChannel(taskChannelId) {
  * @param {string|number} taskChannelId
  */
 export function getTaskChannelResumeIds(taskChannelId) {
-  return service.get(`/search/taskChannel/${encodeURIComponent(taskChannelId)}/resumeIds`);
+  const path = `/search/taskChannel/${encodeURIComponent(taskChannelId)}/resumeIds`;
+  return traceApiCall({
+    tag: "task-api",
+    method: "GET",
+    path,
+    payload: { taskChannelId },
+    run: () => service.get(path),
+    summarize: (resp) => {
+      const rows = Array.isArray(resp?.data?.taskResumes) ? resp.data.taskResumes : [];
+      return {
+        taskResumes: rows.length,
+        sample: rows.slice(0, 10).map((row) => ({
+          taskResumeId: row?.taskResumeId,
+          resumeBlindId: row?.resumeBlindId,
+          outId: row?.outId ?? row?.channelResumeId
+        }))
+      };
+    }
+  });
 }
 
 /**
@@ -213,10 +252,14 @@ export function postCommandResult(taskChannelId, payload) {
  * }}>}
  */
 export function postFinishChannel(taskChannelId, payload) {
-  return service.post(
-    `/search/taskChannel/${encodeURIComponent(taskChannelId)}/finish`,
-    payload
-  );
+  const path = `/search/taskChannel/${encodeURIComponent(taskChannelId)}/finish`;
+  return traceApiCall({
+    tag: "task-api",
+    method: "POST",
+    path,
+    payload: { taskChannelId, ...(payload || {}) },
+    run: () => service.post(path, payload)
+  });
 }
 
 /**
@@ -232,10 +275,19 @@ export function postFinishChannel(taskChannelId, payload) {
  *   - serializeChannel: 'BOSS'|'ZHILIAN'|'JOB51'|'LIEPIN'
  *   - filterByRead    : boolean
  *   - finished        : boolean
+ *   - scoreBatchNo    : number  画像评分批次号
+ *   - scoreBatchComplete : boolean 本批是否结束
  *   - resultItems     : Array<{ rawResume: {...} }>
  */
 export function postSearchResults(taskChannelId, payload) {
-  return service.post(`/search/taskChannel/${encodeURIComponent(taskChannelId)}/results`, payload);
+  const path = `/search/taskChannel/${encodeURIComponent(taskChannelId)}/results`;
+  return traceApiCall({
+    tag: "task-api",
+    method: "POST",
+    path,
+    payload,
+    run: () => service.post(path, payload)
+  });
 }
 
 /**
@@ -253,7 +305,14 @@ export function postSearchResults(taskChannelId, payload) {
  * @returns {Promise<{ success: 'success' }>}  Response.success()，不返业务字段
  */
 export function postTaskResumeDetail(taskResumeId, payload) {
-  return service.post(`/resume/task/${encodeURIComponent(taskResumeId)}/detail`, payload);
+  const path = `/resume/task/${encodeURIComponent(taskResumeId)}/detail`;
+  return traceApiCall({
+    tag: "task-api",
+    method: "POST",
+    path,
+    payload,
+    run: () => service.post(path, payload)
+  });
 }
 
 /**
@@ -273,7 +332,34 @@ export function postTaskResumeDetail(taskResumeId, payload) {
  * }>}>}
  */
 export function postTaskScoreList(taskResumeIds) {
-  return service.post("/resume/queryTaskScoreList", { taskResumeIds });
+  const ids = Array.isArray(taskResumeIds) ? taskResumeIds : [];
+  return traceApiCall({
+    tag: "task-api",
+    method: "POST",
+    path: "/resume/queryTaskScoreList",
+    payload: { taskResumeIds: ids },
+    run: () => service.post("/resume/queryTaskScoreList", { taskResumeIds }),
+    summarize: (resp) => {
+      const rows = Array.isArray(resp?.data) ? resp.data : [];
+      const statusCount = {};
+      for (const row of rows) {
+        const key = row?.scoreStatus || "(none)";
+        statusCount[key] = (statusCount[key] || 0) + 1;
+      }
+      return {
+        code: resp?.code,
+        success: resp?.success,
+        count: rows.length,
+        statusCount,
+        rows: rows.slice(0, 10).map((row) => ({
+          taskResumeId: row?.taskResumeId,
+          resumeBlindId: row?.resumeBlindId,
+          score: row?.score,
+          scoreStatus: row?.scoreStatus
+        }))
+      };
+    }
+  });
 }
 
 /**

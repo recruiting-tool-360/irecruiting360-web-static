@@ -88,7 +88,10 @@ interface InternalTab {
 export const SITE_CAPTURE_MATCHERS: Record<string, string[]> = {
   boss: [
     '/wapi/zpjob/rec/geek/list', // 推荐牛人列表（首屏 + 分页）
-    '/wapi/zpjob/job/data/list' // 我的职位列表（hiddenViewRunner 之外的备份路径）
+    '/wapi/zpjob/job/data/list', // 我的职位列表（hiddenViewRunner 之外的备份路径）
+    // 推荐牛人「查看详情」接口（点击卡片后 BOSS 自己发的那条 XHR）。
+    // 画像评分链路需要拿到详情 zpData 生成 HTML 上传，不能只依赖搜索详情接口。
+    '/geek/detail'
   ],
   zhilian: [],
   job51: [],
@@ -367,15 +370,7 @@ class TabManager {
 
     // 启用 CDP 网络抓包（替代 Playwright waitForResponse 路径）。
     // 必须在 loadURL 之前 attach，否则错过早期请求。
-    const captureMatchers = SITE_CAPTURE_MATCHERS[key]
-    if (captureMatchers && captureMatchers.length > 0) {
-      const r = ensureSiteNetworkAttached(view.webContents, key, captureMatchers)
-      if (!r.ok) {
-        console.warn(
-          `[TabManager] siteNetworkCapture attach failed for ${key}: ${r.reason ?? 'unknown'} — \`window.api.siteNetwork.waitForResponse\` will return NOT_ATTACHED`
-        )
-      }
-    }
+    this.attachSiteNetwork(view.webContents, key)
 
     const id = `tab-${this.nextSeq++}`
     const tab: InternalTab = {
@@ -425,6 +420,22 @@ class TabManager {
     return id
   }
 
+  private attachSiteNetwork(wc: Electron.WebContents, key: string): void {
+    const matchers = SITE_CAPTURE_MATCHERS[key]
+    if (!matchers?.length) return
+    const result = ensureSiteNetworkAttached(wc, key, matchers, {
+      onBossResumeTrace: (entry) => {
+        const home = this.getHomeWebContents()
+        if (home && !home.isDestroyed()) home.send('siteNetwork:bossResumeTrace', entry)
+      }
+    })
+    if (!result.ok) {
+      console.warn(
+        `[任务流程] [TabManager] siteNetworkCapture attach failed for ${key}: ${result.reason}`
+      )
+    }
+  }
+
   // =============== BOSS 单例 tab ===============
 
   /**
@@ -434,6 +445,7 @@ class TabManager {
   private openBossSingleton(url: string, mode: 'active' | 'background'): string {
     const existing = this.bossTabId ? this.tabs.get(this.bossTabId) : null
     if (existing && !existing.view.webContents.isDestroyed()) {
+      this.attachSiteNetwork(existing.view.webContents, 'boss')
       if (url) void existing.view.webContents.loadURL(url)
       this.setBossTabVisibility(mode)
       console.log(`[TabManager] BOSS 单例复用 tab=${this.bossTabId} mode=${mode} url=${url}`)
@@ -811,6 +823,7 @@ class TabManager {
   loadUrl(id: string, url: string): void {
     const tab = this.tabs.get(id)
     if (!tab || !url) return
+    this.attachSiteNetwork(tab.view.webContents, tab.channel || '')
     void tab.view.webContents.loadURL(url)
   }
 

@@ -204,6 +204,72 @@ function pathForAction(action: string): string | null {
 
 let mainWindow: BrowserWindow | null = null
 
+/**
+ * 后台 WebContentsView 不能用 capturePage：
+ * Electron 38 在 macOS 上会通过 IncrementCapturerCount 短暂改变 view 的可见性，
+ * 把被遮挡的 BOSS view 提升到壳层上方一帧，表现为 i快招顶部 tab 栏闪成 BOSS header。
+ *
+ * beginFrameSubscription 通过目标 RenderWidgetHost 的 FrameSinkVideoCapturer 取帧，
+ * 不参与父窗口的 view 合成，也不会改变可见 view 栈。它返回完整 webContents viewport，
+ * 再按 captureTab 的 CSS 像素 rect 裁剪；其他兄弟 WebContentsView 不会进入图片。
+ */
+function captureBackgroundTabFrame(
+  wc: Electron.WebContents,
+  rect?: Electron.Rectangle
+): Promise<Electron.NativeImage> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let subscribed = false
+    let timeout: NodeJS.Timeout | null = null
+
+    const cleanup = (): void => {
+      if (timeout) {
+        clearTimeout(timeout)
+        timeout = null
+      }
+      wc.removeListener('destroyed', onDestroyed)
+      if (subscribed) {
+        subscribed = false
+        if (!wc.isDestroyed()) {
+          try {
+            wc.endFrameSubscription()
+          } catch {
+            /* renderer may already be gone */
+          }
+        }
+      }
+    }
+    const finish = (error: Error | null, image?: Electron.NativeImage): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (error) reject(error)
+      else resolve(image as Electron.NativeImage)
+    }
+    const onDestroyed = (): void => finish(new Error('WEB_CONTENTS_DESTROYED'))
+
+    wc.once('destroyed', onDestroyed)
+    try {
+      subscribed = true
+      wc.beginFrameSubscription(false, (image) => {
+        if (settled || image.isEmpty()) return
+        try {
+          finish(null, rect ? image.crop(rect) : image)
+        } catch (e) {
+          finish(new Error(`FRAME_CROP_FAILED: ${(e as Error)?.message || String(e)}`))
+        }
+      })
+      if (!settled) {
+        timeout = setTimeout(() => {
+          finish(new Error('FRAME_SUBSCRIPTION_TIMEOUT'))
+        }, 2000)
+      }
+    } catch (e) {
+      finish(new Error(`FRAME_SUBSCRIPTION_FAILED: ${(e as Error)?.message || String(e)}`))
+    }
+  })
+}
+
 // =============== Deep Link 处理 ===============
 
 /**
@@ -838,14 +904,168 @@ function registerIpc(): void {
     }
   )
 
+  // ========== 原生滚轮 on tab：走 Chromium 输入事件链 ==========
+  //
+  // 与 renderer 直接修改 scrollTop 不同，这里把鼠标移动和滚轮事件交给 Chromium
+  // 处理，让页面自行完成命中、wheel、scroll 和懒加载。
+  ipcMain.handle(
+    'automation:mouseWheel',
+    async (
+      _e,
+      opts: {
+        tabId: string
+        x: number
+        y: number
+        deltaX?: number
+        deltaY: number
+      }
+    ) => {
+      if (
+        !opts ||
+        typeof opts.tabId !== 'string' ||
+        ![opts.x, opts.y, opts.deltaX ?? 0, opts.deltaY].every(Number.isFinite)
+      ) {
+        return {
+          ok: false,
+          error: { code: 'BAD_REQUEST', message: 'tabId, x, y & deltaY are required' }
+        }
+      }
+      const wc = tabManager.getWebContentsById(opts.tabId)
+      if (!wc) {
+        return {
+          ok: false,
+          error: { code: 'TAB_NOT_FOUND', message: `tabId=${opts.tabId} not found` }
+        }
+      }
+      if (wc.isDestroyed()) {
+        return {
+          ok: false,
+          error: { code: 'WC_DESTROYED', message: 'webContents destroyed' }
+        }
+      }
+
+      const x = Math.round(opts.x)
+      const y = Math.round(opts.y)
+      const deltaX = opts.deltaX ?? 0
+      const deltaY = opts.deltaY
+      if (Math.abs(deltaX) > 10000 || Math.abs(deltaY) > 10000) {
+        return {
+          ok: false,
+          error: { code: 'BAD_REQUEST', message: 'wheel delta is too large' }
+        }
+      }
+
+      try {
+        wc.sendInputEvent({ type: 'mouseMove', x, y })
+        const maxStep = 120
+        const eventCount = Math.max(1, Math.ceil(Math.abs(deltaY) / maxStep))
+        for (let index = 0; index < eventCount; index += 1) {
+          const remaining = deltaY - index * Math.sign(deltaY) * maxStep
+          const step =
+            index === eventCount - 1
+              ? remaining
+              : Math.sign(deltaY) * Math.min(maxStep, Math.abs(deltaY))
+          wc.sendInputEvent({
+            type: 'mouseWheel',
+            x,
+            y,
+            deltaX,
+            deltaY: step,
+            canScroll: true,
+            hasPreciseScrollingDeltas: true
+          })
+          if (eventCount > 1 && index < eventCount - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 16))
+          }
+        }
+        return { ok: true, data: { x, y, deltaX, deltaY, eventCount } }
+      } catch (e) {
+        return {
+          ok: false,
+          error: { code: 'INPUT_FAILED', message: (e as Error)?.message || String(e) }
+        }
+      }
+    }
+  )
+
+  // ========== 截图业务使用的受限 CDP 命令 ==========
+  //
+  // 长截图用当前招聘站 tab 的 CDP 会话发送原生滚轮；截图单独走
+  // automation:captureTab（webContents.capturePage），避免抓取共享合成面。
+  ipcMain.handle(
+    'automation:sendCdp',
+    async (
+      _e,
+      opts: {
+        tabId: string
+        method: 'Input.dispatchMouseEvent' | 'Page.captureScreenshot'
+        params?: Record<string, unknown>
+      }
+    ) => {
+      if (!opts || typeof opts.tabId !== 'string' || typeof opts.method !== 'string') {
+        return {
+          ok: false,
+          error: { code: 'BAD_REQUEST', message: 'tabId & method are required' }
+        }
+      }
+      if (opts.method !== 'Input.dispatchMouseEvent' && opts.method !== 'Page.captureScreenshot') {
+        return {
+          ok: false,
+          error: {
+            code: 'METHOD_NOT_ALLOWED',
+            message: `CDP method is not allowed: ${opts.method}`
+          }
+        }
+      }
+
+      const wc = tabManager.getWebContentsById(opts.tabId)
+      if (!wc) {
+        return {
+          ok: false,
+          error: { code: 'TAB_NOT_FOUND', message: `tabId=${opts.tabId} not found` }
+        }
+      }
+      if (wc.isDestroyed()) {
+        return {
+          ok: false,
+          error: { code: 'WC_DESTROYED', message: 'webContents destroyed' }
+        }
+      }
+
+      let attachedHere = false
+      try {
+        const debuggerApi = wc.debugger
+        if (!debuggerApi.isAttached()) {
+          debuggerApi.attach('1.3')
+          attachedHere = true
+        }
+        const result = await debuggerApi.sendCommand(opts.method, opts.params || {})
+        return { ok: true, result }
+      } catch (e) {
+        return {
+          ok: false,
+          error: { code: 'CDP_FAILED', message: (e as Error)?.message || String(e) }
+        }
+      } finally {
+        if (attachedHere) {
+          try {
+            if (!wc.isDestroyed() && wc.debugger.isAttached()) wc.debugger.detach()
+          } catch {
+            /* noop */
+          }
+        }
+      }
+    }
+  )
+
   // ========== JS eval on tab：在指定 tab 的 page 上下文执行任意 JS ==========
   //
   // 走 `wc.executeJavaScript()`，**不连 CDP**——Electron 自带的 V8 binding 通道，
   // 不会暴露 navigator.webdriver / DevTools attach 痕迹。
   //
-  // 用途（safe primitives，零风控风险）：
-  //   - 拟人化滚动（container.scrollTo + setTimeout 分段，scroll 事件 isTrusted=true）
+  // 用途（safe primitives）：
   //   - 读 DOM 数据（document.querySelector / getBoundingClientRect）
+  //   - 调整截图前的布局约束并等待页面内容出现
   //   - 等元素出现（MutationObserver / 轮询）
   //   - 注入引导浮层（独立 DOM，不污染页面 state）
   //
@@ -879,6 +1099,95 @@ function registerIpc(): void {
         return {
           ok: false,
           error: { code: 'EVAL_FAILED', message: (e as Error)?.message || String(e) }
+        }
+      }
+    }
+  )
+
+  // ========== 截图 on tab：抓取指定 tab 的可见区域 ==========
+  //
+  // 用途：BOSS 推荐详情接口（zpitem/web/boss/search/geek/info）不可用后，
+  // 改为打开候选人详情面板截图，再把图片走 resume/upload 交给后端解析/评分。
+  //
+  // rect 使用 CSS 像素（与 getBoundingClientRect 一致），省略时截整个可见页面。
+  // 使用 Electron 原生 capturePage 截取当前可见区域，不向招聘站页面发送 CDP 截图命令。
+  ipcMain.handle(
+    'automation:captureTab',
+    async (
+      _e,
+      opts: {
+        tabId: string
+        rect?: { x: number; y: number; width: number; height: number }
+      }
+    ) => {
+      if (!opts || typeof opts.tabId !== 'string') {
+        return { ok: false, error: { code: 'BAD_REQUEST', message: 'tabId required' } }
+      }
+      const wc = tabManager.getWebContentsById(opts.tabId)
+      if (!wc) {
+        return {
+          ok: false,
+          error: { code: 'TAB_NOT_FOUND', message: `tabId=${opts.tabId} not found` }
+        }
+      }
+      if (wc.isDestroyed()) {
+        return {
+          ok: false,
+          error: { code: 'WC_DESTROYED', message: 'webContents destroyed' }
+        }
+      }
+
+      let rect: { x: number; y: number; width: number; height: number } | undefined
+      if (opts.rect) {
+        const { x, y, width, height } = opts.rect
+        if (![x, y, width, height].every((n) => Number.isFinite(n))) {
+          return {
+            ok: false,
+            error: { code: 'BAD_REQUEST', message: 'rect must be finite numbers' }
+          }
+        }
+        rect = {
+          x: Math.round(x),
+          y: Math.round(y),
+          width: Math.round(width),
+          height: Math.round(height)
+        }
+        if (rect.x < 0 || rect.y < 0 || rect.width < 1 || rect.height < 1) {
+          return {
+            ok: false,
+            error: { code: 'BAD_REQUEST', message: 'rect x/y must be >= 0 and width/height >= 1' }
+          }
+        }
+      }
+
+      try {
+        const isActive = opts.tabId === tabManager.getActiveTabId()
+        const image = isActive
+          ? await wc.capturePage(rect, { stayHidden: true })
+          : await captureBackgroundTabFrame(wc, rect)
+        if (image.isEmpty()) {
+          return {
+            ok: false,
+            error: { code: 'EMPTY_IMAGE', message: 'screenshot returned an empty image' }
+          }
+        }
+        const size = image.getSize()
+        const png = image.toPNG()
+        return {
+          ok: true,
+          data: {
+            base64: png.toString('base64'),
+            width: size.width,
+            height: size.height,
+            bytes: png.length,
+            foundRect: rect || null,
+            captureMode: isActive ? 'capturePage' : 'frameSubscription'
+          }
+        }
+      } catch (e) {
+        return {
+          ok: false,
+          error: { code: 'CAPTURE_FAILED', message: (e as Error)?.message || String(e) }
         }
       }
     }

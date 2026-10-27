@@ -127,25 +127,25 @@ const jobList = computed(() => {
     const byTask = store.getters.getViewingChannelConfByTaskIdAll;
     const cfg = typeof byTask === 'function' ? byTask(props.viewingTaskId) : null;
     if (cfg?.data) {
-      console.log('[JobInfo] viewing 模式 taskId=', props.viewingTaskId, '条数=', cfg.data.length);
+      console.log('[任务流程] [JobInfo] viewing 模式 taskId=', props.viewingTaskId, '条数=', cfg.data.length);
       return cfg.data;
     }
   }
   const runtimeCfg = store.getters.getChannelConfByAll;
   const data = runtimeCfg?.data;
-  console.log('[JobInfo] runtime 模式 ALL.data 条数=', data?.length ?? 'null');
+  console.log('[任务流程] [JobInfo] runtime 模式 ALL.data 条数=', data?.length ?? 'null');
   return data || [];
 });
 
 // 停止分数自动更新
 const stopScoreUpdate = () => {
-  console.log('停止分数自动更新');
+  console.log('[任务流程] 停止分数自动更新');
   scoreUpdater.stop();
 };
 
 // 初始化组件状态
 const initializationStatus = () => {
-  console.log('初始化组件状态');
+  console.log('[任务流程] 初始化组件状态');
   // 停止分数自动更新
   stopScoreUpdate();
   // 其他初始化逻辑...
@@ -161,7 +161,7 @@ const startScoreUpdate = (resumeList) => {
     (r) => r.score !== null && r.score !== undefined && r.score >= 0
   );
   if (allHaveScore) {
-    console.log('[JobInfo] 全部简历已有 score，跳过 scoreUpdater 启动');
+    console.log('[任务流程] [JobInfo] 全部简历已有 score，跳过 scoreUpdater 启动');
     return;
   }
 
@@ -197,7 +197,7 @@ const startScoreUpdate = (resumeList) => {
 
     if (!isTaskActive && !reAnalyzing) {
       console.warn(
-        `[JobInfo.onWaiting] 当前 chat 无进行中任务（${latestTask?.taskStatus ?? '无任务'}），` +
+        "[任务流程]", `[JobInfo.onWaiting] 当前 chat 无进行中任务（${latestTask?.taskStatus ?? '无任务'}），` +
         `${waitingItems.length} 条 WAITING 简历分析已中断 → 标记 score=-2，停止轮询`
       );
       // 把 WAITING 简历的 score 标为 -2（UI 层显示"AI分析失败"），停止无意义轮询
@@ -207,7 +207,7 @@ const startScoreUpdate = (resumeList) => {
       stopScoreUpdate();
     } else {
       // 有进行中任务 → detail 会被任务执行器补提交 → 继续轮询等结果
-      console.log('[JobInfo.onWaiting] 任务仍进行中，继续轮询等待 detail 提交');
+      console.log('[任务流程] [JobInfo.onWaiting] 任务仍进行中，继续轮询等待 detail 提交');
     }
   };
 };
@@ -215,7 +215,7 @@ const startScoreUpdate = (resumeList) => {
 // 检查数据是否已加载
 watch(() => jobList.value, (newList) => {
   hasData.value = newList && newList.length > 0;
-  console.log('[JobInfo] hasData watch 触发，长度=', newList?.length, 'hasData=', hasData.value);
+  console.log('[任务流程] [JobInfo] hasData watch 触发，长度=', newList?.length, 'hasData=', hasData.value);
 
   // 当数据被清空时，停止分数自动更新
   if (!newList || newList.length === 0) {
@@ -230,11 +230,11 @@ watch(() => jobList.value, (newJobList, oldJobList) => {
   const oldLength = oldJobList?.length || 0;
 
   if (newLength > 0 && (oldLength === 0 || newLength > oldLength)) {
-    console.log('数据变化触发分数查询, 旧数据量:', oldLength, '新数据量:', newLength);
+    console.log('[任务流程] 数据变化触发分数查询, 旧数据量:', oldLength, '新数据量:', newLength);
     startScoreUpdate(newJobList);
   } else if (newLength === 0 && oldLength > 0) {
     // 数据被清空时停止查询
-    console.log('数据被清空，停止分数查询');
+    console.log('[任务流程] 数据被清空，停止分数查询');
     stopScoreUpdate();
   }
 }, { deep: true });
@@ -242,7 +242,7 @@ watch(() => jobList.value, (newJobList, oldJobList) => {
 // 监听搜索计数变化，重新启动分数查询
 watch(() => searchCount.value, (newCount, oldCount) => {
   if (newCount !== oldCount && jobList.value && jobList.value.length > 0) {
-    console.log('搜索计数变化，重新启动分数查询');
+    console.log('[任务流程] 搜索计数变化，重新启动分数查询');
     startScoreUpdate(jobList.value);
   }
 });
@@ -259,7 +259,7 @@ const updateScoreData = async (scoreData) => {
         // if (allDataIndex !== -1) {
         //   allChannelStatus.value['ALL'].data[allDataIndex].score = scoreItem.score;
         // }
-        console.log("定时器修改", scoreItem)
+        console.log("[任务流程] 定时器修改", scoreItem)
         await updateResumeScoreFN({id: scoreItem.resumeBlindId, score: scoreItem.score});
       }
     }
@@ -296,7 +296,7 @@ const updateResumeScoreFN = async (scoreItem) => {
 
     // 检查参数是否有效
     if (!scoreItem || !scoreItem.id || scoreItem.score === undefined) {
-      console.error('更新分数参数无效:', scoreItem);
+      console.error('[任务流程] 更新分数参数无效:', scoreItem);
       return false;
     }
     // 先在 ALL 里定位该简历（拿 channelSubType 判断渠道登录态）
@@ -317,10 +317,10 @@ const updateResumeScoreFN = async (scoreItem) => {
             searchId: searchConditionId.value
           });
         }catch (e){
-          console.log(e)
+          console.log("[任务流程]", e)
         }
       } else {
-        console.log(`[JobInfo] 渠道 ${subType} 未登录，跳过 setNotScore（等重新登录后重新分析）`);
+        console.log(`[任务流程] [JobInfo] 渠道 ${subType} 未登录，跳过 setNotScore（等重新登录后重新分析）`);
       }
     }
 
@@ -339,15 +339,15 @@ const updateResumeScoreFN = async (scoreItem) => {
         // console.log(`成功更新简历 ${scoreItem.id} 的分数为 ${scoreItem.score}`);
         return true;
       } else {
-        console.warn(`未找到ID为 ${scoreItem.id} 的简历`);
+        console.warn(`[任务流程] 未找到ID为 ${scoreItem.id} 的简历`);
       }
 
     } else {
-      console.warn('ALL渠道数据不存在或格式不正确');
+      console.warn('[任务流程] ALL渠道数据不存在或格式不正确');
     }
     return false;
   } catch (error) {
-    console.error('更新简历分数时发生错误:', error);
+    console.error('[任务流程] 更新简历分数时发生错误:', error);
     return false;
   }
 };
@@ -412,12 +412,12 @@ const handleScheduleInterview = (resume) => {
 onMounted(() => {
   // 检查是否已有数据
   if (jobList.value && jobList.value.length > 0) {
-    console.log('组件挂载时已有数据:', jobList.value.length);
+    console.log('[任务流程] 组件挂载时已有数据:', jobList.value.length);
     hasData.value = true;
     // 启动分数查询
     startScoreUpdate(jobList.value);
   } else {
-    console.log('组件挂载时无数据');
+    console.log('[任务流程] 组件挂载时无数据');
   }
 });
 
@@ -437,10 +437,10 @@ const updateResumeCollectionStatus = (id, inCollection) => {
       });
       return true;
     } else {
-      console.warn(`未找到ID为 ${id} 的简历`);
+      console.warn(`[任务流程] 未找到ID为 ${id} 的简历`);
     }
   } else {
-    console.warn('ALL渠道数据不存在或格式不正确');
+    console.warn('[任务流程] ALL渠道数据不存在或格式不正确');
   }
   return false;
 };
@@ -448,7 +448,7 @@ const updateResumeCollectionStatus = (id, inCollection) => {
 // 暴露组件方法
 defineExpose({
   channelSearch: async (searchRequestData) => {
-    console.log('JobInfo.vue接收到搜索请求', searchRequestData);
+    console.log('[任务流程] JobInfo.vue接收到搜索请求', searchRequestData);
     // 不需要自己查询数据，返回一个空Promise即可
     currentPage.value = 1;
     return Promise.resolve();

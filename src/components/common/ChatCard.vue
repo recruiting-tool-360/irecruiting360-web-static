@@ -127,38 +127,41 @@
           <div class="chat-message-content">
             <div class="chat-message-bubble">
               <!--
-                bot 消息分三种渲染：
-                  1. 含 [&AI_SEARCH&] 且能成功解析出结构化 JD 数据
-                     → 用 AIProfileCard（1:1 复刻 ihraisaas 风格）渲染基础字段 + chip 列表 +
-                       ActionPanel（搜索牛人 / 推荐牛人 + 配置卡片）
-                  2. 含 [&AI_SEARCH&] 但解析失败（结构变了 / 老数据）→ fallback 老 ai-jd-container
-                  3. 普通 bot 消息 → 直接 v-html
+                bot 消息分两种渲染：
+                  1. 含 [&AI_SEARCH&] 且能解析出画像数据
+                     → 统一用 JobProfileCard 渲染 13 个固定维度 + ActionPanel
+                       （优先消息级 positionProfile，缺失时兼容 harnessPositionProfile / 旧 JD 结构映射兜底）
+                  2. 其它 bot 消息 → 直接 v-html
               -->
               <template
                 v-if="msg.type === 'bot' && msg.content && msg.content.includes('[&AI_SEARCH&]')"
               >
-                <template v-if="parseAISearchJD(msg.content)">
-                  <!-- 结构化 profile 卡片：自带 header（标题 + 复制/编辑）+ ActionPanel（底部启动聚合搜索按钮） -->
-                  <AIProfileCard
-                    :profile="parseAISearchJD(msg.content)"
-                    @copy="handleCopy(msg.content ? msg.content.replace('[&AI_SEARCH&]', '') : '')"
-                    @edit="handleEdit(msg)"
-                    @save="(p) => onAiProfileSkillsSave(msg, p)"
-                  >
-                    <template #action>
-                      <AIProfileActionPanel
-                        v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
-                        :message="msg"
-                        :disabled="hasResultCardAfter(index) || isTaskRunningForCurrentChat"
-                        @change="(s) => handleActionPanelChange(msg, s)"
-                        @aggregate="() => handleSearch(msg)"
-                        @clear-and-restart="(s) => onAiPanelRetry(msg, 'RESTART', s)"
-                        @keep-and-increment="(s) => onAiPanelRetry(msg, 'CONTINUE', s)"
-                        @view-results="emit('view-results')"
-                      />
-                    </template>
-                  </AIProfileCard>
-                </template>
+                <div v-if="getAISearchPrefix(msg.content)" class="ai-profile-intro">
+                  {{ getAISearchPrefix(msg.content) }}
+                </div>
+                <!-- 新版：13 维画像卡（数据源 getChatHistory 消息级 positionProfile，兼容 harnessPositionProfile） -->
+                <JobProfileCard
+                  v-if="resolveCardProfile(msg) || currentProfileLockType"
+                  :ref="(el) => setProfileCardRef(msg, el)"
+                  :profile="resolveCardProfile(msg)"
+                  :enabled="currentProfileEnabled"
+                  :lock-type="currentProfileLockType"
+                  @copy="handleProfileCopy"
+                >
+                  <template #action>
+                    <AIProfileActionPanel
+                      v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
+                      :ref="(el) => setActionPanelRef(msg, el)"
+                      :message="msg"
+                      :disabled="hasResultCardAfter(index) || isTaskRunningForCurrentChat"
+                      @change="(s) => handleActionPanelChange(msg, s)"
+                      @aggregate="() => handleSearch(msg)"
+                      @clear-and-restart="(s) => onAiPanelRetry(msg, 'RESTART', s)"
+                      @keep-and-increment="(s) => onAiPanelRetry(msg, 'CONTINUE', s)"
+                      @view-results="emit('view-results')"
+                    />
+                  </template>
+                </JobProfileCard>
                 <!-- fallback：解析失败时用老的 markdown 渲染 + ActionPanel -->
                 <div v-else class="ai-jd-container">
                   <div
@@ -167,6 +170,7 @@
                   ></div>
                   <AIProfileActionPanel
                     v-if="!(chatFluxStatus && index === displayMessages.length - 1)"
+                    :ref="(el) => setActionPanelRef(msg, el)"
                     :message="msg"
                     :disabled="hasResultCardAfter(index) || isTaskRunningForCurrentChat"
                     @change="(s) => handleActionPanelChange(msg, s)"
@@ -431,13 +435,16 @@ import hljs from "highlight.js";
 import {
   getChatHistory,
   getCurrentConditionByChatId,
-  clearChatHistory
+  clearChatHistory,
+  updateHarnessProfile
 } from "src/api/chat/ChatApi";
 import { fetchStream } from "src/api/chat/ChatUtil2";
 import { v4 as uuidv4 } from "uuid";
 import LoginRequiredPanel from "src/components/clients/LoginRequiredPanel.vue";
 import AIProfileActionPanel from "src/components/clients/AIProfileActionPanel.vue";
-import AIProfileCard from "src/components/clients/AIProfileCard.vue";
+import JobProfileCard from "src/components/clients/JobProfileCard.vue";
+import { legacyProfileFromParsed } from "src/util/portrait/legacy";
+import { extractProfile } from "src/util/portrait/profile";
 import ExecutionLog from "src/components/clients/ExecutionLog.vue";
 import TaskStatusCard from "src/components/clients/TaskStatusCard.vue";
 import TaskCompletionCard from "src/components/clients/TaskCompletionCard.vue";
@@ -450,6 +457,7 @@ import ChatEmptyState from "src/components/clients/ChatEmptyState.vue";
 import { parseAISearchJD, getAISearchPrefix } from "src/util/parseAISearchJD";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { normalizeClientChannelConfig } from "src/util/clientChannelAvailability";
+import { extractBossFilters } from "src/util/bossSearchFilters";
 
 const store = useStore();
 const $q = useQuasar();
@@ -535,7 +543,7 @@ function clearInflightTaskForChat(chatId) {
     const card = internalMessages.value.find((m) => m.id === retryMsgId);
     if (card?.cardData?.actionExecuted) {
       card.cardData.actionExecuted = false;
-      console.log("[ChatCard] 创建被拦截 → 解锁 RetryConfigCard", retryMsgId);
+      console.log("[任务流程] [ChatCard] 创建被拦截 → 解锁 RetryConfigCard", retryMsgId);
     }
     const nr = { ...pendingRetryCardByChat.value };
     delete nr[cid];
@@ -623,7 +631,7 @@ const isTaskRunningForCurrentChat = computed(() => {
  */
 const onEnterPress = () => {
   if (shouldShowEmptyState.value || isTaskRunningForCurrentChat.value) {
-    console.log("[ChatCard] Enter 被忽略：emptyState 或 taskRunning");
+    console.log("[任务流程] [ChatCard] Enter 被忽略：emptyState 或 taskRunning");
     return;
   }
   sendChatMessage();
@@ -632,10 +640,10 @@ const onEnterPress = () => {
 const handleStopTask = async () => {
   const cid = currentChatId.value || latestChatId.value;
   if (!cid) {
-    console.warn("[ChatCard] handleStopTask: 没有 chatId，跳过");
+    console.warn("[任务流程] [ChatCard] handleStopTask: 没有 chatId，跳过");
     return;
   }
-  console.log("[ChatCard] 用户点击红色停止按钮 chatId=", cid);
+  console.log("[任务流程] [ChatCard] 用户点击红色停止按钮 chatId=", cid);
   try {
     const res = await store.dispatch("SearchTasks/stopForChat", cid);
     if (res?.ok) {
@@ -654,7 +662,7 @@ const handleStopTask = async () => {
       });
     }
   } catch (e) {
-    console.error("[ChatCard] handleStopTask 异常:", e);
+    console.error("[任务流程] [ChatCard] handleStopTask 异常:", e);
     $q.notify({
       type: "negative",
       message: `停止任务失败：${e?.message || e}`,
@@ -721,7 +729,7 @@ function _isAggregateClickDebounced(chatIdForSearch, label) {
   const elapsed = now - last;
   if (elapsed < AGGREGATE_DEBOUNCE_MS) {
     console.warn(
-      `[ChatCard] ${label} 被 500ms 防抖拦截（距上次 ${elapsed}ms），忽略本次点击 chat=${chatIdForSearch}`
+      `[任务流程] [ChatCard] ${label} 被 500ms 防抖拦截（距上次 ${elapsed}ms），忽略本次点击 chat=${chatIdForSearch}`
     );
     return true;
   }
@@ -740,6 +748,92 @@ const currentChatEntity = computed(() => {
   const getById = store.getters.getChatById;
   return typeof getById === "function" ? getById(id) : null;
 });
+
+/** 当前会话的职位画像（getChatHistory.harnessPositionProfile / positionProfile） */
+const currentHarnessProfile = ref(null);
+/** 保存成功后本地覆盖，避免等下次拉历史才更新卡片 */
+const profileOverrideByMsgId = ref({});
+/** v-for 里每张卡片的组件实例（聚合搜索前 flushEdit 用） */
+const profileCardRefs = ref({});
+/** 每条消息对应的 ActionPanel 实例（保存失败时解锁配置） */
+const actionPanelRefs = ref({});
+
+function setProfileCardRef(msg, el) {
+  if (!msg?.id) return;
+  if (el) profileCardRefs.value[msg.id] = el;
+  else delete profileCardRefs.value[msg.id];
+}
+
+function setActionPanelRef(msg, el) {
+  if (!msg?.id) return;
+  if (el) actionPanelRefs.value[msg.id] = el;
+  else delete actionPanelRefs.value[msg.id];
+}
+
+/** 聚合搜索前置步骤失败（画像保存/任务拦截）时，解除面板的即时锁定 */
+function unlockActionPanel(msg) {
+  const msgId = msg?.id;
+  if (!msgId) return;
+  const unlock = () => actionPanelRefs.value[msgId]?.unlockSearch?.();
+  unlock();
+  // 保存期间卡片可能重渲染并替换组件实例，下一帧再解锁一次当前实例。
+  nextTick(unlock);
+}
+
+/** 单条消息对应的画像：本地覆盖 > 消息自带 positionProfile > harnessPositionProfile > 当前会话画像 */
+function resolveMessageProfile(msg) {
+  if (!msg) return null;
+  if (msg.id && profileOverrideByMsgId.value[msg.id]) {
+    return profileOverrideByMsgId.value[msg.id];
+  }
+  const own = extractProfile(msg.positionProfile) || extractProfile(msg.harnessPositionProfile);
+  if (own) return own;
+  return currentHarnessProfile.value;
+}
+
+/**
+ * 卡片数据源优先级：
+ *   1. 本地保存覆盖 / 消息自带 positionProfile / getChatHistory.harnessPositionProfile.profile
+ *   2. 后端还没返回画像时，用 [&AI_SEARCH&] 的旧 JD 结构映射成 13 维（缺的维度补「不限」）
+ *   3. 都拿不到返回 null → 走 markdown fallback
+ */
+function resolveCardProfile(msg) {
+  const profile = resolveMessageProfile(msg);
+  if (profile) return profile;
+  if (!msg?.content || !msg.content.includes("[&AI_SEARCH&]")) return null;
+  return legacyProfileFromParsed(parseAISearchJD(msg.content));
+}
+
+function isOffFlag(v) {
+  return v === false || v === "false" || v === 0 || v === "0";
+}
+
+/**
+ * 锁定类型：null = 可用。
+ *   off             jobProfileEnabled=false
+ *   not-configured  status=1（PROFILE_NOT_FOUND / NOT_CONFIGURED）
+ *   generating      status=2
+ *   failed          status=5
+ *   off             status=6（已关闭）
+ *   evaluation-off  aiEvaluationEnabled=false
+ */
+const currentProfileLockType = computed(() => {
+  const item = currentChatEntity.value;
+  if (!item) return "no-permission";
+  if (isOffFlag(item.jobProfileEnabled)) return "off";
+  const status = item.positionHarnessProfileStatus;
+  if (status !== null && status !== undefined && status !== "") {
+    const n = Number(status);
+    if (n === 1) return "not-configured";
+    if (n === 2) return "generating";
+    if (n === 5) return "failed";
+    if (n === 6) return "off";
+  }
+  if (isOffFlag(item.aiEvaluationEnabled)) return "evaluation-off";
+  return null;
+});
+const currentProfileEnabled = computed(() => currentProfileLockType.value === null);
+
 const currentJobTitle = computed(() => {
   const name = currentChatEntity.value?.name || "";
   if (!name) return "";
@@ -751,6 +845,7 @@ const currentJobCode = computed(() => {
   const m = name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
   return m ? m[2].trim() : "";
 });
+
 const isFirstMessage = ref(false);
 const isNewChat = ref(true);
 //jobSearchFilterRef
@@ -1238,40 +1333,112 @@ const clearCurrentChat = async () => {
   emit("chat-cleared", { chatId });
 };
 
-// 编辑搜索条件
-const handleEdit = (msg) => {
-  // emit('edit-search', {
-  //   content: msg.content,
-  //   chatId: props.chatId || currentChatId.value
-  // });
-
-  // 判断对话框是否是缩小状态，如果不是就把它缩小
-  if (props.expanded) {
-    toggleExpand();
+/** 新版画像卡复制：直接把生成的纯文本写入剪贴板 */
+async function handleProfileCopy(text) {
+  const content = String(text || "");
+  if (!content) return;
+  try {
+    await navigator.clipboard.writeText(content);
+    $q.notify({ message: "已复制到剪贴板", color: "positive", timeout: 1500 });
+  } catch (e) {
+    console.warn("[ChatCard] 复制失败，降级 textarea:", e?.message || e);
+    const el = document.createElement("textarea");
+    el.value = content;
+    el.style.position = "fixed";
+    el.style.opacity = "0";
+    document.body.appendChild(el);
+    el.select();
+    try {
+      document.execCommand("copy");
+      $q.notify({ message: "已复制到剪贴板", color: "positive", timeout: 1500 });
+    } finally {
+      document.body.removeChild(el);
+    }
   }
-
-  console.log("chatID:", currentChatId.value);
-  //刷新搜索条件
-  jobSearchFilterRef.value.refreshSearchCondition(currentChatId.value);
-};
+}
 
 /**
- * AI 职位画像卡「技能关键词」编辑保存：把新的专业技能同步到搜索条件（searchState.criteria
- * .professional_skills），让后续 saveCondition / 搜索用编辑后的技能。
- * 透传给 IndexPage 处理（searchState 在 IndexPage，v-model 到 AISearch / JobSearchFilter）。
+ * 保存职位画像：POST /ihire/chat/updateHarnessProfile
+ * 成功后本地覆盖该消息的 profile，并触发左侧列表静默刷新（拿最新 status）。
  */
-function onAiProfileSkillsSave(msg, payload) {
-  emit("profile-skills-edit", {
-    chatId: msg?.chatId || props.chatId || currentChatId.value,
-    skills: Array.isArray(payload?.skills) ? payload.skills : [],
-    softSkills: Array.isArray(payload?.softSkills) ? payload.softSkills : [],
-    relatedExperience: Array.isArray(payload?.relatedExperience) ? payload.relatedExperience : [],
-    profile: payload?.profile || null
-  });
+async function persistProfile(msg, payload) {
+  const chatId = msg?.chatId || props.chatId || currentChatId.value;
+  if (!chatId || !payload) return false;
+  try {
+    const resp = await updateHarnessProfile({
+      chatId,
+      source: "IHIRE_CHAT_PROFILE_EDIT",
+      profile: payload
+    });
+    if (resp?.success !== "success") {
+      console.warn("[任务流程] [ChatCard] updateHarnessProfile 失败:", resp);
+      $q.notify({
+        message: resp?.errorMessage || "职位画像保存失败，请稍后重试",
+        color: "negative",
+        timeout: 2500
+      });
+      return false;
+    }
+    if (msg?.id) {
+      const profile = {
+        structured: Array.isArray(payload.structured) ? payload.structured : [],
+        tagContent: Array.isArray(payload.tagContent) ? payload.tagContent : []
+      };
+      profileOverrideByMsgId.value = {
+        ...profileOverrideByMsgId.value,
+        [msg.id]: profile
+      };
+    }
+    store.commit("triggerChatListRefresh");
+    return true;
+  } catch (e) {
+    console.warn("[任务流程] [ChatCard] updateHarnessProfile 异常:", e?.message || e);
+    $q.notify({ message: "职位画像保存失败，请稍后重试", color: "negative", timeout: 2500 });
+    return false;
+  }
+}
+
+/**
+ * 聚合搜索类入口共用的画像保存前置步骤。
+ * 启动聚合搜索、清空重新搜索、保留增量搜索都必须先走这里。
+ */
+async function prepareProfileForSearch(msg) {
+  let profileReady = true;
+  try {
+    const profileCard = msg?.id ? profileCardRefs.value[msg.id] : null;
+    if (profileCard) {
+      const dirty = profileCard.isDirty?.() === true;
+      if (profileCard.isEditing || dirty) {
+        const editedPayload = profileCard.flushEdit();
+        if (!editedPayload) {
+          profileReady = false;
+          $q.notify({
+            message: "权重评分合计需等于 90 分，请调整后再发起搜索",
+            color: "warning",
+            timeout: 2500
+          });
+          return;
+        }
+        if (dirty && !(await persistProfile(msg, editedPayload))) {
+          profileReady = false;
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    profileReady = false;
+    console.warn("[任务流程] [ChatCard] 搜索前置画像保存异常:", e?.message || e);
+    $q.notify({ message: "职位画像保存失败，请稍后重试", color: "negative", timeout: 2500 });
+  } finally {
+    if (!profileReady) unlockActionPanel(msg);
+  }
+  return profileReady;
 }
 
 // 聚合搜索
 const handleSearch = async (msg) => {
+  if (!(await prepareProfileForSearch(msg))) return;
+
   if (props.embedded) {
     // 嵌入式模式：基于 SearchTasks store 的真实任务状态卡片
     //
@@ -1294,6 +1461,8 @@ const handleSearch = async (msg) => {
     };
     const matchedBossJobId = state?.matchedBossJobId || null;
     const resumeCount = state?.resumeCount ?? null;
+    const bossFilters = state?.bossFilters || null;
+    const targetCount = state?.resumeCount ?? null;
     const chatIdForSearch = props.chatId || currentChatId.value;
 
     // ★ 500ms 防抖：避免连点导致多次 dispatchTaskStore（详见 _isAggregateClickDebounced 注释）
@@ -1302,7 +1471,8 @@ const handleSearch = async (msg) => {
     // ★ 在途任务拦截：已有"占位未绑定 / create 在途"的任务 → 直接跳过，避免多张状态卡 + 多次 create
     //   （只在真正 execute / 任务建出来时才有一张卡）
     if (_hasInflightTaskForChat(chatIdForSearch)) {
-      console.log("[ChatCard] handleSearch 跳过：该 chat 已有在途任务（占位未绑定 / 创建中）");
+      console.log("[任务流程] [ChatCard] handleSearch 跳过：该 chat 已有在途任务（占位未绑定 / 创建中）");
+      unlockActionPanel(msg);
       return;
     }
 
@@ -1311,15 +1481,18 @@ const handleSearch = async (msg) => {
     // IndexPage 也会再判一次并通过 notify 告知用户，这里只静默兜底。
     const canCreate = store.getters["SearchTasks/canCreateForChat"];
     if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
-      console.warn("[ChatCard] handleSearch 拒绝：该 chat 已有进行中任务");
+      console.warn("[任务流程] [ChatCard] handleSearch 拒绝：该 chat 已有进行中任务");
       // 仍然 emit 给 IndexPage（让 IndexPage 的 notify.warning 弹出来）
       emit("aggregate-search", {
         chatId: chatIdForSearch,
         selectedModules,
         matchedBossJobId,
         resumeCount,
+        targetCount,
+        bossFilters,
         content: msg?.content
       });
+      unlockActionPanel(msg);
       return;
     }
 
@@ -1334,6 +1507,8 @@ const handleSearch = async (msg) => {
       selectedModules,
       matchedBossJobId,
       resumeCount,
+      targetCount,
+      bossFilters,
       content: msg?.content,
       placeholderMsgId
     });
@@ -1344,7 +1519,7 @@ const handleSearch = async (msg) => {
   if (props.expanded) {
     toggleExpand();
   }
-  console.log("chatID:", currentChatId.value);
+  console.log("[任务流程] chatID:", currentChatId.value);
   //刷新搜索条件并搜索
   jobSearchFilterRef.value && jobSearchFilterRef.value.refreshAndSearchFN(currentChatId.value);
 };
@@ -1361,12 +1536,12 @@ const handleSearch = async (msg) => {
 function startSearchFromFilter() {
   const chatIdForSearch = props.chatId || currentChatId.value;
   if (!chatIdForSearch) {
-    console.warn("[ChatCard] startSearchFromFilter: 没拿到 chatId");
+    console.warn("[任务流程] [ChatCard] startSearchFromFilter: 没拿到 chatId");
     return false;
   }
   if (_isAggregateClickDebounced(chatIdForSearch, "RESTART")) return false;
   if (_hasInflightTaskForChat(chatIdForSearch)) {
-    console.log("[ChatCard] startSearchFromFilter 跳过：该 chat 已有在途任务");
+    console.log("[任务流程] [ChatCard] startSearchFromFilter 跳过：该 chat 已有在途任务");
     return false;
   }
   const canCreate = store.getters["SearchTasks/canCreateForChat"];
@@ -1403,12 +1578,12 @@ function startSearchFromFilter() {
 function startContinueSearch() {
   const chatIdForSearch = props.chatId || currentChatId.value;
   if (!chatIdForSearch) {
-    console.warn("[ChatCard] startContinueSearch: 没拿到 chatId");
+    console.warn("[任务流程] [ChatCard] startContinueSearch: 没拿到 chatId");
     return false;
   }
   if (_isAggregateClickDebounced(chatIdForSearch, "CONTINUE")) return false;
   if (_hasInflightTaskForChat(chatIdForSearch)) {
-    console.log("[ChatCard] startContinueSearch 跳过：该 chat 已有在途任务");
+    console.log("[任务流程] [ChatCard] startContinueSearch 跳过：该 chat 已有在途任务");
     return false;
   }
   const canCreate = store.getters["SearchTasks/canCreateForChat"];
@@ -1637,7 +1812,7 @@ watch(
           internalMessages.value = internalMessages.value.filter((m) => m.id !== pendingMsgId);
           anyBound = true; // 视为已处理，循环结束后清掉 pending 记录
           console.log(
-            `[ChatCard] 占位卡片丢弃（新任务该渠道已完成/不存在）taskId=${newTask.taskId} kind=${
+            `[任务流程] [ChatCard] 占位卡片丢弃（新任务该渠道已完成/不存在）taskId=${newTask.taskId} kind=${
               entry.kind || "all"
             }`
           );
@@ -1647,7 +1822,7 @@ watch(
         } else if (target && !target.taskId && !isFreshEnough) {
           anySkipped = true;
           console.log(
-            `[ChatCard] 占位卡片跳过绑定旧任务 taskId=${
+            `[任务流程] [ChatCard] 占位卡片跳过绑定旧任务 taskId=${
               newTask.taskId
             }（createdAt=${newTaskCreatedAt} < placeholder=${placeholderCreatedAt}）kind=${
               entry.kind || "all"
@@ -1741,7 +1916,7 @@ watch(
             // 仅解锁配置卡（input 可编辑 + 按钮回"启动聚合搜索"）。
             // 不弹 toast：创建失败的精确原因已由 IndexPage 用接口 errorMessage 提示过了。
             card.cardData.actionExecuted = false;
-            console.log("[ChatCard] 任务创建失败 → 解锁 RetryConfigCard", retryMsgId);
+            console.log("[任务流程] [ChatCard] 任务创建失败 → 解锁 RetryConfigCard", retryMsgId);
           }
         }
         const nr = { ...pendingRetryCardByChat.value };
@@ -1765,7 +1940,7 @@ watch(
           })
       );
       if (failedIds.size > 0) {
-        console.log("[ChatCard] pendingCreate 结束但占位未绑定 → 移除占位卡", [...failedIds]);
+        console.log("[任务流程] [ChatCard] pendingCreate 结束但占位未绑定 → 移除占位卡", [...failedIds]);
         internalMessages.value = internalMessages.value.filter((m) => !failedIds.has(m.id));
       }
       // ★ 一定要清掉本 chat 的 pending 记录：否则 _hasInflightTaskForChat 会一直为 true，
@@ -1834,14 +2009,14 @@ function ensureTaskStatusCardForCurrentChat(force = false) {
   const isRecent = createdAt > 0 && Date.now() - createdAt < FIFTEEN_MIN_MS;
   if (!isRecent && !inBackendQueue) {
     console.log(
-      `[ChatCard] 跳过任务回放（疑似僵尸）: taskId=${latestTask.taskId} status=${latestTask.taskStatus}` +
+      "[任务流程]", `[ChatCard] 跳过任务回放（疑似僵尸）: taskId=${latestTask.taskId} status=${latestTask.taskStatus}` +
         ` createdAt=${new Date(createdAt).toLocaleString()} inBackendQueue=${inBackendQueue}`
     );
     return;
   }
   if (!isRecent && inBackendQueue) {
     console.log(
-      `[ChatCard] 任务超 15min 但在后端 queue 中（活的）→ 仍然回放: taskId=${latestTask.taskId} status=${latestTask.taskStatus}`
+      `[任务流程] [ChatCard] 任务超 15min 但在后端 queue 中（活的）→ 仍然回放: taskId=${latestTask.taskId} status=${latestTask.taskStatus}`
     );
   }
 
@@ -1906,7 +2081,7 @@ function ensureTaskStatusCardForCurrentChat(force = false) {
  * 当前临时占位为日志 + 简单转发；后续接实际业务（切 results 视图 / 清空重搜 / 增量搜索）。
  */
 function onTaskCardViewResult(msg, payload) {
-  console.log("[ChatCard] task_completion_card action=view-result", { msg, payload });
+  console.log("[任务流程] [ChatCard] task_completion_card action=view-result", { msg, payload });
   // payload.cardData 来自 TaskCompletionCard 从模板根 div 提取的 data-* 集合，
   // 含 taskId / taskChannelId / searchConditionId / chatId / resultSetId 等
   // → 透传给 IndexPage 让它调 /search/resultSet/query 拉任务级结果集
@@ -1953,13 +2128,24 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
   // 推荐渠道（限 BOSS）的配置——抽 relatedPositionValue / maxResumeCount
   let matchedBossJobId = null;
   let resumeCount = null;
+  let searchConditionId = null;
   const recommendCh = channels.find(
     (c) => c.businessChannel === "RECOMMEND" && c.channelSubType === "BOSS"
   );
   if (recommendCh?.searchTaskConfig) {
     try {
-      const cfg = JSON.parse(recommendCh.searchTaskConfig);
-      matchedBossJobId = cfg?.relatedPositionValue || null;
+      const cfg =
+        typeof recommendCh.searchTaskConfig === "string"
+          ? JSON.parse(recommendCh.searchTaskConfig)
+          : recommendCh.searchTaskConfig;
+      const matchedPosition = cfg?.matchedPosition;
+      matchedBossJobId =
+        cfg?.relatedPositionValue ||
+        cfg?.matchedBossJobId ||
+        (typeof matchedPosition === "string" || typeof matchedPosition === "number"
+          ? matchedPosition
+          : matchedPosition?.encryptJobId || matchedPosition?.encryptId || matchedPosition?.jobId) ||
+        null;
       if (Number.isFinite(Number(cfg?.maxResumeCount))) {
         resumeCount = Number(cfg.maxResumeCount);
       }
@@ -1967,10 +2153,17 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
       // searchTaskConfig 不是合法 JSON：忽略，让 IndexPage 用 settings 兜底
     }
   }
+  searchConditionId =
+    recommendCh?.searchConditionId ||
+    channels.find((channel) => channel?.searchConditionId)?.searchConditionId ||
+    null;
   return {
     selectedModules: { search: false, recommend: hasRecommend },
     matchedBossJobId,
-    resumeCount
+    resumeCount,
+    positionId: originalTask.positionId || null,
+    searchConditionId,
+    bossFilters: extractBossFilters(originalTask.searchRequestData)
   };
 }
 
@@ -1997,7 +2190,7 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   const cardData = payload?.cardData || {};
   const chatIdForSearch = cardData.chatId || props.chatId || currentChatId.value;
   if (!chatIdForSearch) {
-    console.warn(`[ChatCard] task_completion_card ${taskType}: 没拿到 chatId，跳过`);
+    console.warn(`[任务流程] [ChatCard] task_completion_card ${taskType}: 没拿到 chatId，跳过`);
     return;
   }
 
@@ -2009,7 +2202,7 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   //   判定语义跟 handleAggregateSearch 入口的 canCreateForChat 完全一致（RUNNING/WAITING/RESTING/AI 评分中）
   const canCreate = store.getters["SearchTasks/canCreateForChat"];
   if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
-    console.warn(`[ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`);
+    console.warn(`[任务流程] [ChatCard] task_completion_card ${taskType} 拒绝：该 chat 已有进行中任务`);
     const latestTask = store.getters["SearchTasks/getLatestTaskByChat"]?.(chatIdForSearch);
     const isAiAnalyzingPhase =
       latestTask?.taskStatus === "COMPLETED" &&
@@ -2028,6 +2221,11 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
 
   // 从原任务复原 matchedBossJobId / resumeCount（store 里查得到的话）
   const params = _extractRetrySearchParamsFromOriginalTask(cardData.taskId) || {};
+  console.log("[任务流程] [ChatCard] 结果卡片恢复原任务职位", {
+    originalTaskId: cardData.taskId,
+    positionId: params.positionId || null,
+    matchedBossJobId: params.matchedBossJobId || null
+  });
 
   // ★ selectedModules 以完成卡的渠道属性为权威来源（data-search-task-channel-id /
   //   data-recommend-task-channel-id）：有搜索渠道才搜、有推荐渠道才推荐。
@@ -2049,19 +2247,6 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
       timeout: 2500
     });
     return;
-  }
-
-  // ★ 推荐渠道需要 BOSS 职位 id：store 查不到原任务时 matchedBossJobId 为空，
-  //   用当前 chat 绑定的 BOSS「招聘中」职位兜底（跟 AIProfileActionPanel 默认值同源同规则：
-  //   第一个 jobStatus===0 的 encryptJobId）。否则 buildSearchTaskChannels 会因没有 jobId
-  //   而不下发推荐渠道，导致「只有推荐」的任务重启后什么都不做。
-  if (params.selectedModules.recommend && !params.matchedBossJobId) {
-    const bossJobs = store.getters.getBossJobList || [];
-    const openJob = bossJobs.find((j) => Number(j?.jobStatus) === 0) || bossJobs[0];
-    if (openJob) {
-      params.matchedBossJobId =
-        openJob.encryptJobId || openJob.encryptId || String(openJob.jobId || "") || null;
-    }
   }
 
   // ★ 路径 A：含推荐 → 插 RetryConfigCard 中间卡，等用户确认份数
@@ -2087,6 +2272,9 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
       originalTaskId: cardData.taskId,
       selectedModules: params.selectedModules,
       matchedBossJobId: params.matchedBossJobId,
+      positionId: params.positionId,
+      searchConditionId: params.searchConditionId,
+      bossFilters: params.bossFilters,
       initialResumeCount: _initialResume,
       actionExecuted: false
     };
@@ -2131,7 +2319,7 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
  * @param {'RESTART'|'CONTINUE'} opts.taskType
  * @param {string} opts.chatIdForSearch
  * @param {string} opts.originalTaskId
- * @param {object|null} opts.params  { selectedModules, matchedBossJobId, resumeCount }
+ * @param {object|null} opts.params  { selectedModules, matchedBossJobId, resumeCount, targetCount }
  * @param {string} [opts.msgContent]
  */
 function _emitRetryAggregateSearch({
@@ -2151,13 +2339,13 @@ function _emitRetryAggregateSearch({
 
   // ★ 在途任务拦截：已有"占位未绑定 / create 在途"的任务 → 直接跳过，避免连点出现多张状态卡 + 多次 create
   if (_hasInflightTaskForChat(chatIdForSearch)) {
-    console.log(`[ChatCard] retry ${taskType} 跳过：该 chat 已有在途任务（占位未绑定 / 创建中）`);
+    console.log(`[任务流程] [ChatCard] retry ${taskType} 跳过：该 chat 已有在途任务（占位未绑定 / 创建中）`);
     return false;
   }
 
   const canCreate = store.getters["SearchTasks/canCreateForChat"];
   if (typeof canCreate === "function" && !canCreate(chatIdForSearch)) {
-    console.warn(`[ChatCard] retry ${taskType} 拒绝：该 chat 已有进行中任务`);
+    console.warn(`[任务流程] [ChatCard] retry ${taskType} 拒绝：该 chat 已有进行中任务`);
     emit("aggregate-search", basePayload);
     return false;
   }
@@ -2171,15 +2359,15 @@ function _emitRetryAggregateSearch({
 }
 
 function onTaskCardClearAndRestart(msg, payload) {
-  console.log("[ChatCard] task_completion_card action=clear-and-restart", { msg, payload });
+  console.log("[任务流程] [ChatCard] task_completion_card action=clear-and-restart", { msg, payload });
   _retriggerTaskFromCard("RESTART", msg, payload);
 }
 function onTaskCardKeepAndIncrement(msg, payload) {
-  console.log("[ChatCard] task_completion_card action=keep-and-increment", { msg, payload });
+  console.log("[任务流程] [ChatCard] task_completion_card action=keep-and-increment", { msg, payload });
   _retriggerTaskFromCard("CONTINUE", msg, payload);
 }
 function onTaskCardUnknownAction(msg, payload) {
-  console.warn("[ChatCard] task_completion_card 未知 action", { msg, payload });
+  console.warn("[任务流程] [ChatCard] task_completion_card 未知 action", { msg, payload });
 }
 
 /**
@@ -2192,37 +2380,48 @@ function onTaskCardUnknownAction(msg, payload) {
  *
  * @param {object} msg        AI_SEARCH 消息（带 previousSearchTaskId / searchConditionId）
  * @param {'RESTART'|'CONTINUE'} taskType
- * @param {object} panelState AIProfileActionPanel.getState() → { selectedModules, matchedBossJobId, resumeCount }
+ * @param {object} panelState AIProfileActionPanel.getState()
+ *   → { selectedModules, matchedBossJobId, resumeCount, bossFilters }
  */
-function onAiPanelRetry(msg, taskType, panelState) {
+async function onAiPanelRetry(msg, taskType, panelState) {
   const chatIdForSearch = msg?.chatId || props.chatId || currentChatId.value;
   const originalTaskId = msg?.previousSearchTaskId;
   if (!chatIdForSearch) {
-    console.warn(`[ChatCard] AIProfile retry ${taskType}: 没拿到 chatId，跳过`);
+    console.warn(`[任务流程] [ChatCard] AIProfile retry ${taskType}: 没拿到 chatId，跳过`);
+    unlockActionPanel(msg);
     return;
   }
-  console.log("[ChatCard] AIProfile retry", { taskType, originalTaskId, panelState });
+  console.log("[任务流程] [ChatCard] AIProfile retry", { taskType, originalTaskId, panelState });
 
   if (props.embedded) {
-    if (_isAggregateClickDebounced(chatIdForSearch, taskType)) return;
-    _emitRetryAggregateSearch({
+    if (_isAggregateClickDebounced(chatIdForSearch, taskType)) {
+      unlockActionPanel(msg);
+      return;
+    }
+    if (!(await prepareProfileForSearch(msg))) return;
+
+    const state = panelState || actionPanelStateByMsgId.value[msg?.id] || null;
+    const proceeded = _emitRetryAggregateSearch({
       taskType,
       chatIdForSearch,
       originalTaskId,
       params: {
         selectedModules: {
           search: false,
-          recommend: panelState?.selectedModules?.recommend !== false
+          recommend: state?.selectedModules?.recommend !== false
         },
-        matchedBossJobId: panelState?.matchedBossJobId || null,
-        resumeCount: panelState?.resumeCount ?? null
+        matchedBossJobId: state?.matchedBossJobId || null,
+        resumeCount: state?.resumeCount ?? null,
+        targetCount: state?.resumeCount ?? null,
+        bossFilters: state?.bossFilters || null
       },
       msgContent: msg?.content
     });
+    if (!proceeded) unlockActionPanel(msg);
     return;
   }
   // 非嵌入式（浮窗）模式：沿用普通搜索入口
-  handleSearch(msg);
+  await handleSearch(msg);
 }
 
 /**
@@ -2234,18 +2433,27 @@ function onRetryConfigStart(msg, payload) {
   const cd = msg?.cardData;
   if (!cd) return;
   const resumeCount = Number(payload?.resumeCount) || cd.initialResumeCount;
+  const targetCount = resumeCount;
+  const matchedBossJobId = payload?.matchedBossJobId || cd.matchedBossJobId || null;
+  const bossFilters = payload?.bossFilters || cd.bossFilters || null;
   const taskType = cd.configType;
   const chatIdForSearch = cd.chatId;
 
-  console.log("[ChatCard] retry_config_card start", {
+  if (cd.selectedModules?.recommend && !matchedBossJobId) return;
+
+  console.log("[任务流程] [ChatCard] retry_config_card start", {
     taskType,
     resumeCount,
+    targetCount,
+    matchedBossJobId,
     originalTaskId: cd.originalTaskId
   });
 
   // 锁定卡片 UI（input disabled + 按钮变"聚合搜索已启动"）
   cd.actionExecuted = true;
   cd.initialResumeCount = resumeCount;
+  cd.matchedBossJobId = matchedBossJobId;
+  cd.bossFilters = bossFilters;
 
   // 记住本 chat 这次输入的份数 → 下次保留增量/画像卡默认用它（跟 AIProfileActionPanel 同源）
   if (chatIdForSearch && Number(resumeCount) > 0) {
@@ -2258,8 +2466,11 @@ function onRetryConfigStart(msg, payload) {
     originalTaskId: cd.originalTaskId,
     params: {
       selectedModules: cd.selectedModules,
-      matchedBossJobId: cd.matchedBossJobId,
-      resumeCount
+      matchedBossJobId,
+      positionId: cd.positionId,
+      resumeCount,
+      targetCount,
+      bossFilters
     },
     msgContent: msg?.content
   });
@@ -2642,6 +2853,8 @@ function mapHistoryMessage(msg, chatIdToUse) {
     chatId: chatIdToUse,
     searchConditionId: msg.searchConditionId,
     previousSearchTaskId: msg.previousSearchTaskId,
+    positionProfile: msg.positionProfile ?? null,
+    harnessPositionProfile: msg.harnessPositionProfile || null,
     ...(isCompletionCard ? { html: msg.content } : {})
   };
 }
@@ -2662,6 +2875,8 @@ const loadHistory = async () => {
   };
   // 新一轮首屏加载 → 自增版本，作废之前在途的 loadMore/loadHistory 回包
   const reqVer = ++historyReqVersion.value;
+  currentHarnessProfile.value = null;
+  profileOverrideByMsgId.value = {};
 
   loading.value = true;
   try {
@@ -2675,6 +2890,11 @@ const loadHistory = async () => {
       console.log("[ChatCard] loadHistory 回包已过期，丢弃");
       return;
     }
+
+    // 职位画像：兼容顶层 positionProfile / harnessPositionProfile / profile
+    currentHarnessProfile.value = extractProfile(
+      data?.positionProfile || data?.harnessPositionProfile || data?.profile || null
+    );
 
     if (data?.chatHistory?.length) {
       data.chatHistory.forEach((msg) => {
@@ -2852,6 +3072,55 @@ const setMsgContainer = (msg) => {
   console.log("处理消息:", msg);
   const content = msg.choices?.[0]?.delta?.content;
 
+  const profileFields = ["positionProfile", "harnessPositionProfile", "profile"];
+  const hasProfile = profileFields.some((field) => msg?.[field] != null);
+  const updateMessageMetadata = (target) => {
+    if (!target || !msg) return;
+    profileFields.forEach((field) => {
+      if (msg[field] != null) target[field] = msg[field];
+    });
+    [
+      "searchConditionId",
+      "previousSearchTaskId",
+      "searchReady",
+      "profileChanged"
+    ].forEach((field) => {
+      if (msg[field] != null) target[field] = msg[field];
+    });
+  };
+
+  const messages = internalMessages.value;
+  let foundObject = msg.id ? messages.find((item) => item.id === msg.id) : null;
+  // 部分流式响应只在最后一帧返回画像字段，且该帧可能没有 content/id，
+  // 需要把画像挂到当前最后一条 assistant 消息，不能因为没有 content 而丢弃。
+  if (!foundObject && hasProfile) {
+    foundObject = [...messages].reverse().find(
+      (item) => item.type === "bot" && (!msg.chatId || item.chatId === msg.chatId)
+    );
+  }
+  if (foundObject) updateMessageMetadata(foundObject);
+
+  // 画像字段可能在最后一帧单独返回，且该帧没有 content。若前面没有成功
+  // 建立 assistant 消息，也要先建立一条可渲染的消息承载画像，避免响应已
+  // 成功但页面没有 AI_SEARCH 卡片。
+  if (!foundObject && hasProfile && !content) {
+    const chatTemplate = getChatTemplate();
+    chatTemplate.id = msg.id || uuidv4();
+    chatTemplate.chatId = msg.chatId || currentChatId.value || props.chatId || "";
+    chatTemplate.searchConditionId = msg.searchConditionId;
+    chatTemplate.previousSearchTaskId = msg.previousSearchTaskId;
+    chatTemplate.model = msg.model;
+    chatTemplate.object = msg.object;
+    chatTemplate.created = msg.created || Math.floor(Date.now() / 1000);
+    chatTemplate.role = "assistant";
+    chatTemplate.type = "bot";
+    chatTemplate.content = "[&AI_SEARCH&]";
+    chatTemplate.time = new Date().toLocaleTimeString();
+    updateMessageMetadata(chatTemplate);
+    addMessage(chatTemplate);
+    foundObject = chatTemplate;
+  }
+
   if (content) {
     console.log("处理内容:", content);
 
@@ -2861,11 +3130,8 @@ const setMsgContainer = (msg) => {
       return;
     }
 
-    // 首先检查内部消息列表
-    const messages = internalMessages.value;
     console.log("当前内部消息列表:", messages);
 
-    const foundObject = messages.find((item) => item.id === msg.id);
     if (foundObject) {
       console.log("找到现有消息，更新内容:", foundObject);
       // 更新已存在消息的内容
@@ -2893,6 +3159,7 @@ const setMsgContainer = (msg) => {
       chatTemplate.role = "assistant";
       chatTemplate.type = "bot";
       chatTemplate.time = new Date().toLocaleTimeString();
+      updateMessageMetadata(chatTemplate);
 
       console.log("创建的新消息:", chatTemplate);
 
@@ -2915,7 +3182,7 @@ const setMsgContainer = (msg) => {
     nextTick(() => {
       scrollChatToBottom();
     });
-  } else {
+  } else if (!hasProfile) {
     console.log("消息没有内容:", msg);
   }
 };
@@ -3398,6 +3665,12 @@ defineExpose({
   padding: 15px;
   margin: 10px 0;
 }
+.ai-profile-intro {
+  margin: 4px 0 12px;
+  color: #52525b;
+  font-size: 13px;
+  line-height: 1.6;
+}
 .ai-jd-content :deep(> div) {
   background: transparent !important;
   border: 0 !important;
@@ -3633,11 +3906,11 @@ defineExpose({
   transition: all 0.4s ease;
 }
 
-.chat-panel :deep(.q-btn:not([class*="btn-common"])) {
+.chat-panel :deep(.q-btn:not([class*="btn-common"]):not(.range-trigger):not(.area-picker-btn)) {
   transition: all 0.2s ease;
 }
 
-.chat-panel :deep(.q-btn:not([class*="btn-common"]):hover) {
+.chat-panel :deep(.q-btn:not([class*="btn-common"]):not(.range-trigger):not(.area-picker-btn):hover) {
   transform: scale(1.05);
 }
 

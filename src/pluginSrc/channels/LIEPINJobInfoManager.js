@@ -77,7 +77,7 @@ export const getLIEPINHeader = async (flag) => {
     try {
         header = await getLIEPINHeaderInfo(flag);
     }catch (e){
-        console.log(e);
+        console.log("[任务流程]", e);
         header = null;
     }
     return header;
@@ -117,7 +117,7 @@ export const channelSearchList = async (channelRequestInfo, channelPage = 1, pag
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData,channelPage);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   if(!pluginLIEPINResultProcessor(responseJobListData)){
@@ -159,7 +159,7 @@ export const channelSearchListSimilar = async (channelRequestInfo, channelPage =
   try {
     responseJobListData = await searchJobList(channelSearchCondition.conditionData,channelPage);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   if(!pluginLIEPINResultProcessor(responseJobListData)){
@@ -283,7 +283,7 @@ export const checkUserAuth = async ()=>{
         }
         const privilegeCount = findItem.privilegeCount;
         const usedCount = findItem.usedCount;
-      console.log("score:",privilegeCount,usedCount)
+      console.log("[任务流程] score:",privilegeCount,usedCount)
         if(usedCount<privilegeCount){
             return true;
         }else{
@@ -305,7 +305,7 @@ export const exeLIEPINJobInfo = async (data) => {
             await saveResumeDetail(data);
         }catch (e){
             // ElMessage.error('后台服务异常导致系统无法分析本渠道信息！请联系管理员！')
-          console.log(e)
+          console.log("[任务流程]", e)
         }
 
     }
@@ -323,7 +323,7 @@ export const exeQueueJobInfo = async (data) => {
       try {
         await postDetailToTaskResume({ data, channelSubType: 'LIEPIN', serializeChannel: '猎聘' });
       } catch (e) {
-        console.warn('[LIEPINJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
+        console.warn('[任务流程] [LIEPINJobInfoManager] postDetailToTaskResume failed:', e?.message || e);
       }
     }else{
       const allChannelData = store.getters.getChannelConfByAll;
@@ -331,6 +331,6 @@ export const exeQueueJobInfo = async (data) => {
       allChannelData.cardInfoRef.updateResumeScoreFN(data.resume);
     }
   } catch (error) {
-    console.error('处理猎聘直聘简历任务失败:', error);
+    console.error('[任务流程] 处理猎聘直聘简历任务失败:', error);
   }
 }

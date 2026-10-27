@@ -1,4 +1,5 @@
 import request from "../request";
+import { traceApiCall } from "src/util/apiTrace";
 
 //查询当前User是否有对话
 export const getChatIdByUserId = (userId) => {
@@ -116,3 +117,67 @@ export const createChat = (conversationHistoryList) => {
   })
 }
 
+
+const HARNESS_PROFILE_SOURCE = "IHIRE_CHAT_PROFILE_EDIT";
+
+function firstArray(...values) {
+  for (const value of values) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_e) {
+        // 非 JSON 字符串不属于画像数组，继续找下一个候选值。
+      }
+    }
+  }
+  return [];
+}
+
+/**
+ * 兼容调用方曾误传的扁平结构，但对外始终只发送后端约定的嵌套结构。
+ */
+export function buildUpdateHarnessProfilePayload(data = {}) {
+  const profile = data?.profile && typeof data.profile === "object" ? data.profile : {};
+  return {
+    chatId: data?.chatId,
+    source: HARNESS_PROFILE_SOURCE,
+    profile: {
+      structured: firstArray(
+        profile.structured,
+        profile.structuredContent,
+        data?.structured,
+        data?.structuredContent
+      ),
+      tagContent: firstArray(profile.tagContent, data?.tagContent)
+    }
+  };
+}
+
+/**
+ * 保存职位画像（基础评估标准）。
+ *
+ * 后端约定：
+ *   - 请求体为 { chatId, source, profile: { structured, tagContent } }
+ *   - structured / tagContent 直接传数组（不是 JSON 字符串）
+ *   - 完整对象原样回写，只改 rule_type / weight / display_value / dataTypeValue
+ *   - source 固定 IHIRE_CHAT_PROFILE_EDIT
+ *
+ * @param {{chatId: string|number, source: string, profile: {structured: Array, tagContent: Array}}} data
+ */
+export const updateHarnessProfile = (data) => {
+  const payload = buildUpdateHarnessProfilePayload(data)
+  return traceApiCall({
+    tag: 'portrait-api',
+    method: 'POST',
+    path: '/ihire/chat/updateHarnessProfile',
+    payload,
+    run: () =>
+      request({
+        url: '/ihire/chat/updateHarnessProfile',
+        method: 'POST',
+        data: payload
+      })
+  })
+}

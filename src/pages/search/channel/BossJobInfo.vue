@@ -142,9 +142,9 @@ const jobList = computed(() =>{
   const allData = allDataConfig.value.data;
   const desc = channelConfig.value.desc;
   const filtered = allData.filter(item=>item.channel===desc);
-  console.log('[BossJobInfo] jobList computed, ALL.data=', allData.length, 'desc=', desc, 'filtered=', filtered.length);
+  console.log('[任务流程] [BossJobInfo] jobList computed, ALL.data=', allData.length, 'desc=', desc, 'filtered=', filtered.length);
   if (allData.length > 0 && filtered.length === 0) {
-    console.warn('[BossJobInfo] filter 返回空！前3条channel=', allData.slice(0,3).map(x=>x.channel));
+    console.warn('[任务流程] [BossJobInfo] filter 返回空！前3条channel=', allData.slice(0,3).map(x=>x.channel));
   }
   return filtered;
   // return channelConfig.value.data || [];
@@ -208,7 +208,7 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
     });
 
     if (!result) {
-      console.error('BOSS直聘搜索结果为空');
+      console.error('[任务流程] BOSS直聘搜索结果为空');
       // 渠道搜索接口调用失败（含非网络业务异常 / 返回空）→ 顶部弹渠道异常 + 复核登录态，未登录则停任务
       if (isFirstPage && !props.viewingTaskId) {
         await handleChannelSearchFailure(store, channelKey, chatId.value);
@@ -226,7 +226,7 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
       try {
         channelJobList = await channelDataSaveByRuntime(searchRequestData.requestId, searchRequestData.id, channelConfig.value.desc, result.dataList,chatId.value, filterByRead.value);
       }catch (e){
-        console.log(e)
+        console.log("[任务流程]", e)
         searchChannelConfig.value.channelPage = searchChannelConfig.value.channelPage-1;
       }
       if(channelJobList){
@@ -254,13 +254,13 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
                   addResumeTask(channelKey, taskData);
                 });
 
-                console.log(`已添加${channelJobList.length}个BOSS直聘简历任务到队列中`);
+                console.log(`[任务流程] 已添加${channelJobList.length}个BOSS直聘简历任务到队列中`);
               })
               .catch(error => {
-                console.error('加载异步任务队列处理器失败:', error);
+                console.error('[任务流程] 加载异步任务队列处理器失败:', error);
               });
           } catch (error) {
-            console.error('添加到异步任务队列失败:', error);
+            console.error('[任务流程] 添加到异步任务队列失败:', error);
           }
           store.commit('changeSearchCount');
         }
@@ -275,7 +275,7 @@ const executeSearch = async (searchRequestData = null, page = 1) => {
       }
     }
   } catch (error) {
-    console.error('BOSS直聘搜索失败:', error);
+    console.error('[任务流程] BOSS直聘搜索失败:', error);
     notify.error('BOSS直聘搜索失败，请稍后再试');
     if (isFirstPage && !props.viewingTaskId) {
       await handleChannelSearchFailure(store, channelKey, chatId.value);
@@ -307,17 +307,17 @@ const getAsyncDetailParam = (resume) => {
  //递归获取渠道数据
 // 递归获取渠道数据
 const recursiveChannelSearch = async (maxIterations, searchRequestData, currentIteration = 1, page = 1, accumulatedData = []) => {
-  console.log(`BOSS直聘递归查询第${currentIteration}次，页码：${page}`);
+  console.log(`[任务流程] BOSS直聘递归查询第${currentIteration}次，页码：${page}`);
 
   try {
     // 查询渠道参数
-    console.log(searchRequestData)
+    console.log("[任务流程]", searchRequestData)
     const result = await BossJobInfoManager.channelSearchListSimilar(searchRequestData, page);
 
     // 如果有数据，添加到累积数据中
     if (result && result.dataList && result.dataList.length > 0) {
       accumulatedData.push(...result.dataList);
-      console.log(`BOSS直聘第${page}页获取到${result.dataList.length}条数据，累计${accumulatedData.length}条`);
+      console.log(`[任务流程] BOSS直聘第${page}页获取到${result.dataList.length}条数据，累计${accumulatedData.length}条`);
 
       // 判断是否有下一页数据
       const hasNextPage = page < result.totalPage;
@@ -335,10 +335,10 @@ const recursiveChannelSearch = async (maxIterations, searchRequestData, currentI
     }
 
     // 返回累积的数据
-    console.log(`BOSS直聘递归查询完成，共获取${accumulatedData.length}条数据`);
+    console.log(`[任务流程] BOSS直聘递归查询完成，共获取${accumulatedData.length}条数据`);
     return accumulatedData;
   } catch (error) {
-    console.error(`BOSS直聘递归查询第${currentIteration}次失败:`, error);
+    console.error(`[任务流程] BOSS直聘递归查询第${currentIteration}次失败:`, error);
     // 发生错误时返回已累积的数据
     return accumulatedData;
   }

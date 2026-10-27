@@ -15,6 +15,16 @@
  * 单个 channel 是否启用（按 store.getters.getUserChannelConfig 判定）。
  * 给单元测试或外部直接判定用；上方 buildSearchTaskChannels 内部也复用这个。
  */
+/** 推荐渠道固定的渠道执行数量（与期望合格人数 targetCount 无关） */
+export const MAX_RESUME_COUNT = 20;
+
+import { normalizeBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
+
+/** 只挑出三个 BOSS 筛选字段（其余字段不写进 searchTaskConfig / criteria） */
+export function pickBossFilters(filters) {
+  return normalizeBossFilters(filters);
+}
+
 export function isChannelEnabled(cfgList, key) {
   if (key === "LIEPIN") return false;
   if (!Array.isArray(cfgList) || cfgList.length === 0) return false;
@@ -41,11 +51,13 @@ export function buildSearchTaskChannels({
   selectedModules,
   matchedBossJobId,
   resumeCount,
+  bossFilters,
   condId = "0"
 }) {
   const channels = [];
   const searchChecked = !!selectedModules?.search;
   const recommendChecked = !!selectedModules?.recommend;
+  const validBossJobId = normalizeBossJobId(matchedBossJobId);
 
   // 搜索：为每个启用的渠道生成一个 SEARCH channel
   if (searchChecked) {
@@ -61,14 +73,15 @@ export function buildSearchTaskChannels({
   }
 
   // 推荐：仅 BOSS 支持，且需要 BOSS 启用 + 用户勾了推荐 + 有 jobId
-  if (recommendChecked && matchedBossJobId && isChannelEnabled(cfgList, "BOSS")) {
+  if (recommendChecked && validBossJobId && isChannelEnabled(cfgList, "BOSS")) {
     channels.push({
       businessChannel: "RECOMMEND",
       channelSubType: "BOSS",
       searchConditionId: String(condId),
       searchTaskConfig: JSON.stringify({
-        relatedPositionValue: matchedBossJobId,
-        maxResumeCount: Number(resumeCount) > 0 ? Number(resumeCount) : 10
+        relatedPositionValue: validBossJobId,
+        // 渠道执行数量固定 20（后端约定）；用户填写的期望合格人数走 targetCount
+        maxResumeCount: MAX_RESUME_COUNT
       })
     });
   }
@@ -100,6 +113,8 @@ export function buildEstimatePayload(opts) {
     selectedModules,
     matchedBossJobId,
     resumeCount,
+    bossFilters,
+    targetCount,
     taskType = "INITIAL"
   } = opts || {};
 
@@ -108,16 +123,20 @@ export function buildEstimatePayload(opts) {
     selectedModules,
     matchedBossJobId,
     resumeCount,
+    bossFilters,
     condId: "0" // estimate 不需要真 condId
   });
 
   if (channels.length === 0) return null;
 
-  return {
+  const payload = {
     chatId,
     positionId,
     taskType,
     triggerSource: "USER_CLICK",
     channels
   };
+  const target = Number(targetCount);
+  if (Number.isFinite(target) && target > 0) payload.targetCount = target;
+  return payload;
 }

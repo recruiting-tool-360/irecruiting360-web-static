@@ -1,4 +1,6 @@
 
+import { normalizeBossFilters } from "src/util/bossSearchFilters";
+
 //搜索条件类
 // SearchConditionRequest.js
 export const SearchConditionRequest =()=>{
@@ -152,7 +154,11 @@ export const SearchConditionRequest =()=>{
          */
         searchChannels: [],
         //ai 推荐
-        criteria:null
+        criteria:null,
+        // BOSS 筛选条件（仅 BOSS 渠道使用，原始整数编码）
+        activeness: 0,
+        viewResume: 0,
+        exchangeResume: 0
     }
 }
 
@@ -181,6 +187,7 @@ export const convertSearchConditionRequest = (obj) => {
     searchConditionRequest.major = obj.professionInpValue;
     searchConditionRequest.searchChannels = [];
     searchConditionRequest.criteria = obj.criteria;
+    Object.assign(searchConditionRequest, normalizeBossFilters(obj));
     searchConditionRequest.userId =obj.userId
     return searchConditionRequest;
 }

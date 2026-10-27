@@ -194,11 +194,21 @@ const ihrBridge = {
   batchGetPositionDetailByIds: (ids: string[]): Promise<IhrApiResult> =>
     ipcRenderer.invoke('ihrBridge:batchGetPositionDetailByIds', ids),
 
-  assignPositions: (req: Record<string, unknown>): Promise<IhrApiResult> =>
-    ipcRenderer.invoke('ihrBridge:assignPositions', req),
+  assignPositions: (req: Record<string, unknown>): Promise<IhrApiResult> => {
+    console.info('[IHR Action][preload] assignPositions:invoke', req)
+    return ipcRenderer.invoke('ihrBridge:assignPositions', req).then((result) => {
+      console.info('[IHR Action][preload] assignPositions:returned', result)
+      return result as IhrApiResult
+    })
+  },
 
-  addPools: (req: Record<string, unknown>): Promise<IhrApiResult> =>
-    ipcRenderer.invoke('ihrBridge:addPools', req),
+  addPools: (req: Record<string, unknown>): Promise<IhrApiResult> => {
+    console.info('[IHR Action][preload] addPools:invoke', req)
+    return ipcRenderer.invoke('ihrBridge:addPools', req).then((result) => {
+      console.info('[IHR Action][preload] addPools:returned', result)
+      return result as IhrApiResult
+    })
+  },
 
   /**
    * 简历文件上传：通过 ArrayBuffer + 元数据 IPC 序列化到主进程
@@ -513,6 +523,38 @@ const automation = {
     logs: string[]
   }> => ipcRenderer.invoke('automation:clickOnTab', opts),
 
+  mouseWheel: (opts: {
+    tabId: string
+    x: number
+    y: number
+    deltaX?: number
+    deltaY: number
+  }): Promise<{
+    ok: boolean
+    data?: {
+      x: number
+      y: number
+      deltaX: number
+      deltaY: number
+      eventCount: number
+    }
+    error?: { code: string; message: string }
+  }> => ipcRenderer.invoke('automation:mouseWheel', opts),
+
+  /**
+   * 长截图使用的受限 CDP 通道：目标招聘站 tab 的原生滚轮。
+   * 具体允许的方法由主进程校验。
+   */
+  sendCdp: (opts: {
+    tabId: string
+    method: 'Input.dispatchMouseEvent' | 'Page.captureScreenshot'
+    params?: Record<string, unknown>
+  }): Promise<{
+    ok: boolean
+    result?: unknown
+    error?: { code: string; message: string }
+  }> => ipcRenderer.invoke('automation:sendCdp', opts),
+
   /**
    * 在指定 tab 的 page 上下文执行任意 JS（safe primitive，零风控风险）。
    *
@@ -520,8 +562,8 @@ const automation = {
    * 不会暴露 navigator.webdriver / DevTools attach 痕迹。
    *
    * 用途：
-   *   - 拟人化滚动 / 滚到目标位置（scroll 事件 isTrusted=true，BOSS lazy load 会响应）
    *   - 读 DOM 数据（querySelector / getBoundingClientRect 等）
+   *   - 调整截图前的布局约束并等待页面内容出现
    *   - 等元素出现（MutationObserver / 轮询）
    *   - 注入引导浮层（独立 DOM，不污染原页面 state）
    *
@@ -542,6 +584,29 @@ const automation = {
     result?: unknown
     error?: { code: string; message: string }
   }> => ipcRenderer.invoke('automation:evalOnTab', opts),
+
+  /**
+   * 截取指定 tab 的可见区域（返回 PNG base64）。
+   *
+   * 用于 BOSS 推荐详情接口不可用后，打开候选人详情面板截图，
+   * 再把图片上传 resume/upload 交给后端解析评分。
+   * rect 为 CSS 像素；省略时截整个可见页面。
+   */
+  captureTab: (opts: {
+    tabId: string
+    rect?: { x: number; y: number; width: number; height: number }
+  }): Promise<{
+    ok: boolean
+    data?: {
+      base64: string
+      width: number
+      height: number
+      bytes: number
+      foundRect: { x: number; y: number; width: number; height: number } | null
+      captureMode: 'capturePage' | 'frameSubscription'
+    }
+    error?: { code: string; message: string }
+  }> => ipcRenderer.invoke('automation:captureTab', opts),
 
   captureViaNewTab: (req: {
     channel: string
@@ -623,6 +688,10 @@ const browserBridge = {
  *   })
  *   if (r.ok) { const body = r.data.bodyJson }
  */
+ipcRenderer.on('siteNetwork:bossResumeTrace', (_event, entry) => {
+  console.log(`[任务流程] [网络监听] ${entry.stage}`, entry)
+})
+
 const siteNetwork = {
   /**
    * 等下一条匹配的响应。先扫缓存命中即返回；没命中挂等到 timeoutMs。

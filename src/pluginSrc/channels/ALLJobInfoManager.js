@@ -20,7 +20,7 @@ export const allChannelSearchList = async (page = 1, filterByRead, searchConditi
     pageSearchRequest.chatId = chatId;
     responseJobListData = await allJobList(pageSearchRequest);
   }catch (e){
-    console.log(e);
+    console.log("[任务流程]", e);
     return;
   }
   channelSearchConfig.channelPage = responseJobListData.data.offset;

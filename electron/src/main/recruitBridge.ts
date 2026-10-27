@@ -500,7 +500,7 @@ async function universalRequest(args: UniversalRequestArgs): Promise<UniversalRe
         try {
           return await fetchInsideWebContents(wc, { url, method, headers: finalHeaders, body })
         } catch (err) {
-          console.warn('[recruitBridge] fetch in tab failed, fallback ses.fetch', err)
+          console.warn('[任务流程] [recruitBridge] fetch in tab failed, fallback ses.fetch', err)
         }
       }
     }
@@ -548,7 +548,7 @@ async function fetchViaSession(
     return { success: resp.ok, status: resp.status, data }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('[recruitBridge] fetchViaSession error', message)
+    console.error('[任务流程] [recruitBridge] fetchViaSession error', message)
     return { success: false, message }
   }
 }
@@ -630,9 +630,10 @@ export function registerRecruitBridgeIpc(): void {
 
   // universalRequest
   ipcMain.handle('recruit:universalRequest', async (_e, req: UniversalRequestArgs) => {
-    console.log(`[recruitBridge] universalRequest ${req.method ?? 'POST'} ${req.url}`)
+    console.log(`[任务流程] [recruitBridge] universalRequest ${req.method ?? 'POST'} ${req.url}`)
     const result = await universalRequest(req)
     console.log(
+      '[任务流程]',
       `[recruitBridge] universalRequest result success=${result.success} status=${result.status ?? 'n/a'}` +
         (result.message ? ` message=${result.message}` : '')
     )

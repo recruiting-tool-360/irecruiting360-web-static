@@ -67,18 +67,18 @@ async function fetchScoresWithFallback(blindIds, channelKey, searchId) {
   // 3) 任务级查分（taskResumeIds 非空时优先走）
   if (taskResumeIds.length > 0 && taskApi?.postTaskScoreList) {
     try {
-      console.log(`[scoreAutoUpdater] 用任务级查分 taskResumeIds=${taskResumeIds.length}/${blindIds.length}`);
+      console.log(`[任务流程] [scoreAutoUpdater] 用任务级查分 taskResumeIds=${taskResumeIds.length}/${blindIds.length}`);
       const resp = await taskApi.postTaskScoreList(taskResumeIds);
       const data = resp?.data;
       if (Array.isArray(data)) {
         return data;
       }
     } catch (e) {
-      console.warn('[scoreAutoUpdater] postTaskScoreList 失败，降级到老接口:', e?.message || e);
+      console.warn('[任务流程] [scoreAutoUpdater] postTaskScoreList 失败，降级到老接口:', e?.message || e);
     }
   } else {
     console.log(
-      `[scoreAutoUpdater] taskResumeIds 不足（${taskResumeIds.length}/${blindIds.length}），走老接口 queryScoreList`
+      `[任务流程] [scoreAutoUpdater] taskResumeIds 不足（${taskResumeIds.length}/${blindIds.length}），走老接口 queryScoreList`
     );
   }
 
@@ -91,7 +91,7 @@ async function fetchScoresWithFallback(blindIds, channelKey, searchId) {
     });
     return Array.isArray(data) ? data : null;
   } catch (e) {
-    console.warn('[scoreAutoUpdater] queryScoreList 也失败:', e?.message || e);
+    console.warn('[任务流程] [scoreAutoUpdater] queryScoreList 也失败:', e?.message || e);
     return null;
   }
 }
@@ -137,7 +137,7 @@ class ScoreAutoUpdater {
    */
   start(resumeList, channelKey, searchId, updateCallback, chatId) {
     if (!resumeList || !channelKey || !searchId || !updateCallback) {
-      console.error('缺少必要参数，无法启动分数自动更新', {
+      console.error('[任务流程] 缺少必要参数，无法启动分数自动更新', {
         resumeList: !!resumeList,
         channelKey,
         searchId,
@@ -162,20 +162,20 @@ class ScoreAutoUpdater {
     this.updateCallback = updateCallback;
     this.onWaitingCallback = null; // 每次 start 重置，由外部在 start 后单独设置
 
-    console.log('准备收集需要查询分数的简历', resumeList.length);
+    console.log('[任务流程] 准备收集需要查询分数的简历', resumeList.length);
 
     // 筛选出没有分数的简历ID
     this.collectResumesWithoutScore(resumeList);
 
     // 如果没有需要查询的ID，直接返回
     if (this.pendingResumeIds.size === 0) {
-      console.log('所有简历都已有分数，无需启动自动更新');
+      console.log('[任务流程] 所有简历都已有分数，无需启动自动更新');
       return false;
     }
 
     // 启动定时器
     this.startTimer();
-    console.log(`已启动分数自动更新，待查询${this.pendingResumeIds.size}条简历`, Array.from(this.pendingResumeIds));
+    console.log(`[任务流程] 已启动分数自动更新，待查询${this.pendingResumeIds.size}条简历`, Array.from(this.pendingResumeIds));
     return true;
   }
 
@@ -186,7 +186,7 @@ class ScoreAutoUpdater {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
-      console.log('已清除定时器');
+      console.log('[任务流程] 已清除定时器');
     }
     // 推到 store：active = (timer 在跑 && 还有 pending)；这里 timer 刚清，active=false
     pushAiScoringStateToStore(false, this.pendingResumeIds.size, this.chatId);
@@ -210,7 +210,7 @@ class ScoreAutoUpdater {
     this.updateCallback = null;
 
     pushAiScoringStateToStore(false, 0);
-    console.log('分数自动更新器已完全重置');
+    console.log('[任务流程] 分数自动更新器已完全重置');
   }
 
   /**
@@ -218,7 +218,7 @@ class ScoreAutoUpdater {
    * @param {Array} resumeList 简历列表
    */
   collectResumesWithoutScore(resumeList) {
-    console.log('开始收集无分数简历ID，列表长度:', resumeList.length);
+    console.log('[任务流程] 开始收集无分数简历ID，列表长度:', resumeList.length);
 
     // 添加遍历记录，记录每个简历的ID和分数状态
     let withScoreCount = 0;
@@ -227,7 +227,7 @@ class ScoreAutoUpdater {
     resumeList.forEach(resume => {
       // 确保简历对象有效
       if (!resume || typeof resume !== 'object') {
-        console.warn('无效的简历对象:', resume);
+        console.warn('[任务流程] 无效的简历对象:', resume);
         return;
       }
 
@@ -244,7 +244,7 @@ class ScoreAutoUpdater {
           withoutScoreCount++;
           // console.log(`添加到待查询列表: ${resume.id}`);
         } else {
-          console.warn('简历缺少ID:', resume);
+          console.warn('[任务流程] 简历缺少ID:', resume);
         }
       } else {
         // score >= 0 或 score === -2 的情况，都视为已有有效分数
@@ -252,7 +252,7 @@ class ScoreAutoUpdater {
       }
     });
 
-    console.log(`简历分析完成: 有分数=${withScoreCount}, 无分数=${withoutScoreCount}, 待查询IDs=${Array.from(this.pendingResumeIds)}`);
+    console.log(`[任务流程] 简历分析完成: 有分数=${withScoreCount}, 无分数=${withoutScoreCount}, 待查询IDs=${Array.from(this.pendingResumeIds)}`);
     return withoutScoreCount;
   }
 
@@ -265,11 +265,11 @@ class ScoreAutoUpdater {
 
     // 检查是否有待查询的ID
     if (this.pendingResumeIds.size === 0) {
-      console.log('没有需要查询的简历ID，不启动定时器');
+      console.log('[任务流程] 没有需要查询的简历ID，不启动定时器');
       return;
     }
 
-    console.log(`启动定时器前检查: 待查询ID数量=${this.pendingResumeIds.size}`);
+    console.log(`[任务流程] 启动定时器前检查: 待查询ID数量=${this.pendingResumeIds.size}`);
 
     // 立即执行一次查询
     this.queryScores();
@@ -279,7 +279,7 @@ class ScoreAutoUpdater {
       this.queryScores();
     }, this.interval);
 
-    console.log('定时器已启动');
+    console.log('[任务流程] 定时器已启动');
     // active=true：定时器已启动 + 有 pending；chatId 让 store 记录"这一路 AI 是为谁跑"
     pushAiScoringStateToStore(true, this.pendingResumeIds.size, this.chatId);
   }
@@ -290,7 +290,7 @@ class ScoreAutoUpdater {
   async queryScores() {
     // 检查是否有待查询ID
     if (this.pendingResumeIds.size === 0) {
-      console.log('没有需要查询的简历ID，停止查询');
+      console.log('[任务流程] 没有需要查询的简历ID，停止查询');
       this.clearTimer(); // 只清除定时器，不清空数据
       return;
     }
@@ -299,7 +299,7 @@ class ScoreAutoUpdater {
 
     // 如果超过最大重试次数，将不再查询未获取到分数的简历
     if (this.retryCount > this.maxRetries) {
-      console.log(`已达到最大查询次数(${this.maxRetries})，停止查询`);
+      console.log(`[任务流程] 已达到最大查询次数(${this.maxRetries})，停止查询`);
       this.clearTimer(); // 只清除定时器，不清空数据
       return;
     }
@@ -308,7 +308,7 @@ class ScoreAutoUpdater {
       // 转换Set为数组
       const ids = Array.from(this.pendingResumeIds);
 
-      console.log(`正在进行第${this.retryCount}次查询，查询${ids.length}条简历分数`);
+      console.log(`[任务流程] 正在进行第${this.retryCount}次查询，查询${ids.length}条简历分数`);
 
       // === 升级路径：任务级查分 ===
       //
@@ -322,7 +322,7 @@ class ScoreAutoUpdater {
       //
       // 详细决策见 docs/11-task-channel-execute-and-detail.md §0.2。
       const data = await fetchScoresWithFallback(ids, this.channelKey, this.searchId);
-      console.log('API返回结果:', data);
+      console.log('[任务流程] API返回结果:', data);
 
       // 处理返回的分数
       if (data && Array.isArray(data) && data.length > 0) {
@@ -344,7 +344,7 @@ class ScoreAutoUpdater {
           if (item.resumeBlindId && isTerminal) {
             updatedIds.add(item.resumeBlindId);
             console.log(
-              `获取到分数: ID=${item.resumeBlindId}, 分数=${item.score}${item.scoreStatus ? `, status=${item.scoreStatus}` : ''}`
+              `[任务流程] 获取到分数: ID=${item.resumeBlindId}, 分数=${item.score}${item.scoreStatus ? `, status=${item.scoreStatus}` : ''}`
             );
           }
         });
@@ -359,7 +359,7 @@ class ScoreAutoUpdater {
           this.updateCallback(data);
         }
 
-        console.log(`本次查询成功获取${updatedIds.size}条分数，还有${this.pendingResumeIds.size}条待查询`);
+        console.log(`[任务流程] 本次查询成功获取${updatedIds.size}条分数，还有${this.pendingResumeIds.size}条待查询`);
 
         // ===== WAITING 重提交：第一次查到 scoreStatus=WAITING 时通知外部重提交 detail =====
         //
@@ -371,7 +371,7 @@ class ScoreAutoUpdater {
             .filter((item) => item.scoreStatus === 'WAITING' && item.resumeBlindId && item.taskResumeId)
             .map((item) => ({ resumeBlindId: item.resumeBlindId, taskResumeId: item.taskResumeId }));
           if (waitingItems.length > 0) {
-            console.log(`[scoreAutoUpdater] 检测到 ${waitingItems.length} 条 WAITING，触发 onWaitingCallback 重提交 detail`);
+            console.log(`[任务流程] [scoreAutoUpdater] 检测到 ${waitingItems.length} 条 WAITING，触发 onWaitingCallback 重提交 detail`);
             try { this.onWaitingCallback(waitingItems); } catch (_e) { /* ignore */ }
           }
         }
@@ -384,7 +384,7 @@ class ScoreAutoUpdater {
           const MAX_NO_PROGRESS = 15; // 15 × 8s ≈ 120s，连续 2 分钟无进展即停止
           if (this.noProgressCount >= MAX_NO_PROGRESS) {
             console.warn(
-              `[scoreAutoUpdater] 连续 ${MAX_NO_PROGRESS} 次无进展，疑似 AI 分析已中断，停止轮询`,
+              `[任务流程] [scoreAutoUpdater] 连续 ${MAX_NO_PROGRESS} 次无进展，疑似 AI 分析已中断，停止轮询`,
               '剩余待查:', this.pendingResumeIds.size
             );
             this.clearTimer();
@@ -403,14 +403,14 @@ class ScoreAutoUpdater {
 
         // 如果所有ID都已获取分数，停止定时器
         if (this.pendingResumeIds.size === 0) {
-          console.log('所有简历都已获取到分数或确认无法获取渠道信息，停止查询');
+          console.log('[任务流程] 所有简历都已获取到分数或确认无法获取渠道信息，停止查询');
           this.clearTimer(); // 只清除定时器，不清空数据
         }
       } else {
-        console.log('本次查询未获取到新分数');
+        console.log('[任务流程] 本次查询未获取到新分数');
       }
     } catch (error) {
-      console.error('查询分数时出错:', error);
+      console.error('[任务流程] 查询分数时出错:', error);
     }
   }
 
@@ -420,21 +420,21 @@ class ScoreAutoUpdater {
    */
   updateResumeList(newResumeList) {
     if (!newResumeList || !Array.isArray(newResumeList)) {
-      console.warn('无效的简历列表传入updateResumeList:', newResumeList);
+      console.warn('[任务流程] 无效的简历列表传入updateResumeList:', newResumeList);
       return;
     }
 
-    console.log(`更新简历列表: 新列表长度=${newResumeList.length}, 当前待查询=${this.pendingResumeIds.size}`);
+    console.log(`[任务流程] 更新简历列表: 新列表长度=${newResumeList.length}, 当前待查询=${this.pendingResumeIds.size}`);
 
     // 收集新的无分数简历ID
     const newIdsCount = this.collectResumesWithoutScore(newResumeList);
 
     // 如果定时器已停止且有新的简历需要查询，则重新启动
     if (!this.timer && this.pendingResumeIds.size > 0) {
-      console.log(`发现${this.pendingResumeIds.size}条新简历需要查询分数，重新启动查询`);
+      console.log(`[任务流程] 发现${this.pendingResumeIds.size}条新简历需要查询分数，重新启动查询`);
       this.startTimer();
     } else {
-      console.log(`当前定时器状态: ${this.timer ? '运行中' : '已停止'}, 待查询简历数: ${this.pendingResumeIds.size}`);
+      console.log(`[任务流程] 当前定时器状态: ${this.timer ? '运行中' : '已停止'}, 待查询简历数: ${this.pendingResumeIds.size}`);
     }
   }
 }

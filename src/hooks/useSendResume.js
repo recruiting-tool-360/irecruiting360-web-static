@@ -137,6 +137,10 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
     "前程无忧": "前程无忧",
     "智联招聘": "智联招聘",
   }
+
+  const logIhrAction = (stage, details = {}) => {
+    console.info(`[IHR Action][useSendResume] ${stage}`, details);
+  };
   
   /**
    * 发送简历信息到父页面
@@ -146,7 +150,16 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
    */
   const sendResume = async (res, extraParams = {}) => {
     const iframeMessenger = proxy?.$iframeMessenger;
+    logIhrAction("prepare:start", {
+      messageType,
+      action: extraParams.action || "",
+      sourceCount: Object.keys(res || {}).length,
+      positionId: extraParams.positionId || unref(getLatestPositionId) || "",
+      directFileId: extraParams.directFileId === true,
+      talentPoolIds: extraParams.talentPoolIds || []
+    });
     if (!iframeMessenger) {
+      logIhrAction("prepare:error", { reason: "iframeMessenger 未初始化" });
       throw new Error('iframeMessenger 未初始化');
     }
     console.log(res, "result-1");
@@ -156,7 +169,18 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
     if(Object.entries(res).length > 0) {
       // 遍历 res 对象
       for (const [id, obj] of Object.entries(res)) {
-        const { base64, htmlContent, fileType, channel, name, gender, ...args } = obj
+        const { base64, htmlContent, fileId, fileType, channel, name, gender, ...args } = obj
+
+        if (fileId) {
+          results.push({
+            id,
+            fileId,
+            channel: channelsEnum[channel] || channel,
+            link: obj.link || obj.url || obj.originalResumeUrlInfo?.url || '',
+            type: obj.type || 'normal'
+          });
+          continue;
+        }
         
         let file;
         const baseFileName = `${channel}-${formatName({ name, gender })}`;
@@ -208,7 +232,97 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
     };
 
     console.log('发送简历数据:', payload);
-    return iframeMessenger.post(messageType, payload);
+    logIhrAction("transport:post", {
+      messageType,
+      action: payload.action || "",
+      resumeCount: payload.resumeFile.length,
+      positionId: payload.positionId || "",
+      directFileId: payload.directFileId === true,
+      talentPoolIds: payload.talentPoolIds || [],
+      resumeItems: payload.resumeFile.map((item) => ({
+        id: item.id,
+        channel: item.channel,
+        hasFile: !!item.file,
+        hasFileId: !!item.fileId,
+        type: item.type || "normal"
+      }))
+    });
+    try {
+      const response = await iframeMessenger.post(messageType, payload);
+      logIhrAction("transport:response", {
+        action: payload.action || "",
+        hasResponse: !!response,
+        success: response?.data?.success ?? response?.success,
+        code: response?.data?.code ?? response?.code,
+        errorCode: response?.data?.errorCode ?? response?.errorCode,
+        message: response?.data?.message ?? response?.message
+      });
+      return response;
+    } catch (error) {
+      logIhrAction("transport:error", {
+        action: payload.action || "",
+        message: error?.message || String(error)
+      });
+      throw error;
+    }
+  };
+
+  const sendDirectResume = async (resumes, extraParams = {}) => {
+    const list = Array.isArray(resumes) ? resumes : [resumes];
+    logIhrAction("direct:start", {
+      action: extraParams.action || "",
+      count: list.length,
+      positionId: extraParams.positionId || unref(getLatestPositionId) || "",
+      talentPoolIds: extraParams.talentPoolIds || []
+    });
+    const resumeMap = {};
+    for (const resume of list) {
+      const id = resume?.id || resume?.resumeBlindId || resume?.taskResumeId;
+      const fileId =
+        resume?.fileId ||
+        resume?.resumeFileId ||
+        resume?.resumeFile?.fileId ||
+        resume?.resumeInfo?.fileId;
+      if (!id || !fileId) {
+        logIhrAction("direct:invalid-resume", {
+          action: extraParams.action || "",
+          resumeId: id || "",
+          channel: resume?.channel || "",
+          hasFileId: !!fileId
+        });
+        throw new Error(`候选人缺少 id 或 fileId：${id || 'unknown'}`);
+      }
+      let link = resume.link || resume.url || resume.originalResumeUrlInfo?.url || '';
+      if (!link) {
+        try {
+          link = getChannelUrl(resume) || '';
+        } catch {
+          link = '';
+        }
+      }
+      resumeMap[id] = {
+        fileId,
+        channel: resume.channel,
+        link,
+        type: resume.type || 'normal'
+      };
+      logIhrAction("direct:resume", {
+        action: extraParams.action || "",
+        resumeId: id,
+        fileId,
+        channel: resume.channel,
+        type: resume.type || 'normal',
+        hasLink: !!link
+      });
+    }
+    logIhrAction("direct:ready", {
+      action: extraParams.action || "",
+      preparedCount: Object.keys(resumeMap).length
+    });
+    return sendResume(resumeMap, {
+      ...extraParams,
+      directFileId: true
+    });
   };
 
 
@@ -299,5 +413,5 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
     }
   }
 
-  return { sendResume, handleResume };
+  return { sendResume, sendDirectResume, handleResume };
 }

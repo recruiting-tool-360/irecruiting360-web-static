@@ -451,6 +451,36 @@ export interface AutomationBridge {
     logs: string[]
   }>
 
+  /** 通过 Chromium 原生输入链发送鼠标移动和滚轮事件。 */
+  mouseWheel(opts: {
+    tabId: string
+    x: number
+    y: number
+    deltaX?: number
+    deltaY: number
+  }): Promise<{
+    ok: boolean
+    data?: {
+      x: number
+      y: number
+      deltaX: number
+      deltaY: number
+      eventCount: number
+    }
+    error?: { code: string; message: string }
+  }>
+
+  /** 长截图使用的受限 CDP 通道（输入事件）。 */
+  sendCdp(opts: {
+    tabId: string
+    method: 'Input.dispatchMouseEvent' | 'Page.captureScreenshot'
+    params?: Record<string, unknown>
+  }): Promise<{
+    ok: boolean
+    result?: unknown
+    error?: { code: string; message: string }
+  }>
+
   /**
    * 在 tab 的 page 上下文跑任意 JS（webContents.executeJavaScript），不连 CDP。
    * 详见 main 进程 IPC handler `automation:evalOnTab` 头注释。
@@ -458,6 +488,26 @@ export interface AutomationBridge {
   evalOnTab(opts: { tabId: string; code: string; awaitPromise?: boolean }): Promise<{
     ok: boolean
     result?: unknown
+    error?: { code: string; message: string }
+  }>
+
+  /**
+   * 截取指定 tab 的可见区域（PNG base64）。
+   * rect 为 CSS 像素，省略时截整个可见页面；详见 main 进程 `automation:captureTab`。
+   */
+  captureTab(opts: {
+    tabId: string
+    rect?: { x: number; y: number; width: number; height: number }
+  }): Promise<{
+    ok: boolean
+    data?: {
+      base64: string
+      width: number
+      height: number
+      bytes: number
+      foundRect: { x: number; y: number; width: number; height: number } | null
+      captureMode: 'capturePage' | 'frameSubscription'
+    }
     error?: { code: string; message: string }
   }>
 }

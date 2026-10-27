@@ -51,7 +51,7 @@ export async function runActionList(actionList, context) {
   const actionLogs = [];
   const list = Array.isArray(actionList) ? actionList : [];
   console.log(
-    `[searchTaskRunner] runActionList: ${list.length} actions, channel=${context?.channelSubType} business=${context?.businessChannel} taskChannelId=${context?.taskChannelId}`
+    `[任务流程] [searchTaskRunner] runActionList: ${list.length} actions, channel=${context?.channelSubType} business=${context?.businessChannel} taskChannelId=${context?.taskChannelId}`
   );
 
   // 1) 判定是否含"搜索 / 推荐"类动作
@@ -134,7 +134,7 @@ async function runRealSearchOnce(context) {
     recommend: businessChannel === 'RECOMMEND'
   };
   console.log(
-    `[searchTaskRunner] runRealSearchOnce → executor(chatId=${chatId}, modules=${JSON.stringify(selectedModules)})`
+    `[任务流程] [searchTaskRunner] runRealSearchOnce → executor(chatId=${chatId}, modules=${JSON.stringify(selectedModules)})`
   );
   try {
     const res = await executor({
@@ -145,7 +145,7 @@ async function runRealSearchOnce(context) {
       resumeCount: null
     });
     const status = res?.status || 'SUCCESS';
-    console.log(`[searchTaskRunner] runRealSearchOnce 完成: status=${status}`);
+    console.log(`[任务流程] [searchTaskRunner] runRealSearchOnce 完成: status=${status}`);
     return {
       actionCode: 'AGGREGATE_SEARCH',
       status: status === 'SUCCESS' || status === 'SKIPPED' ? 'SUCCESS' : 'FAILED',
@@ -172,11 +172,11 @@ async function runSingleActionStub(action) {
   const startedAt = Date.now();
   const actionCode = action?.actionCode || 'UNKNOWN';
   console.log(
-    `[searchTaskRunner]   ▶ ${actionCode} (stub)`,
+    `[任务流程] [searchTaskRunner]   ▶ ${actionCode} (stub)`,
     action?.params ? { params: action.params } : ''
   );
   await new Promise((r) => setTimeout(r, 100));
-  console.log(`[searchTaskRunner]   ✓ ${actionCode} stubbed-SUCCESS`);
+  console.log(`[任务流程] [searchTaskRunner]   ✓ ${actionCode} stubbed-SUCCESS`);
   return {
     actionCode,
     status: 'SUCCESS',

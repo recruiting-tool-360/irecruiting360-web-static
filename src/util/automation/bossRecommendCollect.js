@@ -307,7 +307,10 @@ function createEntitlementRequiredError() {
 }
 
 /** 等待详情状态时同步检测升级权益弹窗，命中后立即中断，不再等待详情超时。 */
-async function waitForDetailState(tabId, { timeoutMs = 0, expectCollected = null } = {}) {
+async function waitForDetailState(
+  tabId,
+  { timeoutMs = 0, expectCollected = null, requireCollectButton = true } = {}
+) {
   const startedAt = Date.now();
   let last = null;
   do {
@@ -316,7 +319,7 @@ async function waitForDetailState(tabId, { timeoutMs = 0, expectCollected = null
 
     last = await readDetailState(tabId, { timeoutMs: 0, expectCollected });
     const stateMatched =
-      last?.ready &&
+      (requireCollectButton ? last?.ready : last?.detailOpen) &&
       (expectCollected === null || last.collected === expectCollected);
     if (stateMatched) return { ...last, timedOut: false };
     if (Date.now() - startedAt >= timeoutMs) break;
@@ -358,11 +361,236 @@ async function closeDetailIfOpen(tabId) {
   throw lastError || new Error("DETAIL_CLOSE_FAILED");
 }
 
+/**
+ * 打开某个推荐候选人的详情面板（不收藏）。
+ *
+ * 画像评分链路需要在「收藏」之前拿到完整简历，这里复用推荐的卡片点击 + 详情等待逻辑。
+ * 调用方负责在 finally 里调 closeBossRecommendDetail 关闭面板。
+ */
+export async function openBossRecommendDetail(tabId, geek) {
+  const geekId = getGeekId(geek);
+  if (!tabId || !geekId) {
+    throw new Error("openBossRecommendDetail: tabId & geekId required");
+  }
+  await closeDetailIfOpen(tabId);
+
+  const scrollResult = await evalOnTab(tabId, buildScrollCardScript(geekId), true);
+  if (!scrollResult?.ok) throw new Error(`CARD_NOT_FOUND geekId=${geekId}`);
+
+  await sleep(randomBetween(250, 600));
+  await clickOnTab(
+    tabId,
+    buildCardSelector(scrollResult.domGeekId || geekId),
+    randomBetween(55, 100)
+  );
+
+  const state = await waitForDetailState(tabId, {
+    timeoutMs: DETAIL_OPEN_TIMEOUT_MS,
+    requireCollectButton: false,
+  });
+  if (state?.timedOut || !state?.detailOpen) {
+    throw new Error(`DETAIL_OPEN_TIMEOUT geekId=${geekId}`);
+  }
+  return state;
+}
+
+/** 关闭当前打开的推荐详情面板（幂等）。 */
+export async function closeBossRecommendDetail(tabId) {
+  if (!tabId) return { closed: true, wasOpen: false };
+  return closeDetailIfOpen(tabId);
+}
+
+/**
+ * 读取当前详情面板的 HTML（接口抓不到时的兜底）。
+ *
+ * 只取可见的 .lib-standard-resume.with-right-side 根节点 outerHTML，
+ * 调用方负责清掉 script / inline handler 再上传。
+ */
+export async function readBossRecommendDetailHtml(tabId, timeoutMs = 5000) {
+  if (!tabId) return { ok: false, code: "BAD_REQUEST" };
+  const script = `
+(async function readBossRecommendDetailHtml() {
+  var startedAt = Date.now();
+  var timeoutMs = ${Math.max(0, Number(timeoutMs) || 0)};
+  function visible(el) {
+    if (!el) return false;
+    var rect = el.getBoundingClientRect();
+    var win = el.ownerDocument.defaultView || window;
+    var style = win.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  }
+  function documents() {
+    var out = [{ doc: document, label: 'mainFrame' }];
+    var iframes = document.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      try {
+        if (iframes[i].contentDocument) {
+          out.push({ doc: iframes[i].contentDocument, label: iframes[i].src || ('iframe[' + i + ']') });
+        }
+      } catch (e) {}
+    }
+    return out;
+  }
+  function findRoot() {
+    var docs = documents();
+    for (var di = 0; di < docs.length; di++) {
+      var roots = docs[di].doc.querySelectorAll(${JSON.stringify(DETAIL_SELECTOR)});
+      for (var ri = 0; ri < roots.length; ri++) {
+        if (visible(roots[ri])) return { root: roots[ri], label: docs[di].label };
+      }
+    }
+    return null;
+  }
+  var found = findRoot();
+  while (!found && Date.now() - startedAt < timeoutMs) {
+    await new Promise(function(resolve) { setTimeout(resolve, 150); });
+    found = findRoot();
+  }
+  if (!found) return { ok: false, code: 'DETAIL_NOT_OPEN', elapsedMs: Date.now() - startedAt };
+  var text = String(found.root.innerText || found.root.textContent || '');
+  var waited = 0;
+  while (text.length < 50 && waited < Math.min(2000, timeoutMs)) {
+    await new Promise(function(resolve) { setTimeout(resolve, 150); });
+    waited += 150;
+    text = String(found.root.innerText || found.root.textContent || '');
+  }
+  return {
+    ok: true,
+    html: found.root.outerHTML,
+    textLength: text.length,
+    foundIn: found.label,
+    elapsedMs: Date.now() - startedAt
+  };
+})();
+`;
+  return evalOnTab(tabId, script, true);
+}
+
+/**
+ * 读取当前详情面板在「顶层页面」坐标系里的可见区域，供 main 进程 capturePage 截图。
+ *
+ * BOSS 详情既可能在主文档，也可能在同源 iframe 内；iframe 场景要把 iframe
+ * 自身的偏移叠加进去，否则截图会截到列表区域。
+ * 返回值已裁剪到 viewport 内；详情未就绪时抛出错误。
+ */
+export async function readBossRecommendDetailRect(tabId, timeoutMs = 3000) {
+  if (!tabId) throw new Error("DETAIL_TAB_REQUIRED");
+  const script = `
+(async function measureBossRecommendDetailRect() {
+  var startedAt = Date.now();
+  var timeoutMs = ${Math.max(0, Number(timeoutMs) || 0)};
+  var DETAIL_SELECTOR = ".lib-standard-resume.with-right-side";
+  function visible(el) {
+    if (!el) return false;
+    var rect = el.getBoundingClientRect();
+    var win = el.ownerDocument.defaultView || window;
+    var style = win.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0;
+  }
+  function findIn(doc) {
+    var roots = doc.querySelectorAll(DETAIL_SELECTOR);
+    for (var i = 0; i < roots.length; i++) {
+      if (visible(roots[i])) return roots[i];
+    }
+    return null;
+  }
+  function findRoot() {
+    var root = findIn(document);
+    if (root) return { root: root, foundIn: 'mainFrame' };
+    var iframes = document.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      var frame = iframes[i];
+      var doc = null;
+      try { doc = frame.contentDocument; } catch (e) { continue; }
+      if (!doc) continue;
+      var inner = findIn(doc);
+      if (!inner) continue;
+      var fr = frame.getBoundingClientRect();
+      return {
+        root: inner,
+        frame: frame,
+        foundIn: frame.src || ('iframe[' + i + ']'),
+        frameOffset: {
+          x: fr.left + (frame.clientLeft || 0),
+          y: fr.top + (frame.clientTop || 0)
+        }
+      };
+    }
+    return null;
+  }
+  var found = findRoot();
+  while (!found && Date.now() - startedAt < timeoutMs) {
+    await new Promise(function(resolve) { setTimeout(resolve, 150); });
+    found = findRoot();
+  }
+  if (!found) return { ok: false, code: 'DETAIL_NOT_FOUND' };
+  var text = String(found.root.innerText || found.root.textContent || '').trim();
+  var stableReads = 0;
+  while (Date.now() - startedAt < timeoutMs) {
+    await new Promise(function(resolve) { setTimeout(resolve, 150); });
+    var nextText = String(found.root.innerText || found.root.textContent || '').trim();
+    stableReads = nextText.length >= 50 && nextText === text ? stableReads + 1 : 0;
+    text = nextText;
+    if (stableReads >= 2) break;
+  }
+  if (stableReads < 2) return { ok: false, code: 'DETAIL_CONTENT_NOT_READY' };
+  if (!found.root.isConnected || !visible(found.root)) {
+    return { ok: false, code: 'DETAIL_CLOSED' };
+  }
+  var rect = found.root.getBoundingClientRect();
+  var offset = found.frameOffset || { x: 0, y: 0 };
+  var left = offset.x + rect.left;
+  var top = offset.y + rect.top;
+  var vw = window.innerWidth || document.documentElement.clientWidth;
+  var vh = window.innerHeight || document.documentElement.clientHeight;
+  var x = Math.max(0, Math.floor(left));
+  var y = Math.max(0, Math.floor(top));
+  var right = Math.min(vw, Math.ceil(left + rect.width));
+  var bottom = Math.min(vh, Math.ceil(top + rect.height));
+  var ancestor = found.root.parentElement;
+  var win = found.root.ownerDocument.defaultView || window;
+  while (ancestor) {
+    var style = win.getComputedStyle(ancestor);
+    var bounds = ancestor.getBoundingClientRect();
+    if (/auto|scroll|hidden|clip/.test(style.overflowX)) {
+      x = Math.max(x, Math.ceil(offset.x + bounds.left + ancestor.clientLeft));
+      right = Math.min(right, Math.floor(offset.x + bounds.left + ancestor.clientLeft + ancestor.clientWidth));
+    }
+    if (/auto|scroll|hidden|clip/.test(style.overflowY)) {
+      y = Math.max(y, Math.ceil(offset.y + bounds.top + ancestor.clientTop));
+      bottom = Math.min(bottom, Math.floor(offset.y + bounds.top + ancestor.clientTop + ancestor.clientHeight));
+    }
+    ancestor = ancestor.parentElement;
+  }
+  if (found.frame) {
+    x = Math.max(x, Math.ceil(offset.x));
+    y = Math.max(y, Math.ceil(offset.y));
+    right = Math.min(right, Math.floor(offset.x + found.frame.clientWidth));
+    bottom = Math.min(bottom, Math.floor(offset.y + found.frame.clientHeight));
+  }
+  if (right - x < 20 || bottom - y < 20) {
+    return { ok: false, code: 'DETAIL_RECT_TOO_SMALL', foundIn: found.foundIn };
+  }
+  return {
+    ok: true,
+    rect: { x: x, y: y, width: right - x, height: bottom - y },
+    foundIn: found.foundIn,
+    textLength: text.length,
+    viewport: { width: vw, height: vh }
+  };
+})();
+`;
+  const result = await evalOnTab(tabId, script, true);
+  if (!result?.ok || !result.rect) {
+    throw new Error(`候选人详情尚未就绪，无法截图: ${result?.code || "DETAIL_NOT_FOUND"}`);
+  }
+  return result.rect;
+}
+
 async function collectOneGeek(tabId, geekId) {
   // 上一个候选人如果异常残留详情，先关掉，避免点击落在蒙层后的列表上。
   await closeDetailIfOpen(tabId);
 
-  const cardSelector = buildCardSelector(geekId);
   const scrollResult = await evalOnTab(
     tabId,
     buildScrollCardScript(geekId),
@@ -371,7 +599,11 @@ async function collectOneGeek(tabId, geekId) {
   if (!scrollResult?.ok) throw new Error(`CARD_NOT_FOUND geekId=${geekId}`);
 
   await sleep(randomBetween(250, 600));
-  await clickOnTab(tabId, cardSelector, randomBetween(55, 100));
+  await clickOnTab(
+    tabId,
+    buildCardSelector(scrollResult.domGeekId || geekId),
+    randomBetween(55, 100)
+  );
 
   let operationResult = null;
   let operationError = null;
@@ -477,7 +709,7 @@ export async function collectBossRecommendGeeks(tabId, geeks, opts = {}) {
       try {
         stopRequested = await shouldAbort();
       } catch (e) {
-        console.warn("[bossRecommendCollect] shouldAbort 检查失败（忽略）:", e?.message || e);
+        console.warn("[任务流程] [bossRecommendCollect] shouldAbort 检查失败（忽略）:", e?.message || e);
       }
     }
     if (stopRequested) {
@@ -498,7 +730,7 @@ export async function collectBossRecommendGeeks(tabId, geeks, opts = {}) {
       onProgress("itemDone", { ...result, index, total: geeks.length });
       if (result.closeWarning) {
         console.warn(
-          `[bossRecommendCollect] 详情关闭异常 geekId=${geekId}: ${result.closeWarning}`
+          `[任务流程] [bossRecommendCollect] 详情关闭异常 geekId=${geekId}: ${result.closeWarning}`
         );
       }
     } catch (e) {
@@ -512,7 +744,7 @@ export async function collectBossRecommendGeeks(tabId, geeks, opts = {}) {
         index,
         total: geeks.length,
       });
-      console.warn(`[bossRecommendCollect] 收藏失败 geekId=${geekId}:`, error);
+      console.warn(`[任务流程] [bossRecommendCollect] 收藏失败 geekId=${geekId}:`, error);
       if (errorCode === BOSS_ENTITLEMENT_REQUIRED) {
         onProgress("done", {
           attempted: attemptedGeekIds.length,

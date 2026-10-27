@@ -25,6 +25,8 @@
 import taskApi from "src/api/searchTaskApi";
 import taskSse from "src/api/taskSse";
 import { runActionList } from "src/util/automation/searchTaskActionRunner";
+import { SCORE_BATCH_SIZE } from "src/config/searchTaskConfig";
+import { normalizeBossJobId } from "src/util/bossSearchFilters";
 
 // ---------- 类型 / 常量 ----------
 
@@ -98,7 +100,7 @@ async function runRestartCleanupStep({ taskId, task, commit }) {
   ) {
     patchCleanup({ status: "SKIPPED" });
     console.warn(
-      `[SearchTasks] RESTART 取消收藏跳过：当前不是桌面客户端 taskId=${taskId}`
+      `[任务流程] [SearchTasks] RESTART 取消收藏跳过：当前不是桌面客户端 taskId=${taskId}`
     );
     return;
   }
@@ -115,7 +117,7 @@ async function runRestartCleanupStep({ taskId, task, commit }) {
       });
     } catch (overlayError) {
       console.warn(
-        "[SearchTasks] RESTART 取消收藏蒙层显示失败（继续执行）:",
+        "[任务流程] [SearchTasks] RESTART 取消收藏蒙层显示失败（继续执行）:",
         overlayError?.message || overlayError
       );
     }
@@ -139,7 +141,7 @@ async function runRestartCleanupStep({ taskId, task, commit }) {
             cancelled: cleanupState.cancelled + 1
           });
           console.log(
-            `[SearchTasks] RESTART 取消收藏成功 taskId=${taskId}` +
+            "[任务流程]", `[SearchTasks] RESTART 取消收藏成功 taskId=${taskId}` +
               ` geekId=${detail?.geekId || ""} remaining=${detail?.remaining ?? ""}`
           );
         }
@@ -165,14 +167,14 @@ async function runRestartCleanupStep({ taskId, task, commit }) {
       unresolved,
       failed
     });
-    console.log(`[SearchTasks] RESTART 取消收藏完成 taskId=${taskId}:`, result);
+    console.log(`[任务流程] [SearchTasks] RESTART 取消收藏完成 taskId=${taskId}:`, result);
   } catch (error) {
     patchCleanup({
       status: "FAILED",
       failed: Math.max(1, Number(cleanupState.failed) || 0)
     });
     console.warn(
-      `[SearchTasks] RESTART 取消收藏失败，继续执行后续任务 taskId=${taskId}:`,
+      `[任务流程] [SearchTasks] RESTART 取消收藏失败，继续执行后续任务 taskId=${taskId}:`,
       error?.message || error
     );
   } finally {
@@ -181,7 +183,7 @@ async function runRestartCleanupStep({ taskId, task, commit }) {
       await window.api?.automation?.hideOverlay?.();
     } catch (overlayError) {
       console.warn(
-        "[SearchTasks] RESTART 取消收藏蒙层关闭失败（忽略）:",
+        "[任务流程] [SearchTasks] RESTART 取消收藏蒙层关闭失败（忽略）:",
         overlayError?.message || overlayError
       );
     }
@@ -503,6 +505,12 @@ const mutations = {
   finishTask(state, { taskId, taskStatus, error, isManualStopped }) {
     const t = state.tasksById[taskId];
     if (!t) return;
+    console.log(`[任务流程] [任务结束] taskId=${taskId} chatId=${t.chatId} status=${taskStatus}`, {
+      isManualStopped: !!isManualStopped,
+      totalResultsCount: t.totalResultsCount,
+      errorCode: error?.code,
+      errorMessage: error?.message
+    });
     state.tasksById = {
       ...state.tasksById,
       [taskId]: {
@@ -1043,7 +1051,7 @@ const actions = {
         hydrated++;
       }
       console.log(
-        `[SearchTasks] fetchTaskQueue ok: totalCount=${data?.totalCount} queueFull=${data?.queueFull}` +
+        "[任务流程]", `[SearchTasks] fetchTaskQueue ok: totalCount=${data?.totalCount} queueFull=${data?.queueFull}` +
           ` items=${items.length} hydratedToTasksById=${hydrated}`
       );
 
@@ -1083,7 +1091,7 @@ const actions = {
             if (_dedupHandledTaskIds.has(String(dup.taskId))) continue;
             _dedupHandledTaskIds.add(String(dup.taskId));
             console.warn(
-              `[SearchTasks] fetchTaskQueue: chat ${cid} 有多个活跃任务 → 保留 ${keep.taskId}(${keep.taskStatus})，停止重复任务 ${dup.taskId}(${dup.taskStatus})`
+              `[任务流程] [SearchTasks] fetchTaskQueue: chat ${cid} 有多个活跃任务 → 保留 ${keep.taskId}(${keep.taskStatus})，停止重复任务 ${dup.taskId}(${dup.taskStatus})`
             );
             for (const ch of Array.isArray(dup.channels) ? dup.channels : []) {
               if (!ch?.taskChannelId) continue;
@@ -1096,7 +1104,7 @@ const actions = {
                 })
                 .catch((e) =>
                   console.warn(
-                    `[SearchTasks] fetchTaskQueue: 停止重复任务 channel 失败 (${ch.channelSubType}):`,
+                    `[任务流程] [SearchTasks] fetchTaskQueue: 停止重复任务 channel 失败 (${ch.channelSubType}):`,
                     e?.message || e
                   )
                 );
@@ -1105,7 +1113,7 @@ const actions = {
         }
       } catch (dupErr) {
         console.warn(
-          "[SearchTasks] fetchTaskQueue: 会话多任务去重失败（忽略）:",
+          "[任务流程] [SearchTasks] fetchTaskQueue: 会话多任务去重失败（忽略）:",
           dupErr?.message || dupErr
         );
       }
@@ -1136,12 +1144,12 @@ const actions = {
           if (t.createdAt && now - Number(t.createdAt) < FRESH_MS) continue; // 刚创建 → 给后端索引时间
           commit("patchTask", { taskId: tid, patch: { taskStatus: TASK_STATUS.STOPPED } });
           console.log(
-            `[SearchTasks] fetchTaskQueue: 本地任务 ${tid}(${t.taskStatus}) 后端 queue 已无 → 收敛 STOPPED（接口数据为准）`
+            `[任务流程] [SearchTasks] fetchTaskQueue: 本地任务 ${tid}(${t.taskStatus}) 后端 queue 已无 → 收敛 STOPPED（接口数据为准）`
           );
         }
       } catch (reconcileErr) {
         console.warn(
-          "[SearchTasks] fetchTaskQueue: 收敛本地僵尸任务失败（忽略）:",
+          "[任务流程] [SearchTasks] fetchTaskQueue: 收敛本地僵尸任务失败（忽略）:",
           reconcileErr?.message || reconcileErr
         );
       }
@@ -1170,20 +1178,20 @@ const actions = {
           if (!poller.isRunning()) {
             poller.start({ store: realStore, taskApi, intervalMs: 10_000, maxTicks: 360 });
             console.log(
-              `[SearchTasks] fetchTaskQueue: 后端 queue 非空 (totalCount=${totalCount}) 本地无活跃任务 → 启动 CurrentTaskPoller (10s/tick)`
+              `[任务流程] [SearchTasks] fetchTaskQueue: 后端 queue 非空 (totalCount=${totalCount}) 本地无活跃任务 → 启动 CurrentTaskPoller (10s/tick)`
             );
           }
         }
       } catch (e) {
         console.warn(
-          "[SearchTasks] fetchTaskQueue: 启动 CurrentTaskPoller 失败（忽略）:",
+          "[任务流程] [SearchTasks] fetchTaskQueue: 启动 CurrentTaskPoller 失败（忽略）:",
           e?.message || e
         );
       }
 
       return data;
     } catch (e) {
-      console.warn("[SearchTasks] fetchTaskQueue failed:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks] fetchTaskQueue failed:", e?.message || e);
       return null;
     }
   },
@@ -1217,7 +1225,7 @@ const actions = {
         );
         if (orphanTasks.length > 0) {
           console.log(
-            `[SearchTasks] cleanupOrphan: 发现 ${orphanTasks.length} 个孤立 RUNNING 任务，将标 FAILED`,
+            `[任务流程] [SearchTasks] cleanupOrphan: 发现 ${orphanTasks.length} 个孤立 RUNNING 任务，将标 FAILED`,
             orphanTasks.map((t) => t.taskId)
           );
           // 串行调 finish，每个 channel 一次
@@ -1232,11 +1240,11 @@ const actions = {
                   errorMessage: "客户端重启时清理孤立 RUNNING 任务"
                 });
                 console.log(
-                  `[SearchTasks] cleanupOrphan: finish FAILED ok taskId=${t.taskId} channelId=${ch.taskChannelId}`
+                  `[任务流程] [SearchTasks] cleanupOrphan: finish FAILED ok taskId=${t.taskId} channelId=${ch.taskChannelId}`
                 );
               } catch (e) {
                 console.warn(
-                  `[SearchTasks] cleanupOrphan: finish failed taskId=${t.taskId} channelId=${ch.taskChannelId}:`,
+                  `[任务流程] [SearchTasks] cleanupOrphan: finish failed taskId=${t.taskId} channelId=${ch.taskChannelId}:`,
                   e?.message || e
                 );
               }
@@ -1247,20 +1255,20 @@ const actions = {
           try {
             await dispatch("fetchTaskQueue");
             console.log(
-              "[SearchTasks] cleanupOrphan: finish 后 fetchTaskQueue ok（已同步后端最新 queue）"
+              "[任务流程] [SearchTasks] cleanupOrphan: finish 后 fetchTaskQueue ok（已同步后端最新 queue）"
             );
           } catch (e) {
             console.warn(
-              "[SearchTasks] cleanupOrphan: finish 后 fetchTaskQueue 失败（忽略）:",
+              "[任务流程] [SearchTasks] cleanupOrphan: finish 后 fetchTaskQueue 失败（忽略）:",
               e?.message || e
             );
           }
         } else {
-          console.log("[SearchTasks] cleanupOrphan: 无孤立 RUNNING 任务");
+          console.log("[任务流程] [SearchTasks] cleanupOrphan: 无孤立 RUNNING 任务");
         }
       }
     } catch (e) {
-      console.warn("[SearchTasks] cleanupOrphan: 异常但不阻塞:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks] cleanupOrphan: 异常但不阻塞:", e?.message || e);
     }
     // 不管清理结果如何，最后都要拉 current 拿真正可执行的任务
     return dispatch("resumeFromCurrent");
@@ -1279,7 +1287,7 @@ const actions = {
    *
    * 返回：`{ ok, stoppedChannels, errors, message? }`
    */
-  async stopForChat({ state, commit, getters, dispatch }, payload) {
+  async stopForChat({ state, commit, getters, dispatch, rootGetters }, payload) {
     // 兼容两种入参：字符串 chatId（用户点停止）/ 对象 { chatId, skipFinish }（登录失效暂停，不 finish channel）
     const chatId = typeof payload === "string" ? payload : payload?.chatId;
     const skipFinish = typeof payload === "object" && payload ? !!payload.skipFinish : false;
@@ -1314,7 +1322,7 @@ const actions = {
 
     const taskId = task.taskId;
     console.log(
-      `[SearchTasks/stopForChat] 用户主动停止 taskId=${taskId} chatId=${chatId}` +
+      "[任务流程]", `[SearchTasks/stopForChat] 用户主动停止 taskId=${taskId} chatId=${chatId}` +
         ` isTaskAlive=${isTaskAlive} isScoringActive=${isScoringActive}`
     );
 
@@ -1327,7 +1335,37 @@ const actions = {
     commit("dequeue", taskId);
     if (state.runningTaskId === taskId) {
       commit("setRunning", null);
-      console.log(`[SearchTasks/stopForChat] 释放 runningTaskId（原本 = ${taskId}）`);
+      console.log(`[任务流程] [SearchTasks/stopForChat] 释放 runningTaskId（原本 = ${taskId}）`);
+    }
+
+    // 立即清理 BOSS 推荐流程的客户端状态。RPA 可能仍阻塞在页面脚本或详情页等待，
+    // 不能等 doFetchRecommend 的 finally 执行，否则 BOSS 蒙层和“进行中”状态会一直保留。
+    commit("setBossRecommendRpaActive", false);
+    commit("setRecommendClientPhase", { taskId, phase: "FAILED" });
+    const currentRecommendJobId = rootGetters?.getCurrentRecommendJobId;
+    if (currentRecommendJobId) {
+      commit(
+        "setBossRecommendFetching",
+        { jobId: currentRecommendJobId, fetching: false },
+        { root: true }
+      );
+    }
+    try {
+      taskSse.disconnect();
+      commit("setSseContext", null);
+      if (typeof window !== "undefined") {
+        await window.api?.automation?.hideOverlay?.();
+      }
+      console.log(
+        `[任务流程] [SearchTasks/stopForChat] 已立即清理 BOSS UI 状态 jobId=${
+          currentRecommendJobId || "none"
+        }`
+      );
+    } catch (e) {
+      console.warn(
+        "[任务流程] [SearchTasks/stopForChat] 清理 BOSS UI 状态失败（忽略）:",
+        e?.message || e
+      );
     }
 
     // 3) 调 finishChannel：仅在 isTaskAlive 时调（有未结束的 channel）
@@ -1361,20 +1399,20 @@ const actions = {
           // 重新登录后不应再对它调 finish(COMPLETED)
           commit("clearPendingFinishChannel", ch.taskChannelId);
           console.log(
-            `[SearchTasks/stopForChat] finish STOPPED ok channel=${ch.channelSubType}-${ch.businessChannel} channelId=${ch.taskChannelId}`
+            `[任务流程] [SearchTasks/stopForChat] finish STOPPED ok channel=${ch.channelSubType}-${ch.businessChannel} channelId=${ch.taskChannelId}`
           );
           if (ch.channelSubType) stoppedSubTypes.add(ch.channelSubType);
         } catch (e) {
           errors.push({ taskChannelId: ch.taskChannelId, message: e?.message || String(e) });
           console.warn(
-            `[SearchTasks/stopForChat] finish STOPPED failed channelId=${ch.taskChannelId}:`,
+            `[任务流程] [SearchTasks/stopForChat] finish STOPPED failed channelId=${ch.taskChannelId}:`,
             e?.message || e
           );
         }
       }
     } else {
       console.log(
-        "[SearchTasks/stopForChat] 任务本身已 COMPLETED，跳过 finishChannel（仅停 scoreUpdater 评分轮询）"
+        "[任务流程] [SearchTasks/stopForChat] 任务本身已 COMPLETED，跳过 finishChannel（仅停 scoreUpdater 评分轮询）"
       );
     }
     const stoppedChannels = stoppedSubTypes.size;
@@ -1387,9 +1425,9 @@ const actions = {
       ]);
       (sa.default || sa)?.stop?.();
       (rsa.default || rsa)?.stop?.();
-      console.log("[SearchTasks/stopForChat] scoreAutoUpdater + recommendScoreUpdater 已停");
+      console.log("[任务流程] [SearchTasks/stopForChat] scoreAutoUpdater + recommendScoreUpdater 已停");
     } catch (e) {
-      console.warn("[SearchTasks/stopForChat] 停 scoreUpdater 失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks/stopForChat] 停 scoreUpdater 失败（忽略）:", e?.message || e);
     }
 
     // 4.5) 清空 AI 详情解析 / 评分提交 异步任务队列（detail / setNotScore 这些后台请求的来源）。
@@ -1402,10 +1440,10 @@ const actions = {
       const mgr = mod.asyncTaskQueueManager || mod.default;
       if (mgr && typeof mgr.clearAllQueues === "function") {
         const removed = mgr.clearAllQueues();
-        console.log("[SearchTasks/stopForChat] AsyncTaskQueueManager.clearAllQueues 已清", removed);
+        console.log("[任务流程] [SearchTasks/stopForChat] AsyncTaskQueueManager.clearAllQueues 已清", removed);
       }
     } catch (e) {
-      console.warn("[SearchTasks/stopForChat] 清 AsyncTaskQueue 失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks/stopForChat] 清 AsyncTaskQueue 失败（忽略）:", e?.message || e);
     }
 
     // 4.6) 兜底：直接把 store 的 AI 分析信号置 false（防止队列已空但 active 信号没归零的窗口）
@@ -1413,7 +1451,7 @@ const actions = {
       commit("setAiScoringState", { active: false, pending: 0, chatId: null }, { root: true });
       commit("setAiTaskQueueState", { active: false, pending: 0, chatId: null }, { root: true });
     } catch (e) {
-      console.warn("[SearchTasks/stopForChat] 重置 AI 分析信号失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks/stopForChat] 重置 AI 分析信号失败（忽略）:", e?.message || e);
     }
 
     // 4.7) 把仍未评分的简历直接标「分析异常」（score=-2）。
@@ -1424,19 +1462,19 @@ const actions = {
     //        → 不再轮询 queryTaskScoreList（修复"停止后仍轮询"）
     try {
       commit("markUnscoredAsFailed", null, { root: true });
-      console.log("[SearchTasks/stopForChat] 已把未评分简历标记为分析异常（score=-2）");
+      console.log("[任务流程] [SearchTasks/stopForChat] 已把未评分简历标记为分析异常（score=-2）");
     } catch (e) {
-      console.warn("[SearchTasks/stopForChat] markUnscoredAsFailed 失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks/stopForChat] markUnscoredAsFailed 失败（忽略）:", e?.message || e);
     }
 
     // 5) 重新拉后端 queue，让 state.taskQueue.items 同步成最新（剔掉刚 finish 的任务）
     //    否则 LeftMenu 的 getAggregateStatus 看到 queueItem 还在 → 仍然显示"排队中"
     try {
       await dispatch("fetchTaskQueue");
-      console.log("[SearchTasks/stopForChat] fetchTaskQueue ok（已同步后端 queue 最新状态）");
+      console.log("[任务流程] [SearchTasks/stopForChat] fetchTaskQueue ok（已同步后端 queue 最新状态）");
     } catch (e) {
       console.warn(
-        "[SearchTasks/stopForChat] fetchTaskQueue 失败（忽略，本地 state 已自己清）:",
+        "[任务流程] [SearchTasks/stopForChat] fetchTaskQueue 失败（忽略，本地 state 已自己清）:",
         e?.message || e
       );
     }
@@ -1446,9 +1484,9 @@ const actions = {
     try {
       const { unlockRecommendTab } = await import("src/util/automation/bossRecommend");
       await unlockRecommendTab();
-      console.log("[SearchTasks/stopForChat] unlockRecommendTab ok");
+      console.log("[任务流程] [SearchTasks/stopForChat] unlockRecommendTab ok");
     } catch (e) {
-      console.warn("[SearchTasks/stopForChat] unlockRecommendTab 失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks/stopForChat] unlockRecommendTab 失败（忽略）:", e?.message || e);
     }
 
     // ⚠️ 注意：humanize+pagination 循环（在 src/util/automation/bossRecommend.js）
@@ -1540,12 +1578,12 @@ const actions = {
           });
           stoppedChannels++;
           console.log(
-            `[SearchTasks/stopDisabledChannels] 已 finish 被禁用渠道 ${ch.channelSubType}-${ch.businessChannel}（taskChannelId=${ch.taskChannelId}），其它渠道继续`
+            `[任务流程] [SearchTasks/stopDisabledChannels] 已 finish 被禁用渠道 ${ch.channelSubType}-${ch.businessChannel}（taskChannelId=${ch.taskChannelId}），其它渠道继续`
           );
         } catch (e) {
           errors.push({ taskId: task.taskId, channel: ch.channelSubType, message: e?.message || String(e) });
           console.warn(
-            `[SearchTasks/stopDisabledChannels] finish 被禁用渠道失败 ${ch.channelSubType}:`,
+            `[任务流程] [SearchTasks/stopDisabledChannels] finish 被禁用渠道失败 ${ch.channelSubType}:`,
             e?.message || e
           );
         }
@@ -1562,7 +1600,7 @@ const actions = {
     try {
       await dispatch("fetchTaskQueue");
     } catch (e) {
-      console.warn("[SearchTasks/stopDisabledChannels] fetchTaskQueue 失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks/stopDisabledChannels] fetchTaskQueue 失败（忽略）:", e?.message || e);
     }
 
     return { ok: errors.length === 0, stoppedChannels, stoppedTasks, errors };
@@ -1588,7 +1626,7 @@ const actions = {
         if (status !== "COMPLETED") finishPayload.errorCode = "LOGIN_EXPIRED";
         await taskApi.postFinishChannel(taskChannelId, finishPayload);
         console.log(
-          `[SearchTasks] 延迟 finish ${status} channel=${channelKey} channelId=${taskChannelId}（重新登录+AI分析完成后）`
+          `[任务流程] [SearchTasks] 延迟 finish ${status} channel=${channelKey} channelId=${taskChannelId}（重新登录+AI分析完成后）`
         );
         // 本地 channel 也补成终态，让任务收敛（之前延迟 finish 时保持了非终态）
         const task = info.chatId ? getters.getLatestTaskByChat(info.chatId) : null;
@@ -1604,7 +1642,7 @@ const actions = {
           });
         }
       } catch (e) {
-        console.warn("[SearchTasks] 延迟 finish 失败:", e?.message || e);
+        console.warn("[任务流程] [SearchTasks] 延迟 finish 失败:", e?.message || e);
       }
       commit("clearPendingFinishChannel", taskChannelId);
     }
@@ -1626,7 +1664,7 @@ const actions = {
     try {
       await dispatch("fetchTaskQueue");
     } catch (e) {
-      console.warn("[SearchTasks] create: 创建前 fetchTaskQueue 失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks] create: 创建前 fetchTaskQueue 失败（忽略）:", e?.message || e);
     }
     // 拒绝重复点击 / 重复创建：该 chat 已有进行 / 排队中任务时不创建新任务（一个会话只允许一个任务）
     if (!getters.canCreateForChat(chatId)) {
@@ -1637,17 +1675,17 @@ const actions = {
       };
     }
 
-    console.log("[SearchTasks] create → POST /search/task/create", payload);
+    console.log("[任务流程] [SearchTasks] create → POST /search/task/create", payload);
     let resp;
     try {
       resp = await taskApi.createSearchTask(payload);
     } catch (e) {
-      console.error("[SearchTasks] createSearchTask HTTP failed:", e?.message || e);
+      console.error("[任务流程] [SearchTasks] createSearchTask HTTP failed:", e?.message || e);
       return { ok: false, errorCode: "HTTP_ERROR", message: e?.message || String(e) };
     }
     const data = resp?.data || resp;
     console.log(
-      `[SearchTasks] create response: taskId=${data?.taskId} taskStatus=${
+      `[任务流程] [SearchTasks] create response: taskId=${data?.taskId} taskStatus=${
         data?.taskStatus
       } 后端返回 channels=${data?.channels?.length || 0}`,
       "后端 channels=",
@@ -1695,7 +1733,7 @@ const actions = {
       }
       // 后端没返回这个渠道 → 标 SKIPPED，UI 仍显示该行（避免用户看到"开了的渠道不见了"）
       console.warn(
-        `[SearchTasks] create: 后端未返回 ${reqCh.channelSubType}-${reqCh.businessChannel}，标记为 SKIPPED`
+        `[任务流程] [SearchTasks] create: 后端未返回 ${reqCh.channelSubType}-${reqCh.businessChannel}，标记为 SKIPPED`
       );
       return {
         taskChannelId: null,
@@ -1713,6 +1751,7 @@ const actions = {
       resultSetId: data.resultSetId,
       chatId,
       positionId: payload.positionId,
+      targetCount: Number(data?.targetCount ?? payload?.targetCount) || 0,
       taskType: data.taskType || payload.taskType,
       sourceTaskId:
         data.sourceTaskId || data.source_task_id || payload?.sourceTaskId || null,
@@ -1727,13 +1766,16 @@ const actions = {
       //   runTask 启动 executor(runRealAggregateSearch) 时把这个透回去，让 executeSearch
       //   跳过重复 saveCondition（同一次任务只 saveCondition 一次，省一个 API 调用）。
       //   后端不需要这个字段，纯前端缓存。
-      searchRequestData: payload?.searchRequestData || null
+      searchRequestData: payload?.searchRequestData || null,
+      // BOSS 推荐筛选条件单独保留，避免 saveCondition 响应未回显外层字段时，
+      // current 驱动任务执行阶段丢失用户刚选择的筛选值。
+      bossFilters: payload?.bossFilters || null
     };
     task.restartCleanup = shouldRunRestartCleanup(task)
       ? createRestartCleanupState("PENDING")
       : null;
     console.log(
-      `[SearchTasks] create: 最终 task.channels=`,
+      `[任务流程] [SearchTasks] create: 最终 task.channels=`,
       mergedChannels
         .map((c) => `${c.channelSubType}-${c.businessChannel}(${c.taskChannelStatus})`)
         .join(",")
@@ -1762,12 +1804,12 @@ const actions = {
       try {
         await dispatch("fetchTaskQueue");
       } catch (e) {
-        console.warn("[SearchTasks] create: fetchTaskQueue 失败（忽略）:", e?.message || e);
+        console.warn("[任务流程] [SearchTasks] create: fetchTaskQueue 失败（忽略）:", e?.message || e);
       }
       try {
         await dispatch("resumeFromCurrent");
       } catch (e) {
-        console.warn("[SearchTasks] create: resumeFromCurrent 失败（忽略）:", e?.message || e);
+        console.warn("[任务流程] [SearchTasks] create: resumeFromCurrent 失败（忽略）:", e?.message || e);
       }
     })();
     return { ok: true, taskId: task.taskId };
@@ -1815,6 +1857,16 @@ const actions = {
     }
     commit("dequeue", taskId);
 
+    console.log(`[任务流程] [启动检查] taskId=${taskId} chatId=${task.chatId}`, {
+      targetCount: task.targetCount,
+      channels: task.channels.map((channel) => ({
+        taskChannelId: channel.taskChannelId,
+        businessChannel: channel.businessChannel,
+        channelSubType: channel.channelSubType,
+        status: channel.taskChannelStatus
+      }))
+    });
+
     // ★★ 任务开始前「总闸」：只要本任务任一未终态渠道未登录，就**整任务不启动**
     //   （不 execute 任何渠道、不跑搜索、不 finish），弹顶部「渠道异常」banner，
     //   清 runningTaskId + 刷队列让 current 轮询继续；等用户重新登录后下次 current 重新触发。
@@ -1853,7 +1905,7 @@ const actions = {
         })
       );
       console.warn(
-        `[SearchTasks] runTask: 渠道未登录 [${blockedChannels
+        `[任务流程] [SearchTasks] runTask: 渠道未登录 [${blockedChannels
           .map((c) => c.channelSubType)
           .join(
             ","
@@ -1876,7 +1928,7 @@ const actions = {
     //   所以在 execute / 跑搜索之前先把 active chat 切到任务会话，让整条管线锚定正确会话。
     if (task.chatId && String(rootGetters.getLatestChatId || "") !== String(task.chatId)) {
       console.log(
-        `[SearchTasks] runTask: 切换 active chat ${rootGetters.getLatestChatId} → ${task.chatId}（执行前锚定任务会话，避免结果串台 / 状态卡片插错会话）`
+        `[任务流程] [SearchTasks] runTask: 切换 active chat ${rootGetters.getLatestChatId} → ${task.chatId}（执行前锚定任务会话，避免结果串台 / 状态卡片插错会话）`
       );
       commit("SET_LATEST_CHAT_ID", task.chatId, { root: true });
       if (task.positionId != null && task.positionId !== "") {
@@ -1886,6 +1938,7 @@ const actions = {
 
     commit("setRunning", taskId);
     commit("patchTask", { taskId, patch: { taskStatus: TASK_STATUS.RUNNING } });
+    console.log(`[任务流程] [任务启动] taskId=${taskId} chatId=${task.chatId} status=${TASK_STATUS.RUNNING}`);
     // 任务启动时拉一次队列（拿最新预计时间）—— fire and forget，不阻塞主流程
     void dispatch("fetchTaskQueue");
 
@@ -1934,7 +1987,7 @@ const actions = {
         // 推迟 RECOMMEND 渠道的 execute（要等搜索 AI 完成）
         if (ch.businessChannel === "RECOMMEND") {
           console.log(
-            `[SearchTasks] runTask: 跳过 RECOMMEND execute (推迟到 doFetchRecommend 启动时调)` +
+            "[任务流程]", `[SearchTasks] runTask: 跳过 RECOMMEND execute (推迟到 doFetchRecommend 启动时调)` +
               ` channel=${ch.channelSubType}-${ch.businessChannel} taskChannelId=${ch.taskChannelId}`
           );
           continue;
@@ -1955,7 +2008,7 @@ const actions = {
             root: true
           });
           console.warn(
-            `[SearchTasks] runTask: channel ${ch.channelSubType} 未登录，跳过 execute（已弹顶部 banner，等重新登录后重跑）`
+            `[任务流程] [SearchTasks] runTask: channel ${ch.channelSubType} 未登录，跳过 execute（已弹顶部 banner，等重新登录后重跑）`
           );
           continue;
         }
@@ -1963,14 +2016,14 @@ const actions = {
           .postExecuteChannel(ch.taskChannelId)
           .then(() => {
             console.log(
-              `[SearchTasks] runTask: postExecuteChannel ok channel=${ch.channelSubType}-${ch.businessChannel} taskChannelId=${ch.taskChannelId}`
+              `[任务流程] [SearchTasks] runTask: postExecuteChannel ok channel=${ch.channelSubType}-${ch.businessChannel} taskChannelId=${ch.taskChannelId}`
             );
             // execute 后立刻刷新一次后端队列，让排队/等待信息及时更新
             dispatch("fetchTaskQueue").catch(() => {});
           })
           .catch((e) =>
             console.warn(
-              `[SearchTasks] runTask: postExecuteChannel failed channel=${ch.channelSubType}:`,
+              `[任务流程] [SearchTasks] runTask: postExecuteChannel failed channel=${ch.channelSubType}:`,
               e?.message || e
             )
           );
@@ -1987,11 +2040,11 @@ const actions = {
         .connect({ taskChannelId: firstChannel.taskChannelId })
         .then(() =>
           console.log(
-            `[SearchTasks] taskSse 旁路连接成功 taskChannelId=${firstChannel.taskChannelId}`
+            `[任务流程] [SearchTasks] taskSse 旁路连接成功 taskChannelId=${firstChannel.taskChannelId}`
           )
         )
         .catch((e) =>
-          console.warn("[SearchTasks] taskSse 旁路连接失败（不影响主流程）:", e?.message || e)
+          console.warn("[任务流程] [SearchTasks] taskSse 旁路连接失败（不影响主流程）:", e?.message || e)
         );
 
       let runFailed = false;
@@ -2021,7 +2074,7 @@ const actions = {
           throw new Error("aggregateSearchExecutor 未就绪（IndexPage 还没 mount？）");
         }
         console.log(
-          `[SearchTasks] runTask: 主动执行聚合搜索 taskId=${taskId} chatId=${task.chatId}`
+          `[任务流程] [SearchTasks] runTask: 主动执行聚合搜索 taskId=${taskId} chatId=${task.chatId}`
         );
 
         // ===== 解析 RECOMMEND BOSS channel 的 searchTaskConfig =====
@@ -2039,13 +2092,16 @@ const actions = {
               typeof recBossCh.searchTaskConfig === "string"
                 ? JSON.parse(recBossCh.searchTaskConfig)
                 : recBossCh.searchTaskConfig;
-            matchedBossJobId = cfg?.relatedPositionValue || null;
+            matchedBossJobId =
+              normalizeBossJobId(cfg?.relatedPositionValue) ||
+              normalizeBossJobId(cfg?.matchedBossJobId) ||
+              normalizeBossJobId(cfg?.matchedPosition);
             if (Number.isFinite(Number(cfg?.maxResumeCount))) {
               recommendResumeCount = Number(cfg.maxResumeCount);
             }
           } catch (e) {
             console.warn(
-              `[SearchTasks] runTask: RECOMMEND searchTaskConfig 解析失败`,
+              `[任务流程] [SearchTasks] runTask: RECOMMEND searchTaskConfig 解析失败`,
               recBossCh.searchTaskConfig,
               e?.message || e
             );
@@ -2063,12 +2119,16 @@ const actions = {
         // 写策略：从后端反查命中后，回写一份到本地缓存 + task.searchRequestData，
         //         下次同 task 跑 / 同 condId 跑都能直接命中第 1/2 层，避免再调后端。
         let searchRequestDataForExec = task.searchRequestData || null;
-        if (!searchRequestDataForExec && hasSearch) {
-          const searchCh = task.channels.find(
-            (c) => c.businessChannel === "SEARCH" && c.searchConditionId
+        // 推荐任务也依赖 searchConditionId 保存的 BOSS 筛选条件。
+        // 只有 RECOMMEND 渠道时没有 SEARCH channel，仍需从推荐 channel 反查条件。
+        if (!searchRequestDataForExec && (hasSearch || hasRecommend)) {
+          const conditionChannel = task.channels.find(
+            (c) =>
+              c.searchConditionId &&
+              (c.businessChannel === "SEARCH" || c.businessChannel === "RECOMMEND")
           );
-          if (searchCh) {
-            const condId = searchCh.searchConditionId;
+          if (conditionChannel) {
+            const condId = conditionChannel.searchConditionId;
 
             // 2) 先试本地缓存（同步 + 快）
             try {
@@ -2077,13 +2137,13 @@ const actions = {
               if (cached) {
                 searchRequestDataForExec = cached;
                 console.log(
-                  `[SearchTasks] runTask: 命中本地 condition 缓存 condId=${condId}` +
+                  "[任务流程]", `[SearchTasks] runTask: 命中本地 condition 缓存 condId=${condId}` +
                     ` channels=${cached.channelSearchConditions?.length || 0}（跳过 saveCondition）`
                 );
               }
             } catch (e) {
               console.warn(
-                "[SearchTasks] runTask: 读本地 condition 缓存失败（继续尝试后端接口）:",
+                "[任务流程] [SearchTasks] runTask: 读本地 condition 缓存失败（继续尝试后端接口）:",
                 e?.message || e
               );
             }
@@ -2092,7 +2152,7 @@ const actions = {
             if (!searchRequestDataForExec) {
               try {
                 const { getCondition } = await import("src/api/search/SearchApi");
-                const resp = await getCondition(condId);
+                const resp = await getCondition(condId, hasRecommend && !hasSearch ? "BOSS" : undefined);
                 const data = resp?.data;
                 if (data && Array.isArray(data.channelSearchConditions)) {
                   // 跟 executeSearch saveCondition 分支保持结构一致，补 config 占位
@@ -2114,17 +2174,17 @@ const actions = {
                     /* 缓存写入失败不阻塞主流程 */
                   }
                   console.log(
-                    `[SearchTasks] runTask: 后端 getCondition 反查命中 condId=${condId}` +
+                    "[任务流程]", `[SearchTasks] runTask: 后端 getCondition 反查命中 condId=${condId}` +
                       ` channels=${data.channelSearchConditions.length}（跳过 saveCondition）`
                   );
                 } else {
                   console.warn(
-                    `[SearchTasks] runTask: getCondition 响应缺 channelSearchConditions condId=${condId}（executor 内兜底 saveCondition）`
+                    `[任务流程] [SearchTasks] runTask: getCondition 响应缺 channelSearchConditions condId=${condId}（executor 内兜底 saveCondition）`
                   );
                 }
               } catch (e) {
                 console.warn(
-                  `[SearchTasks] runTask: 调 getCondition 失败 condId=${condId}（executor 内兜底 saveCondition）:`,
+                  `[任务流程] [SearchTasks] runTask: 调 getCondition 失败 condId=${condId}（executor 内兜底 saveCondition）:`,
                   e?.message || e
                 );
               }
@@ -2141,7 +2201,7 @@ const actions = {
         }
 
         console.log(
-          `[SearchTasks] runTask: 调 executor search=${hasSearch} recommend=${hasRecommend}` +
+          "[任务流程]", `[SearchTasks] runTask: 调 executor search=${hasSearch} recommend=${hasRecommend}` +
             ` jobId=${matchedBossJobId || "(none)"} resumeCount=${recommendResumeCount}` +
             ` hasSearchRequestData=${!!searchRequestDataForExec}`
         );
@@ -2150,7 +2210,14 @@ const actions = {
           chatId: task.chatId,
           selectedModules: { search: hasSearch, recommend: hasRecommend },
           matchedBossJobId,
+          // resumeCount 是 searchTaskConfig.maxResumeCount（渠道执行数量配置）；
+          // 画像评分批次人数由公共配置统一控制。
           resumeCount: recommendResumeCount,
+          // targetCount 是用户期望的「通过画像评分的合格简历数」，由后端 SSE 判断是否继续
+          targetCount: Number(task.targetCount) || 0,
+          batchSize: SCORE_BATCH_SIZE,
+          taskId,
+          bossFilters: task.bossFilters || null,
           // 透回 prepareConditionOnly / 缓存命中拿到的 data，让 executeSearch
           // 跳过重复 saveCondition（节省一个 API 调用 + 保证条件 id 跟 channel 绑定一致）
           searchRequestData: searchRequestDataForExec
@@ -2171,7 +2238,7 @@ const actions = {
           // 新版 20 分钟兜底，跟下面推荐 phase 等待一致（注意：inFlight 一旦释放就立刻
           // break，正常情况下不会真等满 20 分钟，只有异常死锁才会触发这个上限）。
           console.log(
-            `[SearchTasks] runTask: executor SKIPPED（前一次还在跑），等 inFlight 释放...`
+            `[任务流程] [SearchTasks] runTask: executor SKIPPED（前一次还在跑），等 inFlight 释放...`
           );
           const POLL_INTERVAL_MS = 500;
           const MAX_WAIT_MS = 20 * 60_000; // 20 分钟兜底
@@ -2182,11 +2249,11 @@ const actions = {
             await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
           }
           console.log(
-            `[SearchTasks] runTask: inFlight 释放 / 超时，等待耗时 ${Date.now() - startWait}ms`
+            `[任务流程] [SearchTasks] runTask: inFlight 释放 / 超时，等待耗时 ${Date.now() - startWait}ms`
           );
         }
       } catch (e) {
-        console.error("[SearchTasks] runTask 执行聚合搜索异常:", e?.message || e);
+        console.error("[任务流程] [SearchTasks] runTask 执行聚合搜索异常:", e?.message || e);
         runFailed = true;
         runError = { code: "RUN_ERROR", message: e?.message || String(e) };
         if (hasRecommend) {
@@ -2236,12 +2303,12 @@ const actions = {
           recommendScoreUpdater = rsu.default || rsu;
         } catch (e) {
           console.warn(
-            "[SearchTasks] runTask: 加载 queueManager/scoreUpdater/recommendScoreUpdater 失败:",
+            "[任务流程] [SearchTasks] runTask: 加载 queueManager/scoreUpdater/recommendScoreUpdater 失败:",
             e?.message || e
           );
         }
 
-        console.log(`[SearchTasks] runTask: 等 AI 分析（搜索 + 推荐通道）全部跑完再 finalize...`);
+        console.log(`[任务流程] [SearchTasks] runTask: 等 AI 分析（搜索 + 推荐通道）全部跑完再 finalize...`);
         while (Date.now() - startAiWait < MAX_WAIT_AI_MS) {
           // 直接查各单例内部状态，规避 store 异步推送的时序问题
           const queueBusy = (queueManager?.queueStatus?.totalTasks || 0) > 0;
@@ -2267,7 +2334,7 @@ const actions = {
         }
         const aiWaitMs = Date.now() - startAiWait;
         console.log(
-          `[SearchTasks] runTask: AI 分析等待结束 耗时=${aiWaitMs}ms` +
+          "[任务流程]", `[SearchTasks] runTask: AI 分析等待结束 耗时=${aiWaitMs}ms` +
             ` queueTotal=${queueManager?.queueStatus?.totalTasks || 0}` +
             ` searchPending=${scoreUpdater?.pendingResumeIds?.size || 0}` +
             ` recommendPending=${recommendScoreUpdater?.pendingBlindIds?.size || 0}` +
@@ -2304,7 +2371,7 @@ const actions = {
       for (const ch of task.channels) {
         if (!ch.taskChannelId) {
           console.warn(
-            `[SearchTasks] runTask: channel ${ch.channelSubType} 缺少 taskChannelId，跳过`
+            `[任务流程] [SearchTasks] runTask: channel ${ch.channelSubType} 缺少 taskChannelId，跳过`
           );
           continue;
         }
@@ -2319,7 +2386,7 @@ const actions = {
           state.userStoppedTaskIds?.[String(taskId)]
         ) {
           console.log(
-            `[SearchTasks] runTask: channel ${ch.channelSubType} 已终态 ${ch.taskChannelStatus}` +
+            "[任务流程]", `[SearchTasks] runTask: channel ${ch.channelSubType} 已终态 ${ch.taskChannelStatus}` +
               `${
                 state.userStoppedTaskIds?.[String(taskId)] ? "（任务已被用户停止）" : ""
               }，跳过 finish`
@@ -2350,7 +2417,7 @@ const actions = {
           channelCount = Array.isArray(recBucket?.geekList) ? recBucket.geekList.length : 0;
           totalCollected += channelCount;
           console.log(
-            `[SearchTasks] runTask: channel ${
+            `[任务流程] [SearchTasks] runTask: channel ${
               ch.channelSubType
             }-RECOMMEND 推荐拿到 ${channelCount} 条 (jobId=${jobIdForCount || "(none)"})`
           );
@@ -2360,7 +2427,7 @@ const actions = {
             : 0;
           totalCollected += channelCount;
           console.log(
-            `[SearchTasks] runTask: channel ${ch.channelSubType}-SEARCH(desc=${channelDesc}) 抓到 ${channelCount} 条（ALL 总计 ${allChannelData.length}）`
+            `[任务流程] [SearchTasks] runTask: channel ${ch.channelSubType}-SEARCH(desc=${channelDesc}) 抓到 ${channelCount} 条（ALL 总计 ${allChannelData.length}）`
           );
         }
 
@@ -2404,7 +2471,7 @@ const actions = {
             chatId: task.chatId
           });
           console.log(
-            `[SearchTasks] runTask: channel ${ch.channelSubType} 未登录 → 延迟 finish（登记 pending，等重新登录+AI跑完再 finish）`
+            `[任务流程] [SearchTasks] runTask: channel ${ch.channelSubType} 未登录 → 延迟 finish（登记 pending，等重新登录+AI跑完再 finish）`
           );
           continue;
         }
@@ -2450,7 +2517,7 @@ const actions = {
               const phaseHistory = []; // 调试用，记 phase 变化轨迹
               let lastPhase = null;
               console.log(
-                `[SearchTasks] runTask: finish RECOMMEND/BOSS 前等推荐 phase 终态 (channelId=${ch.taskChannelId}, taskId=${taskId})`
+                `[任务流程] [SearchTasks] runTask: finish RECOMMEND/BOSS 前等推荐 phase 终态 (channelId=${ch.taskChannelId}, taskId=${taskId})`
               );
               while (Date.now() - recStart < REC_WAIT_MAX_MS) {
                 const timerOn = !!rsu.timer;
@@ -2468,7 +2535,7 @@ const actions = {
                 // 终态判定
                 if (phase === "FAILED") {
                   console.warn(
-                    `[SearchTasks] runTask: 推荐 phase=FAILED (耗时 ${elapsed}ms) → finish`
+                    `[任务流程] [SearchTasks] runTask: 推荐 phase=FAILED (耗时 ${elapsed}ms) → finish`
                   );
                   break;
                 }
@@ -2481,7 +2548,7 @@ const actions = {
                 // 兜底：30s 内 phase 一直 IDLE → 推荐根本没启动（doFetchRecommend 异常或没调）
                 if (!seenAnyPhase && elapsed >= REC_NO_PHASE_GRACE_MS) {
                   console.warn(
-                    `[SearchTasks] runTask: 推荐 phase 30s 内一直 IDLE，doFetchRecommend 可能异常，跳过等待 → finish`
+                    `[任务流程] [SearchTasks] runTask: 推荐 phase 30s 内一直 IDLE，doFetchRecommend 可能异常，跳过等待 → finish`
                   );
                   break;
                 }
@@ -2490,7 +2557,7 @@ const actions = {
               }
               const recWaitMs = Date.now() - recStart;
               console.log(
-                `[SearchTasks] runTask: 推荐 phase 等待结束 耗时=${recWaitMs}ms ` +
+                "[任务流程]", `[SearchTasks] runTask: 推荐 phase 等待结束 耗时=${recWaitMs}ms ` +
                   `final phase=${state.recommendClientPhase?.[taskId]?.phase || "IDLE"} ` +
                   `seenActiveAi=${seenActiveAi} seenAnyPhase=${seenAnyPhase} ` +
                   `timer=${!!rsu.timer} pending=${rsu.pendingBlindIds?.size || 0} ` +
@@ -2499,7 +2566,7 @@ const actions = {
             }
           } catch (e) {
             console.warn(
-              "[SearchTasks] runTask: 加载 recommendScoreUpdater 失败，跳过等待:",
+              "[任务流程] [SearchTasks] runTask: 加载 recommendScoreUpdater 失败，跳过等待:",
               e?.message || e
             );
           }
@@ -2508,7 +2575,7 @@ const actions = {
         try {
           await taskApi.postFinishChannel(ch.taskChannelId, finishPayload);
           console.log(
-            `[SearchTasks] runTask: postFinishChannel ${finishPayload.status} channel=${ch.channelSubType}`
+            `[任务流程] [SearchTasks] runTask: postFinishChannel ${finishPayload.status} channel=${ch.channelSubType}`
           );
           commit("patchChannel", {
             taskId,
@@ -2521,7 +2588,7 @@ const actions = {
           });
         } catch (err) {
           console.warn(
-            `[SearchTasks] runTask: postFinishChannel ${finishPayload.status} failed channel=${ch.channelSubType}:`,
+            `[任务流程] [SearchTasks] runTask: postFinishChannel ${finishPayload.status} failed channel=${ch.channelSubType}:`,
             err?.message || err
           );
           // 失败也 patch 本地状态，避免 UI 卡死
@@ -2560,7 +2627,7 @@ const actions = {
             : null
       });
       console.log(
-        `[SearchTasks] runTask: 任务收敛 taskId=${taskId} status=${state.tasksById[taskId]?.taskStatus} totalCollected=${totalCollected}`
+        `[任务流程] [SearchTasks] runTask: 任务收敛 taskId=${taskId} status=${state.tasksById[taskId]?.taskStatus} totalCollected=${totalCollected}`
       );
 
       // 6) 清理 SSE + 队列状态 + taskResumeIdMap
@@ -2577,10 +2644,10 @@ const actions = {
       // 失败容忍：异常不阻塞后面的 resumeFromCurrent
       try {
         await dispatch("fetchTaskQueue");
-        console.log(`[SearchTasks] runTask: finish 后 fetchTaskQueue ok（taskId=${taskId}）`);
+        console.log(`[任务流程] [SearchTasks] runTask: finish 后 fetchTaskQueue ok（taskId=${taskId}）`);
       } catch (e) {
         console.warn(
-          `[SearchTasks] runTask: finish 后 fetchTaskQueue 失败（忽略）:`,
+          `[任务流程] [SearchTasks] runTask: finish 后 fetchTaskQueue 失败（忽略）:`,
           e?.message || e
         );
       }
@@ -2590,7 +2657,7 @@ const actions = {
     } catch (err) {
       // ===== finally 保护：无论怎么挂掉，都要清 runningTaskId =====
       console.error(
-        `[SearchTasks] runTask 未捕获异常 taskId=${taskId}：清理 runningTaskId 避免卡死`,
+        `[任务流程] [SearchTasks] runTask 未捕获异常 taskId=${taskId}：清理 runningTaskId 避免卡死`,
         err?.message || err
       );
       // 把任务标 FAILED，避免持续显示进行中
@@ -2641,11 +2708,11 @@ const actions = {
    */
   async attachSseAndRun({ state, commit, rootState }, { taskId, taskChannelId }) {
     console.log(
-      `[SearchTasks] attachSseAndRun: taskId=${taskId} taskChannelId=${taskChannelId} → taskSse.connect`
+      `[任务流程] [SearchTasks] attachSseAndRun: taskId=${taskId} taskChannelId=${taskChannelId} → taskSse.connect`
     );
     await taskSse.connect({ taskChannelId });
     console.log(
-      `[SearchTasks] taskSse.connect resolved for taskChannelId=${taskChannelId}, registering listeners`
+      `[任务流程] [SearchTasks] taskSse.connect resolved for taskChannelId=${taskChannelId}, registering listeners`
     );
 
     return new Promise((resolve, reject) => {
@@ -2666,7 +2733,7 @@ const actions = {
         if (stepCommandFallbackTimer) {
           clearTimeout(stepCommandFallbackTimer);
           stepCommandFallbackTimer = null;
-          console.log(`[SearchTasks] step-command fallback cleared (${reason})`);
+          console.log(`[任务流程] [SearchTasks] step-command fallback cleared (${reason})`);
         }
       };
       const finish = (fn) => {
@@ -2700,7 +2767,7 @@ const actions = {
       ) => {
         if (!taskChannelId || !channelSubType) {
           console.warn(
-            "[SearchTasks] postChannelResultsToServer: 缺少 taskChannelId 或 channelSubType，跳过"
+            "[任务流程] [SearchTasks] postChannelResultsToServer: 缺少 taskChannelId 或 channelSubType，跳过"
           );
           return;
         }
@@ -2727,13 +2794,13 @@ const actions = {
           const resp = await taskApi.postSearchResults(taskChannelId, payload);
           const respData = resp?.data || resp;
           console.log(
-            `[SearchTasks] postSearchResults ok: channel=${channelSubType} finished=${!!finished} items=${
+            `[任务流程] [SearchTasks] postSearchResults ok: channel=${channelSubType} finished=${!!finished} items=${
               resultItems.length
             } taskChannelStatus=${respData?.taskChannelStatus || "-"}`
           );
         } catch (err) {
           console.warn(
-            `[SearchTasks] postSearchResults failed (channel=${channelSubType}):`,
+            `[任务流程] [SearchTasks] postSearchResults failed (channel=${channelSubType}):`,
             err?.message || err
           );
         }
@@ -2752,7 +2819,7 @@ const actions = {
       const runFallbackChannelExecution = async (ctx) => {
         if (settled) return;
         if (!ctx?.taskChannelId) {
-          console.warn("[SearchTasks] fallback: context.taskChannelId 缺失，跳过");
+          console.warn("[任务流程] [SearchTasks] fallback: context.taskChannelId 缺失，跳过");
           return;
         }
         const stepBase = {
@@ -2765,7 +2832,7 @@ const actions = {
         try {
           await taskApi.postCommandResult(ctx.taskChannelId, { ...stepBase, status: "RUNNING" });
         } catch (e) {
-          console.warn("[SearchTasks] fallback post RUNNING failed:", e?.message || e);
+          console.warn("[任务流程] [SearchTasks] fallback post RUNNING failed:", e?.message || e);
         }
         try {
           // 没有 actionList → 注入一个虚拟 action 让 runActionList 识别为"搜索类"
@@ -2847,17 +2914,17 @@ const actions = {
                 status: "SKIPPED"
               });
               console.log(
-                `[SearchTasks] fallback: 兄弟 channel ${sib.channelSubType}-${sib.businessChannel} 已合并完成，向后端发 SKIPPED`
+                `[任务流程] [SearchTasks] fallback: 兄弟 channel ${sib.channelSubType}-${sib.businessChannel} 已合并完成，向后端发 SKIPPED`
               );
             } catch (err) {
               console.warn(
-                `[SearchTasks] fallback: 兄弟 channel ${sib.channelSubType} 发 SKIPPED 失败:`,
+                `[任务流程] [SearchTasks] fallback: 兄弟 channel ${sib.channelSubType} 发 SKIPPED 失败:`,
                 err?.message || err
               );
             }
           }
           console.log(
-            "[SearchTasks] fallback execution 完成 → postSearchResults + SUCCESS commandResult posted"
+            "[任务流程] [SearchTasks] fallback execution 完成 → postSearchResults + SUCCESS commandResult posted"
           );
 
           // 关键收尾：fallback 一次跑完所有渠道（patch 兄弟 channel COMPLETED + 后端 SKIPPED），
@@ -2882,12 +2949,12 @@ const actions = {
               taskStatus: reducedStatus || TASK_STATUS.COMPLETED
             });
             console.log(
-              `[SearchTasks] fallback execution 主动收敛任务 → ${reducedStatus}, finish attachSseAndRun`
+              `[任务流程] [SearchTasks] fallback execution 主动收敛任务 → ${reducedStatus}, finish attachSseAndRun`
             );
             finish(resolve);
           }
         } catch (e) {
-          console.error("[SearchTasks] fallback execution failed:", e?.message || e);
+          console.error("[任务流程] [SearchTasks] fallback execution failed:", e?.message || e);
           try {
             await taskApi.postCommandResult(ctx.taskChannelId, {
               ...stepBase,
@@ -2932,7 +2999,7 @@ const actions = {
         const context = data.context || {};
         const commandType = data.commandType;
         console.log(
-          `[SearchTasks] SSE ${commandType} taskChannelId=${context.taskChannelId} step=${
+          `[任务流程] [SearchTasks] SSE ${commandType} taskChannelId=${context.taskChannelId} step=${
             data.step?.stepCode || "-"
           }`
         );
@@ -2954,7 +3021,7 @@ const actions = {
                 clearFallback("re-arm");
                 stepCommandFallbackTimer = setTimeout(async () => {
                   console.log(
-                    "[SearchTasks] 兼容模式触发：CHANNEL_CONTEXT 后 3s 未收到 STEP_COMMAND，主动启动搜索"
+                    "[任务流程] [SearchTasks] 兼容模式触发：CHANNEL_CONTEXT 后 3s 未收到 STEP_COMMAND，主动启动搜索"
                   );
                   await runFallbackChannelExecution(lastContext);
                 }, 3000);
@@ -2979,7 +3046,7 @@ const actions = {
                   status: "RUNNING"
                 });
               } catch (e) {
-                console.warn("[SearchTasks] post RUNNING failed:", e?.message || e);
+                console.warn("[任务流程] [SearchTasks] post RUNNING failed:", e?.message || e);
               }
 
               try {
@@ -3008,7 +3075,7 @@ const actions = {
                       resultItems: stepItems
                     })
                     .catch((e) =>
-                      console.warn("[SearchTasks] postSearchResults err:", e?.message || e)
+                      console.warn("[任务流程] [SearchTasks] postSearchResults err:", e?.message || e)
                     );
                   commit("appendResults", { taskId, items: stepItems });
                 } else {
@@ -3034,7 +3101,7 @@ const actions = {
                 });
                 const ackData = ackRes?.data || ackRes;
                 console.log(
-                  `[SearchTasks] commandResult ack: taskChannelStatus=${ackData?.taskChannelStatus} taskStatus=${ackData?.taskStatus} nextExpected=${ackData?.nextCommandExpected}`
+                  `[任务流程] [SearchTasks] commandResult ack: taskChannelStatus=${ackData?.taskChannelStatus} taskStatus=${ackData?.taskStatus} nextExpected=${ackData?.nextCommandExpected}`
                 );
                 if (ackData?.taskChannelStatus) {
                   commit("patchChannel", {
@@ -3053,12 +3120,12 @@ const actions = {
                 if (isAckTaskTerminal && ackData?.nextCommandExpected === false) {
                   commit("finishTask", { taskId, taskStatus: ackTaskStatus });
                   console.log(
-                    `[SearchTasks] ack 显示 task 已终态 ${ackTaskStatus} 且无后续指令 → finish attachSseAndRun`
+                    `[任务流程] [SearchTasks] ack 显示 task 已终态 ${ackTaskStatus} 且无后续指令 → finish attachSseAndRun`
                   );
                   finish(resolve);
                 }
               } catch (e) {
-                console.error("[SearchTasks] action run failed:", e?.message || e);
+                console.error("[任务流程] [SearchTasks] action run failed:", e?.message || e);
                 await taskApi
                   .postCommandResult(context.taskChannelId, {
                     ...stepBase,
@@ -3115,15 +3182,15 @@ const actions = {
               return;
 
             default:
-              console.log(`[SearchTasks] ignored commandType=${commandType}`);
+              console.log(`[任务流程] [SearchTasks] ignored commandType=${commandType}`);
           }
         } catch (e) {
-          console.error("[SearchTasks] SSE handler unexpected error:", e);
+          console.error("[任务流程] [SearchTasks] SSE handler unexpected error:", e);
         }
       });
 
       const offErr = taskSse.on("error", (info) => {
-        console.warn("[SearchTasks] SSE error:", info);
+        console.warn("[任务流程] [SearchTasks] SSE error:", info);
         // SSE 错误不立即终止任务（可能只是网络抖动），交给上层用户决定。
         // Phase A：保守做法——SSE error 视为任务失败结束。
         commit("finishTask", {
@@ -3220,12 +3287,12 @@ const actions = {
       }
     }
     console.log(
-      `[SearchTasks] cleanupZombies: 扫描 tasksById=${Object.keys(state.tasksById).length}` +
+      "[任务流程]", `[SearchTasks] cleanupZombies: 扫描 tasksById=${Object.keys(state.tasksById).length}` +
         ` 豁免(queue里活着)=${exemptTaskIds.size} 判定僵尸=${zombies.length}`
     );
     if (zombies.length === 0) return;
     console.warn(
-      `[SearchTasks] cleanupZombies: 标记 ${zombies.length} 个僵尸任务为 STOPPED:`,
+      `[任务流程] [SearchTasks] cleanupZombies: 标记 ${zombies.length} 个僵尸任务为 STOPPED:`,
       zombies
     );
     for (const { taskId, reason } of zombies) {
@@ -3273,7 +3340,7 @@ const actions = {
         const terminalStatuses = [TASK_STATUS.FAILED, TASK_STATUS.COMPLETED, TASK_STATUS.STOPPED];
         if (terminalStatuses.includes(existing.taskStatus)) {
           console.log(
-            `[SearchTasks] resumeFromCurrent: taskId=${data.taskId} 本地已是终态 ${existing.taskStatus}，跳过`
+            `[任务流程] [SearchTasks] resumeFromCurrent: taskId=${data.taskId} 本地已是终态 ${existing.taskStatus}，跳过`
           );
           return;
         }
@@ -3289,7 +3356,7 @@ const actions = {
 
       const respChannels = Array.isArray(data.channels) ? data.channels : [];
       console.log(
-        `[SearchTasks] resumeFromCurrent: 后端返回 taskId=${data.taskId} channels=${
+        `[任务流程] [SearchTasks] resumeFromCurrent: 后端返回 taskId=${data.taskId} channels=${
           respChannels.map((c) => `${c.channelSubType}-${c.businessChannel}`).join(",") || "(空)"
         }, settings 启用=${enabledKeys.join(",") || "(未 hydrate)"}`
       );
@@ -3325,11 +3392,11 @@ const actions = {
             errorMessage: "该渠道已在客户端设置中禁用"
           });
           console.log(
-            `[SearchTasks] resumeFromCurrent: 已剔除 ${c.channelSubType}-${c.businessChannel}（taskChannelId=${c.taskChannelId}），finish(FAILED/CHANNEL_DISABLED) 已通知后端`
+            `[任务流程] [SearchTasks] resumeFromCurrent: 已剔除 ${c.channelSubType}-${c.businessChannel}（taskChannelId=${c.taskChannelId}），finish(FAILED/CHANNEL_DISABLED) 已通知后端`
           );
         } catch (e) {
           console.warn(
-            `[SearchTasks] resumeFromCurrent: 通知 finish(CHANNEL_DISABLED) 失败 (${c.channelSubType}):`,
+            `[任务流程] [SearchTasks] resumeFromCurrent: 通知 finish(CHANNEL_DISABLED) 失败 (${c.channelSubType}):`,
             e?.message || e
           );
         }
@@ -3343,7 +3410,7 @@ const actions = {
       //   - 然后用当前 settings 启用的渠道 **重建一个新任务**，让用户的搜索流程不被卡断
       if (keptChannels.length === 0) {
         console.warn(
-          `[SearchTasks] resumeFromCurrent: 所有 channels 都被剔除 → 旧任务标 FAILED (taskId=${data.taskId})`
+          `[任务流程] [SearchTasks] resumeFromCurrent: 所有 channels 都被剔除 → 旧任务标 FAILED (taskId=${data.taskId})`
         );
         const failedChannels = respChannels.map((c) => ({
           taskChannelId: c.taskChannelId,
@@ -3381,7 +3448,7 @@ const actions = {
         }));
         if (data.chatId && newChannels.length > 0) {
           console.log(
-            `[SearchTasks] resumeFromCurrent: 用前端启用渠道重建新任务 chatId=${
+            `[任务流程] [SearchTasks] resumeFromCurrent: 用前端启用渠道重建新任务 chatId=${
               data.chatId
             } channels=${enabledKeys.join(",")}`
           );
@@ -3394,7 +3461,7 @@ const actions = {
             channels: newChannels
           });
         } else {
-          console.warn("[SearchTasks] resumeFromCurrent: 重建跳过（chatId 缺失或启用渠道为空）");
+          console.warn("[任务流程] [SearchTasks] resumeFromCurrent: 重建跳过（chatId 缺失或启用渠道为空）");
         }
         return;
       }
@@ -3445,15 +3512,15 @@ const actions = {
           task.taskStatus === TASK_STATUS.RESTING)
       ) {
         console.log(
-          `[SearchTasks] resumeFromCurrent: 入队 taskId=${task.taskId}，等 SSE 推 STEP_COMMAND（兼容模式 3s 兜底自动触发聚合搜索）`
+          `[任务流程] [SearchTasks] resumeFromCurrent: 入队 taskId=${task.taskId}，等 SSE 推 STEP_COMMAND（兼容模式 3s 兜底自动触发聚合搜索）`
         );
         commit("enqueue", task.taskId);
         void dispatch("processQueue");
       } else {
-        console.log("[SearchTasks] resumeFromCurrent: 任务无可执行渠道或已终态，不连 SSE");
+        console.log("[任务流程] [SearchTasks] resumeFromCurrent: 任务无可执行渠道或已终态，不连 SSE");
       }
     } catch (e) {
-      console.warn("[SearchTasks] resumeFromCurrent failed:", e?.message || e);
+      console.warn("[任务流程] [SearchTasks] resumeFromCurrent failed:", e?.message || e);
     }
   }
 };

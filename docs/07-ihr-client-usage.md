@@ -22,7 +22,7 @@ sequenceDiagram
     participant Client as 独立客户端
 
     Web->>Recruit: POST /candidate/AiManager/client/launch
-    Recruit-->>Web: accessToken / accessTokenExpireAt / authMode / tokenParamName
+    Recruit-->>Web: accessToken / accessTokenExpireAt / authMode / tokenParamName / companyId / companyName
     Web->>Client: 传递 accessToken
     Client->>Recruit: /candidate/AiManager/client/noauth/**?accessToken=...
     Recruit->>Recruit: 校验 accessToken 并恢复上下文
@@ -65,6 +65,8 @@ sequenceDiagram
 | `accessTokenExpireAt` | `datetime` | token 过期时间 |
 | `authMode` | `string` | 固定 `IHR_RECRUIT_LOCAL_JWT` |
 | `tokenParamName` | `string` | 固定 `accessToken` |
+| `companyId` | `string` | 公司 id；随 deep link 透传到桌面端，桌面端登录时作为参数调 `/sso/generateToken` |
+| `companyName` | `string` | 公司名称；同上 |
 
 示例：
 
@@ -73,7 +75,9 @@ sequenceDiagram
   "accessToken": "<local-jwt>",
   "accessTokenExpireAt": "2026-05-15T11:40:00+08:00",
   "authMode": "IHR_RECRUIT_LOCAL_JWT",
-  "tokenParamName": "accessToken"
+  "tokenParamName": "accessToken",
+  "companyId": "<company-id>",
+  "companyName": "<company-name>"
 }
 ```
 
@@ -368,6 +372,28 @@ curl 'https://<ihr-domain>/candidate/AiManager/client/noauth/resume/init?accessT
 curl -X POST 'https://<ihr-domain>/candidate/AiManager/client/noauth/resume/upload?accessToken=<local-jwt>' \
   -F 'file=@/tmp/resume.html;type=text/html'
 ```
+
+### 7.5.5 BOSS 推荐任务截图评分
+
+推荐任务每批最多处理的人数统一由 `src/config/searchTaskConfig.js` 的 `SCORE_BATCH_SIZE` 控制，当前为 `1`，应配置为正整数。任务启动参数、聚合搜索执行和实际批次抓取均使用该值，不再分别设置人数上限或由调用参数覆盖；该配置独立于 `targetCount`（期望合格人数）和 `maxResumeCount`（渠道执行数量配置）。开批时先调用 `/search/taskChannel/{taskChannelId}/results` 保存候选列表，并显式传 `scoreBatchNo` 和 `scoreBatchComplete:false`；随后客户端逐个打开候选人详情，查找 iframe 内的 `div#resume > canvas#resume`，通过目标 BOSS tab 的受限 CDP `Input.dispatchMouseEvent` 发送鼠标移动和滚轮事件，让 Chromium 原生滚动并分片截图，拼接为完整 PNG 后上传到 `resume/upload`；截图只抓取目标 BOSS 的 `webContents`：目标 tab 正在前台时使用 `capturePage`，后台执行时使用 `beginFrameSubscription` 从目标 view 的 FrameSink 直接取帧，再按简历区域裁剪；后台路径不调用会临时改变 view 可见性的 `capturePage`，不会把 BOSS 合成层提升到 i快招壳层；不修改滚动容器的尺寸或布局；拿到 `fileId` 后提交 `/resume/task/{taskResumeId}/detail` 保存详情，再以相同 `scoreBatchNo`、空 `resultItems` 和 `scoreBatchComplete:true` 再调一次 `/results` 封批，之后才等待 `RESUME_SCORE_BATCH_COMPLETED`。该流程不再调用 `bossFindJobDetail`。
+
+分片截图支持嵌套同源 iframe，按实际滚动位置、canvas 偏移和祖先裁剪区域计算坐标。每次滚动后等待几何信息稳定并通过前后签名确认内容不再变化，保留重叠区域并在拼接时裁掉重复部分；到达底部后再次等待高度变化，兼容滚动加载。不依赖 `innerText`，不直接导出 BOSS canvas 数据。
+
+截图期间固定使用同一个滚动容器，通过目标 viewport 的裁剪区域和 CDP 原生滚轮推进内容，不修改容器的 `height`、`max-height` 或 `min-height`，避免页面重排和共享窗口重绘。结束、失败或取消后恢复原滚动位置。缺片或停滞时打印已覆盖高度、内容位置及滚动容器尺寸，不以忽略末尾内容的方式绕过完整性校验。
+
+详情未打开、canvas 未就绪、滚动停滞、窗口宽度变化或拼接不完整时，不上传列表或残缺图片作为替代。单份简历最多 80 片，长图像素高度最多 30000、总像素最多 6400 万，超限明确报错。截图完成或失败后尝试恢复原滚动位置；用户停止任务后中止截图，不上传、不打开下一位候选人。
+
+本批处理后封批并等待 SSE，通过 `passedUniqSigns` 定位需要收藏的候选人；已处理过的通过名单不重复收藏，后续是否继续由 `shouldContinue` 决定。
+
+### 7.5.6 任务流程日志
+
+在 i快招主页开发者工具 Console 的过滤框输入 `任务流程`（或字面标记 `[任务流程]`），可连续查看画像与搜索条件保存、任务创建与启动、渠道执行、候选人抓取、`/results`、分片截图与拼接、`resume/upload`、`/detail`、封批、等待与接收 SSE、通过候选人收藏、下一批及 `/finish`、任务结束/停止/失败的日志。原模块名称和已有 ID、批次号保留，仍可进一步按 `taskId` 或模块名称定位。建议开启 Preserve log（保留日志），并显示 Info、Warning、Error 级别。
+
+`[任务启动]` 表示登录等执行前检查已通过并进入 RUNNING；`[任务结束]` 输出任务状态及错误摘要。评分监听注册后会立即打印等待日志，避免将等待 SSE 误认为没有执行。普通 SSE 消息打印关键字段，心跳仍不逐条输出。
+
+已关闭 BOSS 简历 iframe 的逐请求、逐响应和正文调试输出，不再额外读取这些调试正文；保留任务所需的网络监听、iframe 会话配置和推荐列表缓存。复用 BOSS 页签及主动重新加载前会检查网络监听，断开后重新安装；主页 Console 中的 `[任务流程] [网络监听]` 只转发 `NETWORK_ATTACHED`、`NETWORK_DETACHED`、`NETWORK_ENABLE_ERROR`、`CAPTURE_BODY_ERROR` 等监听状态和任务抓包错误。修改涉及 Electron 主进程及 preload，需重启客户端生效。
+
+CDP 读取任务接口响应正文时，主会话的空 `sessionId` 必须转换为 `undefined`，仅独立进程 iframe 传入实际会话 ID，否则 Electron 会报 `Empty session id is not allowed`，导致列表响应无法进入缓存。获取列表失败时停止任务并提示，不通过额外刷新重试掩盖抓包错误。
 
 ## 8. token 校验和错误处理
 

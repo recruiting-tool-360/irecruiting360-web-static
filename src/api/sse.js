@@ -18,9 +18,9 @@ class SseClient {
 
     // 监听网络状态变化
     window.addEventListener('online', () => {
-      console.log('网络已恢复连接');
+      console.log('[任务流程] 网络已恢复连接');
       if (this.isConnectionFailed) {
-        console.log('检测到网络重新连接，尝试恢复SSE连接');
+        console.log('[任务流程] 检测到网络重新连接，尝试恢复SSE连接');
         this.reconnect();
       }
     });
@@ -29,7 +29,7 @@ class SseClient {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' &&
           (!this.eventSource || this.eventSource.readyState === 2)) {
-        console.log('页面重新可见，检查SSE连接状态');
+        console.log('[任务流程] 页面重新可见，检查SSE连接状态');
         // 检查连接是否已经断开
         const now = Date.now();
         const elapsed = now - this.lastMessageTime;
@@ -73,7 +73,13 @@ class SseClient {
       url += `?${params.toString()}`
     }
 
-    // console.log('正在连接SSE服务:', url.replace(satoken, '******')) // 日志中隐藏token值
+    const maskedUrl = String(url).replace(
+      /(satoken=)[^&]+/,
+      (_m, prefix) => `${prefix}******`
+    )
+    console.log(
+      `[任务流程] [sse] connect → ${maskedUrl} | userId=${userId ?? '-'} satoken=${satoken ? 'yes' : 'no'}`
+    )
     this.eventSource = new EventSource(url)
 
     // 设置最后收到消息的时间
@@ -85,7 +91,7 @@ class SseClient {
     // 连接成功事件
     this.eventSource.addEventListener('CONNECT', (event) => {
       this.lastMessageTime = Date.now()  // 更新最后消息时间
-      // console.log('SSE连接成功:', event.data)
+      console.log(`[任务流程] [sse] CONNECT ok | readyState=${this.eventSource?.readyState}`)
       this.retryCount = 0
       if (this.listeners['connect']) {
         this.listeners['connect'].forEach(callback => callback(event.data))
@@ -106,7 +112,7 @@ class SseClient {
         errorMsg = data.message || errorMsg
       } catch (e) {
         // 如果解析失败，使用默认消息
-        console.warn('解析认证错误消息失败:', e)
+        console.warn('[任务流程] 解析认证错误消息失败:', e)
       }
 
       // 显示错误消息
@@ -135,7 +141,20 @@ class SseClient {
 
         // 解析消息内容
         const messageData = event.data;
-        // console.log('消息数据:', messageData);
+        // 只打关键字段，避免把 SSE 里的整份简历/大对象刷到控制台
+        try {
+          const peek = JSON.parse(messageData)
+          const d = peek?.data || {}
+          console.log(
+            "[任务流程]", `[sse] ← MESSAGE scenario=${peek?.scenario ?? '-'} id=${peek?.id ?? '-'}` +
+              (d.taskId ? ` taskId=${d.taskId}` : '') +
+              (d.scoreBatchNo != null ? ` scoreBatchNo=${d.scoreBatchNo}` : '') +
+              (d.passedCount != null ? ` passedCount=${d.passedCount}` : '') +
+              (d.shouldContinue != null ? ` shouldContinue=${d.shouldContinue}` : '')
+          )
+        } catch (_e) {
+          console.log('[任务流程] [sse] ← MESSAGE (non-json)', String(messageData).slice(0, 300))
+        }
 
         // 处理消息，确保即使解析失败也不会中断
         try {
@@ -148,7 +167,7 @@ class SseClient {
               try {
                 callback(jsonData);
               } catch (callbackError) {
-                console.error('消息回调执行错误:', callbackError);
+                console.error('[任务流程] 消息回调执行错误:', callbackError);
               }
             });
           }
@@ -164,13 +183,13 @@ class SseClient {
               try {
                 callback(messageData);
               } catch (callbackError) {
-                console.error('消息回调执行错误:', callbackError);
+                console.error('[任务流程] 消息回调执行错误:', callbackError);
               }
             });
           }
         }
       } catch (e) {
-        console.error('处理MESSAGE事件出错:', e);
+        console.error('[任务流程] 处理MESSAGE事件出错:', e);
       }
     })
 
@@ -185,7 +204,7 @@ class SseClient {
             parsedData = JSON.parse(event.data)
           } catch (e) {
             // 如果解析失败，保留原始字符串
-            console.warn('解析JSON失败，使用原始字符串', e)
+            console.warn('[任务流程] 解析JSON失败，使用原始字符串', e)
           }
         }
         this.listeners['broadcast'].forEach(callback => callback(parsedData))
@@ -205,7 +224,7 @@ class SseClient {
           // console.log(`心跳序列号: ${this.lastHeartbeatSeq}`);
         }
       } catch (e) {
-        console.warn('解析心跳消息失败:', e);
+        console.warn('[任务流程] 解析心跳消息失败:', e);
       }
 
       // 触发心跳回调
@@ -214,7 +233,7 @@ class SseClient {
           try {
             callback(event.data);
           } catch (e) {
-            console.error('心跳回调执行错误:', e);
+            console.error('[任务流程] 心跳回调执行错误:', e);
           }
         });
       }
@@ -223,7 +242,9 @@ class SseClient {
     // 连接错误处理 - 修改以避免在认证错误后重试
     this.eventSource.onerror = (event) => {
       // 安全地记录错误，避免尝试访问undefined的属性
-      // console.error('SSE连接错误:', event)
+      console.warn(
+        `[任务流程] [sse] error | readyState=${this.eventSource?.readyState} retry=${this.retryCount}/${this.maxRetry} failed=${this.isConnectionFailed}`
+      )
 
       // 触发错误回调，传递事件对象
       if (this.listeners['error']) {
@@ -378,14 +399,14 @@ class SseClient {
         try {
           callback({type: 'silent_disconnect'});
         } catch (e) {
-          console.error('连接问题回调执行错误:', e);
+          console.error('[任务流程] 连接问题回调执行错误:', e);
         }
       });
     }
 
     // 只有之前是连接状态才重连
     if (wasConnected) {
-      // console.log('重新建立SSE连接...');
+      console.log('[任务流程] [sse] reconnectAfterFailure：重建全局 SSE 连接')
       // 获取用户ID并重连
       const userInfo = store.getters.getUserInfo;
       const userId = userInfo?.id;
@@ -411,18 +432,18 @@ class SseClient {
       })
       .then(response => {
         if (response.ok) {
-          console.log('Ping成功，连接正常');
+          console.log('[任务流程] Ping成功，连接正常');
           // 更新最后活动时间（虽然不是通过SSE接收的消息）
           this.lastMessageTime = Date.now() - 30000; // 减去30秒作为安全边际
         } else {
-          console.warn('Ping失败，状态码:', response.status);
+          console.warn('[任务流程] Ping失败，状态码:', response.status);
         }
       })
       .catch(error => {
-        console.error('Ping请求失败:', error);
+        console.error('[任务流程] Ping请求失败:', error);
       });
     } catch (e) {
-      console.error('发送ping请求出错:', e);
+      console.error('[任务流程] 发送ping请求出错:', e);
     }
   }
 
@@ -442,9 +463,9 @@ class SseClient {
           body: JSON.stringify({
             messageId: message.id
           })
-        }).catch(e => console.warn('发送消息确认失败:', e));
+        }).catch(e => console.warn('[任务流程] 发送消息确认失败:', e));
       } catch (e) {
-        console.warn('准备消息确认请求失败:', e);
+        console.warn('[任务流程] 准备消息确认请求失败:', e);
       }
     }
   }

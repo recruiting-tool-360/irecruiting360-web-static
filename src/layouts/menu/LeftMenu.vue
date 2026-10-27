@@ -98,7 +98,10 @@
                   />
                 </svg>
               </button>
-              <h4 class="job-title">{{ parseJobName(item.name).title || item.name }}</h4>
+              <div class="job-title-wrap">
+                <h4 class="job-title">{{ parseJobName(item.name).title || item.name }}</h4>
+                <span v-if="isJobProfileOff(item)" class="job-profile-off-tag">未开启</span>
+              </div>
             </div>
             <!-- 第二行（仅在有 code 时）：编号 -->
             <div v-if="parseJobName(item.name).code" class="job-item-row job-item-row-bottom">
@@ -433,7 +436,6 @@ import {
 } from "src/api/chat/ChatApi";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { generateJobPostingFromResume } from "src/util/jobPostingGenerator";
-import { fetchJdMapForPositions } from "src/util/positionJdFetcher";
 import { isFromMenu, isVisibleThirdA, usePlanVisibility } from "src/hooks/usePlanVisibility";
 import notify from "src/util/notify";
 import { ensureClientAuthority } from "src/util/checkClientAuthority";
@@ -595,6 +597,12 @@ function parseJobName(name) {
   if (m) return { title: m[1].trim(), code: m[2].trim() };
   return { title: raw, code: "" };
 }
+
+/** 职位画像是否未开启：按约定只看 jobProfileEnabled（兼容后端下发布尔/字符串/数字）。 */
+function isJobProfileOff(item) {
+  const v = item?.jobProfileEnabled;
+  return v === false || v === "false" || v === 0 || v === "0";
+}
 const currentChatId = computed(() => store.getters.getLatestChatId || "");
 const renameDialogVisible = ref(false);
 const newName = ref("");
@@ -619,16 +627,174 @@ const chatCardRef = computed(() => store.getters.getChatCardRefValue);
  */
 async function getActiveApplicationPositions() {
   try {
+    console.log("[LeftMenu] getActiveApplicationPositions 请求在招职位");
     // 跟 noauth/addPools 一样直接调 i人事 noauth 接口（client 模式经 ihrBridge 自动拼 accessToken）。
     const resp = await window?.api?.ihrBridge?.getApplicationPosition?.();
+    console.log(
+      "[API-TRACE] GET /candidate/AiManager/client/noauth/application/position 返回值:",
+      resp
+    );
     // 接口不可用（非客户端 / 旧 preload）→ 返回 null，不过滤
-    if (resp == null || resp.success === false) return null;
+    if (resp == null) {
+      console.warn("[LeftMenu] getActiveApplicationPositions 跳过: ihrBridge 不可用");
+      return null;
+    }
+    if (resp.success === false) {
+      console.warn("[LeftMenu] getActiveApplicationPositions 失败:", {
+        code: resp.code,
+        errorCode: resp.errorCode,
+        message: resp.message,
+        httpStatus: resp.httpStatus
+      });
+      return null;
+    }
     // 响应形态跟 SSOLogin.rebuildPositionList 一致：resp.data 直接是职位数组
-    return Array.isArray(resp.data) ? resp.data : [];
+    const positions = Array.isArray(resp.data) ? resp.data : [];
+    const positionIds = positions
+      .map((item) => item?.headcountId ?? item?.positionId)
+      .filter((id) => id != null && id !== "");
+    console.log(
+      `[LeftMenu] getActiveApplicationPositions 成功: count=${positions.length}` +
+        (positionIds.length ? ` ids=${JSON.stringify(positionIds)}` : "")
+    );
+    if (!Array.isArray(resp.data)) {
+      console.warn("[LeftMenu] getActiveApplicationPositions 响应 data 不是数组:", resp.data);
+    }
+    return positions;
   } catch (e) {
     console.warn("[LeftMenu] getApplicationPosition 失败，跳过职位过滤/同步:", e?.message || e);
     return null;
   }
+}
+
+/** 职位画像字段快照签名：用于 diff，避免每次刷新都调 createChatPlus 写库。 */
+function buildProfileSyncKey(item) {
+  return JSON.stringify([
+    item?.positionId ?? "",
+    item?.name ?? "",
+    item?.positionName ?? "",
+    item?.jd ?? "",
+    item?.jobProfileEnabled ?? null,
+    item?.positionHarnessProfileStatus ?? null,
+    item?.positionHarnessProfileId ?? null
+  ]);
+}
+
+/** 最近一次成功同步到 createChatPlus 的职位画像快照（positionId -> 签名）。 */
+const lastPositionProfileSyncSnapshot = new Map();
+
+/**
+ * 客户端模式：批量拉职位详情，返回 { [headcountId]: {...} }。
+ *
+ * 一次请求同时服务两件事，避免 JD 回填和画像字段各自再拉一遍：
+ *   - 用 headcountBasic 生成 JD 文本（并 patch 到 store 的 positionJdCache）
+ *   - 取 positionHarnessSwitch 里的 aiEvaluationEnabled / positionHarnessProfileStatus
+ *
+ * @returns {Promise<Record<string, object>|null>} null = 接口不可用/失败（调用方应跳过 createChatPlus 同步）
+ */
+async function fetchPositionDetailMap(positionIds) {
+  const ihrBridge = window?.api?.ihrBridge;
+  if (!ihrBridge || typeof ihrBridge.batchGetPositionDetailByIds !== "function") return null;
+  const ids = Array.from(
+    new Set((positionIds || []).filter((id) => id != null && id !== "").map((id) => String(id)))
+  );
+  if (ids.length === 0) return {};
+  try {
+    const res = await ihrBridge.batchGetPositionDetailByIds(ids);
+    console.log(
+      "[API-TRACE] POST /candidate/AiManager/client/noauth/headcount/v2/batch/getDetailByIds 返回值:",
+      res
+    );
+    if (!res?.success || !Array.isArray(res.data)) {
+      console.warn("[LeftMenu] batchGetPositionDetailByIds 失败:", res?.errorCode, res?.message);
+      return null;
+    }
+    const map = {};
+    for (const item of res.data) {
+      // 匹配键：application.headcountId。优先 headcountBasic.headcountId，兜底平铺字段。
+      const pid = item?.headcountBasic?.headcountId ?? item?.headcountId ?? item?.positionId;
+      if (pid == null || pid === "") continue;
+
+      const sw = item?.positionHarnessSwitch || {};
+      let jd = "";
+      try {
+        if (item?.headcountBasic) {
+          jd =
+            generateJobPostingFromResume(item.headcountBasic, {
+              salaryTypes: item?.salaryTypes || [],
+              workYears: item?.workYears || [],
+              positionTypes: item?.positionTypes || [],
+              diplomaTypes: item?.diplomaTypes || []
+            }) || "";
+          if (jd) {
+            store.commit("PATCH_POSITION_JD_CACHE", { positionId: String(pid), jd });
+          }
+        }
+      } catch (e) {
+        console.warn("[LeftMenu] generateJobPostingFromResume 失败:", e?.message || e);
+      }
+
+      map[String(pid)] = {
+        jd,
+        jobProfileEnabled: sw.jobProfileEnabled,
+        aiEvaluationEnabled: sw.aiEvaluationEnabled,
+        // 真实返回可能嵌在 positionHarnessSwitch，也可能平铺在详情根上，两种都兼容
+        positionHarnessProfileStatus:
+          item?.positionHarnessProfileStatus ?? sw.positionHarnessProfileStatus
+      };
+    }
+    console.log(
+      `[LeftMenu] batchGetPositionDetailByIds 返回 ${res.data.length} 条，命中 ${Object.keys(map).length} 个职位`
+    );
+    return map;
+  } catch (e) {
+    console.warn("[LeftMenu] batchGetPositionDetailByIds 异常:", e?.message || e);
+    return null;
+  }
+}
+
+/**
+ * 把职位级画像字段合并到 chat items。
+ *
+ * 优先级（前面覆盖后面）：
+ *   - jobProfileEnabled / positionHarnessProfileStatus：详情接口 > application/position > chatList
+ *   - positionHarnessProfileId：application/position > chatList（详情接口不返）
+ *   - aiEvaluationEnabled：详情接口 > chatList（chatList 不返）
+ *
+ * 匹配键：chatList.positionId === application.headcountId（客户端约定），
+ * 同时把 application.positionId 也放进 map 兜底。
+ */
+function mergePositionProfileFields(chatList, positions, detailMap) {
+  if (!Array.isArray(chatList)) return [];
+  const positionMap = new Map();
+  for (const p of positions || []) {
+    if (!p) continue;
+    const info = {
+      jobProfileEnabled: p.jobProfileEnabled,
+      positionHarnessProfileStatus: p.positionHarnessProfileStatus,
+      positionHarnessProfileId: p.positionHarnessProfileId
+    };
+    if (p.headcountId != null && p.headcountId !== "") positionMap.set(String(p.headcountId), info);
+    if (p.positionId != null && p.positionId !== "" && !positionMap.has(String(p.positionId))) {
+      positionMap.set(String(p.positionId), info);
+    }
+  }
+  return chatList.map((c) => {
+    const key = c?.positionId != null ? String(c.positionId) : "";
+    const pos = key ? positionMap.get(key) : null;
+    const detail = key && detailMap ? detailMap[key] : null;
+    return {
+      ...c,
+      jobProfileEnabled: detail?.jobProfileEnabled ?? pos?.jobProfileEnabled ?? c.jobProfileEnabled,
+      positionHarnessProfileStatus:
+        detail?.positionHarnessProfileStatus ??
+        pos?.positionHarnessProfileStatus ??
+        c.positionHarnessProfileStatus,
+      positionHarnessProfileId: pos?.positionHarnessProfileId ?? c.positionHarnessProfileId,
+      aiEvaluationEnabled: detail?.aiEvaluationEnabled ?? c.aiEvaluationEnabled,
+      jd: c.jd || detail?.jd || ""
+    };
+  });
 }
 
 /** 由 application/position 原始列表构造「在招职位 id 集合」（positionId + headcountId 兜底）。 */
@@ -645,73 +811,114 @@ function buildActivePositionIdSet(positions) {
 }
 
 /**
- * 同步缺失的 chat：application/position 在招职位里，chatList 中**没有对应 chat** 的职位 → 创建。
- * 仅客户端模式生效（依赖 ihrBridge 的 noauth 接口）。
+ * 同步职位列表到 createChatPlus（整表同步：没传的 positionId 会被后端删除）。
  *
- * ⚠️ 关键：`createChatPlus` **不是单条追加，而是「同步当前用户的完整职位列表」**——
- *   按 positionId 对比：新传的新增、已存在的更新 name/jd/order、**库里有但这次没传的会被删除**。
- *   所以必须把「现有 chatList + 新增职位」**完整数组**一起传过去，否则会把老的会话清空。
+ * 本次约定：每次刷新都要把 i 人事最新的画像配置带到 chat 上，因此不再只在「缺 chat」时调用：
+ *   - payload 覆盖全部职位（老 chat + 新增），且必须带 jobProfileEnabled /
+ *     positionHarnessProfileStatus / positionHarnessProfileId
+ *   - 只有字段真的变化（或新增职位）才发请求，避免窗口聚焦刷新频繁写库
+ *   - 详情接口失败时整轮跳过（避免把已有画像字段写成 null）
  *
- * 匹配口径跟职位过滤一致：chat.positionId 对应 application 的 headcountId（客户端 positionId=headcountId，
- * 见 SSOLogin.rebuildPositionList）。
- *
- * @param {Array} applicationPositions  getActiveApplicationPositions() 返回的原始数组
- * @param {Array} currentChatList       本次格式化后的 chatList（含 positionId / name / jd）
- * @returns {Promise<boolean>}  true=有新建（调用方应重新拉一次 chatList）
+ * @returns {Promise<{created: boolean}>} created=true 表示新增了 chat，调用方应重新拉 chatList
  */
-async function createMissingChatsForApplicationPositions(applicationPositions, currentChatList) {
-  if (!isElectronClient()) return false;
-  if (!Array.isArray(applicationPositions) || applicationPositions.length === 0) return false;
+async function syncChatPositions(applicationPositions, chatListItems, detailMap) {
+  if (!isElectronClient()) return { created: false };
+  if (!Array.isArray(applicationPositions) || applicationPositions.length === 0) {
+    return { created: false };
+  }
+  if (!detailMap) {
+    console.warn("[LeftMenu] 职位详情不可用，跳过 createChatPlus 同步（避免清空画像字段）");
+    return { created: false };
+  }
 
-  // chatList 已有的职位 id 集合
-  const existing = new Set(
-    (currentChatList || [])
+  const existingIds = new Set(
+    (chatListItems || [])
       .map((c) => (c?.positionId != null ? String(c.positionId) : ""))
       .filter(Boolean)
   );
-
-  // 在招职位里 chatList 没有对应 chat 的 → 需要创建
   const missing = applicationPositions.filter((p) => {
     const pid = p?.headcountId ?? p?.positionId;
-    return pid != null && pid !== "" && !existing.has(String(pid));
+    return pid != null && pid !== "" && !existingIds.has(String(pid));
   });
-  if (missing.length === 0) return false;
 
-  // ★ 组装「完整数组」= 现有 chatList（原样保留，避免被 createChatPlus 当成"已删除"清掉）
-  //   + 新增的在招职位。
-  const existingPayload = (currentChatList || []).map((c) => ({
+  const positionNameById = new Map();
+  for (const p of applicationPositions) {
+    const positionName = String(p?.positionName ?? "").trim();
+    if (!positionName) continue;
+    if (p?.headcountId != null && p.headcountId !== "") {
+      positionNameById.set(String(p.headcountId), positionName);
+    }
+    if (p?.positionId != null && p.positionId !== "" && !positionNameById.has(String(p.positionId))) {
+      positionNameById.set(String(p.positionId), positionName);
+    }
+  }
+
+  // 老 chat：原样同步（整表语义），但画像字段必须一起带上
+  const payload = (chatListItems || []).map((c) => ({
     positionId: c.positionId,
     name: c.name,
-    jd: c.jd || ""
+    positionName:
+      positionNameById.get(String(c.positionId)) ||
+      c.positionName ||
+      parseJobName(c.name).title ||
+      "",
+    jd: c.jd || "",
+    jobProfileEnabled: c.jobProfileEnabled,
+    positionHarnessProfileStatus: c.positionHarnessProfileStatus,
+    positionHarnessProfileId: c.positionHarnessProfileId
   }));
-  // ★ 只给「新增职位」预拉 JD（application/position 不带 jd），让 createChatPlus 同步时就带上 JD，
-  //   不再写空串。老数据（existingPayload）不动。拉不到 → 回退 item.jd || ""（原行为）。
-  const missingIds = missing.map((item) => item.headcountId ?? item.positionId);
-  const jdMap = await fetchJdMapForPositions(missingIds);
 
+  // 新增职位：从详情接口 + application/position 补齐
   const newPayload = missing.map((item) => {
     const pid = item.headcountId ?? item.positionId;
+    const detail = detailMap[String(pid)] || {};
     return {
-      ...item,
       positionId: pid,
       name: `${item.positionName ?? ""} (${item.headcountCode ?? ""})`,
-      jd: jdMap[String(pid)] || item.jd || ""
+      positionName: item.positionName ?? "",
+      jd: detail.jd || store.getters.getJdByPositionId?.(pid) || item.jd || "",
+      jobProfileEnabled: detail.jobProfileEnabled ?? item.jobProfileEnabled ?? null,
+      positionHarnessProfileStatus:
+        detail.positionHarnessProfileStatus ?? item.positionHarnessProfileStatus ?? null,
+      positionHarnessProfileId: item.positionHarnessProfileId ?? null
     };
   });
-  const chatData = [...existingPayload, ...newPayload];
+
+  const chatData = [...payload, ...newPayload];
+  if (chatData.length === 0) return { created: false };
+
+  // diff：字段没变就不发请求（窗口聚焦刷新很频繁）
+  const nextSnapshot = new Map();
+  for (const item of chatData) {
+    nextSnapshot.set(String(item.positionId), buildProfileSyncKey(item));
+  }
+  const changed =
+    missing.length > 0 ||
+    nextSnapshot.size !== lastPositionProfileSyncSnapshot.size ||
+    Array.from(nextSnapshot.entries()).some(
+      ([key, sig]) => lastPositionProfileSyncSnapshot.get(key) !== sig
+    );
+  if (!changed) {
+    console.log("[LeftMenu] 职位画像字段无变化，跳过 createChatPlus");
+    return { created: false };
+  }
 
   console.log(
-    `[LeftMenu] 检测到 ${missing.length} 个在招职位无对应 chat，整表(现有${existingPayload.length}+新增${newPayload.length})调 createChat:`,
-    { missing: missing.map((m) => m?.headcountId ?? m?.positionId), total: chatData.length }
+    `[LeftMenu] 同步职位列表到 createChatPlus：老职位${payload.length} + 新增${newPayload.length}`,
+    { missing: missing.map((m) => m?.headcountId ?? m?.positionId) }
   );
   try {
     const resp = await createChat(chatData);
-    if (resp?.success === "success") return true;
-    console.warn("[LeftMenu] createChat 缺失职位失败:", resp?.errorMessage || resp);
-    return false;
+    if (resp?.success === "success") {
+      lastPositionProfileSyncSnapshot.clear();
+      for (const [key, sig] of nextSnapshot) lastPositionProfileSyncSnapshot.set(key, sig);
+      return { created: missing.length > 0 };
+    }
+    console.warn("[LeftMenu] createChatPlus 同步失败:", resp?.errorMessage || resp);
+    return { created: false };
   } catch (e) {
-    console.warn("[LeftMenu] createChat 缺失职位异常:", e?.message || e);
-    return false;
+    console.warn("[LeftMenu] createChatPlus 同步异常:", e?.message || e);
+    return { created: false };
   }
 }
 
@@ -747,7 +954,13 @@ const loadChatList = async (opts = {}) => {
             createTime: item.updateAt?.slice(0, 16).replace("T", " ") || "未知时间",
             positionId: item.positionId, // 保留positionId
             // 优先 cache（前端积累的 jd），后端 item.jd 兜底
-            jd: cachedJd || item.jd || ""
+            jd: cachedJd || item.jd || "",
+            // 画像字段：后端直连下发时优先，后续会被 application/position + 详情接口覆盖
+            jobProfileEnabled: item.jobProfileEnabled,
+            positionHarnessProfileStatus: item.positionHarnessProfileStatus,
+            positionHarnessProfileId: item.positionHarnessProfileId,
+            harnessProfileVersion: item.harnessProfileVersion,
+            aiEvaluationEnabled: item.aiEvaluationEnabled
           };
         });
 
@@ -757,15 +970,32 @@ const loadChatList = async (opts = {}) => {
         isFromThirdMenu: isFromThirdMenu.value
       });
 
-      // ★ 拉一次 i人事在招职位（application/position），既用于白名单过滤，也用于"缺失 chat 同步"。
+      // ★ 拉 i人事在招职位：既做白名单过滤，也提供 jobProfileEnabled / positionHarnessProfileId
       const applicationPositions = await getActiveApplicationPositions();
 
-      // ★ 缺失 chat 同步：在招职位里 chatList 没有对应 chat 的 → createChat 创建，然后**重新拉一次 chatList**
-      //   （拿到含新建 chat 的完整列表再渲染）。skipPositionSync 防止无限递归。
+      // ★ 全量拉职位详情：一次请求同时供 JD 生成 + 画像开关字段（aiEvaluationEnabled / status）
+      const detailIds = [
+        ...(Array.isArray(applicationPositions) ? applicationPositions : []).map(
+          (p) => p?.headcountId ?? p?.positionId
+        ),
+        ...formattedChatList.map((c) => c?.positionId)
+      ];
+      const positionDetailMap = await fetchPositionDetailMap(detailIds);
+
+      // ★ 合并职位级画像字段到 chat item（详情 > application/position > chatList）
+      const chatListWithProfileFlags = mergePositionProfileFields(
+        formattedChatList,
+        applicationPositions,
+        positionDetailMap
+      );
+
+      // ★ 整表同步到 createChatPlus：字段有变化才发；详情不可用时跳过，避免清空画像配置。
+      //   skipPositionSync 防止"创建后就重新拉列表"造成无限递归。
       if (!opts.skipPositionSync) {
-        const created = await createMissingChatsForApplicationPositions(
+        const { created } = await syncChatPositions(
           applicationPositions,
-          formattedChatList
+          chatListWithProfileFlags,
+          positionDetailMap
         );
         if (created) {
           console.log("[LeftMenu] 已为缺失在招职位创建 chat，重新拉取 chatList");
@@ -779,10 +1009,10 @@ const loadChatList = async (opts = {}) => {
       //   chat 没 positionId（理论上少见）→ 无从判定 → 保留。
       const activePositionIdSet = buildActivePositionIdSet(applicationPositions);
       const visibleChatList = activePositionIdSet
-        ? formattedChatList.filter(
+        ? chatListWithProfileFlags.filter(
             (item) => !item.positionId || activePositionIdSet.has(String(item.positionId))
           )
-        : formattedChatList;
+        : chatListWithProfileFlags;
       if (activePositionIdSet) {
         console.log(
           `[LeftMenu] 职位列表过滤：${formattedChatList.length} → ${visibleChatList.length}（按 application/position 在招职位）`
@@ -1115,6 +1345,7 @@ async function hydrateJobDescriptionsFromIhr(chatListItems) {
       return;
     }
     const list = Array.isArray(res.data) ? res.data : [];
+    console.log(`[LeftMenu] batchGetPositionDetailByIds 返回 ${list.length} 条职位详情`);
     if (list.length === 0) {
       console.log("[LeftMenu] batchGetPositionDetailByIds 返回空");
       return;
@@ -1269,13 +1500,22 @@ async function fetchSingleJobJd(positionId) {
     return "";
   }
   try {
+    console.log(`[LeftMenu] fetchSingleJobJd 请求职位详情 positionId=${positionId}`);
     const res = await ihrBridge.batchGetPositionDetailByIds([positionId]);
     if (!res?.success || !Array.isArray(res.data) || res.data.length === 0) {
+      console.warn(
+        `[LeftMenu] fetchSingleJobJd 无可用详情 positionId=${positionId} success=${res?.success} count=${
+          Array.isArray(res?.data) ? res.data.length : 0
+        }`
+      );
       return "";
     }
     const item = res.data[0];
     const headcountBasic = item?.headcountBasic;
-    if (!headcountBasic) return "";
+    if (!headcountBasic) {
+      console.warn(`[LeftMenu] fetchSingleJobJd 缺少 headcountBasic positionId=${positionId}`);
+      return "";
+    }
     const enums = {
       salaryTypes: item?.salaryTypes || [],
       workYears: item?.workYears || [],
@@ -1749,6 +1989,13 @@ watch(
       color: #14b8a6 // text-primary-500
       background: #f0fdfa // bg-primary-50
 
+  // 标题 + 画像 tag 的横向容器（避免 space-between 把 tag 推到状态列旁边）
+  .job-title-wrap
+    display: flex
+    align-items: center
+    min-width: 0
+    flex: 1
+
   // 1:1 对照 h4 className="text-sm font-medium truncate mb-0.5"
   .job-title
     margin: 0 0 2px 0 // mb-0.5
@@ -1764,6 +2011,18 @@ watch(
 
   .job-item.active .job-title
     color: #14b8a6 // text-primary-500
+
+  // 职位画像未开启 tag：仅按 jobProfileEnabled 判定
+  .job-profile-off-tag
+    flex-shrink: 0
+    margin-left: 4px
+    padding: 0 4px
+    font-size: 10px
+    line-height: 16px
+    color: #a1a1aa
+    background: #f4f4f5
+    border: 1px solid #e4e4e7
+    border-radius: 3px
 
   // 1:1 对照 p className="text-xs text-neutral-500 font-mono"
   .job-code

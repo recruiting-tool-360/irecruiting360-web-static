@@ -24,7 +24,7 @@
     <!-- 进行中遮罩 -->
     <div class="loading-overlay" v-if="loading">
       <q-spinner color="primary" size="3em" />
-      <div class="text-subtitle1 q-mt-sm text-white">正在登录中，请稍候...</div>
+      <div class="text-white text-subtitle1 q-mt-sm">正在登录中，请稍候...</div>
     </div>
   </div>
 </template>
@@ -122,7 +122,7 @@ const doSSOLogin = async (iframeMessage) => {
       return;
     }
 
-    const { ssoConfig, positionList } = iframeMessage;
+    const { ssoConfig, positionList, companyId, companyName } = iframeMessage;
     // 父页（ihr360-recruit-static）会在 positionList 每项里带上 jd 文本，
     // 这里立刻缓存到 store，让 LeftMenu loadChatList 后能按 positionId 回填 jd
     // （后端 chatList 接口不返 jd 字段，需要前端 cache 这条路径补）
@@ -132,7 +132,12 @@ const doSSOLogin = async (iframeMessage) => {
         `[SSOLogin] 已缓存 ${positionList.length} 个职位 JD（用于 LeftMenu auto-send-jd）`
       );
     }
-    const tokenResponse = await generateSsoToken(ssoConfig?.userConfig ?? {});
+    // companyId / companyName 由 /client-launcher 经 deep link 透传（request-launch-token 返回），
+    // 桌面端登录时作为额外参数随 userConfig 一起传给 /sso/generateToken。
+    const ssoTokenParams = { ...(ssoConfig?.userConfig ?? {}) };
+    if (companyId != null && companyId !== '') ssoTokenParams.companyId = companyId;
+    if (companyName != null && companyName !== '') ssoTokenParams.companyName = companyName;
+    const tokenResponse = await generateSsoToken(ssoTokenParams);
 
     if (tokenResponse.data && tokenResponse.data.token) {
       const token = tokenResponse.data.token;
@@ -239,6 +244,10 @@ async function rebuildPositionList(positionIds) {
       return [];
     }
     const res = await ihrBridge.getApplicationPosition();
+    console.log(
+      "[API-TRACE] GET /candidate/AiManager/client/noauth/application/position 返回值:",
+      res
+    );
     const all = res?.success && Array.isArray(res?.data) ? res.data : [];
     const idSet = new Set(positionIds);
     const filtered = all.filter((item) => idSet.has(item.headcountId));
@@ -278,6 +287,8 @@ async function runFromDeepLinkPayload(p) {
   const fakeInitMessage = {
     ssoConfig: p.ssoConfig,
     sysConfig: p.sysConfig,
+    companyId: p.companyId,
+    companyName: p.companyName,
     positionList
   };
   iframeParams.value = fakeInitMessage;
@@ -293,7 +304,10 @@ async function runFromDeepLinkPayload(p) {
       positionIds: p.positionIds,
       sysConfig: p.sysConfig,
       ssoConfig: p.ssoConfig,
-      companyConfig: p.companyConfig
+      companyConfig: p.companyConfig,
+      // 保留 client/launch 返回的公司信息，后续业务模块读取 init 数据时不丢失。
+      companyId: p.companyId,
+      companyName: p.companyName
     });
   }
 }

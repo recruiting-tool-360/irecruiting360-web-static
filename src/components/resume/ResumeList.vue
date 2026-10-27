@@ -219,7 +219,7 @@ const props = defineProps({
 const emit = defineEmits(["load-more", "filter-change", "update:selected"]);
 
 // 初始化发送简历hook
-const { handleResume, sendResume } = useSendResume("resumeList");
+const { sendDirectResume } = useSendResume("resumeList");
 
 // 默认planA企业可见， 无plan或plan不匹配时默认不可见
 const { isVisible } = usePlanVisibility({
@@ -230,6 +230,10 @@ const { isVisible } = usePlanVisibility({
 const planInfo = computed(() => {
   return store.getters.getUserInfo?.extendData;
 });
+
+const logIhrAction = (action, stage, details = {}) => {
+  console.info(`[IHR Action][ResumeList] ${action}:${stage}`, details);
+};
 
 const isCollectResumeLoading = ref(false);
 
@@ -667,27 +671,45 @@ const batchDialogType = ref("talent-pool");
 
 // 处理批量确认操作
 const handleBatchConfirm = async (obj) => {
+  logIhrAction(obj?.type || "batch", "confirm", {
+    selectedCount: Array.isArray(obj?.resumes) ? obj.resumes.length : 0,
+    positionId: store.getters.getLatestPositionId || "",
+    resumeItems: (obj?.resumes || []).map((resume) => ({
+      id: resume?.id || resume?.resumeBlindId || resume?.taskResumeId || "",
+      channel: resume?.channel || "",
+      hasFileId: !!(
+        resume?.fileId ||
+        resume?.resumeFileId ||
+        resume?.resumeFile?.fileId ||
+        resume?.resumeInfo?.fileId
+      ),
+      talentPoolIds: Array.isArray(resume?.talentPoolIds) ? resume.talentPoolIds : []
+    }))
+  });
   updateCollectResumeLoading(true);
   console.log(obj, "obj");
   try {
-    let allResume = obj.resumes.map((item) => {
-      return { ...item, type: "normal", isMaster: true };
+    const response = await sendDirectResume(obj.resumes, {
+      action: obj.type,
+      positionId: store.getters.getLatestPositionId
     });
-    const { data, filterZhiLianCount } = await handleResume(allResume, false);
-
-    if (filterZhiLianCount > 0) {
-      $q.notify({
-        message: `智联招聘渠道查看简历数量已达上限，已过滤${filterZhiLianCount}份智联候选人`,
-        color: "negative",
-        position: "top"
-      });
+    const result = response?.data || response;
+    logIhrAction(obj?.type || "batch", "response", {
+      success: result?.success,
+      code: result?.code,
+      errorCode: result?.errorCode,
+      message: result?.message || result?.errorMessage || ""
+    });
+    if (result?.success !== true && result?.success !== "success") {
+      throw new Error(result?.message || result?.errorMessage || "操作失败");
     }
-
-    await sendResume(data, {
-      action: obj.type
-    });
+    logIhrAction(obj?.type || "batch", "success");
   } catch (error) {
     console.error(error);
+    logIhrAction(obj?.type || "batch", "error", {
+      message: error?.message || String(error),
+      stack: error?.stack || ""
+    });
   } finally {
     updateCollectResumeLoading(false);
   }
@@ -695,7 +717,12 @@ const handleBatchConfirm = async (obj) => {
 
 // 打开批量加入人才库对话框
 const openBatchAddToTalentPoolDialog = () => {
+  logIhrAction("talent-pool", "button-click", {
+    selectedCount: selectedIds.value.length,
+    hasAuth: !!planInfo.value?.talentPoolAuth
+  });
   if (!planInfo.value?.talentPoolAuth) {
+    logIhrAction("talent-pool", "blocked", { reason: "talentPoolAuth=false" });
     notify.warning(
       "您没有人才库模块添加候选人权限，不能将候选人添加至人才库，请联系管理员分配权限"
     );
@@ -735,7 +762,12 @@ const openBatchAddToTalentPoolDialog = () => {
 
 // 打开批量分配职位对话框
 const openBatchAssignPositionDialog = () => {
+  logIhrAction("assign-position", "button-click", {
+    selectedCount: selectedIds.value.length,
+    hasAuth: !!planInfo.value?.assignPositionAuth
+  });
   if (!planInfo.value?.assignPositionAuth) {
+    logIhrAction("assign-position", "blocked", { reason: "assignPositionAuth=false" });
     notify.warning(
       "您没有候选人模块添加候选人权限，不能将候选人添加至职位下，请联系管理员分配权限"
     );
