@@ -1056,17 +1056,41 @@ async function buildAndUploadBossRecommendResume(geek, localId, tabId, shouldAbo
     }
   };
   checkStopped();
+  const workflowStartedAt = Date.now();
+  const geekId = card.geekId || geek?.geekId || card.encryptGeekId || geek?.encryptGeekId || "";
+  let phase = "open-detail";
+  console.info("[任务流程] [IndexPage] 候选人简历采集开始", {
+    localId,
+    geekId,
+    tabId,
+    name: displayName
+  });
   try {
+    const openStartedAt = Date.now();
     await collectMod.openBossRecommendDetail(tabId, geek);
-    console.log(`[任务流程] [IndexPage] 推荐详情已打开 localId=${localId} tabId=${tabId}，准备截图`);
+    console.log("[任务流程] [IndexPage] 推荐详情已打开，准备截图", {
+      localId,
+      geekId,
+      tabId,
+      openMs: Date.now() - openStartedAt
+    });
 
+    phase = "capture-screenshot";
     const { captureBossResumeLongScreenshot } = await import("src/util/automation/bossResumeScreenshot");
+    const captureStartedAt = Date.now();
     const screenshot = await captureBossResumeLongScreenshot(tabId, { shouldAbort });
-    console.log(
-      "[任务流程]", `[IndexPage] 详情长图完成 localId=${localId} ${screenshot.width}x${screenshot.height}` +
-        ` bytes=${screenshot.bytes} slices=${screenshot.sliceCount}`
-    );
+    const captureMs = Date.now() - captureStartedAt;
+    console.log("[任务流程] [IndexPage] 详情长图完成", {
+      localId,
+      geekId,
+      width: screenshot.width,
+      height: screenshot.height,
+      bytes: screenshot.bytes,
+      slices: screenshot.sliceCount,
+      captureMs
+    });
 
+    phase = "upload-resume";
     const fileName = `boss直聘-${safeName}.png`;
     const arrayBuffer = base64ToArrayBuffer(screenshot.base64);
     checkStopped();
@@ -1105,6 +1129,12 @@ async function buildAndUploadBossRecommendResume(geek, localId, tabId, shouldAbo
       "[任务流程]", `[IndexPage] resume/upload <<< ok ${uploadCost}ms localId=${localId} fileId=${fileId}` +
         ` screenshot=${screenshot.width}x${screenshot.height}`
     );
+    console.info("[任务流程] [IndexPage] 候选人简历采集完成 ✓", {
+      localId,
+      geekId,
+      fileId,
+      totalMs: Date.now() - workflowStartedAt
+    });
 
     return {
       fileId,
@@ -1120,11 +1150,33 @@ async function buildAndUploadBossRecommendResume(geek, localId, tabId, shouldAbo
       }),
       detailSource: "recommend-screenshot"
     };
+  } catch (error) {
+    console.warn("[任务流程] [IndexPage] 候选人简历采集失败", {
+      localId,
+      geekId,
+      tabId,
+      phase,
+      elapsedMs: Date.now() - workflowStartedAt,
+      code: error?.code,
+      message: error?.message || String(error)
+    });
+    throw error;
   } finally {
+    const closeStartedAt = Date.now();
     try {
       await collectMod.closeBossRecommendDetail(tabId);
+      console.log("[任务流程] [IndexPage] 推荐详情已关闭", {
+        localId,
+        geekId,
+        closeMs: Date.now() - closeStartedAt
+      });
     } catch (e) {
-      console.warn("[任务流程] [IndexPage] 关闭推荐详情失败（忽略）:", e?.message || e);
+      console.warn("[任务流程] [IndexPage] 关闭推荐详情失败（忽略）:", {
+        localId,
+        geekId,
+        closeMs: Date.now() - closeStartedAt,
+        message: e?.message || String(e)
+      });
     }
   }
 }

@@ -449,25 +449,69 @@ export async function openBossRecommendDetail(tabId, geek) {
   if (!tabId || !geekId) {
     throw new Error("openBossRecommendDetail: tabId & geekId required");
   }
-  await closeDetailIfOpen(tabId);
+  const startedAt = Date.now();
+  console.log(`[任务流程] [bossRecommendCollect] 打开候选人详情 >>> geekId=${geekId} tabId=${tabId}`);
 
+  const closeStartedAt = Date.now();
+  const previous = await closeDetailIfOpen(tabId);
+  console.log("[任务流程] [bossRecommendCollect] 打开前检查详情面板", {
+    geekId,
+    wasOpen: !!previous?.wasOpen,
+    elapsedMs: Date.now() - closeStartedAt
+  });
+
+  const cardStartedAt = Date.now();
   const scrollResult = await evalOnTab(tabId, buildScrollCardScript(geekId), true);
   ensureRecommendCardReady(geekId, scrollResult);
+  console.log("[任务流程] [bossRecommendCollect] 候选人卡片已定位", {
+    geekId,
+    foundIn: scrollResult?.foundIn,
+    rect: scrollResult?.rect,
+    elapsedMs: Date.now() - cardStartedAt
+  });
 
-  await sleep(randomBetween(250, 600));
-  await clickOnTab(
+  const clickStartedAt = Date.now();
+  const clickResult = await clickOnTab(
     tabId,
     buildCardSelector(scrollResult.domGeekId || geekId),
     randomBetween(55, 100)
   );
+  console.log("[任务流程] [bossRecommendCollect] 候选人卡片已点击", {
+    geekId,
+    x: clickResult?.x,
+    y: clickResult?.y,
+    foundIn: clickResult?.foundIn,
+    elapsedMs: Date.now() - clickStartedAt
+  });
 
+  const detailWaitStartedAt = Date.now();
   const state = await waitForDetailState(tabId, {
     timeoutMs: DETAIL_OPEN_TIMEOUT_MS,
     requireCollectButton: false,
   });
+  const detailWaitMs = Date.now() - detailWaitStartedAt;
   if (state?.timedOut || !state?.detailOpen) {
+    console.warn("[任务流程] [bossRecommendCollect] 候选人详情打开失败", {
+      geekId,
+      tabId,
+      waitMs: detailWaitMs,
+      state
+    });
     throw new Error(`DETAIL_OPEN_TIMEOUT geekId=${geekId}`);
   }
+  console.log("[任务流程] [bossRecommendCollect] 候选人详情已打开 ✓", {
+    geekId,
+    tabId,
+    foundIn: state.foundIn,
+    detailWaitMs,
+    totalElapsedMs: Date.now() - startedAt
+  });
+
+  const detailOpenedJitterMs = randomBetween(1000, 3000);
+  console.log(
+    `[任务流程] [bossRecommendCollect] 详情打开后随机等待 ${detailOpenedJitterMs}ms geekId=${geekId}`
+  );
+  await sleep(detailOpenedJitterMs);
   return state;
 }
 
@@ -665,6 +709,8 @@ export async function readBossRecommendDetailRect(tabId, timeoutMs = 3000) {
 }
 
 async function collectOneGeek(tabId, geekId) {
+  const startedAt = Date.now();
+  console.log(`[任务流程] [bossRecommendCollect] 收藏候选人详情 >>> geekId=${geekId} tabId=${tabId}`);
   // 上一个候选人如果异常残留详情，先关掉，避免点击落在蒙层后的列表上。
   await closeDetailIfOpen(tabId);
 
@@ -674,8 +720,12 @@ async function collectOneGeek(tabId, geekId) {
     true
   );
   ensureRecommendCardReady(geekId, scrollResult);
+  console.log("[任务流程] [bossRecommendCollect] 收藏候选人卡片已定位", {
+    geekId,
+    foundIn: scrollResult?.foundIn,
+    rect: scrollResult?.rect
+  });
 
-  await sleep(randomBetween(250, 600));
   await clickOnTab(
     tabId,
     buildCardSelector(scrollResult.domGeekId || geekId),
@@ -685,12 +735,23 @@ async function collectOneGeek(tabId, geekId) {
   let operationResult = null;
   let operationError = null;
   try {
+    const detailWaitStartedAt = Date.now();
     let state = await waitForDetailState(tabId, {
       timeoutMs: DETAIL_OPEN_TIMEOUT_MS,
     });
     if (!state?.ready) throw new Error(`DETAIL_OPEN_TIMEOUT geekId=${geekId}`);
+    console.log("[任务流程] [bossRecommendCollect] 收藏候选人详情已打开", {
+      geekId,
+      foundIn: state.foundIn,
+      detailWaitMs: Date.now() - detailWaitStartedAt,
+      collected: state.collected
+    });
 
-    await sleep(randomBetween(450, 900));
+    const detailOpenedJitterMs = randomBetween(1000, 3000);
+    console.log(
+      `[任务流程] [bossRecommendCollect] 详情打开后随机等待 ${detailOpenedJitterMs}ms geekId=${geekId}`
+    );
+    await sleep(detailOpenedJitterMs);
     if (state.collected) {
       operationResult = { geekId, status: "ALREADY_COLLECTED" };
     } else {
@@ -739,6 +800,12 @@ async function collectOneGeek(tabId, geekId) {
   }
 
   if (operationError) throw operationError;
+  console.log("[任务流程] [bossRecommendCollect] 收藏候选人详情完成 ✓", {
+    geekId,
+    status: operationResult?.status,
+    elapsedMs: Date.now() - startedAt,
+    closeWarning: closeWarning || null
+  });
   return { ...operationResult, closeWarning };
 }
 

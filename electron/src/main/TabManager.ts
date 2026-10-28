@@ -670,6 +670,9 @@ class TabManager {
     if (this.bgRenderId === id || this.bgRenderId === this.activeId) this.bgRenderId = null
     this.activeId = id
     this.updateBounds()
+    // 被业务锁定的 BOSS 自动化 tab 与新的 active 会同时保持真实尺寸；
+    // 必须把 active 重新置顶，避免用户在 i快招与 BOSS 标签间切换时层级反转。
+    this.bringActiveToFront()
     // 通知蒙层重新评估：active 是招聘站 tab 时显示，是 home / 其它时隐藏
     // 详见 automationOverlay.ts setActiveChannel 注释
     const tab = this.tabs.get(id)
@@ -918,10 +921,14 @@ class TabManager {
     for (const [id, tab] of this.tabs) {
       // active 给真实 bounds（最上层可见）；
       // bgRender tab 也给真实 bounds（被 active 遮挡，但保证页面布局真实 → CDP / 懒加载能跑）；
+      // 任务期间锁定的 BOSS 主签即使被用户切到后台也必须保持真实视口，否则 WebContentsView
+      // 会被设成 0×0，长截图在 Windows / macOS 上都会得到 RESUME_NOT_VISIBLE。
       // 其它（含 hidden）不参与布局且 native view 真正不可见，避免页面脚本 focus()
       // 把整个客户端带到前台。
       const shouldBeVisible =
-        id === this.activeId || (id === this.bgRenderId && id !== this.activeId)
+        id === this.activeId ||
+        (id === this.bgRenderId && id !== this.activeId) ||
+        (tab.channel === 'boss' && !!tab.locked && !tab.hidden)
       if (shouldBeVisible) {
         tab.view.setBounds(contentBounds)
       } else {

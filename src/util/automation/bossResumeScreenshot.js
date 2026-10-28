@@ -3,20 +3,26 @@ function measureResumeSlice(options) {
     const bounds = element.getBoundingClientRect();
     const style = element.ownerDocument.defaultView.getComputedStyle(element);
     return bounds.width > 0 && bounds.height > 0 &&
-      style.display !== "none" && style.visibility !== "hidden";
+      style.display !== "none" && style.visibility !== "hidden" &&
+      Number(style.opacity || "1") > 0;
   }
-  function findCanvas(doc, depth = 0) {
-    if (depth > 8) return null;
-    const canvas = doc.querySelector("div#resume canvas#resume");
-    if (canvas && visible(canvas)) return canvas;
+  function findCanvases(doc, depth = 0, collected = []) {
+    if (depth > 8) return collected;
+    for (const canvas of doc.querySelectorAll("div#resume canvas#resume")) {
+      if (visible(canvas)) {
+        collected.push({
+          canvas,
+          frameUrl: doc.defaultView?.location?.href || doc.URL || ""
+        });
+      }
+    }
     for (const frame of doc.querySelectorAll("iframe")) {
       try {
         if (!visible(frame) || !frame.contentDocument) continue;
-        const found = findCanvas(frame.contentDocument, depth + 1);
-        if (found) return found;
+        findCanvases(frame.contentDocument, depth + 1, collected);
       } catch {}
     }
-    return null;
+    return collected;
   }
   function offset(doc) {
     let left = 0;
@@ -47,9 +53,25 @@ function measureResumeSlice(options) {
       height: bounds.height
     };
   }
-  const canvas = findCanvas(document);
-  if (!canvas) return { ok: false, code: "RESUME_CANVAS_NOT_FOUND" };
-  if (!canvas.width || !canvas.height) return { ok: false, code: "RESUME_CANVAS_EMPTY" };
+  function viewportArea(element) {
+    try {
+      const bounds = globalBounds(element);
+      const left = Math.max(0, bounds.left);
+      const top = Math.max(0, bounds.top);
+      const right = Math.min(window.innerWidth, bounds.right);
+      const bottom = Math.min(window.innerHeight, bounds.bottom);
+      return Math.max(0, right - left) * Math.max(0, bottom - top);
+    } catch {
+      return 0;
+    }
+  }
+  const candidates = findCanvases(document)
+    .filter(({ canvas }) => canvas.width > 0 && canvas.height > 0);
+  if (!candidates.length) return { ok: false, code: "RESUME_CANVAS_NOT_FOUND" };
+  const selected = candidates.reduce((best, item) =>
+    viewportArea(item.canvas) > viewportArea(best.canvas) ? item : best
+  );
+  const { canvas } = selected;
   const root = canvas.closest("div#resume");
   const ancestors = [];
   let ancestor = canvas.parentElement;
@@ -80,8 +102,11 @@ function measureResumeSlice(options) {
       if (Math.abs(deltaY) >= 1) {
         const bounds = globalBounds(scroller);
         scrollInput = {
+          reason: "restore",
           x: Math.round(Math.max(1, Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2))),
           y: Math.round(Math.max(1, Math.min(window.innerHeight - 1, bounds.top + bounds.height / 2))),
+          fromScrollTop: scroller.scrollTop,
+          toScrollTop: options.scrollTop,
           deltaY
         };
       }
@@ -166,8 +191,11 @@ function measureResumeSlice(options) {
       const inputTop = Math.max(visibleTop, bounds.top + scroller.clientTop);
       const inputBottom = Math.min(visibleBottom, bounds.bottom - scroller.clientTop);
       scrollInput = {
+        reason: "slice",
         x: Math.round(Math.max(1, Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2))),
         y: Math.round(Math.max(1, Math.min(window.innerHeight - 1, (inputTop + inputBottom) / 2))),
+        fromScrollTop: scroller.scrollTop,
+        toScrollTop: targetScrollTop,
         deltaY
       };
     }
@@ -199,11 +227,42 @@ function measureResumeSlice(options) {
   const scrollInfo = {
     scrollerIndex,
     viewportAdjustment,
+    scrollTop: scroller?.scrollTop || 0,
     scrollHeight: scroller?.scrollHeight || 0,
     clientHeight: scroller?.clientHeight || 0,
     scrollInput
   };
-  if (rect.width < 20 || rect.height < 20) return { ok: false, code: "RESUME_NOT_VISIBLE", ...scrollInfo };
+  const diagnostics = {
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    candidateCount: candidates.length,
+    selectedFrameUrl: selected.frameUrl,
+    selectedCanvasRect: {
+      left: canvasBounds.left,
+      top: canvasBounds.top,
+      width: canvasBounds.width,
+      height: canvasBounds.height
+    },
+    rootBounds,
+    clippedRect: rect,
+    ancestors: ancestors.slice(0, 12).map((element) => {
+      const bounds = globalBounds(element);
+      const style = element.ownerDocument.defaultView.getComputedStyle(element);
+      return {
+        tag: element.tagName,
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
+        clientWidth: element.clientWidth,
+        clientHeight: element.clientHeight,
+        left: bounds.left,
+        top: bounds.top,
+        right: bounds.right,
+        bottom: bounds.bottom
+      };
+    })
+  };
+  if (rect.width < 20 || rect.height < 20) {
+    return { ok: false, code: "RESUME_NOT_VISIBLE", ...scrollInfo, diagnostics };
+  }
   if (rect.width < Math.floor(rootBounds.width) - 2) {
     return { ok: false, code: "RESUME_WIDTH_CLIPPED", ...scrollInfo };
   }
@@ -212,6 +271,9 @@ function measureResumeSlice(options) {
     rect,
     contentTop: Math.round(rect.y - rootBounds.top),
     totalHeight: Math.ceil(rootBounds.height),
+    rootBounds,
+    canvasBounds,
+    viewport: diagnostics.viewport,
     scrollTop: scroller?.scrollTop || 0,
     scrollInput,
     ...scrollInfo,
@@ -224,6 +286,9 @@ function measureResumeSlice(options) {
 
 const sleep = (duration) => new Promise((resolve) => setTimeout(resolve, duration));
 const FINAL_SLICE_ROUNDING_TOLERANCE = 1;
+const INITIAL_RENDER_TIMEOUT_MS = 15000;
+const SLICE_RENDER_TIMEOUT_MS = 8000;
+const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-28-initial-scroll-v2";
 
 function isScrollerAtEnd(state) {
   const scrollRange = Number(state?.scrollHeight) - Number(state?.clientHeight);
@@ -324,6 +389,8 @@ export async function stitchResumeSlices(slices, totalHeight) {
 }
 
 export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {}) {
+  const captureStartedAt = Date.now();
+  console.info(`[任务流程] [BOSS简历长图] capture revision=${BOSS_RESUME_SCREENSHOT_REVISION} tabId=${tabId}`);
   const automation = window.api?.automation;
   if (!automation?.sendCdp || !automation?.evalOnTab || !automation?.captureTab) {
     throw new Error("当前客户端版本不支持简历分片截图");
@@ -380,16 +447,34 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         deltaX: 0,
         deltaY
       });
-      console.log("[任务流程] [BOSS简历长图] 原生滚轮滚动", {
-        x,
-        y,
-        deltaY,
+      console.log("[任务流程] [BOSS简历长图] CDP 原生滚轮滚动 >>>", {
+        ...result.result.scrollInput,
+        scrollerIndex,
+        scrollHeight: result.result.scrollHeight,
+        clientHeight: result.result.clientHeight,
         inputMode: "cdp"
       });
     }
     return result.result;
   };
-  const captureSlice = async (rect) => {
+  const stateSummary = (state) => ({
+    ok: !!state?.ok,
+    code: state?.code,
+    rect: state?.rect,
+    viewport: state?.viewport || state?.diagnostics?.viewport,
+    contentTop: state?.contentTop,
+    totalHeight: state?.totalHeight,
+    scrollTop: state?.scrollTop,
+    scrollHeight: state?.scrollHeight,
+    clientHeight: state?.clientHeight,
+    scrollerIndex: state?.scrollerIndex,
+    candidateCount: state?.diagnostics?.candidateCount,
+    selectedFrameUrl: state?.diagnostics?.selectedFrameUrl,
+    selectedCanvasRect: state?.diagnostics?.selectedCanvasRect || state?.canvasBounds,
+    rootBounds: state?.diagnostics?.rootBounds || state?.rootBounds,
+    clippedRect: state?.diagnostics?.clippedRect
+  });
+  const captureSlice = async (rect, phaseLabel) => {
     // The main process captures only the target BOSS webContents. Active tabs use
     // capturePage; background tabs use frame subscription so capture never promotes
     // the obscured BOSS view into the shell's compositor. Scrolling remains via CDP.
@@ -403,38 +488,94 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         return result.data;
       } catch (error) {
         lastError = error;
+        console.warn("[任务流程] [BOSS简历长图] 截图请求失败", {
+          phaseLabel,
+          attempt: attempt + 1,
+          maxAttempts: 3,
+          rect,
+          message: error?.message || String(error)
+        });
         if (attempt < 2) await sleep(400);
       }
     }
     throw lastError || new Error("RESUME_CAPTURE_FAILED");
   };
-  const captureStableSlice = async () => {
+  const captureStableSlice = async (
+    timeoutMs = SLICE_RENDER_TIMEOUT_MS,
+    phaseLabel = "分片"
+  ) => {
+    const waitStartedAt = Date.now();
     await sleep(750);
-    const deadline = Date.now() + 8000;
+    const deadline = Date.now() + timeoutMs;
     let lastCode = "RESUME_CANVAS_NOT_READY";
+    let lastFailureSignature = "";
+    let attempts = 0;
     while (Date.now() < deadline) {
+      attempts++;
       const state = await read();
       if (!state?.ok) {
         lastCode = state?.code || lastCode;
+        const failureSignature = JSON.stringify(state || {});
+        if (failureSignature !== lastFailureSignature) {
+          lastFailureSignature = failureSignature;
+          console.warn("[任务流程] [BOSS简历长图] 截图区域尚不可用", {
+            phaseLabel,
+            attempts,
+            waitedMs: Date.now() - waitStartedAt,
+            ...stateSummary(state)
+          });
+        }
         await sleep(250);
         continue;
       }
       checkStopped();
-      const shot = await captureSlice(state.rect);
+      const shot = await captureSlice(state.rect, phaseLabel);
       const { base64 } = shot;
-      console.log(`[任务流程] [BOSS简历长图] 当前分片截图方式=${shot.captureMode || "unknown"}`, {
-        rect: state.rect,
-        captureMode: shot.captureMode || "unknown"
+      console.log("[任务流程] [BOSS简历长图] 分片截图返回", {
+        phaseLabel,
+        captureMode: shot.captureMode || "unknown",
+        requestedRect: state.rect,
+        output: { width: shot.width, height: shot.height, bytes: shot.bytes },
+        scrollTop: state.scrollTop,
+        scrollHeight: state.scrollHeight,
+        clientHeight: state.clientHeight
       });
       const after = await read();
       if (after?.signature === state.signature) {
-        if (await screenshotHasContent(base64)) {
+        const hasContent = await screenshotHasContent(base64);
+        if (hasContent) {
+          console.log("[任务流程] [BOSS简历长图] 截图区域已稳定就绪 ✓", {
+            phaseLabel,
+            attempts,
+            waitedMs: Date.now() - waitStartedAt,
+            ...stateSummary(state)
+          });
           return { state, base64 };
         }
         lastCode = "RESUME_CANVAS_BLANK";
+        console.warn("[任务流程] [BOSS简历长图] 截图内容为空，继续等待", {
+          phaseLabel,
+          attempts,
+          rect: state.rect,
+          scrollTop: state.scrollTop
+        });
+      } else {
+        console.warn("[任务流程] [BOSS简历长图] 截图期间区域发生变化，重试", {
+          phaseLabel,
+          attempts,
+          before: stateSummary(state),
+          after: stateSummary(after)
+        });
       }
       await sleep(300);
     }
+    console.warn("[任务流程] [BOSS简历长图] 截图区域就绪等待超时", {
+      phaseLabel,
+      attempts,
+      waitedMs: Date.now() - waitStartedAt,
+      timeoutMs,
+      lastCode
+    });
     throw new Error(`简历 canvas 未完成渲染: ${lastCode}`);
   };
   const slices = [];
@@ -444,15 +585,42 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
   try {
     // 先记录调用前位置，再把滚动容器恢复到顶部，保证第一条带从内容 0 开始；
     // 结束时仍恢复用户原来的位置。
-    const initial = await captureStableSlice();
-    initialScrollTop = initial.state.scrollTop;
-    if (initialScrollTop > 0) {
+    // 详情刚打开时，BOSS 可能保留了上一次的滚动位置，甚至在首帧内
+    // #resume 完全位于可见区域外。旧逻辑先等待 captureStableSlice 成功，
+    // 再判断 scrollTop，结果永远走不到“回到顶部”：首屏直接以
+    // RESUME_NOT_VISIBLE 超时并被关闭。这里先探测并记录原滚动位置，
+    // 若首屏不可见就主动通过 CDP 滚回内容顶部，再等待真实渲染。
+    const initialProbe = await read();
+    initialScrollTop = Number.isFinite(initialProbe?.scrollTop)
+      ? initialProbe.scrollTop
+      : null;
+    console.log("[任务流程] [BOSS简历长图] 首屏探测完成", {
+      savedScrollTop: initialScrollTop,
+      ...stateSummary(initialProbe)
+    });
+    if (!initialProbe?.ok &&
+        (initialProbe?.code === "RESUME_NOT_VISIBLE" ||
+          initialProbe?.code === "RESUME_WIDTH_CLIPPED")) {
+      console.warn("[任务流程] [BOSS简历长图] 首屏不可见，先滚动到简历顶部", stateSummary(initialProbe));
       await read({ action: "scroll", contentOffset: 0 });
-      await captureStableSlice();
+    }
+    const initial = await captureStableSlice(INITIAL_RENDER_TIMEOUT_MS, "首屏");
+    if (initialScrollTop === null) initialScrollTop = initial.state.scrollTop;
+    if (initialScrollTop > 0) {
+      console.log(`[任务流程] [BOSS简历长图] 恢复首屏起点前先回到顶部 scrollTop=${initialScrollTop}`);
+      await read({ action: "scroll", contentOffset: 0 });
+      await captureStableSlice(INITIAL_RENDER_TIMEOUT_MS, "首屏重置后");
     }
     for (let index = 0; index < 80; index++) {
+      const phaseLabel = `分片 ${index + 1}`;
+      console.log("[任务流程] [BOSS简历长图] 准备滚动并截图", {
+        phaseLabel,
+        covered,
+        nextContentOffset: Math.max(0, covered - 80),
+        initialScrollTop
+      });
       await read({ action: "scroll", contentOffset: Math.max(0, covered - 80) });
-      let slice = await captureStableSlice();
+      let slice = await captureStableSlice(SLICE_RENDER_TIMEOUT_MS, phaseLabel);
       let state = slice.state;
       let bottom = Math.min(state.totalHeight, state.contentTop + state.rect.height);
       const finalPixelGap = hasOnlyFinalPixelGap(state, bottom);
@@ -479,7 +647,7 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         if (!adjusted?.viewportAdjustment) break;
         bottomAdjustAttempt++;
         await read({ action: "scroll", contentOffset: Math.max(0, covered - 80) });
-        slice = await captureStableSlice();
+        slice = await captureStableSlice(SLICE_RENDER_TIMEOUT_MS, `${phaseLabel} 回退修正后`);
         state = slice.state;
         bottom = Math.min(state.totalHeight, state.contentTop + state.rect.height);
       }
@@ -499,7 +667,18 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       if (bottom > covered) {
         slices.push({ ...slice, from: covered, to: bottom });
         covered = bottom;
-        console.log(`[任务流程] [BOSS简历长图] 分片 ${slices.length}，已截 ${covered}/${targetHeight}`);
+        console.log("[任务流程] [BOSS简历长图] 分片已入库", {
+          slice: slices.length,
+          phaseLabel,
+          from: slices[slices.length - 1].from,
+          to: slices[slices.length - 1].to,
+          covered,
+          targetHeight,
+          scrollTop: state.scrollTop,
+          scrollHeight: state.scrollHeight,
+          clientHeight: state.clientHeight,
+          rect: state.rect
+        });
       }
       if (covered >= targetHeight) {
         await sleep(1000);
@@ -513,18 +692,49 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         checkStopped();
         const result = await stitchResumeSlices(slices, covered);
         checkStopped();
-        console.log(`[任务流程] [BOSS简历长图] 拼接完成 ${result.width}x${result.height}，共 ${result.sliceCount} 片`);
+        console.log("[任务流程] [BOSS简历长图] 拼接完成 ✓", {
+          width: result.width,
+          height: result.height,
+          bytes: result.bytes,
+          slices: result.sliceCount,
+          initialScrollTop,
+          finalScrollTop: last.scrollTop,
+          totalElapsedMs: Date.now() - captureStartedAt
+        });
         return result;
       }
     }
     throw new Error("简历分片超过安全上限，已取消上传不完整截图");
+  } catch (error) {
+    console.warn("[任务流程] [BOSS简历长图] 截图流程失败 ✗", {
+      tabId,
+      elapsedMs: Date.now() - captureStartedAt,
+      covered,
+      slices: slices.length,
+      initialScrollTop,
+      scrollerIndex,
+      code: error?.code,
+      message: error?.message || String(error)
+    });
+    throw error;
   } finally {
     if (initialScrollTop !== null) {
+      const restoreStartedAt = Date.now();
       try {
         await read({
           action: "restore", scrollTop: initialScrollTop, scrollerIndex, viewportAdjustments
         });
-      } catch {}
+        console.log("[任务流程] [BOSS简历长图] 原始滚动位置已恢复", {
+          scrollTop: initialScrollTop,
+          elapsedMs: Date.now() - restoreStartedAt
+        });
+      } catch (error) {
+        console.warn("[任务流程] [BOSS简历长图] 恢复原始滚动位置失败", {
+          scrollTop: initialScrollTop,
+          elapsedMs: Date.now() - restoreStartedAt,
+          message: error?.message || String(error)
+        });
+      }
     }
   }
 }

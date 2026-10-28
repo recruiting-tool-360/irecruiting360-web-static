@@ -83,6 +83,10 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function randomBetween(min, max) {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
 function withTimeout(promise, timeoutMs, timeoutMessage) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -574,6 +578,10 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       `domStable=${domStableMs}ms dropdownBrowse=${dropdownBrowseMs}ms ` +
       `selectVerifyTimeout=${selectVerifyTimeoutMs}ms triggerSelector=${triggerSelector}`
   );
+
+  const startJitterMs = randomBetween(1000, 3000);
+  console.log(`[任务流程] [bossSelectJob] 选择职位前随机等待 ${startJitterMs}ms`);
+  await sleep(startJitterMs);
 
   try {
     // ============= Step 1: 等职位选择器 DOM 就绪 =============
