@@ -223,6 +223,21 @@ function measureResumeSlice(options) {
 }
 
 const sleep = (duration) => new Promise((resolve) => setTimeout(resolve, duration));
+const FINAL_SLICE_ROUNDING_TOLERANCE = 1;
+
+function isScrollerAtEnd(state) {
+  const scrollRange = Number(state?.scrollHeight) - Number(state?.clientHeight);
+  return scrollRange > 0 &&
+    Number(state.scrollTop) + Number(state.clientHeight) >=
+      Number(state.scrollHeight) - FINAL_SLICE_ROUNDING_TOLERANCE;
+}
+
+function hasOnlyFinalPixelGap(state, coveredTo) {
+  const remaining = Number(state?.totalHeight) - Number(coveredTo);
+  return remaining > 0 &&
+    remaining <= FINAL_SLICE_ROUNDING_TOLERANCE &&
+    isScrollerAtEnd(state);
+}
 
 async function loadScreenshot(base64) {
   const image = new Image();
@@ -440,10 +455,21 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       let slice = await captureStableSlice();
       let state = slice.state;
       let bottom = Math.min(state.totalHeight, state.contentTop + state.rect.height);
+      const finalPixelGap = hasOnlyFinalPixelGap(state, bottom);
+      const targetHeight = finalPixelGap ? bottom : state.totalHeight;
+      if (finalPixelGap) {
+        console.log("[任务流程] [BOSS简历长图] 末屏存在 1px 亚像素取整误差，按实际截取高度拼接", {
+          totalHeight: state.totalHeight,
+          coveredTo: bottom,
+          scrollTop: state.scrollTop,
+          scrollHeight: state.scrollHeight,
+          clientHeight: state.clientHeight
+        });
+      }
       const strategies = ["padding", "compact"];
       while ((state.contentTop > covered || bottom <= covered) &&
              bottomAdjustAttempt < strategies.length &&
-             state.totalHeight > bottom) {
+             targetHeight > bottom) {
         const remainingHeight = state.totalHeight - bottom;
         const adjusted = await read({
           action: "makeBottomReachable",
@@ -457,7 +483,8 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         state = slice.state;
         bottom = Math.min(state.totalHeight, state.contentTop + state.rect.height);
       }
-      if (state.contentTop > covered || bottom <= covered) {
+      const coveredByFinalPixel = hasOnlyFinalPixelGap(state, bottom) && bottom <= covered;
+      if (state.contentTop > covered || (bottom <= covered && !coveredByFinalPixel)) {
         console.warn("[任务流程] [BOSS简历长图] 分片无法连续覆盖", {
           covered, bottom, contentTop: state.contentTop, totalHeight: state.totalHeight,
           scrollTop: state.scrollTop, scrollHeight: state.scrollHeight,
@@ -469,15 +496,20 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       if (slices.length && state.rect.width !== slices[0].state.rect.width) {
         throw new Error("简历截图期间窗口宽度发生变化，请重试");
       }
-      slices.push({ ...slice, from: covered, to: bottom });
-      covered = bottom;
-      console.log(`[任务流程] [BOSS简历长图] 分片 ${slices.length}，已截 ${covered}/${state.totalHeight}`);
-      if (covered >= state.totalHeight) {
+      if (bottom > covered) {
+        slices.push({ ...slice, from: covered, to: bottom });
+        covered = bottom;
+        console.log(`[任务流程] [BOSS简历长图] 分片 ${slices.length}，已截 ${covered}/${targetHeight}`);
+      }
+      if (covered >= targetHeight) {
         await sleep(1000);
         const last = await read();
         if (!last?.ok) throw new Error(last?.code || "RESUME_DETAIL_CLOSED");
-        if (last.totalHeight > covered) continue;
-        if (last.totalHeight !== covered) throw new Error("RESUME_HEIGHT_CHANGED");
+        const lastFinalPixelGap = hasOnlyFinalPixelGap(last, covered);
+        if (last.totalHeight > covered && !lastFinalPixelGap) continue;
+        if (last.totalHeight !== covered && !lastFinalPixelGap) {
+          throw new Error("RESUME_HEIGHT_CHANGED");
+        }
         checkStopped();
         const result = await stitchResumeSlices(slices, covered);
         checkStopped();

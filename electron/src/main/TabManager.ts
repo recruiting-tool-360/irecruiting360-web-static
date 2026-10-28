@@ -388,6 +388,11 @@ class TabManager {
     this.attachSiteWindowOpenHandler(tab)
     this.attachSiteDebugListeners(tab)
 
+    // 0×0 bounds 仍然是一个可获焦的 native view。隐藏页 reload 后若页面执行
+    // focus()/autofocus，macOS 可能先把整个 app 激活到前台，再等 mainWindow 的
+    // focus 守卫 blur，用户会看到一次闪烁。必须在 loadURL/addChildView 前把
+    // hidden view 本身设为不可见，从源头阻止它获得焦点。
+    if (isHidden) view.setVisible(false)
     this.mainWindow.contentView.addChildView(view)
     this.tabs.set(id, tab)
 
@@ -913,12 +918,16 @@ class TabManager {
     for (const [id, tab] of this.tabs) {
       // active 给真实 bounds（最上层可见）；
       // bgRender tab 也给真实 bounds（被 active 遮挡，但保证页面布局真实 → CDP / 懒加载能跑）；
-      // 其它（含 hidden）一律 0x0 不占空间。
-      if (id === this.activeId || (id === this.bgRenderId && id !== this.activeId)) {
+      // 其它（含 hidden）不参与布局且 native view 真正不可见，避免页面脚本 focus()
+      // 把整个客户端带到前台。
+      const shouldBeVisible =
+        id === this.activeId || (id === this.bgRenderId && id !== this.activeId)
+      if (shouldBeVisible) {
         tab.view.setBounds(contentBounds)
       } else {
         tab.view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
       }
+      tab.view.setVisible(shouldBeVisible)
     }
   }
 

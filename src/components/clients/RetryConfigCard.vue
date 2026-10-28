@@ -118,10 +118,13 @@
           <input
             type="text"
             inputmode="numeric"
-            :value="actionExecuted ? cardData.initialResumeCount : resumeCount"
+            :value="actionExecuted
+              ? Math.min(Number(cardData.initialResumeCount) || 0, MAX_TARGET_COUNT)
+              : resumeCount"
             :disabled="actionExecuted"
             class="rcc-input"
             @input="onInput"
+            @blur="onResumeCountBlur"
           />
           <span class="rcc-unit">份</span>
         </div>
@@ -232,7 +235,7 @@ import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
 import { formatScheduleTime } from "src/util/scheduleEstimator";
 import { estimateSearchTask } from "src/api/searchTaskApi";
-import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
+import { buildEstimatePayload, MAX_TARGET_COUNT } from "src/util/searchTaskPayloadBuilder";
 import notify from "src/util/notify";
 import {
   BOSS_FILTER_DEFAULTS,
@@ -255,9 +258,12 @@ const emit = defineEmits(["start"]);
 const store = useStore();
 
 // 用户当前在 input 里编辑的份数（默认从 cardData.initialResumeCount 来）
-const resumeCount = ref(
-  typeof props.cardData?.initialResumeCount === "number" ? props.cardData.initialResumeCount : ""
-);
+function normalizeResumeCount(value) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return Math.min(n, MAX_TARGET_COUNT);
+}
+const resumeCount = ref(normalizeResumeCount(props.cardData?.initialResumeCount));
 
 // cardData 是 reactive prop —— 父端可能改 actionExecuted / initialResumeCount，
 // 这里 watch 同步 resumeCount 默认值（仅在还没改过 input 时）
@@ -265,7 +271,7 @@ watch(
   () => props.cardData?.initialResumeCount,
   (n) => {
     if (typeof n === "number" && resumeCount.value === "") {
-      resumeCount.value = n;
+      resumeCount.value = normalizeResumeCount(n);
     }
   }
 );
@@ -336,8 +342,8 @@ const descriptionText = computed(() => {
 });
 
 const buttonText = computed(() => {
-  if (actionExecuted.value) return "聚合搜索已启动";
-  return "启动聚合搜索";
+  if (actionExecuted.value) return "简历搜索已启动";
+  return "简历搜索";
 });
 
 const canStart = computed(() => {
@@ -346,6 +352,7 @@ const canStart = computed(() => {
   return (
     Number.isFinite(n) &&
     n > 0 &&
+    n <= MAX_TARGET_COUNT &&
     (!isRecommend.value || Boolean(matchedBossJobId.value))
   );
 });
@@ -359,7 +366,7 @@ const canStart = computed(() => {
 const effectiveCount = computed(() => {
   const val = actionExecuted.value ? props.cardData?.initialResumeCount : resumeCount.value;
   const n = Number(val);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  return Number.isFinite(n) && n > 0 ? Math.min(n, MAX_TARGET_COUNT) : 0;
 });
 
 const cfgList = computed(() => store.getters.getUserChannelConfig || []);
@@ -417,7 +424,7 @@ async function runEstimate() {
   try {
     const res = await estimateSearchTask(payload);
     if (seq !== _estimateSeq) return; // 已被新请求覆盖
-    // 接口业务失败（如"最大简历数请填写 0-100 之间的整数"）→ 显示后端 errorMessage + 清空预估
+    // 接口业务失败（如"最大简历数请填写 0-80 之间的整数"）→ 显示后端 errorMessage + 清空预估
     if (!res || res.success !== "success") {
       const msg = res?.errorMessage || res?.message || "预估失败";
       notify.warning(msg, { group: "estimate-error" });
@@ -475,13 +482,17 @@ const scheduledEndDisplay = computed(() =>
 );
 
 function onInput(e) {
-  const val = e?.target?.value ?? "";
-  if (val === "") {
-    resumeCount.value = "";
-    return;
-  }
-  const num = parseInt(val, 10);
-  if (!Number.isNaN(num)) resumeCount.value = num;
+  // 输入过程中允许超过 80，失焦时再统一收敛。
+  const raw = String(e?.target?.value ?? "").replace(/[^\d]/g, "");
+  resumeCount.value = raw === "" ? "" : Number(raw);
+  e.target.value = raw;
+}
+function onResumeCountBlur(e) {
+  const raw = String(e?.target?.value ?? "").replace(/[^\d]/g, "");
+  if (raw === "") return;
+  const bounded = Math.min(Number(raw), MAX_TARGET_COUNT);
+  resumeCount.value = bounded;
+  e.target.value = String(bounded);
 }
 
 function handleStart() {

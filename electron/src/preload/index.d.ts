@@ -175,6 +175,13 @@ export interface IhrAccessTokenStatus {
   expired: boolean
 }
 
+export interface CandidateFileInfo {
+  fileName?: string
+  contentType?: string
+  fileUrl?: string
+  fileSize?: string | number
+}
+
 export interface IhrBridge {
   getApplicationPosition(): Promise<IhrApiResult>
   /** 是否有 i 快招使用权限（GET client/noauth/hasAuthority，无入参） */
@@ -190,6 +197,8 @@ export interface IhrBridge {
     mime?: string
     centralUpload?: boolean
   }): Promise<IhrApiResult>
+  /** 根据简历 fileId 查询原始文件信息（fileUrl 可能为 PDF 或图片） */
+  getCandidateFileInfo(fileId: string): Promise<IhrApiResult<CandidateFileInfo>>
   /** 检查 manage partition 是否已登录 + accessToken 状态 */
   checkManageAuth(): Promise<IhrManageAuthStatus>
   /** 单独查询 accessToken 状态（不查 cookie） */

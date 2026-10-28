@@ -221,6 +221,10 @@ const ihrBridge = {
     centralUpload?: boolean
   }): Promise<IhrApiResult> => ipcRenderer.invoke('ihrBridge:uploadFile', arg),
 
+  /** 根据简历 fileId 查询原始文件信息（fileUrl 可能为 PDF 或图片） */
+  getCandidateFileInfo: (fileId: string): Promise<IhrApiResult> =>
+    ipcRenderer.invoke('ihrBridge:getCandidateFileInfo', fileId),
+
   /**
    * 检查 i 人事 manage 系统鉴权状态：
    *   - manage partition 是否还有 cookie（兜底，仅用于非 noauth 接口）

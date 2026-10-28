@@ -223,7 +223,7 @@ import ChatCard from "src/components/common/ChatCard.vue";
 import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import { runBossRecommend, unlockRecommendTab } from "src/util/automation/bossRecommend";
 import { sealScoreBatch, waitForScoreBatchCompleted } from "src/util/scoringBatch";
-import { SCORE_BATCH_SIZE } from "src/config/searchTaskConfig";
+import { resolveScoreBatchSize } from "src/config/searchTaskConfig";
 import { buildSearchTaskChannels, pickBossFilters } from "src/util/searchTaskPayloadBuilder";
 import { extractBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
 import ClearChatConfirmModal from "src/components/clients/ClearChatConfirmModal.vue";
@@ -1300,14 +1300,19 @@ async function doFetchRecommend(args) {
       console.log(`[任务流程] [IndexPage] 拟人 dwell ${payload?.ms}ms 模拟用户加载后停留观察`);
       setPhase("FETCHING");
     } else if (stage === "select.waiting") {
-      // autoSelectJob=true 路径：select 流程开始（15s 初始 dwell）
-      // 进入 SELECTING：step 0 "校对岗位" 仍显示 processing（让用户知道还在准备）
-      console.log(`[任务流程] [IndexPage] BOSS 主动选职位流程开始，initial dwell ${payload?.delayMs}ms`);
+      // autoSelectJob=true 路径：select 流程开始，按 DOM 就绪动态推进。
+      console.log(
+        `[任务流程] [IndexPage] BOSS 主动选职位流程开始，等待 DOM 就绪 ` +
+          `timeout=${payload?.timeoutMs}ms stable=${payload?.stableMs}ms`
+      );
       setPhase("SELECTING");
     } else if (stage === "select.openingDropdown") {
       console.log("[任务流程] [IndexPage] CDP click 打开 BOSS 职位下拉");
     } else if (stage === "select.browsingDropdown") {
-      console.log(`[任务流程] [IndexPage] 下拉已打开，浏览 dwell ${payload?.dwellMs}ms`);
+      console.log(
+        `[任务流程] [IndexPage] BOSS 职位下拉已打开，等待列表 DOM 就绪 ` +
+          `timeout=${payload?.timeoutMs}ms stable=${payload?.stableMs}ms`
+      );
     } else if (stage === "select.selectingItem") {
       console.log(`[任务流程] [IndexPage] CDP click 选中目标职位 ${payload?.selector}`);
     } else if (stage === "select.done") {
@@ -1396,9 +1401,9 @@ async function doFetchRecommend(args) {
   }
 
   const cid = args?.chatId || store.getters.getLatestChatId;
-  // 画像评分批次：人数由公共配置统一控制（保存 → 上传 → 评分 → SSE 通过名单 → 回列表收藏）。
-  const batchSize = SCORE_BATCH_SIZE;
+  // 画像评分批次：每批人数取用户目标与实际批次上限的较小值。
   const targetCount = Math.max(0, Number(args?.targetCount) || 0);
+  const batchSize = resolveScoreBatchSize(targetCount);
   const MAX_SCORE_BATCHES = 50;
 
   const cumulativeBlindIds = new Set();
@@ -2456,14 +2461,14 @@ async function runRealAggregateSearch(opts) {
     let recommendPromise = null;
     if (recommendChecked && jobId) {
       // targetCount：用户期望的「通过画像评分的合格简历数」
-      // batchSize：每批最多新增的候选人数，统一读取公共配置
+      // batchSize：每批人数取用户目标与实际批次上限的较小值
       const targetCount =
         Number(opts?.targetCount) > 0
           ? Number(opts.targetCount)
           : Number(opts?.resumeCount) > 0
           ? Number(opts.resumeCount)
           : 10;
-      const batchSize = SCORE_BATCH_SIZE;
+      const batchSize = resolveScoreBatchSize(targetCount);
       // 批次化流程（见 doFetchRecommend）：
       //   1) 每批 runBossRecommend（discoverOnly）发现最多 batchSize 个未入库候选人，不收藏；
       //   2) /results(scoreBatchNo) → 逐条 upload(fileId) + /detail → /results 封批；
@@ -2610,6 +2615,8 @@ async function dispatchTaskStore({
       selectedModules: { search: searchChecked, recommend: recommendChecked },
       matchedBossJobId: jobId,
       resumeCount: payload?.resumeCount,
+      recommendMaxResumeCount:
+        Number(payload?.targetCount) > 0 ? payload.targetCount : payload?.resumeCount,
       bossFilters: payload?.bossFilters,
       condId
     });

@@ -23,6 +23,7 @@ const DETAIL_SELECTOR = ".lib-standard-resume.with-right-side";
 const COLLECT_SELECTOR = ".resume-right-side .like-icon-and-text";
 const CLOSE_SELECTOR = ".close-btn";
 
+const CARD_READY_TIMEOUT_MS = 10_000;
 const DETAIL_OPEN_TIMEOUT_MS = 8_000;
 const COLLECT_STATE_TIMEOUT_MS = 6_000;
 const DETAIL_CLOSE_TIMEOUT_MS = 4_000;
@@ -100,11 +101,21 @@ async function clickOnTab(tabId, selector, pressHoldMs = 70) {
   return res.data;
 }
 
-function buildScrollCardScript(geekId) {
+function buildScrollCardScript(geekId, timeoutMs = CARD_READY_TIMEOUT_MS) {
   return `
 (async function scrollBossRecommendCard() {
   var wanted = ${JSON.stringify(normalizeGeekId(geekId))};
+  var timeoutMs = ${Math.max(0, Number(timeoutMs) || 0)};
+  var startedAt = Date.now();
   function norm(value) { return String(value == null ? '' : value).replace(/~+$/, ''); }
+  function isVisible(el) {
+    if (!el || !el.isConnected) return false;
+    var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    var win = el.ownerDocument.defaultView || window;
+    var style = win.getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0;
+  }
   function documents() {
     var out = [{ doc: document, win: window, label: 'mainFrame' }];
     var iframes = document.querySelectorAll('iframe');
@@ -121,25 +132,91 @@ function buildScrollCardScript(geekId) {
     }
     return out;
   }
-  var docs = documents();
-  for (var di = 0; di < docs.length; di++) {
-    var cards = docs[di].doc.querySelectorAll('.candidate-recommend .card-inner.common-wrap[data-geekid]');
-    for (var ci = 0; ci < cards.length; ci++) {
-      if (norm(cards[ci].dataset.geekid) !== wanted) continue;
-      cards[ci].scrollIntoView({ behavior: 'instant', block: 'center', inline: 'nearest' });
-      await new Promise(function(resolve) { setTimeout(resolve, 350); });
-      var rect = cards[ci].getBoundingClientRect();
-      return {
-        ok: true,
-        foundIn: docs[di].label,
-        domGeekId: cards[ci].dataset.geekid || '',
-        rect: { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) }
-      };
+  function findTarget() {
+    var docs = documents();
+    var renderedCards = 0;
+    var frameStates = [];
+    for (var di = 0; di < docs.length; di++) {
+      var cards = docs[di].doc.querySelectorAll('.candidate-recommend .card-inner.common-wrap[data-geekid]');
+      renderedCards += cards.length;
+      frameStates.push({ label: docs[di].label, cards: cards.length });
+      for (var ci = 0; ci < cards.length; ci++) {
+        if (norm(cards[ci].dataset.geekid) !== wanted) continue;
+        return {
+          found: true,
+          card: cards[ci],
+          foundIn: docs[di].label,
+          renderedCards: renderedCards,
+          frameStates: frameStates
+        };
+      }
+    }
+    return {
+      found: false,
+      renderedCards: renderedCards,
+      frameStates: frameStates
+    };
+  }
+
+  var last = findTarget();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (last.found) {
+      last.card.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'nearest' });
+    }
+    await new Promise(function(resolve) { setTimeout(resolve, 150); });
+    last = findTarget();
+    if (last.found && isVisible(last.card)) {
+      await new Promise(function(resolve) { setTimeout(resolve, 200); });
+      last = findTarget();
+      if (last.found && isVisible(last.card)) {
+        var rect = last.card.getBoundingClientRect();
+        return {
+          ok: true,
+          foundIn: last.foundIn,
+          domGeekId: last.card.dataset.geekid || '',
+          renderedCards: last.renderedCards,
+          elapsedMs: Date.now() - startedAt,
+          rect: { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) }
+        };
+      }
     }
   }
-  return { ok: false, error: 'CARD_NOT_FOUND', wanted: wanted };
+
+  return {
+    ok: false,
+    error: last.found ? 'CARD_NOT_READY' : 'CARD_NOT_FOUND',
+    wanted: wanted,
+    elapsedMs: Date.now() - startedAt,
+    renderedCards: last.renderedCards,
+    frameStates: last.frameStates
+  };
 })();
 `;
+}
+
+function ensureRecommendCardReady(geekId, result) {
+  if (result?.ok) {
+    if (Number(result.elapsedMs) >= 500) {
+      console.log(
+        `[任务流程] [bossRecommendCollect] 候选人卡片已就绪 geekId=${geekId} ` +
+          `等待=${result.elapsedMs}ms 已渲染=${result.renderedCards || 0}`
+      );
+    }
+    return;
+  }
+
+  const code = result?.error || "CARD_NOT_FOUND";
+  const frameSummary = Array.isArray(result?.frameStates)
+    ? result.frameStates
+        .map((item) => `${item.label || "unknown"}:${item.cards || 0}`)
+        .join(" | ")
+    : "unavailable";
+  const error = new Error(
+    `${code} geekId=${geekId} waited=${Number(result?.elapsedMs) || 0}ms ` +
+      `renderedCards=${Number(result?.renderedCards) || 0} frames=${frameSummary}`
+  );
+  error.code = code;
+  throw error;
 }
 
 function buildReadDetailStateScript({
@@ -375,7 +452,7 @@ export async function openBossRecommendDetail(tabId, geek) {
   await closeDetailIfOpen(tabId);
 
   const scrollResult = await evalOnTab(tabId, buildScrollCardScript(geekId), true);
-  if (!scrollResult?.ok) throw new Error(`CARD_NOT_FOUND geekId=${geekId}`);
+  ensureRecommendCardReady(geekId, scrollResult);
 
   await sleep(randomBetween(250, 600));
   await clickOnTab(
@@ -596,7 +673,7 @@ async function collectOneGeek(tabId, geekId) {
     buildScrollCardScript(geekId),
     true
   );
-  if (!scrollResult?.ok) throw new Error(`CARD_NOT_FOUND geekId=${geekId}`);
+  ensureRecommendCardReady(geekId, scrollResult);
 
   await sleep(randomBetween(250, 600));
   await clickOnTab(

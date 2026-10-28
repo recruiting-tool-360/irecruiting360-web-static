@@ -7,7 +7,7 @@
 <template>
   <q-dialog v-model="open" transition-show="scale" transition-hide="scale">
     <q-card class="aer-card">
-      <div class="aer-page">
+      <div class="aer-page" @scroll.capture.passive="handleReportScroll">
         <!-- 顶部标题栏 -->
         <header class="aer-header">
           <div class="aer-header-title">
@@ -15,15 +15,6 @@
             <p>基于当前生效职位画像与候选人最新简历生成</p>
           </div>
           <div class="aer-header-actions">
-            <button class="aer-legacy-btn" type="button" @click="$emit('open-legacy')">查看旧版详情</button>
-            <button class="aer-download-btn" type="button" @click="download">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span>下载报告</span>
-            </button>
             <button class="aer-close-btn" type="button" @click="open = false">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M18 6 6 18" />
@@ -96,7 +87,7 @@
                     <strong>{{ deductionScoreText }}</strong>
                   </div>
                   <div>
-                    <span>待核验</span>
+                    <span>无法判断</span>
                     <strong>{{ pendingCountText }}<small>项</small></strong>
                   </div>
                 </div>
@@ -154,7 +145,7 @@
                   </ul>
                 </div>
                 <div v-if="advice.length" class="aer-insight aer-insight--advice">
-                  <strong>面试验证建议</strong>
+                  <strong>注意事项</strong>
                   <ul>
                     <li v-for="(a, i) in advice" :key="`ad-${i}`">{{ a }}</li>
                   </ul>
@@ -213,26 +204,37 @@
                         <tr>
                           <th class="aer-col-dimension">评估维度</th>
                           <th class="aer-col-standard">评估标准</th>
-                          <th class="aer-col-score">权重/分值</th>
+                          <th v-if="group.hasScore" class="aer-col-score">
+                            {{ group.scoreColumnTitle }}
+                          </th>
                           <th class="aer-col-result">评估结果</th>
                           <th class="aer-col-evidence">依据来源</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr v-for="(item, idx) in group.items" :key="`${group.id}-${idx}`">
-                          <td>{{ item.dimension }}</td>
-                          <td>{{ item.standard }}</td>
                           <td>
+                            <div
+                              class="aer-clamp-text"
+                              @mouseenter="showTextPopover($event, item.dimension)"
+                              @mouseleave="hideTextPopover"
+                            >{{ item.dimension }}</div>
+                          </td>
+                          <td>
+                            <div
+                              class="aer-clamp-text"
+                              @mouseenter="showTextPopover($event, item.standard)"
+                              @mouseleave="hideTextPopover"
+                            >{{ item.standard }}</div>
+                          </td>
+                          <td v-if="group.hasScore">
                             <span
-                              v-if="group.hasScore"
                               class="aer-tag-score"
                               :class="{
                                 'aer-tag-score--bonus': group.ruleType === 'BONUS',
                                 'aer-tag-score--deduction': group.ruleType === 'DEDUCTION'
                               }"
                             >{{ item.scoreText }}</span>
-                            <span v-else-if="group.ruleType === 'DISPLAY'" class="aer-muted">不计分</span>
-                            <span v-else class="aer-muted">不占权重</span>
                           </td>
                           <td>
                             <span class="aer-result-tag" :class="`aer-result-tag--${item.result}`">
@@ -243,8 +245,14 @@
                             </span>
                           </td>
                           <td class="aer-evidence">
-                            {{ item.evidence }}
-                            <span v-if="item.sensitive" class="aer-sensitive-tag">敏感</span>
+                            <div class="aer-evidence-content">
+                              <div
+                                class="aer-clamp-text"
+                                @mouseenter="showTextPopover($event, item.evidence)"
+                                @mouseleave="hideTextPopover"
+                              >{{ item.evidence }}</div>
+                              <span v-if="item.sensitive" class="aer-sensitive-tag">敏感</span>
+                            </div>
                           </td>
                         </tr>
                       </tbody>
@@ -254,6 +262,16 @@
               </div>
 
               <div v-else class="aer-groups-empty">暂无评估维度数据</div>
+
+              <q-popup-proxy
+                v-model="textPopoverVisible"
+                :target="textPopoverTarget"
+                anchor="bottom middle"
+                self="top middle"
+                :offset="[0, 8]"
+              >
+                <div class="aer-overflow-popover">{{ textPopoverContent }}</div>
+              </q-popup-proxy>
             </section>
           </template>
         </main>
@@ -273,7 +291,7 @@ const props = defineProps({
   /** 任务简历 ID；不传时从 resumeData.taskResumeId 兜底 */
   taskResumeId: { type: [String, Number], default: "" }
 });
-const emit = defineEmits(["update:modelValue", "open-legacy"]);
+const emit = defineEmits(["update:modelValue"]);
 
 const open = computed({
   get: () => props.modelValue,
@@ -283,7 +301,46 @@ const open = computed({
 const report = ref(null);
 const loading = ref(false);
 const loadError = ref("");
+const textPopoverVisible = ref(false);
+const textPopoverTarget = ref(null);
+const textPopoverContent = ref("");
 let requestSeq = 0;
+const scrollbarHideTimers = new WeakMap();
+
+const REPORT_SCROLL_SELECTOR = ".aer-main, .aer-sidebar, .aer-table-scroll";
+
+function hideTextPopover() {
+  textPopoverVisible.value = false;
+  textPopoverTarget.value = null;
+  textPopoverContent.value = "";
+}
+
+function showTextPopover(event, text) {
+  const target = event?.currentTarget;
+  if (!(target instanceof HTMLElement)) return;
+
+  hideTextPopover();
+  if (target.scrollHeight <= target.clientHeight + 1) return;
+
+  textPopoverTarget.value = target;
+  textPopoverContent.value = String(text || "");
+  textPopoverVisible.value = true;
+}
+
+/** 仅在实际滚动时短暂显示滚动条，停止后恢复透明。 */
+function handleReportScroll(event) {
+  const target = event?.target;
+  if (!target?.matches || !target.matches(REPORT_SCROLL_SELECTOR)) return;
+  hideTextPopover();
+  target.classList.add("is-scrolling");
+  const previousTimer = scrollbarHideTimers.get(target);
+  if (previousTimer) clearTimeout(previousTimer);
+  const timer = setTimeout(() => {
+    target.classList.remove("is-scrolling");
+    scrollbarHideTimers.delete(target);
+  }, 700);
+  scrollbarHideTimers.set(target, timer);
+}
 
 const hasValue = (value) => value !== undefined && value !== null && String(value).trim() !== "";
 const asText = (value, fallback = "-") => (hasValue(value) ? String(value) : fallback);
@@ -349,20 +406,26 @@ const avatarSrc = computed(() =>
 function stripScoreUnit(value) {
   return String(value).replace(/\s*分\s*$/, "").trim();
 }
+function roundScore(value) {
+  const n = Number(stripScoreUnit(value));
+  return Number.isFinite(n) ? Math.round(n) : value;
+}
 function formatScore(value) {
   if (!hasValue(value)) return "-";
-  if (Number(value) < 0) return "-";
-  return stripScoreUnit(value);
+  if (Number(stripScoreUnit(value)) < 0) return "-";
+  return String(roundScore(value));
 }
 function formatNumber(value) {
-  return hasValue(value) ? String(value) : "-";
+  return hasValue(value) ? String(roundScore(value)) : "-";
 }
 function formatSigned(value, sign) {
   if (!hasValue(value)) return "-";
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value);
-  if (n === 0) return sign === "-" ? "-0" : "0";
-  return n > 0 ? `${sign}${n}` : String(n);
+  const rounded = Math.round(n);
+  if (rounded === 0) return `${sign}0`;
+  if (sign === "-") return `-${Math.abs(rounded)}`;
+  return rounded > 0 ? `+${rounded}` : String(rounded);
 }
 
 const totalScoreText = computed(() =>
@@ -382,12 +445,27 @@ const pendingCountText = computed(() =>
 
 const sexText = computed(() => {
   const sex = candidateProfile.value.sex;
-  if (sex === 1 || sex === "1" || sex === "男") return "男";
-  if (sex === 0 || sex === "0" || sex === "女") return "女";
   return hasValue(sex) ? String(sex) : "";
 });
+const portraitAgeOption = computed(() => {
+  const age = candidateProfile.value.age;
+  if (!hasValue(age)) return "";
+  const text = String(age).trim();
+  return /岁$/.test(text) ? text : `${text}岁`;
+});
+const workYearsText = computed(() => {
+  const value = candidateProfile.value.workYears;
+  if (!hasValue(value)) return "";
+  const text = String(value).trim();
+  return /^\d+(?:\.\d+)?$/.test(text) ? `${text}年` : text;
+});
 const basicInfoText = computed(() =>
-  [sexText.value, candidateProfile.value.age, candidateProfile.value.highestEducation]
+  [
+    sexText.value,
+    portraitAgeOption.value,
+    candidateProfile.value.highestEducation,
+    workYearsText.value
+  ]
     .filter(hasValue)
     .join(" · ")
 );
@@ -479,6 +557,12 @@ const conclusionText = computed(() =>
   )
 );
 
+const SCORE_COLUMN_TITLE_MAP = {
+  WEIGHTED: "得分/总分",
+  BONUS: "加分/加分上限",
+  DEDUCTION: "减分/减分上限"
+};
+
 const RULE_META = {
   HARD_REQUIREMENT: {
     title: "硬性要求",
@@ -559,14 +643,31 @@ function normalizeRuleType(value) {
   return type;
 }
 
-function formatItemScore(item) {
+function applyScorePairSign(value, sign) {
+  const text = String(value).trim();
+  if (!sign) return text;
+  return text
+    .split("/")
+    .map((part) => {
+      const score = part.trim();
+      return score && score !== "-" ? `${sign}${score.replace(/^[+-]/, "")}` : score;
+    })
+    .join("/");
+}
+
+function formatItemScore(item, ruleType) {
+  const sign = ruleType === "BONUS" ? "+" : ruleType === "DEDUCTION" ? "-" : "";
+  if (hasValue(item?.scoreDisplay)) {
+    return applyScorePairSign(item.scoreDisplay, sign);
+  }
   const actual = item?.actualScore ?? item?.weightedScore ?? item?.rawScore;
   const max = item?.maxScore ?? item?.weight;
   if (!hasValue(actual) && !hasValue(max)) return "-";
-  return `${hasValue(actual) ? actual : "-"}/${hasValue(max) ? max : "-"}`;
+  const scorePair = `${hasValue(actual) ? roundScore(actual) : "-"}/${hasValue(max) ? roundScore(max) : "-"}`;
+  return applyScorePairSign(scorePair, sign);
 }
 
-function normalizeReportItem(item) {
+function normalizeReportItem(item, ruleType) {
   const code = String(item?.matchResult || item?.matchStatus || "").toUpperCase();
   let evidenceList = [];
   if (Array.isArray(item?.evidence)) {
@@ -590,7 +691,7 @@ function normalizeReportItem(item) {
   return {
     dimension: asText(item?.dimension, "-"),
     standard: asText(item?.standard, "-"),
-    scoreText: formatItemScore(item),
+    scoreText: formatItemScore(item, ruleType),
     result,
     resultText: rawResultText,
     evidence: evidenceList.length
@@ -620,7 +721,9 @@ const groups = computed(() =>
     .map((group, index) => {
       const ruleType = normalizeRuleType(group?.ruleType);
       const meta = RULE_META[ruleType] || {};
-      const items = Array.isArray(group?.items) ? group.items.map(normalizeReportItem) : [];
+      const items = Array.isArray(group?.items)
+        ? group.items.map((item) => normalizeReportItem(item, ruleType))
+        : [];
       return {
         id: `${ruleType || "group"}-${index}`,
         ruleType,
@@ -628,6 +731,7 @@ const groups = computed(() =>
         bar: meta.bar || "weight",
         tip: meta.tip || "",
         hasScore: ["WEIGHTED", "BONUS", "DEDUCTION"].includes(ruleType),
+        scoreColumnTitle: SCORE_COLUMN_TITLE_MAP[ruleType] || "",
         items
       };
     })
@@ -682,18 +786,13 @@ watch(
   ([isOpen]) => {
     if (!isOpen) {
       requestSeq += 1;
+      hideTextPopover();
       return;
     }
     loadReport();
   },
   { immediate: true }
 );
-
-function download() {
-  if (typeof window !== "undefined" && typeof window.print === "function") {
-    window.print();
-  }
-}
 </script>
 
 <style scoped lang="scss">
@@ -748,35 +847,6 @@ function download() {
   align-items: center;
   gap: 12px;
 }
-.aer-legacy-btn {
-  padding: 6px 12px;
-  color: #616670;
-  font-size: 13px;
-  border: 1px solid #e5e6e8;
-  border-radius: 8px;
-  background: #fff;
-  cursor: pointer;
-}
-.aer-legacy-btn:hover {
-  color: #14b8a6;
-  border-color: #99f6e4;
-}
-.aer-download-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  color: #1677ff;
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid #91caff;
-  border-radius: 8px;
-  background: #fff;
-  cursor: pointer;
-}
-.aer-download-btn:hover {
-  background: #f0f7ff;
-}
 .aer-close-btn {
   display: inline-flex;
   align-items: center;
@@ -795,11 +865,48 @@ function download() {
 }
 
 /* Layout */
+.aer-main,
+.aer-sidebar,
+.aer-table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.aer-main::-webkit-scrollbar,
+.aer-sidebar::-webkit-scrollbar,
+.aer-table-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.aer-main::-webkit-scrollbar-track,
+.aer-sidebar::-webkit-scrollbar-track,
+.aer-table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.aer-main::-webkit-scrollbar-thumb,
+.aer-sidebar::-webkit-scrollbar-thumb,
+.aer-table-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  background-clip: padding-box;
+}
+.aer-main.is-scrolling,
+.aer-sidebar.is-scrolling,
+.aer-table-scroll.is-scrolling {
+  scrollbar-color: rgba(108, 117, 132, 0.42) transparent;
+}
+.aer-main.is-scrolling::-webkit-scrollbar-thumb,
+.aer-sidebar.is-scrolling::-webkit-scrollbar-thumb,
+.aer-table-scroll.is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(108, 117, 132, 0.42);
+  background-clip: padding-box;
+}
+
 .aer-main {
   display: grid;
   align-items: start;
   flex: 1 1 auto;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 16px;
   min-height: 0;
   padding: 16px 24px 24px;
@@ -904,22 +1011,23 @@ function download() {
 .aer-score-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 6px;
   margin-top: 18px;
   padding-bottom: 16px;
   border-bottom: 1px dashed #e5e6e8;
 }
 .aer-score-metrics > div {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-  padding-left: 16px;
 }
 .aer-score-metrics span {
   color: #8e929b;
   font-size: 14px;
   line-height: 18px;
+  white-space: nowrap;
 }
 .aer-score-metrics strong {
   color: #3d3d3d;
@@ -941,7 +1049,7 @@ function download() {
 .aer-candidate-contact > div,
 .aer-candidate-history > div {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   min-width: 0;
   color: #434343;
@@ -951,6 +1059,7 @@ function download() {
 .aer-candidate-contact svg,
 .aer-candidate-history svg {
   flex: 0 0 auto;
+  margin-top: 3px;
   color: #8e929b;
 }
 .aer-candidate-tags {
@@ -1144,6 +1253,17 @@ function download() {
   word-break: break-word;
   border-bottom: 1px solid #eff0f2;
 }
+.aer-clamp-text {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
 .aer-table tbody tr:hover {
   background: #fafbfc;
 }
@@ -1206,8 +1326,8 @@ function download() {
   background: #f5f6f7;
 }
 .aer-sensitive-tag {
+  flex: 0 0 auto;
   display: inline-flex;
-  margin-left: 8px;
   padding: 1px 8px;
   color: #ff8b33;
   font-size: 12px;
@@ -1217,6 +1337,29 @@ function download() {
 }
 .aer-evidence {
   color: #616670;
+}
+.aer-evidence-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.aer-evidence-content .aer-clamp-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.aer-overflow-popover {
+  box-sizing: border-box;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 12px;
+  color: #434343;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid #ebeaf4;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(35, 31, 74, 0.16);
 }
 
 .aer-loading,

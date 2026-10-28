@@ -192,8 +192,10 @@
                 </q-tooltip>
               </q-btn>
             </template>
-            <q-btn flat class="q-ma-xs" size="md" color="primary" 
-              :disable="readOnly || isSimilarButtonDisabled" 
+            <q-btn
+              v-if="showSimilarResumeEntry"
+              flat class="q-ma-xs" size="md" color="primary"
+              :disable="readOnly || isSimilarButtonDisabled"
               @click.stop="searchSimilarResumes">
               <q-icon size="xs" class="q-mr-xs" name="search"></q-icon>
               <span>{{ similarButtonText }}</span>
@@ -273,12 +275,11 @@
     @add-to-talent-pool="addToTalentPool"
   />
 
-  <!-- 新版 AI 评分详情（AI 人才评估报告，如图 4）。旧版详情保留，可通过报告页入口进入 -->
+  <!-- 新版 AI 评分详情（AI 人才评估报告） -->
   <AIEvaluationReport
     v-model="showAIEvaluationReport"
     :resume-data="resume"
     :task-resume-id="evaluationTaskResumeId"
-    @open-legacy="openLegacyEvaluation"
   />
 </template>
 
@@ -306,6 +307,8 @@ import { formatChannelDisplayName } from 'src/util/channelDisplayName';
 
 const store = useStore();
 const $q = useQuasar();
+// 暂时隐藏相似简历入口，保留搜索与弹窗逻辑以便后续恢复。
+const showSimilarResumeEntry = false;
 const bossCommunicationLoading = ref(false);
 const bossCommunicationLoadingStage = ref('idle');
 const locallyCommunicated = ref(false);
@@ -317,7 +320,7 @@ const bossCommunicationLoadingText = computed(() =>
 const bossCommunicationButtonText = computed(() =>
   props.resume?.immediateChat === true || locallyCommunicated.value
     ? '再次沟通'
-    : '立即沟通'
+    : '打招呼'
 );
 const bossRecommendTaskExecutingMessage = '任务执行中，完成后可立即沟通';
 

@@ -1,10 +1,11 @@
 <!--
   职位画像单个维度的值编辑器。
-  - local-gender：本地固定 不限/男/女，多选
+  - local-gender：本地固定 不限/男/女，单选
   - initialize：最高学历 / 第一学历 / 工作稳定性（数据源 /knowledge/initialize）
   - remote：模糊搜索多选（/knowledge/search）
   - area：意向工作城市级联多选
-  - range-age / range-salary：区间选择（16-65 岁 / 1-200K）
+  - range-age：双端滚动滑块（16-65 岁）
+  - range-salary：最低/最高数字输入框，单位 K 独立展示（1-200K）
   直接修改传入的 item（display_value / dataTypeValue），并 emit change 通知父组件。
 -->
 <template>
@@ -15,51 +16,54 @@
     @update:model-value="onAreaChange"
   />
 
-  <div v-else-if="isRange" class="range-editor">
-    <q-btn
-      dense
-      flat
-      no-caps
-      size="sm"
-      class="range-trigger"
-      :label="rangeText"
-      icon-right="arrow_drop_down"
+  <div v-else-if="isAge" class="age-editor">
+    <q-range
+      v-model="sliderValue"
+      :min="sliderBounds.min"
+      :max="sliderBounds.max"
+      :step="1"
+      :left-label-value="ageThumbLabel('min')"
+      :right-label-value="ageThumbLabel('max')"
+      label
+      label-color="grey-10"
+      color="primary"
+      track-size="3px"
+      thumb-size="16px"
+      class="age-editor__slider"
+      @mousedown.capture="onAgeSliderMouseDown"
     />
-    <q-menu anchor="bottom left" self="top left">
-      <div class="range-panel">
-        <div class="range-slider">
-          <q-range
-            v-model="sliderValue"
-            :min="sliderBounds.min"
-            :max="sliderBounds.max"
-            :step="1"
-            color="primary"
-            track-size="3px"
-            thumb-size="16px"
-          />
-          <div class="range-scale">
-            <button
-              type="button"
-              class="range-scale__unlimited"
-              :class="{ 'is-active': range.min === null }"
-              @click="setSideUnlimited('min')"
-            >
-              不限
-            </button>
-            <span>{{ rangeBounds.min }}{{ rangeUnit }} - {{ rangeBounds.max }}{{ rangeUnit }}</span>
-            <button
-              type="button"
-              class="range-scale__unlimited"
-              :class="{ 'is-active': range.max === null }"
-              @click="setSideUnlimited('max')"
-            >
-              不限
-            </button>
-          </div>
-        </div>
-        <div class="range-preview">{{ rangeText }}</div>
-      </div>
-    </q-menu>
+    <span class="age-editor__value">{{ rangeText }}</span>
+  </div>
+
+  <div v-else-if="isSalary" class="salary-editor">
+    <div class="salary-editor__inputs">
+      <input
+        class="salary-editor__input"
+        type="number"
+        inputmode="numeric"
+        :min="SALARY_MIN"
+        :max="SALARY_MAX"
+        step="1"
+        placeholder="不限"
+        aria-label="最低薪资"
+        :value="range.min ?? ''"
+        @change="onSalaryRangeChange('min', $event)"
+      />
+      <span class="salary-editor__separator">–</span>
+      <input
+        class="salary-editor__input"
+        type="number"
+        inputmode="numeric"
+        :min="SALARY_MIN"
+        :max="SALARY_MAX"
+        step="1"
+        placeholder="不限"
+        aria-label="最高薪资"
+        :value="range.max ?? ''"
+        @change="onSalaryRangeChange('max', $event)"
+      />
+    </div>
+    <span class="salary-editor__unit">K</span>
   </div>
 
   <q-select
@@ -97,7 +101,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import AreaCascader from "./AreaCascader.vue";
 import {
   getProfileKnowledgeAreaTree,
@@ -146,9 +150,8 @@ let searchSeq = 0;
 
 const isRemote = computed(() => props.dimension.source === "remote");
 const isLocalGender = computed(() => props.dimension.source === "local-gender");
-const isRange = computed(
-  () => props.dimension.source === "range-age" || props.dimension.source === "range-salary"
-);
+const isAge = computed(() => props.dimension.source === "range-age");
+const isSalary = computed(() => props.dimension.source === "range-salary");
 
 function notifyChange() {
   // item 是父组件的 reactive 对象，这里只是触发一次通知（父组件用于脏标记 / 权重校验）
@@ -352,8 +355,6 @@ const rangeBounds = computed(() =>
     ? { min: AGE_MIN, max: AGE_MAX }
     : { min: SALARY_MIN, max: SALARY_MAX }
 );
-const rangeUnit = computed(() => (props.dimension.source === "range-salary" ? "K" : "岁"));
-
 const range = computed(() =>
   props.dimension.source === "range-age"
     ? parseAgeDisplay(displayOf(props.item))
@@ -386,10 +387,49 @@ function commitRange(min, max) {
   notifyChange();
 }
 
-/** 点击左右两端的「不限」：单独清空下限或上限 */
-function setSideUnlimited(side) {
-  if (side === "min") commitRange(null, range.value.max);
-  else commitRange(range.value.min, null);
+function clampSalaryValue(value) {
+  return Math.min(SALARY_MAX, Math.max(SALARY_MIN, Math.round(value)));
+}
+
+function onSalaryRangeChange(side, event) {
+  const raw = String(event?.target?.value ?? "").trim();
+  const parsed = raw === "" ? null : Number(raw);
+  const value = Number.isFinite(parsed) ? clampSalaryValue(parsed) : null;
+
+  let min = side === "min" ? value : range.value.min;
+  let max = side === "max" ? value : range.value.max;
+  if (min !== null && max !== null && min > max) {
+    if (side === "min") max = min;
+    else min = max;
+  }
+  commitRange(min, max);
+}
+
+let draggingAgeThumb = null;
+
+function clearAgeSliderDrag() {
+  draggingAgeThumb?.removeAttribute("data-age-dragging");
+  draggingAgeThumb = null;
+  document.removeEventListener("mouseup", clearAgeSliderDrag, true);
+}
+
+function onAgeSliderMouseDown(event) {
+  if (event.button !== 0) return;
+  const root = event.currentTarget;
+  const thumbs = Array.from(root?.querySelectorAll?.(".q-slider__thumb") || []);
+  if (thumbs.length === 0) return;
+
+  clearAgeSliderDrag();
+  draggingAgeThumb =
+    event.target?.closest?.(".q-slider__thumb") ||
+    thumbs.reduce((nearest, thumb) => {
+      const rect = thumb.getBoundingClientRect();
+      const distance = Math.abs(rect.left + rect.width / 2 - event.clientX);
+      return !nearest || distance < nearest.distance ? { thumb, distance } : nearest;
+    }, null)?.thumb;
+
+  draggingAgeThumb?.setAttribute("data-age-dragging", "true");
+  document.addEventListener("mouseup", clearAgeSliderDrag, true);
 }
 
 const sliderValue = computed({
@@ -418,6 +458,15 @@ const sliderValue = computed({
   }
 });
 
+/** 滑块气泡展示当前节点；两端哨兵节点显示「不限」。 */
+function ageThumbLabel(side) {
+  const value = side === "min" ? sliderValue.value.min : sliderValue.value.max;
+  if (value === sliderBounds.value.min || value === sliderBounds.value.max) {
+    return UNLIMITED_TEXT;
+  }
+  return `${value}岁`;
+}
+
 /* ===== 城市 ===== */
 
 function onAreaChange(list) {
@@ -428,6 +477,8 @@ function onAreaChange(list) {
   );
   notifyChange();
 }
+
+onBeforeUnmount(clearAgeSliderDrag);
 
 onMounted(async () => {
   if (props.dimension.source === "area") {
@@ -447,61 +498,93 @@ onMounted(async () => {
   width: 100%;
   font-size: 12px;
 }
-.range-editor {
-  width: 100%;
-}
-.range-trigger {
-  width: 100%;
-  height: 32px;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  color: #262626;
-  font-size: 12px;
-  background: #fff;
-  text-transform: none;
-}
-.range-trigger :deep(.q-btn__content) {
-  justify-content: space-between;
-  width: 100%;
-}
-.range-trigger :deep(.q-icon) {
-  color: #a3a3a3;
-  font-size: 18px;
-}
-.range-panel {
-  padding: 16px 18px 12px;
-  width: 300px;
-}
-.range-slider {
-  padding: 0 4px;
-}
-.range-scale {
+.age-editor,
+.salary-editor {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-top: 2px;
-  font-size: 11px;
-  color: #bfbfbf;
+  width: 100%;
+  min-width: 0;
 }
-.range-scale__unlimited {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #8c8c8c;
-  font-size: 11px;
-  cursor: pointer;
+.age-editor {
+  gap: 12px;
 }
-.range-scale__unlimited:hover,
-.range-scale__unlimited.is-active {
-  color: var(--q-primary);
+.age-editor__slider {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 4px;
 }
-.range-preview {
-  margin-top: 8px;
-  text-align: center;
+.age-editor :deep(.q-slider__thumb:not(:hover):not(.q-slider--focus):not([data-age-dragging]) .q-slider__pin) {
+  opacity: 0 !important;
+}
+.age-editor :deep(.q-slider__thumb:hover .q-slider__pin),
+.age-editor :deep(.q-slider__thumb.q-slider--focus .q-slider__pin),
+.age-editor :deep(.q-slider__thumb[data-age-dragging] .q-slider__pin) {
+  opacity: 1 !important;
+}
+.age-editor :deep(.q-slider__text-container) {
+  transform: none !important;
+}
+.age-editor :deep(.q-slider__pin--h-standard:before) {
+  right: auto;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-top: 6px solid currentColor;
+  border-right: 6px solid transparent;
+  border-bottom: 0;
+  border-left: 6px solid transparent;
+}
+.age-editor__value {
+  flex: 0 0 auto;
+  min-width: 82px;
+  color: #404040;
   font-size: 12px;
   font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+}
+.salary-editor {
+  gap: 8px;
+}
+.salary-editor__inputs {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 6px;
+}
+.salary-editor__input {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 52px;
+  height: 32px;
+  box-sizing: border-box;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0 8px;
   color: #262626;
+  font-size: 12px;
+  line-height: 30px;
+  text-align: center;
+  outline: none;
+  background: #fff;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.salary-editor__input:focus {
+  border-color: #14b8a6;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+}
+.salary-editor__separator {
+  flex: 0 0 auto;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+.salary-editor__unit {
+  flex: 0 0 auto;
+  color: #52525b;
+  font-size: 12px;
+  font-weight: 500;
 }
 </style>

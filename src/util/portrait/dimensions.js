@@ -37,7 +37,7 @@ export const DIMENSIONS = [
     structureType: STRUCTURE_TYPE.STRUCTURED,
     group: "BASIC",
     source: "local-gender",
-    multi: true,
+    multi: false,
     defaultRule: "DISPLAY_ONLY"
   },
   {

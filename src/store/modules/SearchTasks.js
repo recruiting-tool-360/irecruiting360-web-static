@@ -25,7 +25,7 @@
 import taskApi from "src/api/searchTaskApi";
 import taskSse from "src/api/taskSse";
 import { runActionList } from "src/util/automation/searchTaskActionRunner";
-import { SCORE_BATCH_SIZE } from "src/config/searchTaskConfig";
+import { resolveScoreBatchSize } from "src/config/searchTaskConfig";
 import { normalizeBossJobId } from "src/util/bossSearchFilters";
 
 // ---------- 类型 / 常量 ----------
@@ -2210,12 +2210,12 @@ const actions = {
           chatId: task.chatId,
           selectedModules: { search: hasSearch, recommend: hasRecommend },
           matchedBossJobId,
-          // resumeCount 是 searchTaskConfig.maxResumeCount（渠道执行数量配置）；
-          // 画像评分批次人数由公共配置统一控制。
+          // resumeCount 是 searchTaskConfig.maxResumeCount（渠道执行数量配置）。
           resumeCount: recommendResumeCount,
           // targetCount 是用户期望的「通过画像评分的合格简历数」，由后端 SSE 判断是否继续
           targetCount: Number(task.targetCount) || 0,
-          batchSize: SCORE_BATCH_SIZE,
+          // 每批人数取用户目标与实际批次上限的较小值
+          batchSize: resolveScoreBatchSize(task.targetCount),
           taskId,
           bossFilters: task.bossFilters || null,
           // 透回 prepareConditionOnly / 缓存命中拿到的 data，让 executeSearch

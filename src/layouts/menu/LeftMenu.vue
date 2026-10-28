@@ -36,7 +36,7 @@
         <div>
           <q-icon class="q-mr-sm" name="info" size="xs" style="color: var(--q-primary-90)" />
         </div>
-        <span class="col">点击职位唤起AI招聘助理进行聚合简历推荐</span>
+        <span class="col">点击职位唤起AI寻聘进行简历搜索</span>
         <q-icon
           class="cursor-pointer absolute text-grey-7"
           name="clear"
@@ -202,7 +202,7 @@
                   class="recruit-btn"
                   :title="
                     planInfo?.sendJdAuth
-                      ? '自动发送当前职位的JD信息至AI招聘助理'
+                      ? '发送当前职位的JD信息至AI招聘助理'
                       : '您当前无职位管理模块权限'
                   "
                   @click="
@@ -598,10 +598,14 @@ function parseJobName(name) {
   return { title: raw, code: "" };
 }
 
-/** 职位画像是否未开启：按约定只看 jobProfileEnabled（兼容后端下发布尔/字符串/数字）。 */
+/** 职位画像是否开启：契约类型仅允许 boolean | null，只有 true 代表开启。 */
+function isJobProfileEnabled(item) {
+  return item?.jobProfileEnabled === true;
+}
+
+/** 职位画像是否明确未开启；null 表示状态未知。 */
 function isJobProfileOff(item) {
-  const v = item?.jobProfileEnabled;
-  return v === false || v === "false" || v === 0 || v === "0";
+  return item?.jobProfileEnabled === false;
 }
 const currentChatId = computed(() => store.getters.getLatestChatId || "");
 const renameDialogVisible = ref(false);
@@ -1026,7 +1030,7 @@ const loadChatList = async (opts = {}) => {
       // 客户端模式下：chatList 接口没返 jd 字段（注释 SSOLogin.vue L226），
       // 在后台异步批量调 ihrBridge.batchGetPositionDetailByIds 拉职位详情，
       // 用 generateJobPostingFromResume 算 JD 文本回填到 chatList。
-      // 这步不阻塞 loadChatList 主流程，失败也不影响其它功能（jd 仍为空，自动发送 JD 这条路径会 skip）。
+      // 这步不阻塞 loadChatList 主流程，失败也不影响其它功能（jd 仍为空时，手动发送 JD 按钮不可用）。
       void hydrateJobDescriptionsFromIhr(visibleChatList);
 
       // 在数据更新到Vuex后，使用nextTick确保DOM已更新
@@ -1044,17 +1048,11 @@ const loadChatList = async (opts = {}) => {
         isFromCandidateList.value
       ) {
         const filteredList = [
-          formattedChatList.find((item) => item.positionId === headcountId.value)
+          visibleChatList.find((item) => item.positionId === headcountId.value)
         ].filter(Boolean);
         if (Array.isArray(filteredList) && filteredList.length === 1) {
-          getChatHistory(filteredList[0].id, userInfo.value?.id).then((res) => {
-            console.log("res", res);
-            if (res.success === "success") {
-              const isFill =
-                Array.isArray(res.data.chatHistory) && res.data.chatHistory.length === 0;
-              handleRecruitAction(filteredList[0], isFill);
-            }
-          });
+          // 仅定位到候选详情所属职位；切换职位时不自动填充 JD。
+          handleRecruitAction(filteredList[0], false);
         }
         console.log(headcountId.value, "三方企业，候选人列表跳转定位职位:", filteredList[0]);
       }
@@ -1294,11 +1292,6 @@ const selectChat = (item) => {
     }
 
     setVuexData(item);
-
-    // 选中职位后：如果会话是空的（没历史消息），自动发送 JD 需求（等价于用户点
-    // briefcase 按钮 → handleRecruitAction）。这是 ihraisaas 风格的"新会话引导发送"逻辑。
-    // 不阻塞 selectChat 主流程，异步触发 + try/catch 静默失败。
-    void maybeAutoSendJdForEmptyChat(item);
   } catch (error) {
     console.error("选择聊天时发生错误:", error);
   }
@@ -1395,137 +1388,6 @@ async function hydrateJobDescriptionsFromIhr(chatListItems) {
     );
   } catch (e) {
     console.warn("[LeftMenu] hydrateJobDescriptions 异常:", e?.message || e);
-  }
-}
-
-/**
- * 如果某个职位会话**用户从未发过消息**，自动发一条 JD 需求。
- *
- * 触发时机：用户在 LeftMenu 选中职位时 selectChat 调本函数。
- * 自动发送条件（同时满足）：
- *   1. **没有任何 role==='user' 的消息**（用户从未参与过）
- *   2. **总消息数 < 2**（双重保险：避免有少量 bot 欢迎语后误判，
- *      只在"几乎全新的会话"里自动发）
- *
- * 静默条件（任一命中都不自动发，避免打扰）：
- *   - item.jd 为空（没东西可发）
- *   - 历史消息接口 fail（保守不发）
- *   - 上述任何"自动发送条件"不满足
- *   - 当前选中的 chat 已经被换到别的职位（用户在 API 回调期间切了 tab，
- *     避免给"新选中的职位"误发"刚才那个职位的 JD"）
- *
- * 等价于用户手动点 briefcase 按钮 → handleRecruitAction(item, true) → 自动发送。
- */
-async function maybeAutoSendJdForEmptyChat(item) {
-  console.log("[LeftMenu] auto-send-jd start, item=", item);
-  if (!item || !item.id) return;
-
-  const userId = store.getters.getUserInfo?.id;
-  if (!userId) {
-    console.log("[LeftMenu] auto-send-jd skipped: userId 不可用");
-    return;
-  }
-
-  // item.jd 为空（chatList 接口没返 jd）→ 主动拉一次 i 人事职位详情拼 JD
-  // 这条路径覆盖：用户点的职位刚好不在 hydrateJobDescriptionsFromIhr 已完成的批次里
-  // （或 hydrate 没跑完 / 失败）
-  let effectiveJd = item.jd;
-  if (!effectiveJd || typeof effectiveJd !== "string" || effectiveJd.trim() === "") {
-    if (!item.positionId) {
-      console.log(`[LeftMenu] auto-send-jd skipped: item.jd 空且无 positionId, chatId=${item.id}`);
-      return;
-    }
-    console.log(`[LeftMenu] item.jd 空，主动拉 positionId=${item.positionId} 的 JD`);
-    effectiveJd = await fetchSingleJobJd(item.positionId);
-    if (!effectiveJd) {
-      console.log("[LeftMenu] auto-send-jd skipped: 主动拉 JD 失败 / 返回空");
-      return;
-    }
-    // 顺手把 jd 写回 chatList，下次进同一职位不用再拉
-    try {
-      const currentList = store.getters.getChatList || [];
-      const merged = currentList.map((c) =>
-        c?.positionId === item.positionId && (!c.jd || c.jd.trim() === "")
-          ? { ...c, jd: effectiveJd }
-          : c
-      );
-      store.dispatch("updateChatList", merged);
-    } catch (e) {
-      console.warn("[LeftMenu] 写回 chatList 失败:", e?.message || e);
-    }
-  }
-  try {
-    const { data } = await getChatHistory(item.id, userId);
-    const history = data?.chatHistory || [];
-    const totalCount = history.length;
-    const userMsgCount = history.filter((m) => m?.role === "user").length;
-    console.log(`[LeftMenu] auto-send-jd history: total=${totalCount} userMsg=${userMsgCount}`);
-    // 同时满足"没用户消息"+"总数<2"才认为"新会话"，自动发 JD
-    if (userMsgCount > 0 || totalCount >= 2) {
-      console.log(
-        `[LeftMenu] auto-send-jd skipped: total=${totalCount} userMsg=${userMsgCount}（不满足"无 user 消息 + 总数<2"）`
-      );
-      return;
-    }
-    // 用户在 API 回调期间可能切走 → 不要给新选中的职位发旧 JD
-    if (currentChatId.value && currentChatId.value !== item.id) {
-      console.log(
-        `[LeftMenu] auto-send-jd skipped: 当前选中已切到 ${currentChatId.value}, 不再给 ${item.id} 发`
-      );
-      return;
-    }
-    // 检查 chatCardRef 是否就绪（handleRecruitAction 内部要调 chatCardRef.value.insertMessageToInput）
-    if (!chatCardRef.value || typeof chatCardRef.value.insertMessageToInput !== "function") {
-      console.warn("[LeftMenu] auto-send-jd skipped: chatCardRef 还未就绪", chatCardRef.value);
-      return;
-    }
-    // 用本地的 effectiveJd 覆盖 item.jd（可能是刚拉回来的，item 还没 reactive 同步）
-    const itemForSend = { ...item, jd: effectiveJd };
-    console.log(
-      `[LeftMenu] auto-send-jd 触发: chatId=${item.id} jdLength=${effectiveJd.length} → handleRecruitAction(item, true)`
-    );
-    handleRecruitAction(itemForSend, true);
-  } catch (e) {
-    console.warn("[LeftMenu] auto-send-jd 异常（静默）:", e?.message || e);
-  }
-}
-
-/**
- * 主动拉单个职位的 JD 文本（覆盖 hydrateJobDescriptionsFromIhr 没跑完 / 没覆盖到的情况）。
- * 失败返回 ''；调用方按需判断。
- */
-async function fetchSingleJobJd(positionId) {
-  const ihrBridge = window?.api?.ihrBridge;
-  if (!ihrBridge || typeof ihrBridge.batchGetPositionDetailByIds !== "function") {
-    return "";
-  }
-  try {
-    console.log(`[LeftMenu] fetchSingleJobJd 请求职位详情 positionId=${positionId}`);
-    const res = await ihrBridge.batchGetPositionDetailByIds([positionId]);
-    if (!res?.success || !Array.isArray(res.data) || res.data.length === 0) {
-      console.warn(
-        `[LeftMenu] fetchSingleJobJd 无可用详情 positionId=${positionId} success=${res?.success} count=${
-          Array.isArray(res?.data) ? res.data.length : 0
-        }`
-      );
-      return "";
-    }
-    const item = res.data[0];
-    const headcountBasic = item?.headcountBasic;
-    if (!headcountBasic) {
-      console.warn(`[LeftMenu] fetchSingleJobJd 缺少 headcountBasic positionId=${positionId}`);
-      return "";
-    }
-    const enums = {
-      salaryTypes: item?.salaryTypes || [],
-      workYears: item?.workYears || [],
-      positionTypes: item?.positionTypes || [],
-      diplomaTypes: item?.diplomaTypes || []
-    };
-    return generateJobPostingFromResume(headcountBasic, enums) || "";
-  } catch (e) {
-    console.warn("[LeftMenu] fetchSingleJobJd 异常:", e?.message || e);
-    return "";
   }
 }
 

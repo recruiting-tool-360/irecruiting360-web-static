@@ -15,8 +15,11 @@
  * 单个 channel 是否启用（按 store.getters.getUserChannelConfig 判定）。
  * 给单元测试或外部直接判定用；上方 buildSearchTaskChannels 内部也复用这个。
  */
-/** 推荐渠道固定的渠道执行数量（与期望合格人数 targetCount 无关） */
+/** 推荐渠道未传用户数量时的兼容兜底值。 */
 export const MAX_RESUME_COUNT = 20;
+
+/** 用户可设置的期望合格简历数上限 */
+export const MAX_TARGET_COUNT = 80;
 
 import { normalizeBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
 
@@ -51,9 +54,17 @@ export function buildSearchTaskChannels({
   selectedModules,
   matchedBossJobId,
   resumeCount,
+  recommendMaxResumeCount,
   bossFilters,
   condId = "0"
 }) {
+  const requestedRecommendCount = Math.trunc(
+    Number(recommendMaxResumeCount ?? resumeCount)
+  );
+  const effectiveRecommendCount =
+    Number.isFinite(requestedRecommendCount) && requestedRecommendCount > 0
+      ? Math.min(requestedRecommendCount, MAX_TARGET_COUNT)
+      : MAX_RESUME_COUNT;
   const channels = [];
   const searchChecked = !!selectedModules?.search;
   const recommendChecked = !!selectedModules?.recommend;
@@ -80,8 +91,8 @@ export function buildSearchTaskChannels({
       searchConditionId: String(condId),
       searchTaskConfig: JSON.stringify({
         relatedPositionValue: validBossJobId,
-        // 渠道执行数量固定 20（后端约定）；用户填写的期望合格人数走 targetCount
-        maxResumeCount: MAX_RESUME_COUNT
+        // 用户输入优先；只有调用方完全未传数量时才使用兼容兜底值。
+        maxResumeCount: effectiveRecommendCount
       })
     });
   }
@@ -102,6 +113,7 @@ export function buildSearchTaskChannels({
  * @param {object} opts.selectedModules
  * @param {string|null} opts.matchedBossJobId
  * @param {number|null} opts.resumeCount
+ * @param {number|null} opts.targetCount 用户期望的合格简历数
  * @param {'INITIAL'|'RESTART'|'CONTINUE'} [opts.taskType='INITIAL']
  * @returns {object|null}  payload；channels 为空时返回 null（caller 自行跳过调 estimate）
  */
@@ -123,6 +135,7 @@ export function buildEstimatePayload(opts) {
     selectedModules,
     matchedBossJobId,
     resumeCount,
+    recommendMaxResumeCount: Number(targetCount) > 0 ? Number(targetCount) : resumeCount,
     bossFilters,
     condId: "0" // estimate 不需要真 condId
   });

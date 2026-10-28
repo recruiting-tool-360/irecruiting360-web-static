@@ -3,13 +3,8 @@
 
   候选人简历详情弹窗（自绘）。
 
-  背景：渠道（BOSS 等）详情页参数已变更，前端无法再复刻链接直接新开页签跳转，
-  所以点卡片改成弹窗展示「分配职位」时生成的同一份简历 HTML：
-    - ResumeCard → 渠道 DomGenerator → resumeGenerateHtmlFiles([resume], true)
-    - htmlContent + 渠道 cssContent → 完整 HTML 文档 → iframe.srcdoc 渲染（CSS 隔离）
-
-  支持渠道：boss直聘 / 智联招聘 / 前程无忧（跟「分配职位」的生成器一致）。
-  猎聘等没有生成器的渠道，或详情拉取失败时，降级提示 + 「在渠道中打开」兜底。
+  优先用卡片的 fileId 调 client/noauth/file/info，把返回的 fileUrl 交给原有 iframe
+  查看器展示；历史数据没有 fileId 时继续由渠道 DomGenerator 生成简历 HTML。
 -->
 <template>
   <q-dialog v-model="visible" transition-show="fade" transition-hide="fade">
@@ -40,8 +35,20 @@
             @click="openInChannel"
           />
         </div>
-        <!-- 简历正文 -->
-        <iframe v-else class="resume-detail-frame" :srcdoc="htmlDocument" />
+        <!-- 原始图片按弹窗宽度等比缩放；PDF 和历史 HTML 继续使用 iframe -->
+        <div v-else-if="originalFileUrl && isOriginalImage" class="resume-detail-pages">
+          <img
+            class="resume-detail-image"
+            :src="originalFileUrl"
+            :alt="originalFileInfo?.fileName || dialogTitle"
+          />
+        </div>
+        <iframe
+          v-else
+          class="resume-detail-frame"
+          :src="originalFileUrl || undefined"
+          :srcdoc="originalFileUrl ? undefined : htmlDocument"
+        />
       </div>
     </q-card>
   </q-dialog>
@@ -55,6 +62,7 @@ import { job51DomGenerator } from 'src/hooks/job51DomGenerator';
 import { getChannelUrl } from 'src/pluginSrc/util/ChannelUrlUtil';
 import { openExternalSiteUrl } from 'src/util/openChannelLoginUrl';
 import { buildResumeHtmlDocument } from 'src/util/resumeHtmlDocument';
+import { lookupFileId } from 'src/util/automation/recommendFileIdMap';
 import notify from 'src/util/notify';
 
 const props = defineProps({
@@ -85,6 +93,14 @@ const visible = computed({
 const loading = ref(false);
 const errorMessage = ref('');
 const htmlDocument = ref('');
+const originalFileInfo = ref(null);
+
+const originalFileUrl = computed(() => originalFileInfo.value?.fileUrl || '');
+const isOriginalImage = computed(() => {
+  const contentType = String(originalFileInfo.value?.contentType || '').toLowerCase();
+  if (contentType.startsWith('image/')) return true;
+  return /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#]|$)/i.test(originalFileUrl.value);
+});
 
 const dialogTitle = computed(() => {
   const resume = props.resume;
@@ -104,20 +120,85 @@ const openInChannel = () => {
   }
 };
 
+const PLACEHOLDER_FILE_ID = 'placeholder-file-id-init-or-upload-failed';
+
+const resolveFileId = (resume) => {
+  const directFileId =
+    resume?.fileId ||
+    resume?.resumeFileId ||
+    resume?.resumeFile?.fileId ||
+    resume?.resumeInfo?.fileId ||
+    resume?._raw?.fileId ||
+    resume?._raw?.resumeFile?.fileId ||
+    resume?._raw?.resumeInfo?.fileId;
+  if (directFileId && directFileId !== PLACEHOLDER_FILE_ID) return String(directFileId);
+
+  for (const localId of [
+    resume?.taskResumeId,
+    resume?.resumeBlindId,
+    resume?.id,
+    resume?._raw?.taskResumeId,
+    resume?._raw?.resumeBlindId,
+    resume?._raw?.uniqSign
+  ]) {
+    const mappedFileId = lookupFileId(localId);
+    if (mappedFileId && mappedFileId !== PLACEHOLDER_FILE_ID) return String(mappedFileId);
+  }
+  return '';
+};
+
+const normalizeFileUrl = (value) => {
+  const url = String(value || '').trim();
+  if (!url) throw new Error('原始文件接口未返回 fileUrl');
+  const parsed = new URL(url);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('原始文件地址协议不受支持');
+  }
+  return parsed.href;
+};
+
+const loadOriginalFile = async (fileId) => {
+  const bridge = window.api?.ihrBridge;
+  const hasFileInfoApi = typeof bridge?.getCandidateFileInfo === 'function';
+  console.log('[ResumeDetailDialog] file/info 请求参数:', {
+    fileId,
+    hasFileInfoApi
+  });
+  if (!bridge || !hasFileInfoApi) {
+    throw new Error('当前环境不支持查询原始文件，请重启客户端后重试');
+  }
+  const response = await bridge.getCandidateFileInfo(fileId);
+  console.log('[ResumeDetailDialog] file/info 返回值:', response);
+  if (!response?.success) {
+    throw new Error(response?.message || '查询候选人原始文件失败');
+  }
+  originalFileInfo.value = {
+    ...response.data,
+    fileUrl: normalizeFileUrl(response.data?.fileUrl)
+  };
+  console.log('[ResumeDetailDialog] file/info 解析结果:', originalFileInfo.value);
+};
+
 const buildHtml = async () => {
   const resume = props.resume;
   htmlDocument.value = '';
   errorMessage.value = '';
+  originalFileInfo.value = null;
   if (!resume) return;
-
-  const generator = generatorByChannel[resume.channel];
-  if (!generator) {
-    errorMessage.value = `${resume.channel || '该渠道'}暂不支持生成简历详情`;
-    return;
-  }
 
   loading.value = true;
   try {
+    const fileId = resolveFileId(resume);
+    if (fileId) {
+      await loadOriginalFile(fileId);
+      return;
+    }
+
+    const generator = generatorByChannel[resume.channel];
+    if (!generator) {
+      throw new Error(`${resume.channel || '该渠道'}暂不支持生成简历详情`);
+    }
+
     const payload = {
       id: resume.id,
       name: resume.name,
@@ -150,7 +231,7 @@ const buildHtml = async () => {
 
 // 打开弹窗 / 弹窗内切换候选人时重新生成
 watch(
-  () => [props.modelValue, props.resume?.id],
+  () => [props.modelValue, props.resume?.id, props.resume?.fileId],
   ([open]) => {
     if (open) buildHtml();
   }
@@ -174,6 +255,21 @@ watch(
 .resume-detail-body {
   background: #f5f5f5;
   overflow: hidden;
+}
+
+.resume-detail-pages {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #f5f5f5;
+}
+
+.resume-detail-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
 }
 
 .resume-detail-frame {

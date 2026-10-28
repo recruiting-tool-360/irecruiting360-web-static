@@ -8,10 +8,11 @@ import {
 
 /** 未返回该维度时的默认权重（8 个默认 WEIGHT_SCORE 维度会再按 90 重分配） */
 const DEFAULT_WEIGHT = 10;
-/** 加分项 / 减分项默认分值 */
+/** 加分项 / 减分项默认分值及单项、合计上限 */
 export const BONUS_DEFAULT = 10;
 export const BONUS_MIN = 1;
 export const BONUS_MAX = 10;
+export const BONUS_TOTAL_MAX = 10;
 
 function isPlainObject(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
@@ -123,6 +124,19 @@ export function setWeight(item, weight) {
   item.weight = weight;
 }
 
+/** 加分项 / 减分项分值字段；null 由界面按 0 分展示 */
+export function scoreOf(item) {
+  const value = item?.score;
+  if (value === null || value === undefined || value === "") return null;
+  const num = Number(value);
+  return Number.isNaN(num) ? null : num;
+}
+
+export function setScore(item, score) {
+  if (!item) return;
+  item.score = score;
+}
+
 export function displayOf(item) {
   const raw = item?.display_value ?? item?.displayValue;
   if (Array.isArray(raw)) return raw.filter((v) => v !== null && v !== undefined && v !== "");
@@ -224,30 +238,41 @@ function createDefaultItem(dimension) {
     data_type: dimension.dataType,
     rule_type: rule,
     weight: rule === "WEIGHT_SCORE" ? DEFAULT_WEIGHT : null,
+    score: null,
     sensitive: false,
     evidence: null,
     rule_text: null,
     display_value: [UNLIMITED_TEXT],
     dataTypeValue: null
   };
-  if (rule === "BONUS" || rule === "PENALTY") item.weight = BONUS_DEFAULT;
+  if (rule === "BONUS" || rule === "PENALTY") item.score = BONUS_DEFAULT;
   return item;
 }
 
 function normalizeItem(raw, dimension) {
   const item = { ...raw };
+  // 性别改为单选：历史画像若同时选了男、女，语义等同于「不限」。
+  if (dimension.source === "local-gender") {
+    const genders = [...new Set(displayOf(item).filter((value) => value !== UNLIMITED_TEXT))];
+    setDisplay(item, genders.length > 1 ? [UNLIMITED_TEXT] : genders);
+    setSelected(item, []);
+  }
   // 标签化维度固定「仅展示」，后端历史数据即使有其它规则也强制纠正
   if (dimension.structureType === STRUCTURE_TYPE.TAG) setRule(item, "DISPLAY_ONLY");
   if (!ruleOf(item)) setRule(item, dimension.defaultRule);
   const rule = ruleOf(item);
   if (rule === "WEIGHT_SCORE") {
     if (weightOf(item) === null) setWeight(item, DEFAULT_WEIGHT);
+    setScore(item, null);
   } else if (rule === "BONUS" || rule === "PENALTY") {
-    const w = weightOf(item);
-    if (w === null) setWeight(item, BONUS_DEFAULT);
-    else setWeight(item, Math.min(BONUS_MAX, Math.max(BONUS_MIN, w)));
+    const score = scoreOf(item);
+    setWeight(item, null);
+    if (score !== null) {
+      setScore(item, Math.min(BONUS_MAX, Math.max(BONUS_MIN, score)));
+    }
   } else {
     setWeight(item, null);
+    setScore(item, null);
   }
   if (!Array.isArray(item.display_value) && typeof item.display_value !== "string") {
     const display = displayOf(item);
@@ -335,6 +360,25 @@ export function isBonusRule(rule) {
   return rule === "BONUS" || rule === "PENALTY";
 }
 
+/** 加分项、减分项分别累计，任一分组超过 10 分即不可保存 */
+export function validateScoreTotals(items) {
+  const totals = { BONUS: 0, PENALTY: 0 };
+  for (const item of items || []) {
+    const rule = ruleOf(item);
+    if (!isBonusRule(rule)) continue;
+    totals[rule] += scoreOf(item) ?? 0;
+  }
+  const bonusValid = totals.BONUS <= BONUS_TOTAL_MAX;
+  const penaltyValid = totals.PENALTY <= BONUS_TOTAL_MAX;
+  return {
+    valid: bonusValid && penaltyValid,
+    bonusSum: totals.BONUS,
+    penaltySum: totals.PENALTY,
+    bonusValid,
+    penaltyValid
+  };
+}
+
 /* ===== 序列化 ===== */
 
 /**
@@ -354,10 +398,12 @@ export function toSaveArrays(items) {
     normalized.group = item.group || dimension.group;
     normalized.data_type = Number(item.data_type ?? dimension.dataType);
     normalized.rule_type = rule;
-    normalized.weight =
-      rule === "WEIGHT_SCORE" || isBonusRule(rule) ? weightOf(item) : null;
-    normalized.display_value = displayOf(item);
+    normalized.weight = rule === "WEIGHT_SCORE" ? weightOf(item) : null;
+    normalized.score = isBonusRule(rule) ? scoreOf(item) : null;
+    const unlimited = isUnlimitedItem(item);
+    normalized.display_value = unlimited ? [UNLIMITED_TEXT] : displayOf(item);
     normalized.dataTypeValue = selectedOf(item).length ? selectedOf(item) : null;
+    if (unlimited) normalized.evidence = UNLIMITED_TEXT;
     delete normalized.displayValue;
     delete normalized.ruleType;
     if (dimension.structureType === STRUCTURE_TYPE.TAG) tagContent.push(normalized);
