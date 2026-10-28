@@ -167,7 +167,7 @@ import { formatChannelDisplayName } from "src/util/channelDisplayName";
 const store = useStore();
 const $q = useQuasar();
 const HELP_URL =
-  "https://wxvsfhdklsi.feishu.cn/docx/DmgmdkHqto1QbcxPmIGcfZKcnLd?from=from_copylink";
+  "https://wxvsfhdklsi.feishu.cn/wiki/KVyvwBBNpiPx50k1jmYcD1pbnvh?from=from_copylink";
 
 /**
  * 当前异常渠道展示名（来源 vuex store.channelError），从 store 直接订阅，
