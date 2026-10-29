@@ -1,5 +1,5 @@
 
-import { normalizeBossFilters } from "src/util/bossSearchFilters";
+import { BOSS_FILTER_DEFAULTS, normalizeBossFilters } from "src/util/bossSearchFilters";
 
 //搜索条件类
 // SearchConditionRequest.js
@@ -156,9 +156,7 @@ export const SearchConditionRequest =()=>{
         //ai 推荐
         criteria:null,
         // BOSS 筛选条件（仅 BOSS 渠道使用，原始整数编码）
-        activeness: 0,
-        viewResume: 0,
-        exchangeResume: 0
+        ...BOSS_FILTER_DEFAULTS
     }
 }
 

@@ -10,11 +10,17 @@
       <div class="header-title">
         <q-icon name="auto_awesome" size="18px" class="header-icon" />
         <span class="header-text">AI 职位画像深度解析</span>
+        <span v-if="version" class="profile-version">{{ version }}</span>
       </div>
       <div class="header-actions">
         <template v-if="isEditing">
           <button class="hdr-btn" type="button" @click="cancelEdit">取消</button>
-          <button class="hdr-save" type="button" @click="saveEdit">
+          <button
+            class="hdr-save"
+            type="button"
+            :disabled="!canSave"
+            @click="saveEdit"
+          >
             <q-icon name="save" size="13px" />
             <span>保存修改</span>
           </button>
@@ -61,9 +67,21 @@
             <div
               v-if="isEditing"
               class="weight-total"
-              :class="{ invalid: !weightValidation.valid }"
+              :class="{ invalid: !canSave }"
+              aria-live="polite"
             >
-              权重合计 {{ weightValidation.sum }}/90
+              <template v-if="canSave">权重合计 {{ weightValidation.sum }}/90</template>
+              <template v-else>
+                <span v-if="!weightValidation.valid">
+                  权重评分合计需等于90分，当前{{ weightValidation.sum }}分
+                </span>
+                <span v-if="!scoreValidation.bonusValid">
+                  加分项合计不能超过10分，当前{{ scoreValidation.bonusSum }}分
+                </span>
+                <span v-if="!scoreValidation.penaltyValid">
+                  减分项合计不能超过10分，当前{{ scoreValidation.penaltySum }}分
+                </span>
+              </template>
             </div>
             <button type="button" class="collapse-btn" @click="collapsed = !collapsed">
               <span>{{ collapsed ? "展开" : "收起" }}</span>
@@ -116,16 +134,16 @@
                 />
                 <q-input
                   v-else-if="row.isBonus"
-                  v-model.number="row.item.weight"
+                  :model-value="scoreOf(row.item) ?? 0"
                   type="number"
                   dense
                   outlined
                   hide-bottom-space
-                  :min="1"
-                  :max="10"
+                  :min="BONUS_MIN"
+                  :max="BONUS_MAX"
                   suffix="分"
                   class="score-input"
-                  @update:model-value="() => onWeightInput(row)"
+                  @update:model-value="(value) => onScoreInput(row, value)"
                 />
               </div>
             </div>
@@ -146,9 +164,6 @@
             </div>
           </div>
 
-          <p v-if="!weightValidation.valid" class="weight-error">
-            权重评分合计需等于 90 分，当前 {{ weightValidation.sum }} 分
-          </p>
         </div>
 
         <!-- ================= 详情态 ================= -->
@@ -209,7 +224,10 @@ import {
   normalizeProfile,
   redistributeWeights,
   ruleOf,
+  scoreOf,
+  setScore,
   setWeight,
+  validateScoreTotals,
   validateWeights,
   weightOf,
   toSaveArrays,
@@ -228,11 +246,15 @@ const props = defineProps({
     type: Object,
     default: null
   },
+  version: {
+    type: String,
+    default: ""
+  },
   enabled: {
     type: Boolean,
     default: true
   },
-  /** off | generating | failed | not-configured | evaluation-off | no-permission */
+  /** off | generating | failed | not-configured | no-permission */
   lockType: {
     type: String,
     default: "off"
@@ -287,10 +309,6 @@ const LOCK_TEXT = {
   "not-configured": {
     title: "AI 职位画像未配置",
     desc: "当前职位尚未配置画像内容，暂不支持查看、编辑与发起聚合搜索。请先完成职位画像配置。"
-  },
-  "evaluation-off": {
-    title: "AI 评估未开启",
-    desc: "当前职位已开启画像，但未开启 AI 评估，无法按画像评分筛选候选人。请先开启 AI 评估。"
   },
   "no-permission": {
     title: "暂无职位画像权限",
@@ -380,22 +398,37 @@ function onRuleChange(row) {
   row.isBonus = isBonusRule(rule);
   if (rule === "WEIGHT_SCORE") {
     if (weightOf(row.item) === null) setWeight(row.item, 10);
+    setScore(row.item, null);
   } else if (isBonusRule(rule)) {
-    setWeight(row.item, BONUS_DEFAULT);
+    setWeight(row.item, null);
+    if (scoreOf(row.item) === null) setScore(row.item, BONUS_DEFAULT);
   } else {
     setWeight(row.item, null);
+    setScore(row.item, null);
   }
   if (membershipChanged) redistributeWeights(rows.value.map((r) => r.item));
   row.prevRule = rule;
 }
 
 function onWeightInput(row) {
-  const rule = ruleOf(row.item);
   let value = Number(row.item.weight);
   if (Number.isNaN(value)) value = 0;
-  if (rule === "WEIGHT_SCORE") value = Math.min(90, Math.max(0, value));
-  if (isBonusRule(rule)) value = Math.min(BONUS_MAX, Math.max(BONUS_MIN, value));
+  value = Math.min(90, Math.max(0, value));
   setWeight(row.item, value);
+}
+
+function onScoreInput(row, rawValue) {
+  if (rawValue === "" || rawValue === null || rawValue === undefined) {
+    setScore(row.item, null);
+    return;
+  }
+  let value = Number(rawValue);
+  if (!Number.isFinite(value)) {
+    setScore(row.item, null);
+    return;
+  }
+  value = Math.min(BONUS_MAX, Math.max(BONUS_MIN, value));
+  setScore(row.item, value);
 }
 
 function onValueChange() {
@@ -405,6 +438,8 @@ function onValueChange() {
 }
 
 const weightValidation = computed(() => validateWeights(rows.value.map((r) => r.item)));
+const scoreValidation = computed(() => validateScoreTotals(rows.value.map((r) => r.item)));
+const canSave = computed(() => weightValidation.value.valid && scoreValidation.value.valid);
 
 function ruleLabel(item) {
   const rule = ruleOf(item);
@@ -418,10 +453,12 @@ function ruleClass(item) {
 
 function scoreText(item) {
   const rule = ruleOf(item);
-  const weight = weightOf(item);
-  if (rule === "WEIGHT_SCORE" && weight !== null) return `${weight} 分`;
-  if (rule === "BONUS" && weight !== null) return `+${weight} 分`;
-  if (rule === "PENALTY" && weight !== null) return `-${weight} 分`;
+  if (rule === "WEIGHT_SCORE") {
+    const weight = weightOf(item);
+    return weight === null ? "" : `${weight} 分`;
+  }
+  if (rule === "BONUS") return `+${scoreOf(item) ?? 0} 分`;
+  if (rule === "PENALTY") return `-${scoreOf(item) ?? 0} 分`;
   return "";
 }
 
@@ -453,7 +490,7 @@ function commitLocalItems() {
  * 聚合搜索前由 flushEdit + 父组件统一提交到后端。
  */
 function saveEdit() {
-  if (!weightValidation.value.valid) return false;
+  if (!canSave.value) return false;
   commitLocalItems();
   isEditing.value = false;
   return true;
@@ -462,7 +499,7 @@ function saveEdit() {
 /** 聚合搜索前调用：编辑中则校验并提交；不合法返回 null（阻止搜索） */
 function flushEdit() {
   if (!isEditing.value) return buildPayload();
-  if (!weightValidation.value.valid) return null;
+  if (!canSave.value) return null;
   const payload = buildPayload();
   commitLocalItems();
   isEditing.value = false;
@@ -513,6 +550,18 @@ defineExpose({ flushEdit, saveEdit, buildPayload, isDirty, isEditing });
   letter-spacing: -0.02em;
   white-space: nowrap;
 }
+.profile-version {
+  padding: 1px 7px;
+  border: 1px solid #8fe2d5;
+  border-radius: 999px;
+  background: #ecfdf9;
+  color: #0d9488;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
 .header-actions {
   display: flex;
   align-items: center;
@@ -558,6 +607,11 @@ defineExpose({ flushEdit, saveEdit, buildPayload, isDirty, isEditing });
 }
 .hdr-save:hover {
   background: #0d9488;
+}
+.hdr-save:disabled {
+  background: #cbd5e1;
+  color: #fff;
+  cursor: not-allowed;
 }
 
 /* ===== 锁定态 ===== */
@@ -660,6 +714,10 @@ defineExpose({ flushEdit, saveEdit, buildPayload, isDirty, isEditing });
   line-height: 1.6;
 }
 .weight-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   font-size: 12px;
   font-weight: 600;
   color: #0d9488;
@@ -865,11 +923,6 @@ defineExpose({ flushEdit, saveEdit, buildPayload, isDirty, isEditing });
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-.weight-error {
-  margin: 0;
-  font-size: 11px;
-  color: #dc2626;
 }
 
 /* ===== Quasar 控件统一尺寸 ===== */

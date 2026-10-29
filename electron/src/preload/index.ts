@@ -134,6 +134,83 @@ const clientRecovery = {
 }
 
 /**
+ * 仅当前客户端进程有效的运行时配置。
+ *
+ * 不写 localStorage / sessionStorage，也不落盘，所以应用退出重启后一定恢复默认。
+ * 主页 DevTools 可直接调用：
+ *   ikuaizhaoConfig.get()
+ *   ikuaizhaoConfig.set('includeViewedCandidates', true)
+ *   ikuaizhaoConfig.reset('includeViewedCandidates')
+ *
+ * 只有 QA2 安装包允许修改配置；线上 release 只允许 get，set/reset 会直接抛错。
+ */
+const isQa2Runtime = /qa2/i.test(process.execPath || '')
+
+function assertRuntimeConfigMutable(action: 'set' | 'reset'): void {
+  if (!isQa2Runtime) {
+    throw new Error(
+      `ikuaizhaoConfig.${action} 仅允许在 QA2 客户端执行；线上版本只支持 ikuaizhaoConfig.get()`
+    )
+  }
+}
+
+interface RuntimeConfigValues {
+  includeViewedCandidates: boolean
+}
+
+const runtimeConfigDefaults: Readonly<RuntimeConfigValues> = Object.freeze({
+  includeViewedCandidates: false
+})
+
+type RuntimeConfigKey = keyof typeof runtimeConfigDefaults
+
+const runtimeConfigState: RuntimeConfigValues = { ...runtimeConfigDefaults }
+
+function getRuntimeConfigSnapshot(): RuntimeConfigValues {
+  return { ...runtimeConfigState }
+}
+
+function assertRuntimeConfigKey(key: unknown): asserts key is RuntimeConfigKey {
+  if (
+    typeof key !== 'string' ||
+    !Object.prototype.hasOwnProperty.call(runtimeConfigDefaults, key)
+  ) {
+    throw new Error(
+      `未知运行时配置: ${String(key)}。可用配置: ${Object.keys(runtimeConfigDefaults).join(', ')}`
+    )
+  }
+}
+
+const runtimeConfig = {
+  get: (key?: RuntimeConfigKey): RuntimeConfigValues | boolean => {
+    if (key === undefined) return getRuntimeConfigSnapshot()
+    assertRuntimeConfigKey(key)
+    return runtimeConfigState[key]
+  },
+
+  set: (key: RuntimeConfigKey, value: boolean): RuntimeConfigValues => {
+    assertRuntimeConfigMutable('set')
+    assertRuntimeConfigKey(key)
+    if (key === 'includeViewedCandidates' && typeof value !== 'boolean') {
+      throw new TypeError('includeViewedCandidates 必须是 boolean')
+    }
+    runtimeConfigState[key] = value
+    return getRuntimeConfigSnapshot()
+  },
+
+  reset: (key?: RuntimeConfigKey): RuntimeConfigValues => {
+    assertRuntimeConfigMutable('reset')
+    if (key === undefined) {
+      Object.assign(runtimeConfigState, runtimeConfigDefaults)
+    } else {
+      assertRuntimeConfigKey(key)
+      runtimeConfigState[key] = runtimeConfigDefaults[key]
+    }
+    return getRuntimeConfigSnapshot()
+  }
+}
+
+/**
  * Deep link 接力（i 人事 → ikuaizhao://sso?d=xxx → 客户端唤起 → 取出 SSO payload 完成登录）
  *
  * SPA 端使用时机：
@@ -220,6 +297,10 @@ const ihrBridge = {
     mime?: string
     centralUpload?: boolean
   }): Promise<IhrApiResult> => ipcRenderer.invoke('ihrBridge:uploadFile', arg),
+
+  /** 根据简历 fileId 查询原始文件信息（fileUrl 可能为 PDF 或图片） */
+  getCandidateFileInfo: (fileId: string): Promise<IhrApiResult> =>
+    ipcRenderer.invoke('ihrBridge:getCandidateFileInfo', fileId),
 
   /**
    * 检查 i 人事 manage 系统鉴权状态：
@@ -890,8 +971,10 @@ if (process.contextIsolated) {
       browserBridge,
       automation,
       siteNetwork,
-      appUpdater
+      appUpdater,
+      runtimeConfig
     })
+    contextBridge.exposeInMainWorld('ikuaizhaoConfig', runtimeConfig)
     contextBridge.exposeInMainWorld('__IKUAIZHAO_NATIVE__', native)
   } catch (error) {
     console.error(error)
@@ -910,8 +993,11 @@ if (process.contextIsolated) {
     ihrBridge,
     browserBridge,
     automation,
-    appUpdater
+    appUpdater,
+    runtimeConfig
   }
+  // @ts-ignore (define in dts)
+  window.ikuaizhaoConfig = runtimeConfig
   // @ts-ignore (define in dts)
   window.__IKUAIZHAO_NATIVE__ = native
 }

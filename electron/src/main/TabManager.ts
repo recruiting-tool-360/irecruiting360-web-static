@@ -388,6 +388,11 @@ class TabManager {
     this.attachSiteWindowOpenHandler(tab)
     this.attachSiteDebugListeners(tab)
 
+    // 0×0 bounds 仍然是一个可获焦的 native view。隐藏页 reload 后若页面执行
+    // focus()/autofocus，macOS 可能先把整个 app 激活到前台，再等 mainWindow 的
+    // focus 守卫 blur，用户会看到一次闪烁。必须在 loadURL/addChildView 前把
+    // hidden view 本身设为不可见，从源头阻止它获得焦点。
+    if (isHidden) view.setVisible(false)
     this.mainWindow.contentView.addChildView(view)
     this.tabs.set(id, tab)
 
@@ -665,6 +670,9 @@ class TabManager {
     if (this.bgRenderId === id || this.bgRenderId === this.activeId) this.bgRenderId = null
     this.activeId = id
     this.updateBounds()
+    // 被业务锁定的 BOSS 自动化 tab 与新的 active 会同时保持真实尺寸；
+    // 必须把 active 重新置顶，避免用户在 i快招与 BOSS 标签间切换时层级反转。
+    this.bringActiveToFront()
     // 通知蒙层重新评估：active 是招聘站 tab 时显示，是 home / 其它时隐藏
     // 详见 automationOverlay.ts setActiveChannel 注释
     const tab = this.tabs.get(id)
@@ -913,12 +921,20 @@ class TabManager {
     for (const [id, tab] of this.tabs) {
       // active 给真实 bounds（最上层可见）；
       // bgRender tab 也给真实 bounds（被 active 遮挡，但保证页面布局真实 → CDP / 懒加载能跑）；
-      // 其它（含 hidden）一律 0x0 不占空间。
-      if (id === this.activeId || (id === this.bgRenderId && id !== this.activeId)) {
+      // 任务期间锁定的 BOSS 主签即使被用户切到后台也必须保持真实视口，否则 WebContentsView
+      // 会被设成 0×0，长截图在 Windows / macOS 上都会得到 RESUME_NOT_VISIBLE。
+      // 其它（含 hidden）不参与布局且 native view 真正不可见，避免页面脚本 focus()
+      // 把整个客户端带到前台。
+      const shouldBeVisible =
+        id === this.activeId ||
+        (id === this.bgRenderId && id !== this.activeId) ||
+        (tab.channel === 'boss' && !!tab.locked && !tab.hidden)
+      if (shouldBeVisible) {
         tab.view.setBounds(contentBounds)
       } else {
         tab.view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
       }
+      tab.view.setVisible(shouldBeVisible)
     }
   }
 

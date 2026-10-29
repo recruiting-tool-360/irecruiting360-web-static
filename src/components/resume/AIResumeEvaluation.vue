@@ -153,12 +153,17 @@
           <template v-if="isVisible">
             <q-btn 
               color="primary" 
-              :disable="!!resumeData?.resumeThirdPartyInfo" 
+              :disable="!!resumeData?.resumeThirdPartyInfo || assignJobLoading || talentPoolLoading"
+              :loading="assignJobLoading"
               outline 
               class="q-pt-sm q-px-md q-mb-sm" 
               :label="getAssignJobButtonText(resumeData?.resumeThirdPartyInfo)" 
               @click="assignJobHandler"
             >
+              <template #loading>
+                <q-spinner size="16px" class="q-mr-xs" />
+                <span>{{ getAssignJobButtonText(resumeData?.resumeThirdPartyInfo) }}</span>
+              </template>
               <q-tooltip 
                 v-if="shouldShowAssignJobTooltip(resumeData?.resumeThirdPartyInfo)"
                 anchor="top middle" 
@@ -172,12 +177,17 @@
             <!-- 加入人才库按钮 -->
             <q-btn 
               color="primary" 
-              :disable="!!resumeData?.resumeThirdPartyInfo" 
+              :disable="!!resumeData?.resumeThirdPartyInfo || assignJobLoading || talentPoolLoading"
+              :loading="talentPoolLoading"
               outline 
               class="q-pt-sm q-px-md q-mb-sm" 
               :label="getTalentPoolButtonText(resumeData?.resumeThirdPartyInfo)" 
               @click="addToTalentPoolHandler"
             >
+              <template #loading>
+                <q-spinner size="16px" class="q-mr-xs" />
+                <span>{{ getTalentPoolButtonText(resumeData?.resumeThirdPartyInfo) }}</span>
+              </template>
               <q-tooltip 
                 v-if="shouldShowTalentPoolTooltip(resumeData?.resumeThirdPartyInfo)"
                 anchor="top middle" 
@@ -234,6 +244,14 @@ export default defineComponent({
     searchConditionId: {
       type: [String, Number],
       default: ''
+    },
+    assignJobLoading: {
+      type: Boolean,
+      default: false
+    },
+    talentPoolLoading: {
+      type: Boolean,
+      default: false
     }
   },
 

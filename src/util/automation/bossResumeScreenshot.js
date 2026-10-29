@@ -3,20 +3,26 @@ function measureResumeSlice(options) {
     const bounds = element.getBoundingClientRect();
     const style = element.ownerDocument.defaultView.getComputedStyle(element);
     return bounds.width > 0 && bounds.height > 0 &&
-      style.display !== "none" && style.visibility !== "hidden";
+      style.display !== "none" && style.visibility !== "hidden" &&
+      Number(style.opacity || "1") > 0;
   }
-  function findCanvas(doc, depth = 0) {
-    if (depth > 8) return null;
-    const canvas = doc.querySelector("div#resume canvas#resume");
-    if (canvas && visible(canvas)) return canvas;
+  function findCanvases(doc, depth = 0, collected = []) {
+    if (depth > 8) return collected;
+    for (const canvas of doc.querySelectorAll("div#resume canvas#resume")) {
+      if (visible(canvas)) {
+        collected.push({
+          canvas,
+          frameUrl: doc.defaultView?.location?.href || doc.URL || ""
+        });
+      }
+    }
     for (const frame of doc.querySelectorAll("iframe")) {
       try {
         if (!visible(frame) || !frame.contentDocument) continue;
-        const found = findCanvas(frame.contentDocument, depth + 1);
-        if (found) return found;
+        findCanvases(frame.contentDocument, depth + 1, collected);
       } catch {}
     }
-    return null;
+    return collected;
   }
   function offset(doc) {
     let left = 0;
@@ -47,9 +53,25 @@ function measureResumeSlice(options) {
       height: bounds.height
     };
   }
-  const canvas = findCanvas(document);
-  if (!canvas) return { ok: false, code: "RESUME_CANVAS_NOT_FOUND" };
-  if (!canvas.width || !canvas.height) return { ok: false, code: "RESUME_CANVAS_EMPTY" };
+  function viewportArea(element) {
+    try {
+      const bounds = globalBounds(element);
+      const left = Math.max(0, bounds.left);
+      const top = Math.max(0, bounds.top);
+      const right = Math.min(window.innerWidth, bounds.right);
+      const bottom = Math.min(window.innerHeight, bounds.bottom);
+      return Math.max(0, right - left) * Math.max(0, bottom - top);
+    } catch {
+      return 0;
+    }
+  }
+  const candidates = findCanvases(document)
+    .filter(({ canvas }) => canvas.width > 0 && canvas.height > 0);
+  if (!candidates.length) return { ok: false, code: "RESUME_CANVAS_NOT_FOUND" };
+  const selected = candidates.reduce((best, item) =>
+    viewportArea(item.canvas) > viewportArea(best.canvas) ? item : best
+  );
+  const { canvas } = selected;
   const root = canvas.closest("div#resume");
   const ancestors = [];
   let ancestor = canvas.parentElement;
@@ -57,14 +79,84 @@ function measureResumeSlice(options) {
     ancestors.push(ancestor);
     ancestor = ancestor.parentElement || ancestor.ownerDocument.defaultView.frameElement;
   }
-  const scrollerIndex = Number.isInteger(options.scrollerIndex) && options.scrollerIndex >= 0 ? options.scrollerIndex : ancestors.findIndex((element) => {
+  const frameAdjustments = [];
+  if (options.repairFrameHeight) {
+    ancestors.forEach((element, ancestorIndex) => {
+      if (element.tagName !== "IFRAME") return;
+      let frameDocument;
+      try {
+        frameDocument = element.contentDocument;
+      } catch {
+        return;
+      }
+      const frameRoot = frameDocument?.querySelector("div#resume");
+      if (!frameRoot) return;
+      const desiredHeight = Math.ceil(frameRoot.getBoundingClientRect().height);
+      if (desiredHeight < 100 || element.clientHeight + 2 >= desiredHeight) return;
+      frameAdjustments.push({
+        ancestorIndex,
+        frameUrl: frameDocument.defaultView?.location?.href || frameDocument.URL || "",
+        previousHeight: element.clientHeight,
+        desiredHeight,
+        properties: ["height"].map((name) => ({
+          name,
+          value: element.style.getPropertyValue(name),
+          priority: element.style.getPropertyPriority(name)
+        }))
+      });
+      element.style.setProperty("height", `${desiredHeight}px`, "important");
+    });
+  }
+  const isScrollable = (element) => {
     const style = element.ownerDocument.defaultView.getComputedStyle(element);
     return element.scrollHeight > element.clientHeight + 1 &&
       (/auto|scroll|overlay/.test(style.overflowY) ||
         element === element.ownerDocument.scrollingElement);
-  });
+  };
+  const detailScrollerIndex = options.preferResumeDetailScroller === false
+    ? -1
+    : ancestors.findIndex((element) =>
+      element.classList?.contains("resume-detail-wrap")
+    );
+  const detailScroller = ancestors[detailScrollerIndex];
+  const detailScrollerScrollable = detailScrollerIndex >= 0 && isScrollable(detailScroller);
+  const resumeContentHeight = Number(root?.getBoundingClientRect?.().height) || 0;
+  const detailScrollerContentFits = Boolean(
+    detailScroller &&
+    resumeContentHeight >= 100 &&
+    resumeContentHeight <= detailScroller.clientHeight + 2
+  );
+  const detailScrollerReady =
+    detailScrollerIndex >= 0 && (detailScrollerScrollable || detailScrollerContentFits);
+  const lockedScrollerIndex =
+    Number.isInteger(options.scrollerIndex) && options.scrollerIndex >= 0
+      ? options.scrollerIndex
+      : -1;
+  const validLockedScroller =
+    lockedScrollerIndex >= 0 && ancestors[lockedScrollerIndex] &&
+    isScrollable(ancestors[lockedScrollerIndex]);
+  const requireResumeDetailScroller = options.requireResumeDetailScroller === true;
+  const scrollerIndex = requireResumeDetailScroller
+    ? detailScrollerReady
+      ? detailScrollerIndex
+      : -1
+    : detailScrollerReady
+      ? detailScrollerIndex
+      : validLockedScroller
+        ? lockedScrollerIndex
+        : ancestors.findIndex(isScrollable);
   const scroller = ancestors[scrollerIndex];
   let viewportAdjustment = null;
+  if (options.action === "restore" && Array.isArray(options.frameAdjustments)) {
+    for (const adjustment of options.frameAdjustments) {
+      const frame = ancestors[adjustment.ancestorIndex];
+      if (!frame || frame.tagName !== "IFRAME") continue;
+      for (const property of adjustment.properties || []) {
+        if (property.value) frame.style.setProperty(property.name, property.value, property.priority);
+        else frame.style.removeProperty(property.name);
+      }
+    }
+  }
   if (options.action === "restore" && scroller && Array.isArray(options.viewportAdjustments)) {
     for (const adjustment of options.viewportAdjustments) {
       for (const property of adjustment.properties) {
@@ -80,8 +172,11 @@ function measureResumeSlice(options) {
       if (Math.abs(deltaY) >= 1) {
         const bounds = globalBounds(scroller);
         scrollInput = {
+          reason: "restore",
           x: Math.round(Math.max(1, Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2))),
           y: Math.round(Math.max(1, Math.min(window.innerHeight - 1, bounds.top + bounds.height / 2))),
+          fromScrollTop: scroller.scrollTop,
+          toScrollTop: options.scrollTop,
           deltaY
         };
       }
@@ -142,7 +237,7 @@ function measureResumeSlice(options) {
       }
     }
   }
-  if (options.action === "scroll" && scroller) {
+  if ((options.action === "scroll" || options.action === "setScroll") && scroller) {
     const bounds = globalBounds(scroller);
     const innerTop = bounds.top + scroller.clientTop;
     const innerBottom = innerTop + scroller.clientHeight;
@@ -164,12 +259,43 @@ function measureResumeSlice(options) {
     const deltaY = targetScrollTop - scroller.scrollTop;
     if (Math.abs(deltaY) >= 1) {
       const inputTop = Math.max(visibleTop, bounds.top + scroller.clientTop);
-      const inputBottom = Math.min(visibleBottom, bounds.bottom - scroller.clientTop);
+      const inputBottom = Math.max(
+        inputTop + 1,
+        Math.min(visibleBottom, bounds.bottom - scroller.clientTop)
+      );
+      const inputRatio = options.alternateScrollInput ? 0.3 : 0.5;
       scrollInput = {
+        reason: options.action === "setScroll" ? "slice-dom-fallback" : "slice",
+        inputMode: options.action === "setScroll" ? "direct" : "cdp",
         x: Math.round(Math.max(1, Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2))),
-        y: Math.round(Math.max(1, Math.min(window.innerHeight - 1, (inputTop + inputBottom) / 2))),
+        y: Math.round(Math.max(
+          1,
+          Math.min(window.innerHeight - 1, inputTop + (inputBottom - inputTop) * inputRatio)
+        )),
+        fromScrollTop: scroller.scrollTop,
+        toScrollTop: targetScrollTop,
         deltaY
       };
+      if (options.action === "setScroll") scroller.scrollTop = targetScrollTop;
+    }
+  }
+  if (options.action === "setScrollTop" && scroller) {
+    const fromScrollTop = scroller.scrollTop;
+    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const targetScrollTop = Math.max(0, Math.min(maxScrollTop, Number(options.scrollTop) || 0));
+    const deltaY = targetScrollTop - fromScrollTop;
+    if (Math.abs(deltaY) >= 1) {
+      const bounds = globalBounds(scroller);
+      scrollInput = {
+        reason: "restore-dom-fallback",
+        inputMode: "direct",
+        x: Math.round(Math.max(1, Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2))),
+        y: Math.round(Math.max(1, Math.min(window.innerHeight - 1, bounds.top + bounds.height / 2))),
+        fromScrollTop,
+        toScrollTop: targetScrollTop,
+        deltaY
+      };
+      scroller.scrollTop = targetScrollTop;
     }
   }
   const rootBounds = globalBounds(root);
@@ -199,21 +325,92 @@ function measureResumeSlice(options) {
   const scrollInfo = {
     scrollerIndex,
     viewportAdjustment,
+    scrollTop: scroller?.scrollTop || 0,
     scrollHeight: scroller?.scrollHeight || 0,
     clientHeight: scroller?.clientHeight || 0,
-    scrollInput
+    scrollerRange: Math.max(
+      0,
+      Number(scroller?.scrollHeight || 0) - Number(scroller?.clientHeight || 0)
+    ),
+    scrollerTag: scroller?.tagName || "",
+    scrollerClass: String(scroller?.className || "").slice(0, 160),
+    detailScrollerFound: detailScrollerIndex >= 0,
+    detailScrollerIndex,
+    detailScrollerReady,
+    detailScrollerScrollable,
+    detailScrollerContentFits,
+    requireResumeDetailScroller,
+    scrollInput,
+    frameAdjustments
   };
-  if (rect.width < 20 || rect.height < 20) return { ok: false, code: "RESUME_NOT_VISIBLE", ...scrollInfo };
+  const diagnostics = {
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    candidateCount: candidates.length,
+    selectedFrameUrl: selected.frameUrl,
+    selectedCanvasRect: {
+      left: canvasBounds.left,
+      top: canvasBounds.top,
+      width: canvasBounds.width,
+      height: canvasBounds.height
+    },
+    selectedCanvasBitmap: {
+      width: Number(canvas.width) || 0,
+      height: Number(canvas.height) || 0
+    },
+    rootBounds,
+    clippedRect: rect,
+    frameAdjustments,
+    ancestors: ancestors.map((element) => {
+      const bounds = globalBounds(element);
+      const style = element.ownerDocument.defaultView.getComputedStyle(element);
+      return {
+        tag: element.tagName,
+        className: String(element.className || "").slice(0, 160),
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
+        clientWidth: element.clientWidth,
+        clientHeight: element.clientHeight,
+        scrollWidth: element.scrollWidth,
+        scrollHeight: element.scrollHeight,
+        scrollTop: element.scrollTop,
+        scrollRange: Math.max(0, Number(element.scrollHeight || 0) - Number(element.clientHeight || 0)),
+        left: bounds.left,
+        top: bounds.top,
+        right: bounds.right,
+        bottom: bounds.bottom
+      };
+    })
+  };
+  if (requireResumeDetailScroller && !detailScrollerReady) {
+    return {
+      ok: false,
+      code: detailScrollerIndex >= 0
+        ? "RESUME_DETAIL_SCROLLER_NOT_READY"
+        : "RESUME_DETAIL_SCROLLER_NOT_FOUND",
+      ...scrollInfo,
+      diagnostics
+    };
+  }
+  if (rect.width < 20 || rect.height < 20) {
+    return { ok: false, code: "RESUME_NOT_VISIBLE", ...scrollInfo, diagnostics };
+  }
+  if (rect.height < Math.min(120, Math.ceil(rootBounds.height))) {
+    return { ok: false, code: "RESUME_VISIBLE_HEIGHT_TOO_SMALL", ...scrollInfo, diagnostics };
+  }
   if (rect.width < Math.floor(rootBounds.width) - 2) {
-    return { ok: false, code: "RESUME_WIDTH_CLIPPED", ...scrollInfo };
+    return { ok: false, code: "RESUME_WIDTH_CLIPPED", ...scrollInfo, diagnostics };
   }
   return {
     ok: true,
     rect,
     contentTop: Math.round(rect.y - rootBounds.top),
     totalHeight: Math.ceil(rootBounds.height),
+    rootBounds,
+    canvasBounds,
+    viewport: diagnostics.viewport,
     scrollTop: scroller?.scrollTop || 0,
     scrollInput,
+    diagnostics,
     ...scrollInfo,
     signature: JSON.stringify([
       rect, rootBounds.top, rootBounds.height, canvasBounds.top,
@@ -223,6 +420,48 @@ function measureResumeSlice(options) {
 }
 
 const sleep = (duration) => new Promise((resolve) => setTimeout(resolve, duration));
+const FINAL_SLICE_ROUNDING_TOLERANCE = 1;
+const INITIAL_RENDER_TIMEOUT_MS = 15000;
+const SLICE_RENDER_TIMEOUT_MS = 8000;
+const SCROLL_SETTLE_TIMEOUT_MS = 1200;
+const SCROLL_SETTLE_POLL_MS = 120;
+const RESUME_SCROLLER_READY_TIMEOUT_MS = 10000;
+const RESUME_SCROLLER_STABLE_READS = 3;
+const RESUME_SCROLLER_POLL_MS = 180;
+const RESUME_SCROLLER_VALIDATION_STEP_PX = 28;
+const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-29-scroller-validated-v3";
+
+const RETRYABLE_DETAIL_SCROLLER_CODES = new Set([
+  "RESUME_DETAIL_SCROLLER_NOT_FOUND",
+  "RESUME_DETAIL_SCROLLER_NOT_READY",
+  "RESUME_SCROLLER_VERIFICATION_FAILED",
+  "RESUME_SCROLLER_NOT_FOUND",
+  "RESUME_SCROLL_NOT_ADVANCING",
+  "RESUME_NOT_VISIBLE",
+  "RESUME_VISIBLE_HEIGHT_TOO_SMALL",
+  "RESUME_WIDTH_CLIPPED"
+]);
+
+export function isBossResumeScrollerRetryableError(error) {
+  const code = String(error?.code || "").toUpperCase();
+  if (RETRYABLE_DETAIL_SCROLLER_CODES.has(code)) return true;
+  const message = String(error?.message || error || "").toUpperCase();
+  return [...RETRYABLE_DETAIL_SCROLLER_CODES].some((item) => message.includes(item));
+}
+
+function isScrollerAtEnd(state) {
+  const scrollRange = Number(state?.scrollHeight) - Number(state?.clientHeight);
+  return scrollRange > 0 &&
+    Number(state.scrollTop) + Number(state.clientHeight) >=
+      Number(state.scrollHeight) - FINAL_SLICE_ROUNDING_TOLERANCE;
+}
+
+function hasOnlyFinalPixelGap(state, coveredTo) {
+  const remaining = Number(state?.totalHeight) - Number(coveredTo);
+  return remaining > 0 &&
+    remaining <= FINAL_SLICE_ROUNDING_TOLERANCE &&
+    isScrollerAtEnd(state);
+}
 
 async function loadScreenshot(base64) {
   const image = new Image();
@@ -309,6 +548,8 @@ export async function stitchResumeSlices(slices, totalHeight) {
 }
 
 export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {}) {
+  const captureStartedAt = Date.now();
+  console.info(`[任务流程] [BOSS简历长图] capture revision=${BOSS_RESUME_SCREENSHOT_REVISION} tabId=${tabId}`);
   const automation = window.api?.automation;
   if (!automation?.sendCdp || !automation?.evalOnTab || !automation?.captureTab) {
     throw new Error("当前客户端版本不支持简历分片截图");
@@ -322,6 +563,7 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
   };
   let scrollerIndex = null;
   const viewportAdjustments = [];
+  const frameAdjustments = [];
   // Every CDP command below is scoped to the target BOSS tabId; never dispatch it to the app view.
   const sendCdp = async (method, params) => {
     checkStopped();
@@ -334,7 +576,13 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
   const read = async (options = {}) => {
     checkStopped();
     const result = await automation.evalOnTab({
-      tabId, code: `(${measureResumeSlice.toString()})(${JSON.stringify({ scrollerIndex, ...options })})`,
+      tabId,
+      code: `(${measureResumeSlice.toString()})(${JSON.stringify({
+        scrollerIndex,
+        preferResumeDetailScroller: true,
+        ...options,
+        requireResumeDetailScroller: options.requireResumeDetailScroller !== false
+      })})`,
       awaitPromise: true
     });
     if (!result?.ok) throw new Error(result?.error?.message || "RESUME_MEASURE_FAILED");
@@ -350,7 +598,18 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         clientHeight: result.result.clientHeight
       });
     }
-    if (result.result?.scrollInput) {
+    if (Array.isArray(result.result?.frameAdjustments) &&
+        result.result.frameAdjustments.length > 0) {
+      frameAdjustments.push(...result.result.frameAdjustments);
+      console.warn("[任务流程] [BOSS简历长图] 已修正简历 iframe 高度", {
+        adjustments: result.result.frameAdjustments.map((item) => ({
+          frameUrl: item.frameUrl,
+          previousHeight: item.previousHeight,
+          desiredHeight: item.desiredHeight
+        }))
+      });
+    }
+    if (result.result?.scrollInput && result.result.scrollInput.inputMode !== "direct") {
       const { x, y, deltaY } = result.result.scrollInput;
       await sendCdp("Input.dispatchMouseEvent", {
         type: "mouseMoved",
@@ -365,16 +624,375 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         deltaX: 0,
         deltaY
       });
-      console.log("[任务流程] [BOSS简历长图] 原生滚轮滚动", {
-        x,
-        y,
-        deltaY,
-        inputMode: "cdp"
+      console.log("[任务流程] [BOSS简历长图] CDP 原生滚轮滚动 >>>", {
+        ...result.result.scrollInput,
+        scrollerIndex,
+        scrollHeight: result.result.scrollHeight,
+        clientHeight: result.result.clientHeight,
+        inputMode: result.result.scrollInput.inputMode || "cdp"
       });
     }
     return result.result;
   };
-  const captureSlice = async (rect) => {
+  const stateSummary = (state) => ({
+    ok: !!state?.ok,
+    code: state?.code,
+    rect: state?.rect,
+    viewport: state?.viewport || state?.diagnostics?.viewport,
+    contentTop: state?.contentTop,
+    totalHeight: state?.totalHeight,
+    scrollTop: state?.scrollTop,
+    scrollHeight: state?.scrollHeight,
+    clientHeight: state?.clientHeight,
+    scrollerIndex: state?.scrollerIndex,
+    scrollerRange: state?.scrollerRange,
+    scrollerClass: state?.scrollerClass,
+    candidateCount: state?.diagnostics?.candidateCount,
+    selectedFrameUrl: state?.diagnostics?.selectedFrameUrl,
+    selectedCanvasRect: state?.diagnostics?.selectedCanvasRect || state?.canvasBounds,
+    rootBounds: state?.diagnostics?.rootBounds || state?.rootBounds,
+    clippedRect: state?.diagnostics?.clippedRect,
+    ancestors: state?.diagnostics?.ancestors?.slice(0, 8),
+    frameAdjustments: state?.frameAdjustments || state?.diagnostics?.frameAdjustments
+  });
+  const hasScrollerClass = (state, className) =>
+    String(state?.scrollerClass || "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .includes(className);
+  const isDetailScrollerReady = (state) =>
+    hasScrollerClass(state, "resume-detail-wrap") &&
+    state?.detailScrollerReady === true &&
+    Number(state?.diagnostics?.selectedCanvasBitmap?.width) >= 200 &&
+    Number(state?.diagnostics?.selectedCanvasBitmap?.height) >= 100 &&
+    Number(state?.rootBounds?.height) >= 100;
+  const scrollerLayoutSignature = (state) =>
+    JSON.stringify([
+      state?.scrollerIndex,
+      state?.scrollerClass,
+      state?.scrollTop,
+      state?.clientHeight,
+      state?.scrollHeight,
+      state?.diagnostics?.selectedCanvasRect?.width,
+      state?.diagnostics?.selectedCanvasRect?.height,
+      state?.diagnostics?.selectedCanvasBitmap?.width,
+      state?.diagnostics?.selectedCanvasBitmap?.height,
+      state?.rootBounds?.width,
+      state?.rootBounds?.height,
+      state?.clippedRect?.width,
+      state?.clippedRect?.height
+    ]);
+  const waitForResumeDetailScroller = async (timeoutMs = RESUME_SCROLLER_READY_TIMEOUT_MS) => {
+    const startedAt = Date.now();
+    let stableReads = 0;
+    let previousSignature = "";
+    let latest = null;
+    while (Date.now() - startedAt < timeoutMs) {
+      latest = await read({
+        repairFrameHeight: true,
+        requireResumeDetailScroller: true
+      });
+      const signature = scrollerLayoutSignature(latest);
+      if (isDetailScrollerReady(latest)) {
+        stableReads = signature === previousSignature ? stableReads + 1 : 1;
+      } else {
+        stableReads = 0;
+      }
+      previousSignature = signature;
+      if (stableReads >= RESUME_SCROLLER_STABLE_READS) {
+        console.log("[任务流程] [BOSS简历长图] 详情滚动器条件等待完成 ✓", {
+          waitedMs: Date.now() - startedAt,
+          stableReads,
+          ...stateSummary(latest)
+        });
+        return latest;
+      }
+      await sleep(RESUME_SCROLLER_POLL_MS);
+    }
+    const error = new Error(
+      `详情滚动器未就绪 class=${latest?.scrollerClass || ""} ` +
+      `range=${latest?.scrollerRange ?? "-"} code=${latest?.code || "-"}`
+    );
+    error.code = latest?.code === "RESUME_CANVAS_NOT_FOUND"
+      ? "RESUME_CANVAS_NOT_FOUND"
+      : latest?.detailScrollerFound
+        ? "RESUME_DETAIL_SCROLLER_NOT_READY"
+        : "RESUME_DETAIL_SCROLLER_NOT_FOUND";
+    error.details = {
+      waitedMs: Date.now() - startedAt,
+      latest: stateSummary(latest),
+      diagnostics: latest?.diagnostics
+    };
+    console.warn("[任务流程] [BOSS简历长图] 详情滚动器条件等待超时", error.details);
+    throw error;
+  };
+  const verifyResumeDetailScroller = async () => {
+    const before = await read();
+    if (!before?.ok || !isDetailScrollerReady(before)) {
+      const error = new Error(
+        `详情滚动器验证前状态异常 code=${before?.code || "-"} ` +
+        `class=${before?.scrollerClass || ""}`
+      );
+      error.code = "RESUME_SCROLLER_VERIFICATION_FAILED";
+      error.details = {
+        phase: "before",
+        state: stateSummary(before),
+        diagnostics: before?.diagnostics
+      };
+      throw error;
+    }
+
+    const range = Number(before.scrollerRange) || 0;
+    const fromScrollTop = Number(before.scrollTop) || 0;
+    if (range < 1 && before.detailScrollerContentFits === true) {
+      console.log("[任务流程] [BOSS简历长图] 详情滚动器无需滚动，跳过滚动验证", {
+        totalHeight: before.totalHeight,
+        clientHeight: before.clientHeight,
+        scrollerIndex: before.scrollerIndex,
+        scrollerClass: before.scrollerClass
+      });
+      return before;
+    }
+    const forwardRoom = Math.max(0, range - fromScrollTop);
+    const direction = forwardRoom >= 1 ? 1 : -1;
+    const available = direction > 0 ? forwardRoom : Math.max(0, fromScrollTop);
+    const delta = Math.min(
+      RESUME_SCROLLER_VALIDATION_STEP_PX,
+      available
+    );
+    if (delta < 1) {
+      const error = new Error("详情滚动器没有可验证的滚动范围");
+      error.code = "RESUME_SCROLLER_VERIFICATION_FAILED";
+      error.details = {
+        phase: "range",
+        state: stateSummary(before),
+        diagnostics: before?.diagnostics
+      };
+      throw error;
+    }
+
+    const targetScrollTop = fromScrollTop + direction * delta;
+    let after = null;
+    let restored = null;
+    let verificationError = null;
+    let scrollOperationError = null;
+    try {
+      await read({ action: "setScrollTop", scrollTop: targetScrollTop });
+      await sleep(RESUME_SCROLLER_POLL_MS);
+      after = await read();
+
+      const actualDelta = Number(after?.scrollTop) - fromScrollTop;
+      const rootShift = Number(after?.rootBounds?.top) - Number(before.rootBounds?.top);
+      const moved = Math.abs(actualDelta) >= 1;
+      const visualMatched = Math.abs(rootShift + actualDelta) <= 4;
+      const stillVisible = after?.ok === true;
+      if (!moved || !visualMatched || !stillVisible) {
+        verificationError = new Error(
+          `详情滚动器验证失败 moved=${moved} visualMatched=${visualMatched} ` +
+          `visible=${stillVisible} actualDelta=${actualDelta} rootShift=${rootShift}`
+        );
+        verificationError.code = "RESUME_SCROLLER_VERIFICATION_FAILED";
+      }
+    } catch (error) {
+      scrollOperationError = error;
+    }
+
+    try {
+      await read({ action: "setScrollTop", scrollTop: fromScrollTop });
+      await sleep(RESUME_SCROLLER_POLL_MS);
+      restored = await read();
+      if (Math.abs(Number(restored?.scrollTop) - fromScrollTop) > 2) {
+        console.warn("[任务流程] [BOSS简历长图] 滚动器验证后恢复位置失败", {
+          expectedScrollTop: fromScrollTop,
+          actualScrollTop: restored?.scrollTop
+        });
+      }
+    } catch (error) {
+      console.warn("[任务流程] [BOSS简历长图] 滚动器验证后恢复异常", {
+        expectedScrollTop: fromScrollTop,
+        message: error?.message || String(error)
+      });
+      if (!scrollOperationError && !verificationError) {
+        scrollOperationError = error;
+      }
+    }
+
+    if (scrollOperationError) {
+      if (!scrollOperationError.code) {
+        scrollOperationError.code = "RESUME_SCROLLER_VERIFICATION_FAILED";
+      }
+      scrollOperationError.details = {
+        phase: "scroll-operation",
+        before: stateSummary(before),
+        after: stateSummary(after),
+        restored: stateSummary(restored),
+        beforeDiagnostics: before?.diagnostics,
+        afterDiagnostics: after?.diagnostics
+      };
+      throw scrollOperationError;
+    }
+
+    if (verificationError) {
+      verificationError.details = {
+        phase: "scroll",
+        direction,
+        delta,
+        before: stateSummary(before),
+        after: stateSummary(after),
+        restored: stateSummary(restored),
+        beforeDiagnostics: before?.diagnostics,
+        afterDiagnostics: after?.diagnostics
+      };
+      console.warn("[任务流程] [BOSS简历长图] 详情滚动器验证失败 ✗", verificationError.details);
+      throw verificationError;
+    }
+    console.log("[任务流程] [BOSS简历长图] 详情滚动器验证通过 ✓", {
+      direction,
+      delta,
+      fromScrollTop,
+      toScrollTop: after?.scrollTop,
+      rootShift: Number(after?.rootBounds?.top) - Number(before.rootBounds?.top),
+      scrollerIndex: before.scrollerIndex,
+      scrollerClass: before.scrollerClass
+    });
+    return restored;
+  };
+  const scrollProgressed = (delta, expectedDirection, minimumProgress = 1) => {
+    if (expectedDirection > 0) return delta >= minimumProgress;
+    if (expectedDirection < 0) return delta <= -minimumProgress;
+    return Math.abs(delta) >= minimumProgress;
+  };
+  const scrollTargetReached = (state, targetScrollTop, expectedDirection) => {
+    if (expectedDirection > 0 && isScrollerAtEnd(state)) return true;
+    return Math.abs(Number(state?.scrollTop || 0) - Number(targetScrollTop)) <= 2;
+  };
+  const waitForScrollTarget = async (
+    fromScrollTop,
+    targetScrollTop,
+    phaseLabel,
+    inputMode,
+    expectedDirection = 0,
+    minimumProgress = 1
+  ) => {
+    const startedAt = Date.now();
+    let latest = null;
+    do {
+      latest = await read();
+      const delta = Number(latest?.scrollTop || 0) - fromScrollTop;
+      if (scrollTargetReached(latest, targetScrollTop, expectedDirection) &&
+          scrollProgressed(delta, expectedDirection, minimumProgress)) {
+        console.log("[任务流程] [BOSS简历长图] 滚动位置已确认 ✓", {
+          phaseLabel,
+          inputMode,
+          fromScrollTop,
+          targetScrollTop,
+          toScrollTop: latest.scrollTop,
+          delta,
+          scrollerIndex: latest.scrollerIndex,
+          scrollerClass: latest.scrollerClass,
+          scrollerRange: latest.scrollerRange,
+          waitedMs: Date.now() - startedAt
+        });
+        return latest;
+      }
+      if (Date.now() - startedAt >= SCROLL_SETTLE_TIMEOUT_MS) break;
+      await sleep(SCROLL_SETTLE_POLL_MS);
+    } while (true);
+    return latest || await read();
+  };
+  const scrollToContentOffset = async (contentOffset, phaseLabel) => {
+    const requestedOffset = Math.max(0, Number(contentOffset) || 0);
+    const before = await read();
+    if (!Number.isInteger(before?.scrollerIndex) || before.scrollerIndex < 0) {
+      const error = new Error(`未找到简历滚动容器: ${phaseLabel}`);
+      error.code = "RESUME_SCROLLER_NOT_FOUND";
+      throw error;
+    }
+    const fromScrollTop = Number(before.scrollTop) || 0;
+    const normal = await read({ action: "scroll", contentOffset: requestedOffset });
+    if (!normal?.scrollInput) return normal;
+    const expectedDirection = Math.sign(Number(normal.scrollInput.deltaY) || 0);
+    const minimumProgress = Math.min(4, Math.abs(Number(normal.scrollInput.deltaY) || 1));
+
+    let latest = await waitForScrollTarget(
+      fromScrollTop,
+      normal.scrollInput.toScrollTop,
+      phaseLabel,
+      "cdp",
+      expectedDirection,
+      minimumProgress
+    );
+    if (scrollTargetReached(latest, normal.scrollInput.toScrollTop, expectedDirection)) {
+      return latest;
+    }
+
+    console.warn("[任务流程] [BOSS简历长图] CDP 滚轮未推进，更换滚轮落点重试", {
+      phaseLabel,
+      requestedOffset,
+      fromScrollTop,
+      scrollerIndex: latest?.scrollerIndex,
+      scrollerClass: latest?.scrollerClass,
+      rect: latest?.rect
+    });
+    const alternate = await read({
+      action: "scroll",
+      contentOffset: requestedOffset,
+      alternateScrollInput: true
+    });
+    if (!alternate?.scrollInput) return alternate;
+    latest = await waitForScrollTarget(
+      fromScrollTop,
+      alternate.scrollInput.toScrollTop,
+      phaseLabel,
+      "alternate",
+      expectedDirection,
+      minimumProgress
+    );
+    if (scrollTargetReached(latest, alternate.scrollInput.toScrollTop, expectedDirection)) {
+      return latest;
+    }
+
+    console.warn("[任务流程] [BOSS简历长图] 替代滚轮落点仍未推进，直接设置 scrollTop", {
+      phaseLabel,
+      requestedOffset,
+      fromScrollTop,
+      scrollerIndex: latest?.scrollerIndex,
+      scrollerClass: latest?.scrollerClass,
+      scrollHeight: latest?.scrollHeight,
+      clientHeight: latest?.clientHeight
+    });
+    const direct = await read({ action: "setScroll", contentOffset: requestedOffset });
+    latest = await waitForScrollTarget(
+      fromScrollTop,
+      direct?.scrollInput?.toScrollTop ?? latest?.scrollTop ?? fromScrollTop,
+      phaseLabel,
+      "dom",
+      expectedDirection,
+      minimumProgress
+    );
+    if (scrollTargetReached(
+      latest,
+      direct?.scrollInput?.toScrollTop ?? latest?.scrollTop ?? fromScrollTop,
+      expectedDirection
+    )) return latest;
+
+    const error = new Error(
+      `简历滚动容器未前进 phase=${phaseLabel} from=${fromScrollTop} ` +
+      `to=${latest?.scrollTop} class=${latest?.scrollerClass || ""}`
+    );
+    error.code = "RESUME_SCROLL_NOT_ADVANCING";
+    error.details = {
+      phaseLabel,
+      requestedOffset,
+      fromScrollTop,
+      latest: stateSummary(latest),
+      normalInput: normal.scrollInput,
+      alternateInput: alternate.scrollInput,
+      directInput: direct?.scrollInput
+    };
+    throw error;
+  };
+  const captureSlice = async (rect, phaseLabel) => {
     // The main process captures only the target BOSS webContents. Active tabs use
     // capturePage; background tabs use frame subscription so capture never promotes
     // the obscured BOSS view into the shell's compositor. Scrolling remains via CDP.
@@ -388,39 +1006,109 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         return result.data;
       } catch (error) {
         lastError = error;
+        console.warn("[任务流程] [BOSS简历长图] 截图请求失败", {
+          phaseLabel,
+          attempt: attempt + 1,
+          maxAttempts: 3,
+          rect,
+          message: error?.message || String(error)
+        });
         if (attempt < 2) await sleep(400);
       }
     }
     throw lastError || new Error("RESUME_CAPTURE_FAILED");
   };
-  const captureStableSlice = async () => {
+  const captureStableSlice = async (
+    timeoutMs = SLICE_RENDER_TIMEOUT_MS,
+    phaseLabel = "分片"
+  ) => {
+    const waitStartedAt = Date.now();
     await sleep(750);
-    const deadline = Date.now() + 8000;
+    const deadline = Date.now() + timeoutMs;
     let lastCode = "RESUME_CANVAS_NOT_READY";
+    let lastFailureSignature = "";
+    let attempts = 0;
+    let layoutRepairAttempted = false;
     while (Date.now() < deadline) {
+      attempts++;
       const state = await read();
       if (!state?.ok) {
         lastCode = state?.code || lastCode;
+        const failureSignature = JSON.stringify(state || {});
+        if (failureSignature !== lastFailureSignature) {
+          lastFailureSignature = failureSignature;
+          console.warn("[任务流程] [BOSS简历长图] 截图区域尚不可用", {
+            phaseLabel,
+            attempts,
+            waitedMs: Date.now() - waitStartedAt,
+            ...stateSummary(state)
+          });
+        }
+        if (!layoutRepairAttempted && state?.code === "RESUME_VISIBLE_HEIGHT_TOO_SMALL") {
+          layoutRepairAttempted = true;
+          console.warn("[任务流程] [BOSS简历长图] 简历可见高度异常，重新校正 iframe 高度", {
+            phaseLabel,
+            attempts,
+            ...stateSummary(state)
+          });
+          await read({ repairFrameHeight: true });
+          await sleep(300);
+          continue;
+        }
         await sleep(250);
         continue;
       }
       checkStopped();
-      const shot = await captureSlice(state.rect);
+      const shot = await captureSlice(state.rect, phaseLabel);
       const { base64 } = shot;
-      console.log(`[任务流程] [BOSS简历长图] 当前分片截图方式=${shot.captureMode || "unknown"}`, {
-        rect: state.rect,
-        captureMode: shot.captureMode || "unknown"
+      console.log("[任务流程] [BOSS简历长图] 分片截图返回", {
+        phaseLabel,
+        captureMode: shot.captureMode || "unknown",
+        requestedRect: state.rect,
+        output: { width: shot.width, height: shot.height, bytes: shot.bytes },
+        scrollTop: state.scrollTop,
+        scrollHeight: state.scrollHeight,
+        clientHeight: state.clientHeight
       });
       const after = await read();
       if (after?.signature === state.signature) {
-        if (await screenshotHasContent(base64)) {
+        const hasContent = await screenshotHasContent(base64);
+        if (hasContent) {
+          console.log("[任务流程] [BOSS简历长图] 截图区域已稳定就绪 ✓", {
+            phaseLabel,
+            attempts,
+            waitedMs: Date.now() - waitStartedAt,
+            ...stateSummary(state)
+          });
           return { state, base64 };
         }
         lastCode = "RESUME_CANVAS_BLANK";
+        console.warn("[任务流程] [BOSS简历长图] 截图内容为空，继续等待", {
+          phaseLabel,
+          attempts,
+          rect: state.rect,
+          scrollTop: state.scrollTop
+        });
+      } else {
+        console.warn("[任务流程] [BOSS简历长图] 截图期间区域发生变化，重试", {
+          phaseLabel,
+          attempts,
+          before: stateSummary(state),
+          after: stateSummary(after)
+        });
       }
       await sleep(300);
     }
-    throw new Error(`简历 canvas 未完成渲染: ${lastCode}`);
+    console.warn("[任务流程] [BOSS简历长图] 截图区域就绪等待超时", {
+      phaseLabel,
+      attempts,
+      waitedMs: Date.now() - waitStartedAt,
+      timeoutMs,
+      lastCode
+    });
+    const error = new Error(`简历 canvas 未完成渲染: ${lastCode}`);
+    error.code = lastCode;
+    throw error;
   };
   const slices = [];
   let initialScrollTop = null;
@@ -429,21 +1117,65 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
   try {
     // 先记录调用前位置，再把滚动容器恢复到顶部，保证第一条带从内容 0 开始；
     // 结束时仍恢复用户原来的位置。
-    const initial = await captureStableSlice();
-    initialScrollTop = initial.state.scrollTop;
+    // 详情刚打开时，BOSS 可能保留了上一次的滚动位置，甚至在首帧内
+    // #resume 完全位于可见区域外。旧逻辑先等待 captureStableSlice 成功，
+    // 再判断 scrollTop，结果永远走不到“回到顶部”：首屏直接以
+    // RESUME_NOT_VISIBLE 超时并被关闭。这里先探测并记录原滚动位置，
+    // 若首屏不可见就主动通过 CDP 滚回内容顶部，再等待真实渲染。
+    const initialProbe = await waitForResumeDetailScroller(RESUME_SCROLLER_READY_TIMEOUT_MS);
+    const probedScrollerIndex = scrollerIndex;
+    initialScrollTop = Number.isFinite(initialProbe?.scrollTop)
+      ? initialProbe.scrollTop
+      : null;
+    console.log("[任务流程] [BOSS简历长图] 首屏探测完成", {
+      savedScrollTop: initialScrollTop,
+      probedScrollerIndex,
+      ...stateSummary(initialProbe)
+    });
+    // 条件等待已经确认详情滚动器连续稳定；这里仍允许后续读取根据 DOM 重新定位索引。
+    scrollerIndex = null;
+    if (!initialProbe?.ok &&
+        (initialProbe?.code === "RESUME_NOT_VISIBLE" ||
+          initialProbe?.code === "RESUME_WIDTH_CLIPPED")) {
+      console.warn("[任务流程] [BOSS简历长图] 首屏不可见，先滚动到简历顶部", stateSummary(initialProbe));
+      await scrollToContentOffset(0, "首屏回顶");
+    }
+    const initial = await captureStableSlice(INITIAL_RENDER_TIMEOUT_MS, "首屏");
+    await verifyResumeDetailScroller();
+    await sleep(180);
+    if (initialScrollTop === null) initialScrollTop = initial.state.scrollTop;
     if (initialScrollTop > 0) {
-      await read({ action: "scroll", contentOffset: 0 });
-      await captureStableSlice();
+      console.log(`[任务流程] [BOSS简历长图] 恢复首屏起点前先回到顶部 scrollTop=${initialScrollTop}`);
+      await scrollToContentOffset(0, "首屏重置");
+      await captureStableSlice(INITIAL_RENDER_TIMEOUT_MS, "首屏重置后");
     }
     for (let index = 0; index < 80; index++) {
-      await read({ action: "scroll", contentOffset: Math.max(0, covered - 80) });
-      let slice = await captureStableSlice();
+      const phaseLabel = `分片 ${index + 1}`;
+      console.log("[任务流程] [BOSS简历长图] 准备滚动并截图", {
+        phaseLabel,
+        covered,
+        nextContentOffset: Math.max(0, covered - 80),
+        initialScrollTop
+      });
+      await scrollToContentOffset(Math.max(0, covered - 80), phaseLabel);
+      let slice = await captureStableSlice(SLICE_RENDER_TIMEOUT_MS, phaseLabel);
       let state = slice.state;
       let bottom = Math.min(state.totalHeight, state.contentTop + state.rect.height);
+      const finalPixelGap = hasOnlyFinalPixelGap(state, bottom);
+      const targetHeight = finalPixelGap ? bottom : state.totalHeight;
+      if (finalPixelGap) {
+        console.log("[任务流程] [BOSS简历长图] 末屏存在 1px 亚像素取整误差，按实际截取高度拼接", {
+          totalHeight: state.totalHeight,
+          coveredTo: bottom,
+          scrollTop: state.scrollTop,
+          scrollHeight: state.scrollHeight,
+          clientHeight: state.clientHeight
+        });
+      }
       const strategies = ["padding", "compact"];
       while ((state.contentTop > covered || bottom <= covered) &&
              bottomAdjustAttempt < strategies.length &&
-             state.totalHeight > bottom) {
+             targetHeight > bottom) {
         const remainingHeight = state.totalHeight - bottom;
         const adjusted = await read({
           action: "makeBottomReachable",
@@ -452,12 +1184,13 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         });
         if (!adjusted?.viewportAdjustment) break;
         bottomAdjustAttempt++;
-        await read({ action: "scroll", contentOffset: Math.max(0, covered - 80) });
-        slice = await captureStableSlice();
+        await scrollToContentOffset(Math.max(0, covered - 80), `${phaseLabel} 回退修正`);
+        slice = await captureStableSlice(SLICE_RENDER_TIMEOUT_MS, `${phaseLabel} 回退修正后`);
         state = slice.state;
         bottom = Math.min(state.totalHeight, state.contentTop + state.rect.height);
       }
-      if (state.contentTop > covered || bottom <= covered) {
+      const coveredByFinalPixel = hasOnlyFinalPixelGap(state, bottom) && bottom <= covered;
+      if (state.contentTop > covered || (bottom <= covered && !coveredByFinalPixel)) {
         console.warn("[任务流程] [BOSS简历长图] 分片无法连续覆盖", {
           covered, bottom, contentTop: state.contentTop, totalHeight: state.totalHeight,
           scrollTop: state.scrollTop, scrollHeight: state.scrollHeight,
@@ -469,30 +1202,99 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       if (slices.length && state.rect.width !== slices[0].state.rect.width) {
         throw new Error("简历截图期间窗口宽度发生变化，请重试");
       }
-      slices.push({ ...slice, from: covered, to: bottom });
-      covered = bottom;
-      console.log(`[任务流程] [BOSS简历长图] 分片 ${slices.length}，已截 ${covered}/${state.totalHeight}`);
-      if (covered >= state.totalHeight) {
+      if (bottom > covered) {
+        slices.push({ ...slice, from: covered, to: bottom });
+        covered = bottom;
+        console.log("[任务流程] [BOSS简历长图] 分片已入库", {
+          slice: slices.length,
+          phaseLabel,
+          from: slices[slices.length - 1].from,
+          to: slices[slices.length - 1].to,
+          covered,
+          targetHeight,
+          scrollTop: state.scrollTop,
+          scrollHeight: state.scrollHeight,
+          clientHeight: state.clientHeight,
+          rect: state.rect
+        });
+      }
+      if (covered >= targetHeight) {
         await sleep(1000);
         const last = await read();
         if (!last?.ok) throw new Error(last?.code || "RESUME_DETAIL_CLOSED");
-        if (last.totalHeight > covered) continue;
-        if (last.totalHeight !== covered) throw new Error("RESUME_HEIGHT_CHANGED");
+        const lastFinalPixelGap = hasOnlyFinalPixelGap(last, covered);
+        if (last.totalHeight > covered && !lastFinalPixelGap) continue;
+        if (last.totalHeight !== covered && !lastFinalPixelGap) {
+          throw new Error("RESUME_HEIGHT_CHANGED");
+        }
         checkStopped();
         const result = await stitchResumeSlices(slices, covered);
         checkStopped();
-        console.log(`[任务流程] [BOSS简历长图] 拼接完成 ${result.width}x${result.height}，共 ${result.sliceCount} 片`);
+        console.log("[任务流程] [BOSS简历长图] 拼接完成 ✓", {
+          width: result.width,
+          height: result.height,
+          bytes: result.bytes,
+          slices: result.sliceCount,
+          initialScrollTop,
+          finalScrollTop: last.scrollTop,
+          totalElapsedMs: Date.now() - captureStartedAt
+        });
         return result;
       }
     }
     throw new Error("简历分片超过安全上限，已取消上传不完整截图");
+  } catch (error) {
+    console.warn("[任务流程] [BOSS简历长图] 截图流程失败 ✗", {
+      tabId,
+      elapsedMs: Date.now() - captureStartedAt,
+      covered,
+      slices: slices.length,
+      initialScrollTop,
+      scrollerIndex,
+      code: error?.code,
+      message: error?.message || String(error)
+    });
+    throw error;
   } finally {
     if (initialScrollTop !== null) {
+      const restoreStartedAt = Date.now();
       try {
         await read({
-          action: "restore", scrollTop: initialScrollTop, scrollerIndex, viewportAdjustments
+          action: "restore",
+          scrollTop: initialScrollTop,
+          scrollerIndex,
+          viewportAdjustments,
+          frameAdjustments
         });
-      } catch {}
+        await sleep(180);
+        let restoredState = await read();
+        if (Math.abs(Number(restoredState?.scrollTop || 0) - initialScrollTop) > 2) {
+          console.warn("[任务流程] [BOSS简历长图] 恢复滚轮未到达目标，直接设置 scrollTop", {
+            expectedScrollTop: initialScrollTop,
+            actualScrollTop: restoredState?.scrollTop
+          });
+          await read({
+            action: "setScrollTop",
+            scrollTop: initialScrollTop,
+            scrollerIndex,
+            viewportAdjustments,
+            frameAdjustments
+          });
+          await sleep(180);
+          restoredState = await read();
+        }
+        console.log("[任务流程] [BOSS简历长图] 原始滚动位置已恢复", {
+          expectedScrollTop: initialScrollTop,
+          actualScrollTop: restoredState?.scrollTop,
+          elapsedMs: Date.now() - restoreStartedAt
+        });
+      } catch (error) {
+        console.warn("[任务流程] [BOSS简历长图] 恢复原始滚动位置失败", {
+          scrollTop: initialScrollTop,
+          elapsedMs: Date.now() - restoreStartedAt,
+          message: error?.message || String(error)
+        });
+      }
     }
   }
 }

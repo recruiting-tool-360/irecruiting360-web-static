@@ -1,5 +1,5 @@
 
-import { normalizeBossFilters } from "src/util/bossSearchFilters";
+import { BOSS_FILTER_DEFAULTS, normalizeBossFilters } from "src/util/bossSearchFilters";
 
 export const createSearchState = ()=>{
     return {
@@ -172,9 +172,7 @@ export const createSearchState = ()=>{
           ]
         },
         // BOSS 筛选条件（原始整数编码，0 表示不限）
-        activeness: 0,
-        viewResume: 0,
-        exchangeResume: 0,
+        ...BOSS_FILTER_DEFAULTS,
         //用户id
         userId:null
     };

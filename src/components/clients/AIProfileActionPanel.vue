@@ -2,8 +2,8 @@
   AI 职位画像深度解析 - 动作面板
 
   跟随每条带 [&AI_SEARCH&] 标记的 bot 消息渲染在气泡下方，提供：
-    1. 顶部一行：推荐牛人圆形对勾（默认选中）+ 右侧"配置已自动锁定"
-    2. 选中"推荐牛人"时展开青色配置卡片：
+    1. 顶部固定展示当前渠道「推荐牛人」+ 右侧"配置已自动锁定"
+    2. 默认展开推荐牛人青色配置卡片：
        - 匹配 BOSS直聘职位（下拉，数据来自 store.getters.getBossJobList）
        - 本次期望最大搜索"简历数"（数字输入 + "份"）
 
@@ -17,46 +17,12 @@
 <template>
   <div class="ai-panel">
     <!--
-      模块勾选 + 锁定提示
-
-      搜索牛人入口已下架：
-        - bossEnabled=true：只显示「推荐牛人」
-        - bossEnabled=false：整行隐藏，任务入口不可用
-        - selectedModules.search 始终为 false，避免历史缓存暗中创建 SEARCH 渠道
-
-      数据来源：store.getters.getUserChannelConfig → [{ key:'BOSS', enableConfig: bool }, ...]
+      当前招聘渠道固定为「推荐牛人」，不提供切换入口。
+      BOSS 渠道禁用时整行隐藏，任务入口不可用。
     -->
     <div v-if="bossEnabled" class="modules-row">
       <div class="modules-left">
-        <!--
-          模块勾选项（1:1 对照 ihraisaas ChatPanel.tsx 929-953）：
-            - w-6 h-6 rounded-lg border shadow-sm（24×24 方框圆角 8px + 浅阴影）
-            - active：bg-primary-500 + border-primary-500 + ring-4 ring-primary-50
-            - 勾：w-4 h-4 text-white（16×16 白色 Check）
-            - 文字：text-xs font-black tracking-tight；active text-primary-600 / inactive text-neutral-500
-        -->
-        <span
-          class="module-item"
-          :class="{ active: selectedModules.recommend, 'is-locked': locked }"
-          @click="toggleModule('recommend')"
-        >
-          <span class="check-box">
-            <svg
-              v-if="selectedModules.recommend"
-              viewBox="0 0 24 24"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="3"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-          </span>
-          <span class="module-text">推荐牛人</span>
-        </span>
+        <span class="module-current">推荐牛人</span>
       </div>
       <span class="lock-hint">配置已自动锁定</span>
     </div>
@@ -173,9 +139,9 @@
                 class="native-input"
                 type="text"
                 inputmode="numeric"
-                maxlength="4"
                 :disabled="locked"
                 @input="onResumeCountInput"
+                @blur="onResumeCountBlur"
               />
               <span class="config-unit">份</span>
             </div>
@@ -348,7 +314,7 @@
               d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"
             />
           </svg>
-          <span>启动聚合搜索</span>
+          <span>简历搜索</span>
         </button>
       </div>
     </div>
@@ -359,7 +325,8 @@
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
 import { estimateSearchTask, matchBestPosition } from "src/api/searchTaskApi";
-import { buildEstimatePayload } from "src/util/searchTaskPayloadBuilder";
+import { buildEstimatePayload, MAX_TARGET_COUNT } from "src/util/searchTaskPayloadBuilder";
+import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
 import {
   BOSS_FILTER_DEFAULTS,
   BOSS_ACTIVE_OPTIONS,
@@ -431,7 +398,7 @@ const panelChatId = computed(
 
 /**
  * 搜索牛人入口下架后，不再恢复历史模块勾选缓存。
- * BOSS 可用时固定从「仅推荐牛人」开始。
+ * BOSS 可用时渠道固定为「仅推荐牛人」。
  */
 function resolveInitialModules() {
   return bossEnabled.value
@@ -453,22 +420,6 @@ watch(
   },
   { immediate: true }
 );
-
-function toggleModule(key) {
-  // ★ 已启动任务（进行中/排队中）或已发起搜索 → 配置锁定，勾选不可再改
-  if (locked.value) return;
-  // 搜索牛人入口已下架，只允许切换推荐牛人。
-  if (key !== "recommend" || !bossEnabled.value) return;
-  const next = {
-    search: false,
-    recommend: !selectedModules.value.recommend
-  };
-  selectedModules.value = next;
-  // ★ 写回「本会话」勾选记忆（按 chatId 隔离）—— 回到本职位时还原它自己的勾选，不被别的会话污染
-  store.commit("setLastSelectedModulesForChat", { chatId: panelChatId.value, modules: next });
-  // 同时写全局偏好 —— 仅作为「全新会话首次出现卡片」时的默认值
-  store.commit("setLastSelectedModules", next);
-}
 
 // BOSS 职位下拉：仅展示开放（jobStatus === 0）的职位
 const bossJobList = computed(() => store.getters.getBossJobList || []);
@@ -497,7 +448,7 @@ const searchLocked = ref(false);
 // ★ 配置是否锁定（只读）。任意一个为真即锁：
 //   - props.disabled：ChatCard 判定「该 chat 已有进行中/排队中任务」或「本卡片后面已有结果卡片」
 //   - searchLocked：用户刚点过启动/重搜/增量（任务还没落到 store 的过渡态也立即锁住）
-//   锁定后：搜索牛人/推荐牛人勾选、匹配 BOSS 职位下拉、本次期望最大简历数输入框均不可再编辑。
+//   锁定后：匹配 BOSS 职位下拉与本次期望最大简历数输入框不可再编辑；推荐牛人渠道始终固定。
 const locked = computed(() => props.disabled || searchLocked.value);
 // BOSS 职位匹配状态：'idle' 未匹配 / 'matching' 匹配中 / 'matched' 已命中 / 'no-match' 无匹配
 const bossMatchState = ref("idle");
@@ -601,22 +552,35 @@ function restoreHistoricalBossPosition() {
 }
 
 // 初始默认值：本 chatId 上次填写过的简历份数（持久化在 AiSerachConfig.lastResumeCountByChatId）
-const resumeCountInput = ref("");
+const resumeCountInput = ref(String(DEFAULT_RECOMMEND_RESUME_COUNT));
 {
-  const lastCount = store.getters.getLastResumeCountForChat(store.getters.getLatestChatId || "");
-  if (lastCount) resumeCountInput.value = String(lastCount);
+  const lastCount = Number(store.getters.getLastResumeCountForChat(store.getters.getLatestChatId || ""));
+  if (Number.isFinite(lastCount) && lastCount > 0) {
+    resumeCountInput.value = String(Math.min(Math.trunc(lastCount), MAX_TARGET_COUNT));
+  }
+}
+function persistResumeCount(value) {
+  // 仅非空时写，避免临时清空把记忆抹掉；下次新卡片默认上次值。
+  if (value === "") return;
+  store.commit("setLastResumeCount", {
+    chatId: store.getters.getLatestChatId || "",
+    count: value
+  });
 }
 function onResumeCountInput(e) {
-  // 限制只能输入数字
-  const v = String(e.target.value || "").replace(/[^\d]/g, "");
+  // 输入过程中仅过滤非数字，允许用户先输入超过 80 的值。
+  const raw = String(e.target.value || "").replace(/[^\d]/g, "");
+  resumeCountInput.value = raw;
+  e.target.value = raw;
+  persistResumeCount(raw);
+}
+function onResumeCountBlur(e) {
+  const raw = String(e.target.value || "").replace(/[^\d]/g, "");
+  if (raw === "") return;
+  const v = String(Math.min(Number(raw), MAX_TARGET_COUNT));
   resumeCountInput.value = v;
-  // 持久化本 chatId 的简历份数（仅非空时写，避免临时清空把记忆抹掉）→ 下次新卡片默认上次值
-  if (v !== "") {
-    store.commit("setLastResumeCount", {
-      chatId: store.getters.getLatestChatId || "",
-      count: v
-    });
-  }
+  e.target.value = v;
+  persistResumeCount(v);
 }
 
 const bossFilters = ref({ ...BOSS_FILTER_DEFAULTS });
@@ -815,6 +779,12 @@ let _estimateTimer = null;
 let _estimateSeq = 0; // 防 race：晚返回的旧请求丢弃
 function scheduleEstimate() {
   if (_estimateTimer) clearTimeout(_estimateTimer);
+  // 超出上限时等待输入框失焦收敛，避免在输入过程中用无效值请求预估。
+  if (resumeCountNum.value > MAX_TARGET_COUNT) {
+    estimateRemote.value = null;
+    estimateLoading.value = false;
+    return;
+  }
   // 立刻进入"计算中"态：debounce 窗口内也显示占位，避免先闪本地默认值（如 0.1h）
   // 再被接口结果覆盖。只展示接口返回值，不做本地兜底。
   if (resumeCountNum.value > 0) {
@@ -851,7 +821,7 @@ async function runEstimate() {
   try {
     const res = await estimateSearchTask(payload);
     if (seq !== _estimateSeq) return; // 已被新请求覆盖
-    // 接口业务失败（如"最大简历数请填写 0-100 之间的整数"）→ 显示后端 errorMessage + 清空预估
+    // 接口业务失败（如"最大简历数请填写 0-80 之间的整数"）→ 显示后端 errorMessage + 清空预估
     if (!res || res.success !== "success") {
       const msg = res?.errorMessage || res?.message || "预估失败";
       notify.warning(msg, { group: "estimate-error" });
@@ -971,12 +941,15 @@ function lockMatchAndEmit(eventName) {
  */
 watch(getState, (val) => emit("change", val), { deep: true, immediate: true });
 
-/** 启动按钮禁用条件：两个模块都没勾 / 勾了推荐牛人但没填简历数 */
+/** 启动按钮禁用条件：推荐渠道不可用 / 推荐牛人未填有效简历数 */
 const aggregateDisabled = computed(() => {
   // 该画像卡后面已有结果卡片（已发起过搜索）→ 全部按钮禁用
   if (props.disabled) return true;
   if (!selectedModules.value.search && !selectedModules.value.recommend) return true;
-  if (selectedModules.value.recommend && resumeCountNum.value <= 0) return true;
+  if (
+    selectedModules.value.recommend &&
+    (resumeCountNum.value <= 0 || resumeCountNum.value > MAX_TARGET_COUNT)
+  ) return true;
   return false;
 });
 
@@ -1010,7 +983,7 @@ $accent-border: #ccfbf1;
   gap: 16px; /* space-y-4 */
 }
 
-/* ===== 模块勾选行 ===== */
+/* ===== 固定渠道提示行 ===== */
 .modules-row {
   display: flex;
   align-items: center;
@@ -1021,57 +994,12 @@ $accent-border: #ccfbf1;
   align-items: center;
   gap: 24px; /* space-x-6 */
 }
-.module-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px; /* space-x-2.5 */
-  cursor: pointer;
+.module-current {
+  color: #0d9488;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: -0.025em;
   user-select: none;
-
-  /* ★ 任务已启动（进行中/排队中）→ 锁定，勾选不可改 */
-  &.is-locked {
-    cursor: not-allowed;
-    opacity: 0.55;
-    pointer-events: none;
-  }
-
-  /* 1:1 对照 ihraisaas: w-6 h-6 rounded-lg border shadow-sm */
-  .check-box {
-    width: 24px;
-    height: 24px;
-    border-radius: 8px; /* rounded-lg */
-    border: 1px solid #d4d4d8; /* border-neutral-300 */
-    background: #fff;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s;
-    color: #fff;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); /* shadow-sm */
-    flex-shrink: 0;
-  }
-  .module-text {
-    font-size: 12px; /* text-xs */
-    font-weight: 900; /* font-black */
-    color: #737373; /* text-neutral-500 */
-    letter-spacing: -0.025em; /* tracking-tight */
-    transition: color 0.15s;
-  }
-
-  &.active {
-    .check-box {
-      background: $accent; /* bg-primary-500 */
-      border-color: $accent; /* border-primary-500 */
-      /* ring-4 ring-primary-50 */
-      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 0 0 4px #f0fdfa;
-    }
-    .module-text {
-      color: #0d9488; /* text-primary-600 */
-    }
-  }
-  &:hover:not(.active) .check-box {
-    border-color: #2dd4bf; /* group-hover:border-primary-400 */
-  }
 }
 .lock-hint {
   font-size: 10px; /* text-[10px] */
@@ -1080,7 +1008,7 @@ $accent-border: #ccfbf1;
   color: #a3a3a3; /* text-neutral-400 */
 }
 
-/* ===== 推荐牛人 配置区域：外层提供 dotted 顶部分隔线（跟"模块勾选行"分开） ===== */
+/* ===== 推荐牛人 配置区域：外层提供 dotted 顶部分隔线（跟固定渠道行分开） ===== */
 .recommend-section {
   padding-top: 16px;
   border-top: 1px dotted #e5e7eb;

@@ -30,7 +30,6 @@
         <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
       </svg>
       <p class="rl-state-title">{{ jobId ? '暂无推荐牛人' : '请先选择一个 BOSS 职位' }}</p>
-      <p class="rl-state-sub" v-if="jobId">在 ChatPanel 勾选「推荐牛人」并启动聚合搜索后会自动拉取</p>
     </div>
 
     <!-- 列表 -->

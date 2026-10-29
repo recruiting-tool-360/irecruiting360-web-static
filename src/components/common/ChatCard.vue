@@ -112,16 +112,24 @@
         >
           <div class="chat-message-avatar">
             <q-avatar
-              v-if="!visibleThirdSwitchPlus"
+              v-if="msg.type === 'user'"
               size="28px"
-              :color="msg.type === 'user' ? 'primary' : 'secondary'"
+              color="primary"
               text-color="white"
-              :class="`${msg.type === 'user' ? 'invisible' : ''}`"
+              aria-label="用户头像"
+            >
+              <q-icon name="person" size="18px" />
+            </q-avatar>
+            <q-avatar
+              v-else-if="!visibleThirdSwitchPlus"
+              size="28px"
+              color="secondary"
+              text-color="white"
             >
               AI
             </q-avatar>
-            <q-avatar v-else size="28px" :class="`${msg.type === 'user' ? 'invisible' : ''}`">
-              <img src="/image/AIavatar.png" />
+            <q-avatar v-else size="28px" aria-label="AI 头像">
+              <img src="/image/AIavatar.png" alt="AI" />
             </q-avatar>
           </div>
           <div class="chat-message-content">
@@ -144,6 +152,7 @@
                   v-if="resolveCardProfile(msg) || currentProfileLockType"
                   :ref="(el) => setProfileCardRef(msg, el)"
                   :profile="resolveCardProfile(msg)"
+                  :version="msg.harnessProfileVersion"
                   :enabled="currentProfileEnabled"
                   :lock-type="currentProfileLockType"
                   @copy="handleProfileCopy"
@@ -458,6 +467,7 @@ import { parseAISearchJD, getAISearchPrefix } from "src/util/parseAISearchJD";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { normalizeClientChannelConfig } from "src/util/clientChannelAvailability";
 import { extractBossFilters } from "src/util/bossSearchFilters";
+import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
 
 const store = useStore();
 const $q = useQuasar();
@@ -815,7 +825,6 @@ function isOffFlag(v) {
  *   generating      status=2
  *   failed          status=5
  *   off             status=6（已关闭）
- *   evaluation-off  aiEvaluationEnabled=false
  */
 const currentProfileLockType = computed(() => {
   const item = currentChatEntity.value;
@@ -829,7 +838,6 @@ const currentProfileLockType = computed(() => {
     if (n === 5) return "failed";
     if (n === 6) return "off";
   }
-  if (isOffFlag(item.aiEvaluationEnabled)) return "evaluation-off";
   return null;
 });
 const currentProfileEnabled = computed(() => currentProfileLockType.value === null);
@@ -2258,14 +2266,14 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   if (params?.selectedModules?.recommend) {
     const newContent = taskType === "CONTINUE" ? "保留增量搜索配置" : "清空重新搜索配置";
     // 简历份数默认值优先级：① 本 chat 上次输入框记住的份数（跟 AIProfileActionPanel 同源，
-    //   用户改过就记住）→ ② 原任务的 maxResumeCount → ③ 兜底 60。
+    //   用户改过就记住）→ ② 原任务的 maxResumeCount → ③ 默认 10。
     const _lastResume = store.getters.getLastResumeCountForChat?.(chatIdForSearch);
     const _initialResume =
       typeof _lastResume === "number" && _lastResume > 0
         ? _lastResume
         : typeof params.resumeCount === "number" && params.resumeCount > 0
         ? params.resumeCount
-        : 20;
+        : DEFAULT_RECOMMEND_RESUME_COUNT;
     const newCardData = {
       configType: taskType, // 'CONTINUE' | 'RESTART'
       chatId: chatIdForSearch,
@@ -2855,6 +2863,7 @@ function mapHistoryMessage(msg, chatIdToUse) {
     previousSearchTaskId: msg.previousSearchTaskId,
     positionProfile: msg.positionProfile ?? null,
     harnessPositionProfile: msg.harnessPositionProfile || null,
+    harnessProfileVersion: msg.harnessProfileVersion || null,
     ...(isCompletionCard ? { html: msg.content } : {})
   };
 }
@@ -3091,9 +3100,10 @@ const setMsgContainer = (msg) => {
 
   const messages = internalMessages.value;
   let foundObject = msg.id ? messages.find((item) => item.id === msg.id) : null;
-  // 部分流式响应只在最后一帧返回画像字段，且该帧可能没有 content/id，
-  // 需要把画像挂到当前最后一条 assistant 消息，不能因为没有 content 而丢弃。
-  if (!foundObject && hasProfile) {
+  // 只有「无正文、仅补画像字段」的尾帧才复用到当前最后一条 assistant 消息。
+  // 正文和画像同帧时必须按本次响应创建新消息，否则会追加到上一条任务完成卡片，
+  // 该卡片不会按普通 bot 消息渲染，表现为接口成功但页面没有新回复。
+  if (!foundObject && hasProfile && !content) {
     foundObject = [...messages].reverse().find(
       (item) => item.type === "bot" && (!msg.chatId || item.chatId === msg.chatId)
     );

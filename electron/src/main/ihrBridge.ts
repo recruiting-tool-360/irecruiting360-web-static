@@ -35,6 +35,7 @@
  *   - batchGetPositionDetailByIds(ids)               POST /candidate/AiManager/client/noauth/headcount/v2/batch/getDetailByIds
  *   - assignPositions(req)                           POST /candidate/AiManager/client/noauth/import
  *   - addPools(req)                                  POST /candidate/AiManager/client/noauth/addPools
+ *   - getCandidateFileInfo(fileId)                    GET  /candidate/AiManager/client/noauth/file/info
  *
  * 非 noauth 业务接口（仍走 cookie 鉴权）：
  *   - getSharedCandidateResume()                     GET  /candidate/resume/init
@@ -512,13 +513,14 @@ export async function syncCookiesFromLauncher(cookieStr: string | undefined | nu
 
 // =============== 业务实现 ===============
 //
-// 6 个走 accessToken / noauth 包装接口（docs/07-ihr-client-usage.md §2）：
+// 走 accessToken / noauth 包装接口（docs/07-ihr-client-usage.md §2）：
 //   GET  /candidate/AiManager/client/noauth/application/position
 //   POST /candidate/AiManager/client/noauth/headcount/v2/batch/getDetailByIds
 //   POST /candidate/AiManager/client/noauth/import
 //   POST /candidate/AiManager/client/noauth/addPools
 //   GET  /candidate/AiManager/client/noauth/resume/init        ← 2026-05-18 上线
 //   POST /candidate/AiManager/client/noauth/resume/upload      ← 2026-05-18 上线
+//   GET  /candidate/AiManager/client/noauth/file/info          ← 查询候选人原始文件
 
 async function getApplicationPosition(): Promise<IhrApiResult<unknown>> {
   console.log('[ihrBridge] getApplicationPosition 查询 i 人事在招职位')
@@ -688,6 +690,35 @@ async function uploadFile(arg: {
   }
 }
 
+interface CandidateFileInfo {
+  fileName?: string
+  contentType?: string
+  fileUrl?: string
+  fileSize?: string | number
+}
+
+/**
+ * 根据候选人简历的 fileId 查询原始文件地址。
+ * 新接口返回 fileName / contentType / fileUrl / fileSize，文件可能为 PDF 或图片。
+ */
+async function getCandidateFileInfo(fileId: string): Promise<IhrApiResult<CandidateFileInfo>> {
+  const normalizedFileId = typeof fileId === 'string' ? fileId.trim() : ''
+  if (!normalizedFileId) return fail('missing fileId')
+
+  const result = await noauthFetch<CandidateFileInfo>(
+    `file/info?fileId=${encodeURIComponent(normalizedFileId)}`,
+    { method: 'GET' }
+  )
+  console.log(
+    '[API-TRACE] GET /candidate/AiManager/client/noauth/file/info 原始返回值:',
+    JSON.stringify(result)
+  )
+  if (result.success && !result.data?.fileUrl) {
+    return fail('文件信息缺少 fileUrl', { errorCode: 'PARSE' })
+  }
+  return result
+}
+
 // =============== 鉴权辅助：检查 cookie / 引导登录 ===============
 
 async function checkManageAuth(): Promise<{
@@ -776,6 +807,9 @@ export function registerIhrBridgeIpc(): void {
         centralUpload?: boolean
       }
     ) => uploadFile(arg)
+  )
+  ipcMain.handle('ihrBridge:getCandidateFileInfo', (_e, fileId: string) =>
+    getCandidateFileInfo(fileId)
   )
 
   ipcMain.handle('ihrBridge:checkManageAuth', () => checkManageAuth())

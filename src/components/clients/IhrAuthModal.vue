@@ -197,8 +197,9 @@ $neutral-900: #171717;
   right: 0;
   bottom: 0;
   left: 0;
-  background: rgba(23, 23, 23, 0.4); /* neutral-900/40 */
-  backdrop-filter: blur(4px);
+  // 固定半透明遮罩，不使用 backdrop-filter。
+  // Electron 下全屏 backdrop blur 会随内部动画反复参与合成，部分 GPU 会整窗闪烁。
+  background: rgba(23, 23, 23, 0.5);
 }
 
 .ihr-auth-card {
@@ -270,8 +271,7 @@ $neutral-900: #171717;
   position: absolute;
   inset: 0;
   border-radius: 24px;
-  background: rgba(20, 184, 166, 0.1);
-  animation: ihr-auth-pulse 2s ease-in-out infinite;
+  background: rgba(20, 184, 166, 0.08);
 }
 
 .ihr-auth-icon-sparkles {
@@ -280,18 +280,6 @@ $neutral-900: #171717;
   width: 40px;
   height: 40px;
   color: $primary-500;
-}
-
-@keyframes ihr-auth-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(1.04);
-  }
 }
 
 /* 标题 + 描述 */

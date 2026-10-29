@@ -8,11 +8,11 @@
  *      用户上次留下的 select 状态（或者首次加载时 URL 参数没生效），所以需要
  *      **主动点开顶部职位下拉 → 选中目标 <li>** 把 BOSS 强制切到我们要的职位
  *
- * 节奏 / dwell 设计（拟人化关键，总耗时 ≈ 31.5s）：
- *   - 打开 tab → 15s 初始 dwell（等 iframe + Vue + 反爬脚本稳定）
- *   - CDP click `.job-selecter-wrap` 打开下拉 → **15s 浏览 dwell**
- *     （人会扫一眼列表才挑目标；秒级点击是机器特征，BOSS 风控会盯）
- *   - CDP click `li.job-item[value=...]` 选中 → 1.5s settle 让 BOSS 拉新数据
+ * 节奏设计（按 DOM 就绪动态推进，15s 仅作为兜底上限）：
+ *   - 打开 tab → 等 `.job-selecter-wrap` 出现、可见并连续稳定约 120ms
+ *   - CDP click `.job-selecter-wrap` 打开下拉 → 等列表节点和 `.curr` 渲染完成
+ *   - 目标职位不在下拉可视区时，先滚动职位列表 → CDP click `li.job-item[value=...]`
+ *   - 点击后立即轮询 `.curr`，确认切到目标职位就返回，避免固定等待
  *
  * DOM 结构（位于 BOSS 推荐宿主页内嵌的 /web/frame/recommend iframe 中）：
  *
@@ -38,18 +38,21 @@
  *   - 走 webContents.debugger 同进程 CDP（不开 --remote-debugging-port、不连 WS、
  *     不暴露 navigator.webdriver）
  *   - Input.dispatchMouseEvent 产生的事件 `isTrusted=true`
- *   - 节奏控制：打开 tab → 15s 初始等待 → 点 select → 15s 浏览下拉 → 点 li →
- *     1.5s 等 BOSS 切职位并自动拉新数据，全程跟真实用户操作节奏接近
+ *   - 节奏控制：DOM 就绪即继续，15s 只是页面加载/下拉渲染的兜底超时；
+ *     点击后立即校验职位切换，成功即返回
  *   - **不要**短时间内反复调本函数切换不同职位（明显爬虫节奏），切换间隔保持 10s+
  */
 
 import notify from "src/util/notify";
 import { normalizeBossJobId } from "src/util/bossSearchFilters";
 
-const DEFAULT_INITIAL_DELAY_MS = 15_000;       // 等 BOSS 宿主页把目标 jobid 同步到 iframe，并完成 Vue 渲染
-const DEFAULT_DROPDOWN_DWELL_MS = 15_000;      // 拟人化浏览下拉列表，避免打开后立即选择
-const DEFAULT_SELECT_SETTLE_MS = 1500;         // 选中 li 后等 BOSS 重新拉数据
+const DEFAULT_INITIAL_WAIT_TIMEOUT_MS = 15_000;    // 页面 DOM 就绪的最长等待，命中后提前继续
+const DEFAULT_DROPDOWN_READY_TIMEOUT_MS = 15_000;  // 下拉 DOM 就绪的最长等待，命中后提前继续
+const DEFAULT_DOM_STABLE_MS = 120;                 // 同一 DOM 状态连续稳定后认为可操作
+const DEFAULT_DROPDOWN_BROWSE_MS = 180;            // 下拉出现后的轻微视线停留
+const DEFAULT_SELECT_VERIFY_TIMEOUT_MS = 3_000;    // 点击后校验切换的最长等待
 const CURRENT_JOB_READ_TIMEOUT_MS = 3_000;
+const TARGET_JOB_REVEAL_TIMEOUT_MS = 3_000;
 
 /** 触发职位下拉的元素 selector（业务方可覆盖） */
 const DEFAULT_TRIGGER_SELECTOR = ".job-selecter-wrap";
@@ -80,12 +83,250 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function randomBetween(min, max) {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
 function withTimeout(promise, timeoutMs, timeoutMessage) {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * 等职位选择器出现、可见并短暂稳定。页面加载完成就立即返回，不再固定 sleep 15s。
+ */
+async function waitForBossJobPageReady(tabId, triggerSelector, timeoutMs, stableMs) {
+  const code = `
+(function waitForBossJobPageReady() {
+  var selector = ${JSON.stringify(triggerSelector)};
+  var timeoutMs = ${Number(timeoutMs) || 0};
+  var stableMs = ${Number(stableMs) || 0};
+  var startedAt = Date.now();
+
+  function documents() {
+    var result = [{ doc: document, label: 'mainFrame', src: location.href }];
+    var iframes = document.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      try {
+        if (iframes[i].contentDocument) {
+          result.push({
+            doc: iframes[i].contentDocument,
+            label: iframes[i].src || ('iframe[' + i + ']'),
+            src: iframes[i].src || ''
+          });
+        }
+      } catch (e) {}
+    }
+    return result;
+  }
+
+  function readState() {
+    var docs = documents();
+    var diagnostics = [];
+    for (var i = 0; i < docs.length; i++) {
+      var el = docs[i].doc.querySelector(selector);
+      if (!el) {
+        diagnostics.push(docs[i].label + ': element=null');
+        continue;
+      }
+      var style = el.ownerDocument.defaultView.getComputedStyle(el);
+      var rect = el.getBoundingClientRect();
+      var visible =
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden';
+      diagnostics.push(
+        docs[i].label + ': element=found size=' + Math.round(rect.width) + 'x' + Math.round(rect.height) +
+        ' display=' + style.display + ' visibility=' + style.visibility
+      );
+      if (!visible) continue;
+      return {
+        found: true,
+        foundIn: docs[i].label,
+        iframeSrc: docs[i].src || '',
+        width: rect.width,
+        height: rect.height,
+        diagnostics: diagnostics
+      };
+    }
+    return { found: false, diagnostics: diagnostics };
+  }
+
+  return new Promise(function(resolve) {
+    var lastSignature = '';
+    var stableSince = 0;
+    var lastState = null;
+
+    function poll() {
+      var now = Date.now();
+      var state = readState();
+      if (state && state.found) {
+        var signature = state.foundIn + '|' + state.iframeSrc + '|' + Math.round(state.width) + 'x' + Math.round(state.height);
+        if (signature !== lastSignature) {
+          lastSignature = signature;
+          stableSince = now;
+        } else if (now - stableSince >= stableMs) {
+          resolve(Object.assign({ ok: true, elapsedMs: now - startedAt }, state));
+          return;
+        }
+        lastState = state;
+      } else {
+        lastSignature = '';
+        stableSince = 0;
+        lastState = null;
+      }
+
+      if (now - startedAt >= timeoutMs) {
+        resolve({
+          ok: false,
+          timedOut: true,
+          elapsedMs: now - startedAt,
+          lastState: lastState,
+          diagnostics: state && state.diagnostics ? state.diagnostics : []
+        });
+        return;
+      }
+      setTimeout(poll, 60);
+    }
+
+    poll();
+  });
+})();
+`;
+  const res = await withTimeout(
+    window.api.automation.evalOnTab({ tabId, code, awaitPromise: true }),
+    Math.max(2_000, Number(timeoutMs) + 2_000),
+    `等待 BOSS 职位选择器就绪超时（${timeoutMs}ms）`
+  );
+  if (!res?.ok) {
+    return { ok: false, error: `EVAL_FAILED: ${res?.error?.message || "UNKNOWN"}` };
+  }
+  return res.result || { ok: false, error: "NO_RESULT" };
+}
+
+/**
+ * 等下拉真正展开且职位列表完成首帧渲染。DOM 条件满足后立即返回。
+ */
+async function waitForBossJobDropdownReady(
+  tabId,
+  triggerSelector,
+  timeoutMs,
+  stableMs
+) {
+  const code = `
+(function waitForBossJobDropdownReady() {
+  var triggerSelector = ${JSON.stringify(triggerSelector)};
+  var timeoutMs = ${Number(timeoutMs) || 0};
+  var stableMs = ${Number(stableMs) || 0};
+  var startedAt = Date.now();
+
+  function documents() {
+    var result = [{ doc: document, label: 'mainFrame', src: location.href }];
+    var iframes = document.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      try {
+        if (iframes[i].contentDocument) {
+          result.push({
+            doc: iframes[i].contentDocument,
+            label: iframes[i].src || ('iframe[' + i + ']'),
+            src: iframes[i].src || ''
+          });
+        }
+      } catch (e) {}
+    }
+    return result;
+  }
+
+  function readState() {
+    var docs = documents();
+    for (var i = 0; i < docs.length; i++) {
+      var wrapper = docs[i].doc.querySelector(triggerSelector);
+      if (!wrapper) continue;
+
+      var list = wrapper.querySelector('.ui-dropmenu-list');
+      if (!list) continue;
+      var wrapperStyle = wrapper.ownerDocument.defaultView.getComputedStyle(wrapper);
+      var listStyle = list.ownerDocument.defaultView.getComputedStyle(list);
+      var listRect = list.getBoundingClientRect();
+      var openedClass = wrapper.classList.contains('ui-dropmenu-visible');
+      var listVisible =
+        listRect.width > 0 &&
+        listRect.height > 0 &&
+        listStyle.display !== 'none' &&
+        listStyle.visibility !== 'hidden';
+      if (!openedClass || !listVisible) continue;
+
+      var items = wrapper.querySelectorAll('.job-list li.job-item[value]');
+      if (items.length === 0) continue;
+      var current = wrapper.querySelector('.job-list li.job-item.curr[value]');
+      var currentId = current ? current.getAttribute('value') : '';
+
+      return {
+        found: true,
+        foundIn: docs[i].label,
+        iframeSrc: docs[i].src || '',
+        itemCount: items.length,
+        currentSelectedJobId: currentId,
+        wrapperClass: wrapper.className || '',
+        wrapperVisibility: wrapperStyle.visibility
+      };
+    }
+    return null;
+  }
+
+  return new Promise(function(resolve) {
+    var lastSignature = '';
+    var stableSince = 0;
+    var lastState = null;
+
+    function poll() {
+      var now = Date.now();
+      var state = readState();
+      if (state) {
+        var signature = state.foundIn + '|' + state.iframeSrc + '|' + state.itemCount + '|' + state.currentSelectedJobId + '|' + state.wrapperClass;
+        if (signature !== lastSignature) {
+          lastSignature = signature;
+          stableSince = now;
+        } else if (now - stableSince >= stableMs) {
+          resolve(Object.assign({ ok: true, elapsedMs: now - startedAt }, state));
+          return;
+        }
+        lastState = state;
+      } else {
+        lastSignature = '';
+        stableSince = 0;
+        lastState = null;
+      }
+
+      if (now - startedAt >= timeoutMs) {
+        resolve({
+          ok: false,
+          timedOut: true,
+          elapsedMs: now - startedAt,
+          lastState: lastState
+        });
+        return;
+      }
+      setTimeout(poll, 60);
+    }
+
+    poll();
+  });
+})();
+`;
+  const res = await withTimeout(
+    window.api.automation.evalOnTab({ tabId, code, awaitPromise: true }),
+    Math.max(2_000, Number(timeoutMs) + 2_000),
+    `等待 BOSS 职位下拉就绪超时（${timeoutMs}ms）`
+  );
+  if (!res?.ok) {
+    return { ok: false, error: `EVAL_FAILED: ${res?.error?.message || "UNKNOWN"}` };
+  }
+  return res.result || { ok: false, error: "NO_RESULT" };
 }
 
 /**
@@ -98,9 +339,14 @@ function withTimeout(promise, timeoutMs, timeoutMessage) {
  * @param {string} tabId
  * @param {string} encryptJobId  目标职位的 encryptJobId（DOM 里 li.job-item 的 value 属性值）
  * @param {object} [opts]
- * @param {number} [opts.initialDelayMs=15000]    打开后等待宿主页和职位 iframe 完成渲染
- * @param {number} [opts.dropdownDwellMs=15000]   打开下拉后拟人化浏览列表
- * @param {number} [opts.selectSettleMs=1500]
+ * @param {number} [opts.initialWaitTimeoutMs=15000]  页面 DOM 就绪的最长等待，就绪即继续
+ * @param {number} [opts.initialDelayMs]              initialWaitTimeoutMs 的兼容别名
+ * @param {number} [opts.dropdownReadyTimeoutMs=15000] 下拉 DOM 就绪的最长等待，就绪即继续
+ * @param {number} [opts.dropdownDwellMs]             dropdownReadyTimeoutMs 的兼容别名
+ * @param {number} [opts.domStableMs=120]              DOM 状态稳定窗口
+ * @param {number} [opts.dropdownBrowseMs=180]         下拉出现后的轻微视线停留
+ * @param {number} [opts.selectVerifyTimeoutMs=3000]   点击后校验职位切换的最长等待
+ * @param {number} [opts.selectSettleMs]              selectVerifyTimeoutMs 的兼容别名
  * @param {string} [opts.triggerSelector=".job-selecter-wrap"]  触发下拉的元素 selector（可覆盖）
  * @param {(stage: string, payload?: object) => void} [opts.onProgress]  阶段回调
 /**
@@ -144,6 +390,133 @@ async function readCurrentSelectedJobId(tabId) {
 }
 
 /**
+ * 把目标职位项在 BOSS 下拉自身的滚动容器中滚到可视区。
+ *
+ * clickOnTab 只用元素中心点发送 CDP 鼠标事件，并且当前可见性判断只看 iframe
+ * viewport。职位列表很长时，靠下 li 虽然仍在 DOM 中，但会被 `.ui-dropmenu-list`
+ * / `.job-selecter-options` 的内部 overflow 裁切；此时直接按 li 中心坐标点击会
+ * 落到下拉框下面的页面区域。这里只滚动 DOM，点击仍然走 clickOnTab。
+ */
+async function revealTargetJobOption(tabId, optionSelector) {
+  const code = `
+(function revealTargetJobOption() {
+  var selector = ${JSON.stringify(optionSelector)};
+  var docs = [{ doc: document, label: 'mainFrame' }];
+  var iframes = document.querySelectorAll('iframe');
+  for (var i = 0; i < iframes.length; i++) {
+    try {
+      if (iframes[i].contentDocument) {
+        docs.push({ doc: iframes[i].contentDocument, label: iframes[i].src || ('iframe[' + i + ']') });
+      }
+    } catch (e) {}
+  }
+
+  function findScroller(el) {
+    var node = el.parentElement;
+    var fallback = null;
+    while (node && node !== node.ownerDocument.body) {
+      var style = node.ownerDocument.defaultView.getComputedStyle(node);
+      var overflowY = style.overflowY;
+      if (node.matches('.job-selecter-options, .ui-dropmenu-list')) {
+        fallback = node;
+      }
+      if (
+        node.scrollHeight > node.clientHeight + 1 &&
+        (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+      ) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return fallback;
+  }
+
+  for (var di = 0; di < docs.length; di++) {
+    var el = docs[di].doc.querySelector(selector);
+    if (!el) continue;
+
+    var scroller = findScroller(el);
+    if (!scroller) {
+      return {
+        found: true,
+        visible: false,
+        foundIn: docs[di].label,
+        error: 'SCROLL_CONTAINER_NOT_FOUND'
+      };
+    }
+
+    el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'nearest' });
+
+    var margin = 8;
+    var targetRect = el.getBoundingClientRect();
+    var scrollerRect = scroller.getBoundingClientRect();
+    if (targetRect.top < scrollerRect.top + margin) {
+      scroller.scrollTop += targetRect.top - scrollerRect.top - margin;
+    } else if (targetRect.bottom > scrollerRect.bottom - margin) {
+      scroller.scrollTop += targetRect.bottom - scrollerRect.bottom + margin;
+    }
+
+    targetRect = el.getBoundingClientRect();
+    scrollerRect = scroller.getBoundingClientRect();
+    var visible =
+      targetRect.width > 0 &&
+      targetRect.height > 0 &&
+      targetRect.top >= scrollerRect.top - 1 &&
+      targetRect.bottom <= scrollerRect.bottom + 1;
+
+    return {
+      found: true,
+      visible: visible,
+      foundIn: docs[di].label,
+      scrollTop: scroller.scrollTop,
+      targetTop: targetRect.top,
+      targetBottom: targetRect.bottom,
+      scrollerTop: scrollerRect.top,
+      scrollerBottom: scrollerRect.bottom
+    };
+  }
+
+  return { found: false, visible: false };
+})();
+`;
+  const res = await withTimeout(
+    window.api.automation.evalOnTab({ tabId, code }),
+    TARGET_JOB_REVEAL_TIMEOUT_MS,
+    `滚动目标职位超时（${TARGET_JOB_REVEAL_TIMEOUT_MS}ms）`
+  );
+  if (!res?.ok) {
+    return {
+      found: false,
+      visible: false,
+      error: `EVAL_FAILED: ${res?.error?.message || "UNKNOWN"}`
+    };
+  }
+  return res.result || { found: false, visible: false, error: "NO_RESULT" };
+}
+
+async function waitForSelectedJob(tabId, encryptJobId, timeoutMs) {
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  let lastRead = null;
+  do {
+    try {
+      lastRead = await readCurrentSelectedJobId(tabId);
+      if (lastRead?.ok && lastRead.value === encryptJobId) {
+        return { ok: true, value: lastRead.value, read: lastRead };
+      }
+    } catch (error) {
+      lastRead = { ok: false, error: error?.message || String(error) };
+    }
+    if (Date.now() >= deadline) break;
+    await sleep(200);
+  } while (Date.now() <= deadline);
+  return {
+    ok: false,
+    value: lastRead?.ok ? lastRead.value : null,
+    read: lastRead
+  };
+}
+
+/**
  * @returns {Promise<{
  *   ok: boolean,
  *   encryptJobId?: string,
@@ -176,37 +549,76 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     return { ok: false, errorCode: "BAD_REQUEST", message: "encryptJobId required" };
   }
 
-  const initialDelayMs = Math.max(0, opts.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS);
-  // 兼容旧入参名 dropdownRenderMs（早期 API），优先用新的 dropdownDwellMs
-  const dropdownDwellMs = Math.max(
+  const initialWaitTimeoutMs = Math.max(
     0,
-    opts.dropdownDwellMs ?? opts.dropdownRenderMs ?? DEFAULT_DROPDOWN_DWELL_MS
+    opts.initialWaitTimeoutMs ?? opts.initialDelayMs ?? DEFAULT_INITIAL_WAIT_TIMEOUT_MS
   );
-  const selectSettleMs = Math.max(0, opts.selectSettleMs ?? DEFAULT_SELECT_SETTLE_MS);
+  const dropdownReadyTimeoutMs = Math.max(
+    0,
+    opts.dropdownReadyTimeoutMs ??
+      opts.dropdownDwellMs ??
+      opts.dropdownRenderMs ??
+      DEFAULT_DROPDOWN_READY_TIMEOUT_MS
+  );
+  const domStableMs = Math.max(0, opts.domStableMs ?? DEFAULT_DOM_STABLE_MS);
+  const dropdownBrowseMs = Math.max(
+    0,
+    opts.dropdownBrowseMs ?? DEFAULT_DROPDOWN_BROWSE_MS
+  );
+  const selectVerifyTimeoutMs = Math.max(
+    0,
+    opts.selectVerifyTimeoutMs ?? opts.selectSettleMs ?? DEFAULT_SELECT_VERIFY_TIMEOUT_MS
+  );
   const triggerSelector = opts.triggerSelector || DEFAULT_TRIGGER_SELECTOR;
   const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
 
   console.log(
     "[任务流程]", `[bossSelectJob] start tabId=${tabId} encryptJobId=${encryptJobId} ` +
-      `initialDelay=${initialDelayMs}ms dropdownDwell=${dropdownDwellMs}ms ` +
-      `selectSettle=${selectSettleMs}ms triggerSelector=${triggerSelector}`
+      `initialWaitTimeout=${initialWaitTimeoutMs}ms dropdownReadyTimeout=${dropdownReadyTimeoutMs}ms ` +
+      `domStable=${domStableMs}ms dropdownBrowse=${dropdownBrowseMs}ms ` +
+      `selectVerifyTimeout=${selectVerifyTimeoutMs}ms triggerSelector=${triggerSelector}`
   );
 
+  const startJitterMs = randomBetween(1000, 3000);
+  console.log(`[任务流程] [bossSelectJob] 选择职位前随机等待 ${startJitterMs}ms`);
+  await sleep(startJitterMs);
+
   try {
-    // ============= Step 1: 初始 dwell（等 BOSS 完全稳定）=============
+    // ============= Step 1: 等职位选择器 DOM 就绪 =============
     //
-    // BOSS 推荐宿主 chat/recommend 跳转后会：
-    //   - 重新挂载 iframe /web/frame/recommend
-    //   - iframe 内部跑大量 BOSS 自家 JS 初始化（include 反爬探针、Vue mount、首屏请求）
-    //   - 顶部 `.job-selecter-wrap` 是 Vue 渲染的，DOM ready ≠ Vue 渲染完成
-    //
-    // BOSS 宿主页会先渲染一个 jobid=null 的 iframe，再异步同步目标职位并挂载 Vue。
-    // 这个切换完成前用选择器找不到 .job-selecter-wrap，必须等页面真正稳定。
-    onProgress("waiting", { delayMs: initialDelayMs });
-    if (initialDelayMs > 0) {
-      console.log(`[任务流程] [bossSelectJob] 等待 ${initialDelayMs}ms 让 iframe + Vue + 反爬脚本稳定`);
-      await sleep(initialDelayMs);
+    // BOSS 宿主页会先挂载 iframe，再做 Vue 渲染和 jobid 同步。这里不固定 sleep，
+    // 而是等待 `.job-selecter-wrap` 真实可见并连续稳定一段时间；15s 只是兜底上限。
+    onProgress("waiting", {
+      timeoutMs: initialWaitTimeoutMs,
+      stableMs: domStableMs,
+      strategy: "dom-ready"
+    });
+    console.log(
+      `[任务流程] [bossSelectJob] 等待 ${triggerSelector} 的 DOM 就绪 ` +
+        `(timeout=${initialWaitTimeoutMs}ms stable=${domStableMs}ms)`
+    );
+    const pageReady = await waitForBossJobPageReady(
+      tabId,
+      triggerSelector,
+      initialWaitTimeoutMs,
+      domStableMs
+    );
+    if (!pageReady.ok) {
+      const message =
+        `等待 BOSS 职位选择器就绪失败: ${pageReady.error || "TIMEOUT"} ` +
+        `elapsed=${pageReady.elapsedMs || 0}ms`;
+      console.warn("[任务流程] [bossSelectJob]", message, pageReady);
+      return {
+        ok: false,
+        encryptJobId,
+        errorCode: "OPEN_DROPDOWN_FAILED",
+        message
+      };
     }
+    console.log(
+      `[任务流程] [bossSelectJob] 职位选择器已就绪 elapsed=${pageReady.elapsedMs}ms ` +
+        `foundIn=${pageReady.foundIn} iframe=${pageReady.iframeSrc || "(main)"}`
+    );
 
     // ============= Step 2: 点开职位下拉 =============
     //
@@ -240,18 +652,45 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       `[任务流程] [bossSelectJob] 下拉已打开 at (${openRes.data?.x},${openRes.data?.y}) in ${openRes.data?.foundIn}`
     );
 
-    // ============= Step 3: 下拉打开后浏览 dwell（拟人化关键）=============
+    // ============= Step 3: 等下拉和职位节点完成渲染 =============
     //
-    // BOSS 用 ui-dropmenu 组件，点 trigger 后会加 .expanding class + 渲染
-    // .ui-dropmenu-list 下的 .job-list ul。渲染本身大概 100-300ms，但**不能**
-    // 渲染完就立刻点目标 li——这是典型机器特征，BOSS 风控会盯。
-    //
-    // 默认停留 15s 模拟真实用户浏览下拉列表；业务方可通过 opts 显式覆盖。
-    onProgress("browsingDropdown", { dwellMs: dropdownDwellMs });
-    if (dropdownDwellMs > 0) {
-      console.log(`[任务流程] [bossSelectJob] 下拉已打开，dwell ${dropdownDwellMs}ms 模拟人眼浏览列表`);
-      await sleep(dropdownDwellMs);
+    // BOSS 点 trigger 后会加 .ui-dropmenu-visible/.expanding，并渲染
+    // `.job-list li.job-item`。这里等到可见下拉、职位节点和稳定状态同时满足，
+    // 再保留一个很短的浏览停留用于界面稳定。
+    onProgress("browsingDropdown", {
+      timeoutMs: dropdownReadyTimeoutMs,
+      stableMs: domStableMs,
+      browseMs: dropdownBrowseMs,
+      strategy: "dropdown-dom-ready"
+    });
+    console.log(
+      `[任务流程] [bossSelectJob] 等待职位下拉 DOM 就绪 ` +
+        `(timeout=${dropdownReadyTimeoutMs}ms stable=${domStableMs}ms)`
+    );
+    const dropdownReady = await waitForBossJobDropdownReady(
+      tabId,
+      triggerSelector,
+      dropdownReadyTimeoutMs,
+      domStableMs
+    );
+    if (!dropdownReady.ok) {
+      const message =
+        `等待 BOSS 职位下拉渲染失败: ${dropdownReady.error || "TIMEOUT"} ` +
+        `elapsed=${dropdownReady.elapsedMs || 0}ms`;
+      console.warn("[任务流程] [bossSelectJob]", message, dropdownReady);
+      return {
+        ok: false,
+        encryptJobId,
+        errorCode: "OPEN_DROPDOWN_FAILED",
+        message,
+        logs: openRes.logs
+      };
     }
+    console.log(
+      `[任务流程] [bossSelectJob] 职位下拉已就绪 elapsed=${dropdownReady.elapsedMs}ms ` +
+        `items=${dropdownReady.itemCount} current=${dropdownReady.currentSelectedJobId || "未知"}`
+    );
+    if (dropdownBrowseMs > 0) await sleep(dropdownBrowseMs);
 
     // ============= Step 4: 读当前已选职位，判断是否需要 click target =============
     //
@@ -263,17 +702,25 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     // → 这时**不要点 li**，直接关闭下拉。上层用 tab open 之前的 sinceTs 等首屏响应即可。
     //
     // 关闭下拉的方式：再次 CDP click `.job-selecter-wrap` toggle 关闭（BOSS ui-dropmenu 标准行为）。
-    console.log("[任务流程] [bossSelectJob] 开始读取当前已选职位（最多等待 3s）");
-    let currRead;
-    try {
-      currRead = await readCurrentSelectedJobId(tabId);
-    } catch (error) {
-      // 读取当前职位只是优化项，不能阻塞后续目标职位点击。
-      console.warn(
-        "[任务流程] [bossSelectJob] 读取当前已选职位失败，继续点击目标职位:",
-        error?.message || error
-      );
-      currRead = { ok: false, error: "CURRENT_JOB_READ_TIMEOUT" };
+    let currRead = dropdownReady.currentSelectedJobId
+      ? {
+          ok: true,
+          value: dropdownReady.currentSelectedJobId,
+          foundIn: dropdownReady.foundIn
+        }
+      : null;
+    if (!currRead) {
+      console.log("[任务流程] [bossSelectJob] 下拉已渲染但未读到当前职位，追加读取（最多 3s）");
+      try {
+        currRead = await readCurrentSelectedJobId(tabId);
+      } catch (error) {
+        // 读取当前职位只是优化项，不能阻塞后续目标职位点击。
+        console.warn(
+          "[任务流程] [bossSelectJob] 读取当前已选职位失败，继续点击目标职位:",
+          error?.message || error
+        );
+        currRead = { ok: false, error: "CURRENT_JOB_READ_TIMEOUT" };
+      }
     }
     const currentSelectedJobId = currRead?.ok ? currRead.value : null;
     console.log(
@@ -298,9 +745,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
           closeRes?.error?.message
         );
       }
-      onProgress("settling", { delayMs: selectSettleMs });
-      if (selectSettleMs > 0) await sleep(selectSettleMs);
-      onProgress("done");
+      onProgress("done", { alreadySelected: true, elapsedMs: 0 });
       console.log(
         "[任务流程]", `[bossSelectJob] DONE alreadySelected=true encryptJobId=${encryptJobId} ` +
           `（不点 li，上层用 tab open 前的 sinceTs 等首屏响应）`
@@ -321,12 +766,41 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
     const optionSelector = buildOptionSelector(encryptJobId);
     onProgress("selectingItem", { selector: optionSelector });
     console.log(
-      `[任务流程] [bossSelectJob] CDP click ${optionSelector}（切换：${currentSelectedJobId || "未知"} → ${encryptJobId}）`
+      `[任务流程] [bossSelectJob] 准备选择 ${optionSelector}（切换：${currentSelectedJobId || "未知"} → ${encryptJobId}）`
     );
+
+    const revealRes = await revealTargetJobOption(tabId, optionSelector);
+    if (!revealRes.found || !revealRes.visible) {
+      const selectionErrorCode = revealRes.found
+        ? "TARGET_JOB_NOT_VISIBLE"
+        : "TARGET_JOB_NOT_FOUND";
+      const message = revealRes.found
+        ? `目标职位已找到，但无法滚动到下拉可视区: ${JSON.stringify(revealRes)}`
+        : `目标职位不在 BOSS 职位下拉列表中（targetJobId=${encryptJobId}）: ${revealRes.error || "NOT_FOUND"}`;
+      console.warn("[任务流程] [bossSelectJob] 定位目标职位失败:", message);
+      return {
+        ok: false,
+        encryptJobId,
+        alreadySelected: false,
+        currentSelectedJobId,
+        openDropdown: openRes.data,
+        errorCode: "SELECT_JOB_FAILED",
+        selectionErrorCode,
+        message,
+        logs: openRes.logs
+      };
+    }
+    console.log(
+      `[任务流程] [bossSelectJob] 目标职位已滚入可视区 scrollTop=${revealRes.scrollTop} ` +
+        `target=${revealRes.targetTop}-${revealRes.targetBottom} ` +
+        `container=${revealRes.scrollerTop}-${revealRes.scrollerBottom}`
+    );
+    await sleep(150);
+
     // 记录 li click 之前的时间戳，给上层 waitForResponse 当 sinceTs。
     // BOSS 点 li 后会发 /wapi/zpjob/rec/geek/list 拉新职位数据，
     // 这个时间戳能保证 waitForResponse 只接收"click 之后"的响应，避免
-    // 命中页面初始加载时的旧首屏数据。
+    // 命中页面初始加载时的旧首屏数据。必须在滚动完成后记录。
     const liClickedAt = Date.now();
     const selectRes = await window.api.automation.clickOnTab({
       tabId,
@@ -356,13 +830,39 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       };
     }
     console.log(
-      `[任务流程] [bossSelectJob] 已选中 at (${selectRes.data?.x},${selectRes.data?.y}) in ${selectRes.data?.foundIn}`
+      `[任务流程] [bossSelectJob] 已发送 CDP click at (${selectRes.data?.x},${selectRes.data?.y}) in ${selectRes.data?.foundIn}`
     );
 
-    // ============= Step 6: 等 BOSS 切职位 + 拉新数据稳定 =============
-    onProgress("settling", { delayMs: selectSettleMs });
-    if (selectSettleMs > 0) {
-      await sleep(selectSettleMs);
+    // ============= Step 6: 等 BOSS 真正切到目标职位 =============
+    onProgress("settling", {
+      timeoutMs: selectVerifyTimeoutMs,
+      strategy: "poll-current-job"
+    });
+
+    // clickOnTab 只代表鼠标事件发送成功，不代表页面状态已经切换。
+    // 这里不再固定等待，立即轮询 `.curr`；一旦切到目标就继续。
+    const verifyRes = await waitForSelectedJob(
+      tabId,
+      encryptJobId,
+      selectVerifyTimeoutMs
+    );
+    if (!verifyRes.ok) {
+      const message =
+        `点击目标职位后未完成切换，当前职位=${verifyRes.value || "未知"}，` +
+        `目标职位=${encryptJobId}`;
+      console.warn("[任务流程] [bossSelectJob] 职位切换校验失败:", message);
+      return {
+        ok: false,
+        encryptJobId,
+        alreadySelected: false,
+        currentSelectedJobId: verifyRes.value || currentSelectedJobId,
+        openDropdown: openRes.data,
+        liClickedAt,
+        errorCode: "SELECT_JOB_FAILED",
+        selectionErrorCode: "SELECTION_NOT_APPLIED",
+        message,
+        logs: [...(openRes.logs || []), ...(selectRes.logs || [])]
+      };
     }
 
     onProgress("done");
@@ -372,6 +872,7 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
       encryptJobId,
       alreadySelected: false,
       currentSelectedJobId,
+      selectedJobId: verifyRes.value,
       openDropdown: openRes.data,
       selectItem: selectRes.data,
       liClickedAt,
@@ -396,11 +897,11 @@ export async function selectJobInBossRecommend(tabId, encryptJobId, opts = {}) {
  *
  * 跟 `fetchBossRecommendList` 的区别：
  *   - fetchBossRecommendList：打开 → 被动等 BOSS 自家 SPA 因 URL 触发的首屏请求
- *   - openAndSelectBossRecommend（本函数）：打开 → 等 15s → 主动 click select 切职位 →
+ *   - openAndSelectBossRecommend（本函数）：打开 → 等职位 DOM 就绪 → 主动 click select 切职位 →
  *                                          等 select 切换触发的新首屏请求
  *
  * 用 `openAndSelectBossRecommend` 时，URL 里也带 ?jobid=... 是无害的（BOSS 会先按
- * URL 渲染一次，15s 后我们 click 把 select 切到同一职位 → 没切换效果，但保证
+ * URL 渲染一次；选择器 DOM 就绪后我们 click 把 select 切到同一职位，保证
  * UI 一致性 + 触发一次稳定的数据刷新）。
  *
  * @param {object} args

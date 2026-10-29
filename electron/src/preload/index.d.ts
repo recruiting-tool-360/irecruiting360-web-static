@@ -175,6 +175,13 @@ export interface IhrAccessTokenStatus {
   expired: boolean
 }
 
+export interface CandidateFileInfo {
+  fileName?: string
+  contentType?: string
+  fileUrl?: string
+  fileSize?: string | number
+}
+
 export interface IhrBridge {
   getApplicationPosition(): Promise<IhrApiResult>
   /** 是否有 i 快招使用权限（GET client/noauth/hasAuthority，无入参） */
@@ -190,6 +197,8 @@ export interface IhrBridge {
     mime?: string
     centralUpload?: boolean
   }): Promise<IhrApiResult>
+  /** 根据简历 fileId 查询原始文件信息（fileUrl 可能为 PDF 或图片） */
+  getCandidateFileInfo(fileId: string): Promise<IhrApiResult<CandidateFileInfo>>
   /** 检查 manage partition 是否已登录 + accessToken 状态 */
   checkManageAuth(): Promise<IhrManageAuthStatus>
   /** 单独查询 accessToken 状态（不查 cookie） */
@@ -662,6 +671,29 @@ export interface AppUpdaterBridge {
   ): () => void
 }
 
+export interface RuntimeConfigValues {
+  /** true 时把 BOSS 已查看候选人纳入任务；默认 false，即跳过已读候选人。 */
+  includeViewedCandidates: boolean
+}
+
+/**
+ * 仅当前 Electron 进程有效的运行时配置。
+ * 不持久化，应用退出后恢复默认值。set/reset 仅允许在 QA2 客户端执行。
+ */
+export interface RuntimeConfigBridge {
+  get(): RuntimeConfigValues
+  get<K extends keyof RuntimeConfigValues>(key: K): RuntimeConfigValues[K]
+  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  set<K extends keyof RuntimeConfigValues>(
+    key: K,
+    value: RuntimeConfigValues[K]
+  ): RuntimeConfigValues
+  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  reset(): RuntimeConfigValues
+  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  reset<K extends keyof RuntimeConfigValues>(key: K): RuntimeConfigValues
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -677,7 +709,10 @@ declare global {
       automation: AutomationBridge
       siteNetwork: SiteNetworkBridge
       appUpdater: AppUpdaterBridge
+      runtimeConfig: RuntimeConfigBridge
     }
+    /** 主页 DevTools 控制台可直接调用的运行时配置入口。 */
+    ikuaizhaoConfig: RuntimeConfigBridge
     __IKUAIZHAO_NATIVE__?: IKuaiZhaoNative
   }
 }
