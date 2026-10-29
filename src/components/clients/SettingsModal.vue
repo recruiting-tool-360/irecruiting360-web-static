@@ -30,7 +30,7 @@
                 <line x1="9" y1="8" x2="15" y2="8" />
                 <line x1="17" y1="16" x2="23" y2="16" />
               </svg>
-              <h3 class="sm-header-title">聚合搜索配置</h3>
+              <h3 class="sm-header-title">AI寻聘配置</h3>
             </div>
             <button type="button" class="sm-close-btn" @click="handleClose">
               <svg

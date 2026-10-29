@@ -236,6 +236,7 @@ import { useStore } from "vuex";
 import { formatScheduleTime } from "src/util/scheduleEstimator";
 import { estimateSearchTask } from "src/api/searchTaskApi";
 import { buildEstimatePayload, MAX_TARGET_COUNT } from "src/util/searchTaskPayloadBuilder";
+import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
 import notify from "src/util/notify";
 import {
   BOSS_FILTER_DEFAULTS,
@@ -263,7 +264,11 @@ function normalizeResumeCount(value) {
   if (!Number.isFinite(n) || n <= 0) return "";
   return Math.min(n, MAX_TARGET_COUNT);
 }
-const resumeCount = ref(normalizeResumeCount(props.cardData?.initialResumeCount));
+const resumeCount = ref(
+  normalizeResumeCount(
+    props.cardData?.initialResumeCount || DEFAULT_RECOMMEND_RESUME_COUNT
+  )
+);
 
 // cardData 是 reactive prop —— 父端可能改 actionExecuted / initialResumeCount，
 // 这里 watch 同步 resumeCount 默认值（仅在还没改过 input 时）

@@ -10,18 +10,16 @@
  *   - 其他渠道：cfgList 找不到 → 视为未启用（严格，避免误报）
  *   - 找到了 → 直接 truthy 判断 enableConfig
  */
+import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
+import { normalizeBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
 
 /**
  * 单个 channel 是否启用（按 store.getters.getUserChannelConfig 判定）。
  * 给单元测试或外部直接判定用；上方 buildSearchTaskChannels 内部也复用这个。
  */
-/** 推荐渠道未传用户数量时的兼容兜底值。 */
-export const MAX_RESUME_COUNT = 20;
 
 /** 用户可设置的期望合格简历数上限 */
 export const MAX_TARGET_COUNT = 80;
-
-import { normalizeBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
 
 /** 只挑出三个 BOSS 筛选字段（其余字段不写进 searchTaskConfig / criteria） */
 export function pickBossFilters(filters) {
@@ -64,7 +62,7 @@ export function buildSearchTaskChannels({
   const effectiveRecommendCount =
     Number.isFinite(requestedRecommendCount) && requestedRecommendCount > 0
       ? Math.min(requestedRecommendCount, MAX_TARGET_COUNT)
-      : MAX_RESUME_COUNT;
+      : DEFAULT_RECOMMEND_RESUME_COUNT;
   const channels = [];
   const searchChecked = !!selectedModules?.search;
   const recommendChecked = !!selectedModules?.recommend;

@@ -1,8 +1,8 @@
-export const BOSS_FILTER_DEFAULTS = {
-  activeness: 0,
+export const BOSS_FILTER_DEFAULTS = Object.freeze({
+  activeness: 1,
   viewResume: 0,
-  exchangeResume: 0
-};
+  exchangeResume: 1
+});
 
 export const BOSS_ACTIVE_OPTIONS = [
   { value: 0, label: "不限" },
@@ -57,12 +57,12 @@ function parseObject(value) {
   }
 }
 
-function normalizeValue(value, allowedValues) {
-  if (value === undefined || value === null || value === "") return 0;
+function normalizeValue(value, allowedValues, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
   const mapped = typeof value === "string" && LEGACY_VALUE_MAP[value] !== undefined
     ? LEGACY_VALUE_MAP[value]
     : Number(value);
-  return allowedValues.includes(mapped) ? mapped : 0;
+  return allowedValues.includes(mapped) ? mapped : fallback;
 }
 
 export function normalizeBossFilters(source) {
@@ -72,15 +72,18 @@ export function normalizeBossFilters(source) {
   return {
     activeness: normalizeValue(
       merged.activeness !== undefined ? merged.activeness : merged.bossActiveLevel,
-      BOSS_ACTIVE_OPTIONS.map((option) => option.value)
+      BOSS_ACTIVE_OPTIONS.map((option) => option.value),
+      BOSS_FILTER_DEFAULTS.activeness
     ),
     viewResume: normalizeValue(
       merged.viewResume !== undefined ? merged.viewResume : merged.bossNotViewed,
-      BOSS_NOT_VIEWED_OPTIONS.map((option) => option.value)
+      BOSS_NOT_VIEWED_OPTIONS.map((option) => option.value),
+      BOSS_FILTER_DEFAULTS.viewResume
     ),
     exchangeResume: normalizeValue(
       merged.exchangeResume !== undefined ? merged.exchangeResume : merged.bossResumeExchange,
-      BOSS_RESUME_EXCHANGE_OPTIONS.map((option) => option.value)
+      BOSS_RESUME_EXCHANGE_OPTIONS.map((option) => option.value),
+      BOSS_FILTER_DEFAULTS.exchangeResume
     )
   };
 }

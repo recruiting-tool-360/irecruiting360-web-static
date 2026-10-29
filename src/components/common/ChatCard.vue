@@ -467,6 +467,7 @@ import { parseAISearchJD, getAISearchPrefix } from "src/util/parseAISearchJD";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { normalizeClientChannelConfig } from "src/util/clientChannelAvailability";
 import { extractBossFilters } from "src/util/bossSearchFilters";
+import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
 
 const store = useStore();
 const $q = useQuasar();
@@ -2265,14 +2266,14 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   if (params?.selectedModules?.recommend) {
     const newContent = taskType === "CONTINUE" ? "保留增量搜索配置" : "清空重新搜索配置";
     // 简历份数默认值优先级：① 本 chat 上次输入框记住的份数（跟 AIProfileActionPanel 同源，
-    //   用户改过就记住）→ ② 原任务的 maxResumeCount → ③ 兜底 60。
+    //   用户改过就记住）→ ② 原任务的 maxResumeCount → ③ 默认 10。
     const _lastResume = store.getters.getLastResumeCountForChat?.(chatIdForSearch);
     const _initialResume =
       typeof _lastResume === "number" && _lastResume > 0
         ? _lastResume
         : typeof params.resumeCount === "number" && params.resumeCount > 0
         ? params.resumeCount
-        : 20;
+        : DEFAULT_RECOMMEND_RESUME_COUNT;
     const newCardData = {
       configType: taskType, // 'CONTINUE' | 'RESTART'
       chatId: chatIdForSearch,

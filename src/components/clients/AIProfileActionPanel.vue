@@ -326,6 +326,7 @@ import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { useStore } from "vuex";
 import { estimateSearchTask, matchBestPosition } from "src/api/searchTaskApi";
 import { buildEstimatePayload, MAX_TARGET_COUNT } from "src/util/searchTaskPayloadBuilder";
+import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
 import {
   BOSS_FILTER_DEFAULTS,
   BOSS_ACTIVE_OPTIONS,
@@ -551,7 +552,7 @@ function restoreHistoricalBossPosition() {
 }
 
 // 初始默认值：本 chatId 上次填写过的简历份数（持久化在 AiSerachConfig.lastResumeCountByChatId）
-const resumeCountInput = ref("");
+const resumeCountInput = ref(String(DEFAULT_RECOMMEND_RESUME_COUNT));
 {
   const lastCount = Number(store.getters.getLastResumeCountForChat(store.getters.getLatestChatId || ""));
   if (Number.isFinite(lastCount) && lastCount > 0) {
