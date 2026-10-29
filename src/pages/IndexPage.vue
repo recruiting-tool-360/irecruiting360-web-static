@@ -972,47 +972,57 @@ function extractTaskResumeRowOutId(row) {
 }
 
 /**
- * /results 返回的 taskResumes 不保证跟抓取顺序一致（后端可能去重/重排）。
- * 用 outId（= uniqSign = rec_<geekId>）配对；只有整行都没有可识别 outId 时才按位置兜底。
+ * /results 返回的 jobList 才是本批真正创建的 taskResume。
+ * geek 与 jobList 必须一一配对且每个 geek 只能使用一次，否则会出现：
+ * 开批 2 条，但后续循环只处理其中 1 条，另一条没有 /detail。
  */
-function buildTaskResumeRowMatcher(jobList, expectedCount = 0) {
-  const byOutId = new Map();
-  for (const row of jobList || []) {
-    const key = normalizeCandidateId(extractTaskResumeRowOutId(row));
-    if (key) byOutId.set(key, row);
-  }
-  return (geek, index) => {
-    const card = geek?.geekCard || {};
-    const plainGeekId = card.geekId || geek?.geekId || "";
-    const candidates = [];
-    if (plainGeekId) candidates.push(`rec_${plainGeekId}`, String(plainGeekId));
-    const encryptIds = [
-      card.encryptGeekId,
-      card.encGeekId,
-      geek?.encryptGeekId,
-      geek?.encGeekId,
-      geek?.uniqSign
-    ];
-    for (const id of encryptIds) {
-      if (id !== undefined && id !== null && id !== "") candidates.push(String(id));
+function buildBatchTaskResumePairs(jobList, geekList, adaptedResumeList = []) {
+  const rows = Array.isArray(jobList) ? jobList : [];
+  const geeks = Array.isArray(geekList) ? geekList : [];
+  const usedGeekIndexes = new Set();
+  return rows.map((row, rowIndex) => {
+    const rowId = normalizeCandidateId(extractTaskResumeRowOutId(row));
+    let matchedIndex = -1;
+
+    if (rowId) {
+      matchedIndex = geeks.findIndex((geek, geekIndex) => {
+        if (usedGeekIndexes.has(geekIndex)) return false;
+        const card = geek?.geekCard || {};
+        const plainGeekId = card.geekId || geek?.geekId || "";
+        const encryptGeekId =
+          geek?.encryptGeekId || card?.encryptGeekId || card?.encGeekId || "";
+        const candidates = [
+          adaptedResumeList[geekIndex]?.uniqSign,
+          geek?.uniqSign,
+          plainGeekId ? `rec_${plainGeekId}` : "",
+          plainGeekId,
+          encryptGeekId,
+          encryptGeekId ? `rec_${encryptGeekId}` : ""
+        ];
+        return candidates.some((id) => normalizeCandidateId(id) === rowId);
+      });
     }
-    for (const key of candidates) {
-      const normalized = normalizeCandidateId(key);
-      if (byOutId.has(normalized)) return byOutId.get(normalized);
-    }
-    // 后端可能返回自己的 outId 口径，跟 uniqSign/geekId 都不一致。
-    // /results 的 taskResumes 与本次上送 resultItems 一一对应时，按索引兜底，
-    // 避免 5 条全部匹配失败 → 一条详情都不发。
-    const byIndex = jobList?.[index];
+
+    // 数量一致时，把仍未匹配的 geek 分配给仍未匹配的 row。
+    // 后端保证开批 resultItems 与 taskResumes 一一对应，因此剩余项只有一种配对方式。
     if (
-      byIndex &&
-      (!extractTaskResumeRowOutId(byIndex) ||
-        (expectedCount > 0 && jobList.length === expectedCount))
+      matchedIndex < 0 &&
+      rows.length === geeks.length &&
+      rowIndex < geeks.length
     ) {
-      return byIndex;
+      matchedIndex = geeks.findIndex((_geek, geekIndex) => !usedGeekIndexes.has(geekIndex));
     }
-    return null;
-  };
+
+    if (matchedIndex >= 0) usedGeekIndexes.add(matchedIndex);
+    return {
+      row,
+      rowIndex,
+      geek: matchedIndex >= 0 ? geeks[matchedIndex] : null,
+      geekIndex: matchedIndex,
+      adaptedResume:
+        matchedIndex >= 0 ? adaptedResumeList[matchedIndex] || null : null
+    };
+  });
 }
 
 function base64ToArrayBuffer(base64) {
@@ -1712,19 +1722,37 @@ async function doFetchRecommend(args) {
       setPhase("SCORING");
 
       // ===== 2) 回填 ID 映射（供 UI / 「立即沟通」反查）=====
-      const matchTaskResumeRow = buildTaskResumeRowMatcher(jobList, geekList.length);
+      const batchTaskResumePairs = buildBatchTaskResumePairs(
+        jobList,
+        geekList,
+        adaptedResumeList
+      );
       const geekIdPairs = [];
       let uniqSignMappedCount = 0;
-      for (let i = 0; i < geekList.length; i++) {
-        const geek = geekList[i] || {};
-        const row = matchTaskResumeRow(geek, i);
-        const card = geek.geekCard || {};
+      for (const { row, rowIndex, geek, geekIndex, adaptedResume } of batchTaskResumePairs) {
         const taskResumeId = row?.taskResumeId;
         const resumeBlindId = row?.resumeBlindId || row?.id;
+
+        // 评分轮询以 /results 实际返回的任务简历为准。即使暂时没匹配到 geek，
+        // 也必须把 blindId 加入累计集合，否则该条评分永远不会被查询。
+        if (resumeBlindId) cumulativeBlindIds.add(String(resumeBlindId));
+        if (!geek) {
+          console.warn(
+            "[任务流程]",
+            `[IndexPage] 推荐批次 ${scoreBatchNo} TASK_RESUME_GEEK_UNMAPPED ` +
+              `rowIndex=${rowIndex} taskResumeId=${taskResumeId || "(empty)"} ` +
+              `blindId=${resumeBlindId || "(empty)"} outId=${
+                extractTaskResumeRowOutId(row) || "(empty)"
+              }`
+          );
+          continue;
+        }
+
+        const card = geek.geekCard || {};
         const encryptGeekId = geek?.encryptGeekId || card?.encryptGeekId || "";
         const plainGeekId = card?.geekId || geek?.geekId || "";
         // ★ 以后端实际收到的那份 uniqSign 为准（mapBossRecommendGeekToSearchRaw 生成）。
-        const uniqSign = normalizeCandidateId(adaptedResumeList[i]?.uniqSign);
+        const uniqSign = normalizeCandidateId(adaptedResume?.uniqSign);
 
         for (const id of collectGeekCandidateIds(geek, row)) {
           candidateGeekById.set(id, geek);
@@ -1749,11 +1777,9 @@ async function doFetchRecommend(args) {
           }
         }
 
-        if (!row) continue;
         const outId = plainGeekId ? `rec_${plainGeekId}` : "";
 
         if (resumeBlindId && taskResumeId) {
-          cumulativeBlindIds.add(String(resumeBlindId));
           if (encryptGeekId) {
             store.commit("patchBossRecommendGeek", {
               jobId,
@@ -1768,6 +1794,13 @@ async function doFetchRecommend(args) {
           }
         }
         if (outId && encryptGeekId) geekIdPairs.push({ localId: outId, geekId: encryptGeekId });
+        console.log(
+          "[任务流程]",
+          `[IndexPage] 推荐批次 ${scoreBatchNo} taskResume 配对 ` +
+            `rowIndex=${rowIndex} geekIndex=${geekIndex} taskResumeId=${
+              taskResumeId || "(empty)"
+            } blindId=${resumeBlindId || "(empty)"}`
+        );
       }
       console.log(
         `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} uniqSign→encryptGeekId 映射 ${uniqSignMappedCount}/${geekList.length}`
@@ -1839,30 +1872,42 @@ async function doFetchRecommend(args) {
       let uploadFail = 0;
       let detailOk = 0;
       let detailFail = 0;
+      const expectedDetailTaskResumeIds = new Set(
+        (jobList || [])
+          .map((item) => normalizeCandidateId(item?.taskResumeId))
+          .filter(Boolean)
+      );
+      const detailSucceededTaskResumeIds = new Set();
 
       console.log(
-        `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 开始上传简历 total=${geekList.length} jobList=${jobList.length}`
+        `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 开始上传简历 ` +
+          `total=${batchTaskResumePairs.length} geekList=${geekList.length} jobList=${jobList.length}`
       );
-      for (let i = 0; i < geekList.length; i++) {
+      for (let i = 0; i < batchTaskResumePairs.length; i++) {
         if (isUserStopped()) break;
-        const geek = geekList[i] || {};
-        const row = matchTaskResumeRow(geek, i);
-        if (!row) {
-          const card = geek.geekCard || {};
+        const { row, rowIndex, geek, geekIndex, adaptedResume } =
+          batchTaskResumePairs[i];
+        const taskResumeId = row?.taskResumeId;
+        const resumeBlindId = row?.resumeBlindId || row?.id;
+        if (!geek) {
           console.warn(
-            "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} 无法匹配 taskResumeId，跳过上传 index=${i} ` +
-              `geekId=${card.geekId || geek.geekId || ""} uniqSign=${adaptedResumeList[i]?.uniqSign || ""} ` +
-              `jobList.outIds=[${(jobList || []).map((r) => extractTaskResumeRowOutId(r) || "(empty)").join(", ")}]`
+            "[任务流程]",
+            `[IndexPage] 推荐批次 ${scoreBatchNo} TASK_RESUME_GEEK_UNMAPPED，无法上传 ` +
+              `rowIndex=${rowIndex} taskResumeId=${taskResumeId || "(empty)"} ` +
+              `blindId=${resumeBlindId || "(empty)"} outId=${
+                extractTaskResumeRowOutId(row) || "(empty)"
+              } jobList.outIds=[${(jobList || [])
+                .map((item) => extractTaskResumeRowOutId(item) || "(empty)")
+                .join(", ")}]`
           );
           detailFail++;
           continue;
         }
         const card = geek.geekCard || {};
-        const taskResumeId = row?.taskResumeId;
-        const resumeBlindId = row?.resumeBlindId || row?.id;
         if (!taskResumeId || !resumeBlindId) {
           console.warn(
-            "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} /results 行缺少 ID，跳过上传 index=${i} ` +
+            "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} /results 行缺少 ID，跳过上传 ` +
+              `rowIndex=${rowIndex} geekIndex=${geekIndex} ` +
               `taskResumeId=${taskResumeId || "(empty)"} resumeBlindId=${resumeBlindId || "(empty)"} ` +
               `rowKeys=[${Object.keys(row || {}).slice(0, 20).join(",")}]`
           );
@@ -1872,16 +1917,19 @@ async function doFetchRecommend(args) {
 
         const encryptGeekId = geek?.encryptGeekId || card?.encryptGeekId || "";
         const plainGeekId = card?.geekId || geek?.geekId || "";
-        const outId = plainGeekId
-          ? `rec_${plainGeekId}`
-          : encryptGeekId
-          ? String(encryptGeekId)
-          : "";
+        const outId =
+          normalizeCandidateId(adaptedResume?.uniqSign) ||
+          (plainGeekId
+            ? `rec_${plainGeekId}`
+            : encryptGeekId
+            ? String(encryptGeekId)
+            : "");
 
         let uploaded;
         try {
           console.log(
-            "[任务流程]", `[IndexPage] 上传简历 ${i + 1}/${geekList.length} taskResumeId=${taskResumeId} ` +
+            "[任务流程]", `[IndexPage] 上传简历 ${i + 1}/${batchTaskResumePairs.length} ` +
+              `rowIndex=${rowIndex} geekIndex=${geekIndex} taskResumeId=${taskResumeId} ` +
               `blindId=${resumeBlindId} securityId=${card?.securityId ? "yes" : "no"} ` +
               `encryptGeekId=${encryptGeekId || "(empty)"}`
           );
@@ -1908,7 +1956,7 @@ async function doFetchRecommend(args) {
             rememberFileIds([
               { localId: resumeBlindId, fileId: uploaded.fileId },
               { localId: taskResumeId, fileId: uploaded.fileId },
-              { localId: adaptedResumeList[i]?.uniqSign, fileId: uploaded.fileId }
+              { localId: adaptedResume?.uniqSign, fileId: uploaded.fileId }
             ]);
           } catch (e) {
             console.warn(
@@ -1954,11 +2002,18 @@ async function doFetchRecommend(args) {
         console.log(
           "[任务流程]", `[IndexPage] /detail >>> taskResumeId=${taskResumeId} resumeBlindId=${resumeBlindId}` +
             ` outId=${outId || "(empty)"} fileId=${uploaded.fileId}` +
-            ` contentLen=${payload.content?.length || 0} (batch=${scoreBatchNo} ${i + 1}/${geekList.length})`
+            ` contentLen=${payload.content?.length || 0} ` +
+            `(batch=${scoreBatchNo} ${i + 1}/${batchTaskResumePairs.length})`
         );
         try {
           const detailResp = await postTaskResumeDetail(taskResumeId, payload);
+          if (detailResp?.success !== "success") {
+            throw new Error(
+              `detail 保存未返回 success: ${detailResp?.errorMessage || detailResp?.message || "empty response"}`
+            );
+          }
           detailOk++;
+          detailSucceededTaskResumeIds.add(normalizeCandidateId(taskResumeId));
           console.log(
             "[任务流程]", `[IndexPage] /detail <<< ok ${Date.now() - detailStartedAt}ms taskResumeId=${taskResumeId}` +
               ` success=${detailResp?.success ?? "-"} code=${detailResp?.code ?? "-"}`
@@ -1972,22 +2027,41 @@ async function doFetchRecommend(args) {
           );
         }
       }
+      const missingDetailTaskResumeIds = [...expectedDetailTaskResumeIds].filter(
+        (taskResumeId) => !detailSucceededTaskResumeIds.has(taskResumeId)
+      );
       console.log(
         "[任务流程]", `[IndexPage] 推荐批次 ${scoreBatchNo} 简历处理完成 uploadOk=${uploadOk} uploadFail=${uploadFail}` +
-          ` detailOk=${detailOk} detailFail=${detailFail} total=${jobList.length}`
+          ` detailOk=${detailOk} detailFail=${detailFail} jobList=${jobList.length}` +
+          ` expectedDetail=${expectedDetailTaskResumeIds.size}` +
+          ` uniqueDetailOk=${detailSucceededTaskResumeIds.size}` +
+          ` missingDetailIds=[${missingDetailTaskResumeIds.join(", ")}]`
       );
 
-      // 没有任何详情保存成功 = 后端不会进入评分链路，封批后也等不到 SSE。
-      if (detailOk === 0) {
-        console.warn(
-          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 本批没有一条 /detail 成功，跳过封批与 SSE 等待`
-        );
+      if (isUserStopped()) {
+        console.log(`[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 用户已停止，不封批`);
         hardFailed = true;
         break;
       }
 
-      if (isUserStopped()) {
-        console.log(`[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 用户已停止，不封批`);
+      // /results 返回的每一条任务简历都必须恰好有一条 /detail 成功。
+      // 只检查 detailOk > 0 会让“开批 2 条、仅上传 1 条”的残缺批次提前封批。
+      if (
+        detailSucceededTaskResumeIds.size !== jobList.length ||
+        expectedDetailTaskResumeIds.size !== jobList.length ||
+        missingDetailTaskResumeIds.length > 0
+      ) {
+        console.warn(
+          `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo}: 任务简历与 /detail 不完整，跳过封批与 SSE 等待`,
+          {
+            jobList: jobList.length,
+            expectedDetail: expectedDetailTaskResumeIds.size,
+            detailOk,
+            uniqueDetailOk: detailSucceededTaskResumeIds.size,
+            detailFail,
+            missingDetailTaskResumeIds
+          }
+        );
         hardFailed = true;
         break;
       }
@@ -2010,6 +2084,15 @@ async function doFetchRecommend(args) {
           (channel) =>
             channel.businessChannel === "RECOMMEND" && channel.channelSubType === "BOSS"
         ) || recommendTaskChannel;
+      // 必须先注册 SSE 监听再封批。若等封批请求返回后才监听，后端极快返回的
+      // RESUME_SCORE_BATCH_COMPLETED 会直接丢失。
+      const batchCompletionAbortController = new AbortController();
+      const batchCompletionPromise = waitForScoreBatchCompleted({
+        taskId: taskIdForScoring,
+        scoreBatchNo,
+        timeoutMs: 10 * 60 * 1000,
+        signal: batchCompletionAbortController.signal
+      });
       try {
         await sealScoreBatch({
           taskChannelId: scoringTaskChannel?.taskChannelId || recommendTaskChannelId,
@@ -2022,6 +2105,7 @@ async function doFetchRecommend(args) {
           scoreBatchNo
         });
       } catch (e) {
+        batchCompletionAbortController.abort();
         console.warn(
           `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 封批失败:`,
           e?.message || e
@@ -2031,12 +2115,7 @@ async function doFetchRecommend(args) {
       }
 
       // ===== 6) 等 SSE 决定是否继续 =====
-      // 只有封批请求成功后才等待后端完成本批评分。
-      const batchCompletion = await waitForScoreBatchCompleted({
-        taskId: taskIdForScoring,
-        scoreBatchNo,
-        timeoutMs: 10 * 60 * 1000
-      });
+      const batchCompletion = await batchCompletionPromise;
       const passedIds = Array.isArray(batchCompletion.passedIds)
         ? batchCompletion.passedIds
         : [];

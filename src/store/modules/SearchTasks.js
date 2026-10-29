@@ -2319,12 +2319,26 @@ const actions = {
           const recommendBusy =
             !!recommendScoreUpdater?.timer &&
             (recommendScoreUpdater?.pendingBlindIds?.size || 0) > 0;
+          const recommendPhase = state.recommendClientPhase?.[taskId]?.phase || "IDLE";
+          const recommendAlreadyFinished =
+            hasRecommend &&
+            (recommendPhase === "DONE" || recommendPhase === "PARTIAL") &&
+            !recommendBusy;
           const aiStoreActive = rootGetters && rootGetters.getAiAnalyzingActive === true; // 兜底
           const stillAnalyzing = queueBusy || scoreBusy || recommendBusy || aiStoreActive;
           if (stillAnalyzing) aiSeenActive = true;
           const elapsed = Date.now() - startAiWait;
 
           if (!stillAnalyzing) {
+            // recommend executor 是 await 完成的。进入这里时 phase 已为 DONE/PARTIAL
+            // 且评分轮询已清空，说明 AI 不可能再“刚启动”；直接进入 finish，避免白等 15s。
+            if (recommendAlreadyFinished) {
+              console.log(
+                `[任务流程] [SearchTasks] runTask: 推荐阶段已完成且评分轮询已清空，` +
+                  `跳过 AI 启动兜底等待 phase=${recommendPhase}`
+              );
+              break;
+            }
             // 已经见过 AI 活跃且现在歇了（过最小等待）→ 真跑完，退出 finalize
             if (aiSeenActive && elapsed >= MIN_WAIT_AI_MS) break;
             // 还没见过 AI 活跃：等够「启动窗口」仍没动 → 多半是 0 条简历/没触发分析，放行

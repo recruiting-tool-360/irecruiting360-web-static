@@ -215,7 +215,8 @@ function parsePassedIds(data) {
 export function waitForScoreBatchCompleted({
   taskId,
   scoreBatchNo,
-  timeoutMs = 10 * 60 * 1000
+  timeoutMs = 10 * 60 * 1000,
+  signal
 } = {}) {
   const expectedTaskId = taskId == null ? "" : String(taskId);
   const expectedBatchNo = Number(scoreBatchNo) || null;
@@ -233,7 +234,23 @@ export function waitForScoreBatchCompleted({
       } catch (_e) {
         /* ignore */
       }
+      if (signal) {
+        signal.removeEventListener("abort", onAbort);
+      }
       resolve(result);
+    };
+
+    const onAbort = () => {
+      console.warn(
+        `[任务流程] [scoringBatch] 取消等待评分批次 taskId=${taskId} scoreBatchNo=${scoreBatchNo}`
+      );
+      finish({
+        received: false,
+        cancelled: true,
+        scoreBatchNo: expectedBatchNo,
+        passedCount: 0,
+        shouldContinue: false
+      });
     };
 
     const onMessage = (message) => {
@@ -295,7 +312,12 @@ export function waitForScoreBatchCompleted({
       });
     };
 
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
     sseClient.on("message", onMessage);
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
     console.log(`[任务流程] [scoringBatch] 已监听，等待评分批次完成 taskId=${taskId} scoreBatchNo=${scoreBatchNo}`);
 
     timer = setTimeout(() => {

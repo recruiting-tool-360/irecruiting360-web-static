@@ -264,6 +264,7 @@
               <div v-else class="aer-groups-empty">暂无评估维度数据</div>
 
               <q-popup-proxy
+                v-if="textPopoverVisible && textPopoverTarget"
                 v-model="textPopoverVisible"
                 :target="textPopoverTarget"
                 anchor="bottom middle"
@@ -307,7 +308,7 @@ const textPopoverContent = ref("");
 let requestSeq = 0;
 const scrollbarHideTimers = new WeakMap();
 
-const REPORT_SCROLL_SELECTOR = ".aer-main, .aer-sidebar, .aer-table-scroll";
+const REPORT_SCROLL_SELECTOR = ".aer-main, .aer-table-scroll";
 
 function hideTextPopover() {
   textPopoverVisible.value = false;
@@ -866,24 +867,20 @@ watch(
 
 /* Layout */
 .aer-main,
-.aer-sidebar,
 .aer-table-scroll {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
 .aer-main::-webkit-scrollbar,
-.aer-sidebar::-webkit-scrollbar,
 .aer-table-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 .aer-main::-webkit-scrollbar-track,
-.aer-sidebar::-webkit-scrollbar-track,
 .aer-table-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 .aer-main::-webkit-scrollbar-thumb,
-.aer-sidebar::-webkit-scrollbar-thumb,
 .aer-table-scroll::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
@@ -891,12 +888,10 @@ watch(
   background-clip: padding-box;
 }
 .aer-main.is-scrolling,
-.aer-sidebar.is-scrolling,
 .aer-table-scroll.is-scrolling {
   scrollbar-color: rgba(108, 117, 132, 0.42) transparent;
 }
 .aer-main.is-scrolling::-webkit-scrollbar-thumb,
-.aer-sidebar.is-scrolling::-webkit-scrollbar-thumb,
 .aer-table-scroll.is-scrolling::-webkit-scrollbar-thumb {
   background: rgba(108, 117, 132, 0.42);
   background-clip: padding-box;
@@ -913,17 +908,14 @@ watch(
   overflow: auto;
 }
 .aer-sidebar {
-  /* 与 recruit 项目报告一致：左侧信息随右侧表格滚动时吸顶；
-     左侧内容比弹窗可视区更高时，自身可滚动，避免吸顶后底部留白。
-     max-height 需再减去 .aer-main 的上下内边距(16+24)，否则吸顶到底时会被裁掉 */
+  /* 双栏共用 .aer-main 的纵向滚动；左侧只负责吸顶，不再产生第二条纵向滚动条。 */
   position: sticky;
   top: 0;
   display: flex;
+  align-self: start;
   flex-direction: column;
   gap: 16px;
   min-width: 0;
-  max-height: calc(92vh - 112px);
-  overflow-y: auto;
 }
 .aer-candidate-card,
 .aer-insight-card,
