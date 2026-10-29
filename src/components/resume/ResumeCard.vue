@@ -158,12 +158,17 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary" 
-                :disable="readOnly || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)"
+                :disable="readOnly || isThirdPartyActionDone(resume?.resumeThirdPartyInfo) || assignJobLoading || talentPoolLoading"
+                :loading="assignJobLoading"
                 @click.stop="assignJob(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
                   {{ getAssignJobButtonText(resume?.resumeThirdPartyInfo) }}
                 </span>
+                <template #loading>
+                  <q-spinner size="16px" class="q-mr-xs" />
+                  <span>{{ getAssignJobButtonText(resume?.resumeThirdPartyInfo) }}</span>
+                </template>
                 <q-tooltip 
                   v-if="shouldShowAssignJobTooltip(resume?.resumeThirdPartyInfo)"
                   anchor="top middle" 
@@ -176,12 +181,17 @@
               <q-btn 
                 flat class="q-ma-xs"
                 size="md" color="primary"
-                :disable="readOnly || isThirdPartyActionDone(resume?.resumeThirdPartyInfo)"
+                :disable="readOnly || isThirdPartyActionDone(resume?.resumeThirdPartyInfo) || assignJobLoading || talentPoolLoading"
+                :loading="talentPoolLoading"
                 @click.stop="addToTalentPool(resume)">
                 <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
                   {{ getTalentPoolButtonText(resume?.resumeThirdPartyInfo) }}
                 </span>
+                <template #loading>
+                  <q-spinner size="16px" class="q-mr-xs" />
+                  <span>{{ getTalentPoolButtonText(resume?.resumeThirdPartyInfo) }}</span>
+                </template>
                 <q-tooltip 
                   v-if="shouldShowTalentPoolTooltip(resume?.resumeThirdPartyInfo)"
                   anchor="top middle" 
@@ -270,6 +280,8 @@
     v-model:visible="showAIEvaluation"
     :resume-data="resume"
     :search-condition-id="searchConditionId"
+    :assign-job-loading="assignJobLoading"
+    :talent-pool-loading="talentPoolLoading"
     @view-detail="viewDetail"
     @assign-job="assignJob"
     @add-to-talent-pool="addToTalentPool"
@@ -311,6 +323,8 @@ const $q = useQuasar();
 const showSimilarResumeEntry = false;
 const bossCommunicationLoading = ref(false);
 const bossCommunicationLoadingStage = ref('idle');
+const assignJobLoading = ref(false);
+const talentPoolLoading = ref(false);
 const locallyCommunicated = ref(false);
 const bossCommunicationLoadingText = computed(() =>
   bossCommunicationLoadingStage.value === 'opening'
@@ -1185,6 +1199,7 @@ const sendResumeByFileId = async (resume, action) => {
 
 // 分配职位
 const assignJob = async (resume) => {
+  if (assignJobLoading.value || talentPoolLoading.value) return;
   logIhrAction("assign-position", "click", {
     hasAuth: !!planInfo.value?.assignPositionAuth,
     readOnly: props.readOnly,
@@ -1197,6 +1212,7 @@ const assignJob = async (resume) => {
     return;
   }
   try {
+    assignJobLoading.value = true;
     emit('updateCollectResumeLoading', true);
 
     const response = await sendResumeByFileId(resume, 'assign-position');
@@ -1227,12 +1243,14 @@ const assignJob = async (resume) => {
       position: 'top'
     });
   } finally {
+    assignJobLoading.value = false;
     emit('updateCollectResumeLoading', false);
   }
 };
 
 // 加入人才库
 const addToTalentPool = async (resume) => {
+  if (assignJobLoading.value || talentPoolLoading.value) return;
   logIhrAction("talent-pool", "click", {
     hasAuth: !!planInfo.value?.talentPoolAuth,
     readOnly: props.readOnly,
@@ -1245,6 +1263,7 @@ const addToTalentPool = async (resume) => {
     return;
   }
   try {
+    talentPoolLoading.value = true;
     emit('updateCollectResumeLoading', true);
 
     const response = await sendResumeByFileId(resume, 'talent-pool');
@@ -1275,6 +1294,7 @@ const addToTalentPool = async (resume) => {
       position: 'top'
     });
   } finally {
+    talentPoolLoading.value = false;
     emit('updateCollectResumeLoading', false);
   }
 };
