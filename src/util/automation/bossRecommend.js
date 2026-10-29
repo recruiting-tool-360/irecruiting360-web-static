@@ -499,6 +499,8 @@ export async function verifyBossRecommend(args) {
  *                                                （*WaitTimeoutMs / domStableMs / dropdownBrowseMs 等）
  * @param {boolean} [args.discoverOnly=false]     只发现候选人，不打开详情/收藏。
  *                                                画像评分任务用：先抓人 → 上传评分 → SSE 通知通过名单 → 再回列表收藏。
+ * @param {boolean} [args.includeViewedCandidates=false]
+ *                                                是否纳入 BOSS 已查看候选人；任务执行链路传 true。
  * @param {object} [args.humanizeOpts]   兼容旧调用参数；其中 config 继续用于分页滚动配置。
  * @returns {Promise<{
  *   ok: boolean,
@@ -552,6 +554,11 @@ export async function runBossRecommend(args) {
      *   SSE 返回通过名单后再调用 collectBossRecommendGeeks 回列表逐个收藏。
      */
     discoverOnly = false,
+    /**
+     * 是否把 BOSS 标记为「已查看」的候选人纳入本次任务。
+     * 默认保持旧行为；任务执行链路显式传 true，避免已读候选人被直接跳过。
+     */
+    includeViewedCandidates = false,
     /**
      * 调试用：在某一阶段提前退出
      *   - 'open'      → 只打开 tab + select/dwell，不跑任何抓数据脚本
@@ -993,7 +1000,7 @@ export async function runBossRecommend(args) {
 
   const firstList = (first.data && first.data.geekList) || [];
   const seen = new Set(); // 全局 session 去重：encryptGeekId||geekId（含已保存被跳过的）
-  const discovered = []; // 已发现且未入库、等待页面收藏的候选人
+  const discovered = []; // 已发现、未入库且按配置允许纳入的候选人
   const collectedGeeks = []; // 只有本次从「收藏」变为「已收藏」的候选人才进入结果
   let skippedSavedCount = 0; // 累计被「已保存」过滤掉的人数（仅日志）
   let skippedViewedCount = 0; // 累计被 BOSS「已查看」状态过滤掉的人数（仅日志）
@@ -1003,10 +1010,10 @@ export async function runBossRecommend(args) {
   //   终止条件 = 「未入库新人达到 targetCount」或「hasMore=false（BOSS 没有更多数据）」。
   let lastHasMore = !!(first.data && first.data.hasMore);
   console.log(
-    "[任务流程]", `[bossRecommend] 首屏 geek=${firstList.length} 新人(未入库且未查看)=${firstConsume.mergedAdded} ` +
+    "[任务流程]", `[bossRecommend] 首屏 geek=${firstList.length} 新人(未入库${includeViewedCandidates ? "" : "且未查看"})=${firstConsume.mergedAdded} ` +
       `已保存跳过=${skippedSavedCount} 已查看跳过=${skippedViewedCount} discovered=${discovered.length} ` +
       `collected=${collectedGeeks.length}/${targetCount} hasMore=${lastHasMore} ` +
-      `mode=${discoverOnly ? "discoverOnly" : "collect"}`
+      `mode=${discoverOnly ? "discoverOnly" : "collect"} includeViewed=${includeViewedCandidates}`
   );
 
   // ============= 页面收藏 + 分页加载循环（safe-only）=============
@@ -1078,11 +1085,11 @@ export async function runBossRecommend(args) {
     return g?.viewed === true || g?.geekCard?.viewed === true;
   }
 
-  // helper：把 BOSS rec/geek/list 响应里的 geek 合进 discovered（去重 + 过滤已保存/已查看）。
+  // helper：把 BOSS rec/geek/list 响应里的 geek 合进 discovered（去重 + 过滤已保存，按配置过滤已查看）。
   //   返回 { sessionNew, mergedAdded, skippedViewed, skippedSaved }：
   //     - sessionNew  = 本次「之前没见过」的 geek 数（含已保存/已查看被跳过的）→ 判断 BOSS 是否返回了新内容
   //     - mergedAdded = 真正进入待收藏候选池的人数
-  //   已保存和 BOSS 已查看的人：只 markSeen 并计数，不进入待收藏候选池。
+  //   已保存的人始终过滤；BOSS 已查看的人仅在 includeViewedCandidates=false 时过滤。
   function mergeNewGeeks(geeks) {
     let sessionNew = 0;
     let mergedAdded = 0;
@@ -1102,7 +1109,7 @@ export async function runBossRecommend(args) {
         );
         continue;
       }
-      if (isViewedGeek(g)) {
+      if (!includeViewedCandidates && isViewedGeek(g)) {
         skippedViewed++;
         skippedViewedCount++;
         console.log(
@@ -1370,7 +1377,7 @@ export async function runBossRecommend(args) {
     const consume = mergeNewGeeks(newGeeksThisRound);
     console.log(
       "[任务流程]", `[bossRecommend][collect][round ${rounds}] BOSS返回${newGeeksThisRound.length}个，` +
-        `本轮新出现=${consume.sessionNew}（其中未入库且未查看=${consume.mergedAdded}、` +
+        `本轮新出现=${consume.sessionNew}（其中未入库${includeViewedCandidates ? "" : "且未查看"}=${consume.mergedAdded}、` +
         `已保存跳过=${consume.skippedSaved}、已查看跳过=${consume.skippedViewed}），` +
         `discovered=${discovered.length} collected=${collectedGeeks.length}/${targetCount} ` +
         `累计已保存跳过=${skippedSavedCount} 累计已查看跳过=${skippedViewedCount} hasMore=${lastHasMore}`

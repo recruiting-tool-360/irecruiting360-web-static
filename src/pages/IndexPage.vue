@@ -224,6 +224,10 @@ import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import { runBossRecommend, unlockRecommendTab } from "src/util/automation/bossRecommend";
 import { sealScoreBatch, waitForScoreBatchCompleted } from "src/util/scoringBatch";
 import { resolveScoreBatchSize } from "src/config/searchTaskConfig";
+import {
+  getRuntimeConfig,
+  installRuntimeConfigConsole
+} from "src/config/runtimeConfig";
 import { buildSearchTaskChannels, pickBossFilters } from "src/util/searchTaskPayloadBuilder";
 import { extractBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
 import ClearChatConfirmModal from "src/components/clients/ClearChatConfirmModal.vue";
@@ -238,6 +242,7 @@ import { ensureClientAuthority } from "src/util/checkClientAuthority";
 import RecommendList from "src/components/clients/RecommendList.vue";
 import { isHistoryTaskView } from "src/util/viewingTaskMeta";
 const store = useStore();
+installRuntimeConfigConsole();
 
 // 推荐通道的 BOSS 详情（zpData）已经拿到，直接复用「分配职位」同一套 HTML 模板。
 
@@ -1069,6 +1074,7 @@ async function buildAndUploadBossRecommendResume(geek, localId, tabId, shouldAbo
   const workflowStartedAt = Date.now();
   const geekId = card.geekId || geek?.geekId || card.encryptGeekId || geek?.encryptGeekId || "";
   let phase = "open-detail";
+  let detailTabId = tabId;
   console.info("[任务流程] [IndexPage] 候选人简历采集开始", {
     localId,
     geekId,
@@ -1076,29 +1082,89 @@ async function buildAndUploadBossRecommendResume(geek, localId, tabId, shouldAbo
     name: displayName
   });
   try {
-    const openStartedAt = Date.now();
-    await collectMod.openBossRecommendDetail(tabId, geek);
-    console.log("[任务流程] [IndexPage] 推荐详情已打开，准备截图", {
-      localId,
-      geekId,
-      tabId,
-      openMs: Date.now() - openStartedAt
-    });
+    const {
+      captureBossResumeLongScreenshot,
+      isBossResumeScrollerRetryableError
+    } = await import("src/util/automation/bossResumeScreenshot");
+    let screenshot = null;
+    let lastCaptureError = null;
 
-    phase = "capture-screenshot";
-    const { captureBossResumeLongScreenshot } = await import("src/util/automation/bossResumeScreenshot");
-    const captureStartedAt = Date.now();
-    const screenshot = await captureBossResumeLongScreenshot(tabId, { shouldAbort });
-    const captureMs = Date.now() - captureStartedAt;
-    console.log("[任务流程] [IndexPage] 详情长图完成", {
-      localId,
-      geekId,
-      width: screenshot.width,
-      height: screenshot.height,
-      bytes: screenshot.bytes,
-      slices: screenshot.sliceCount,
-      captureMs
-    });
+    // 详情滚动器条件等待或验证失败时，关闭当前详情并只重开一次。
+    for (let detailAttempt = 0; detailAttempt < 2; detailAttempt++) {
+      checkStopped();
+      phase = "open-detail";
+      const openStartedAt = Date.now();
+      const opened = await collectMod.openBossRecommendDetail(tabId, geek);
+      detailTabId = opened?.detailTabId || tabId;
+      console.log("[任务流程] [IndexPage] 推荐详情已打开，准备截图", {
+        localId,
+        geekId,
+        tabId,
+        detailTabId,
+        detailAttempt: detailAttempt + 1,
+        openedIn: opened?.openedIn || "same-tab",
+        resumeReady: !!opened?.resumeReady,
+        openMs: Date.now() - openStartedAt
+      });
+
+      phase = "capture-screenshot";
+      const captureStartedAt = Date.now();
+      try {
+        screenshot = await captureBossResumeLongScreenshot(detailTabId, { shouldAbort });
+        const captureMs = Date.now() - captureStartedAt;
+        console.log("[任务流程] [IndexPage] 详情长图完成", {
+          localId,
+          geekId,
+          detailTabId,
+          detailAttempt: detailAttempt + 1,
+          width: screenshot.width,
+          height: screenshot.height,
+          bytes: screenshot.bytes,
+          slices: screenshot.sliceCount,
+          captureMs
+        });
+        break;
+      } catch (error) {
+        lastCaptureError = error;
+        const retryable = isBossResumeScrollerRetryableError(error);
+        console.warn("[任务流程] [IndexPage] 详情截图失败", {
+          localId,
+          geekId,
+          detailTabId,
+          detailAttempt: detailAttempt + 1,
+          retryable,
+          code: error?.code,
+          message: error?.message || String(error),
+          details: error?.details
+        });
+        if (detailAttempt >= 1 || !retryable) throw error;
+
+        const closeStartedAt = Date.now();
+        try {
+          await collectMod.closeBossRecommendDetail(detailTabId);
+          console.warn("[任务流程] [IndexPage] 详情不稳定或滚动器验证失败，已关闭详情准备重开", {
+            localId,
+            geekId,
+            detailTabId,
+            code: error?.code,
+            closeMs: Date.now() - closeStartedAt
+          });
+        } catch (closeError) {
+          console.warn("[任务流程] [IndexPage] 重试前关闭详情失败，将由打开流程再次清理", {
+            localId,
+            geekId,
+            detailTabId,
+            closeMs: Date.now() - closeStartedAt,
+            message: closeError?.message || String(closeError)
+          });
+        }
+        detailTabId = tabId;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
+    if (!screenshot) {
+      throw lastCaptureError || new Error("详情截图重试后仍无结果");
+    }
 
     phase = "upload-resume";
     const fileName = `boss直聘-${safeName}.png`;
@@ -1174,10 +1240,11 @@ async function buildAndUploadBossRecommendResume(geek, localId, tabId, shouldAbo
   } finally {
     const closeStartedAt = Date.now();
     try {
-      await collectMod.closeBossRecommendDetail(tabId);
+      await collectMod.closeBossRecommendDetail(detailTabId);
       console.log("[任务流程] [IndexPage] 推荐详情已关闭", {
         localId,
         geekId,
+        detailTabId,
         closeMs: Date.now() - closeStartedAt
       });
     } catch (e) {
@@ -1508,6 +1575,12 @@ async function doFetchRecommend(args) {
       console.log(
         `[任务流程] [IndexPage] 推荐批次 ${scoreBatchNo} 开始：targetCount=${targetCount} batchSize=${batchSize}`
       );
+      const includeViewedCandidates =
+        getRuntimeConfig("includeViewedCandidates") === true;
+      console.log(
+        `[任务流程] [IndexPage] 运行时配置 includeViewedCandidates=${includeViewedCandidates} ` +
+          `(${includeViewedCandidates ? "包含已读候选人" : "跳过已读候选人"})`
+      );
       console.log("[任务流程] [IndexPage] 推荐任务 BOSS 筛选条件:", args?.bossFilters || null);
       store.commit("setCurrentRecommendJobId", jobId);
       store.commit("setBossRecommendFetching", { jobId, fetching: true });
@@ -1520,6 +1593,8 @@ async function doFetchRecommend(args) {
           // 每批最多发现 batchSize 个未入库候选人；本批先评分，SSE 返回通过名单后再收藏。
           targetCount: batchSize,
           discoverOnly: true,
+          // 运行时配置控制是否跳过 BOSS“已查看”候选人；已入库去重始终保留。
+          includeViewedCandidates,
           bossFilters: args?.bossFilters || null,
           humanizeOpts: args?.humanizeOpts || {},
           onProgress,

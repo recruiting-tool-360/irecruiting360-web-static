@@ -671,6 +671,29 @@ export interface AppUpdaterBridge {
   ): () => void
 }
 
+export interface RuntimeConfigValues {
+  /** true 时把 BOSS 已查看候选人纳入任务；默认 false，即跳过已读候选人。 */
+  includeViewedCandidates: boolean
+}
+
+/**
+ * 仅当前 Electron 进程有效的运行时配置。
+ * 不持久化，应用退出后恢复默认值。set/reset 仅允许在 QA2 客户端执行。
+ */
+export interface RuntimeConfigBridge {
+  get(): RuntimeConfigValues
+  get<K extends keyof RuntimeConfigValues>(key: K): RuntimeConfigValues[K]
+  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  set<K extends keyof RuntimeConfigValues>(
+    key: K,
+    value: RuntimeConfigValues[K]
+  ): RuntimeConfigValues
+  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  reset(): RuntimeConfigValues
+  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  reset<K extends keyof RuntimeConfigValues>(key: K): RuntimeConfigValues
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -686,7 +709,10 @@ declare global {
       automation: AutomationBridge
       siteNetwork: SiteNetworkBridge
       appUpdater: AppUpdaterBridge
+      runtimeConfig: RuntimeConfigBridge
     }
+    /** 主页 DevTools 控制台可直接调用的运行时配置入口。 */
+    ikuaizhaoConfig: RuntimeConfigBridge
     __IKUAIZHAO_NATIVE__?: IKuaiZhaoNative
   }
 }
