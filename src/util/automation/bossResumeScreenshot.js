@@ -557,7 +557,8 @@ const RESUME_SCROLLER_VALIDATION_STEP_PX = 28;
 const CDP_WHEEL_MAX_STEP_PX = 120;
 const CDP_WHEEL_STEP_INTERVAL_MS = 28;
 const CDP_SCROLLBAR_DRAG_STEPS = 1;
-const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-scrollbar-first-v11";
+const MAX_RESUME_SLICES = 80;
+const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-scrollbar-first-v12";
 
 const RETRYABLE_DETAIL_SCROLLER_CODES = new Set([
   "RESUME_DETAIL_SCROLLER_NOT_FOUND",
@@ -1657,7 +1658,7 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       await scrollToContentOffset(0, "首屏重置");
       await captureStableSlice(INITIAL_RENDER_TIMEOUT_MS, "首屏重置后");
     }
-    for (let index = 0; index < 80; index++) {
+    for (let index = 0; index < MAX_RESUME_SLICES; index++) {
       const phaseLabel = `分片 ${index + 1}`;
       console.log("[任务流程] [BOSS简历长图] 准备滚动并截图", {
         phaseLabel,
@@ -1750,7 +1751,30 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         return result;
       }
     }
-    throw new Error("简历分片超过安全上限，已取消上传不完整截图");
+    if (!slices.length) {
+      throw new Error("简历分片达到上限但没有任何可拼接内容");
+    }
+    const lastSliceState = slices[slices.length - 1].state;
+    const detectedTotalHeight = Number(lastSliceState?.totalHeight) || covered;
+    checkStopped();
+    const partialResult = await stitchResumeSlices(slices, covered);
+    checkStopped();
+    console.warn("[任务流程] [BOSS简历长图] 达到分片上限，拼接不完整长图", {
+      maxSlices: MAX_RESUME_SLICES,
+      slices: partialResult.sliceCount,
+      capturedHeight: covered,
+      totalHeight: detectedTotalHeight,
+      missingHeight: Math.max(0, detectedTotalHeight - covered),
+      width: partialResult.width,
+      height: partialResult.height,
+      totalElapsedMs: Date.now() - captureStartedAt
+    });
+    return {
+      ...partialResult,
+      incomplete: covered < detectedTotalHeight,
+      capturedHeight: covered,
+      totalHeight: detectedTotalHeight
+    };
   } catch (error) {
     console.warn("[任务流程] [BOSS简历长图] 截图流程失败 ✗", {
       tabId,
