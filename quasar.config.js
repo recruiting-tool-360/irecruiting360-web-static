@@ -31,7 +31,7 @@ module.exports = configure(function (/* ctx */) {
       'axios',
       'intersection-observer',
       'iframe-messenger',
-      'svgBase64Manager',
+      'SvgBase64Manager',
       'chunkReload'
     ],
 
