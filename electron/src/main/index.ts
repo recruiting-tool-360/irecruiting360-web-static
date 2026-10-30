@@ -1110,7 +1110,8 @@ function registerIpc(): void {
   // 改为打开候选人详情面板截图，再把图片走 resume/upload 交给后端解析/评分。
   //
   // rect 使用 CSS 像素（与 getBoundingClientRect 一致），省略时截整个可见页面。
-  // 使用 Electron 原生 capturePage 截取当前可见区域，不向招聘站页面发送 CDP 截图命令。
+  // 可显式指定 captureMode；未指定时保持活跃 tab 用 capturePage、后台 tab 用 frameSubscription。
+  // 使用 Electron 原生截图能力，不向招聘站页面发送 CDP 截图命令。
   ipcMain.handle(
     'automation:captureTab',
     async (
@@ -1118,10 +1119,24 @@ function registerIpc(): void {
       opts: {
         tabId: string
         rect?: { x: number; y: number; width: number; height: number }
+        captureMode?: 'capturePage' | 'frameSubscription'
       }
     ) => {
       if (!opts || typeof opts.tabId !== 'string') {
         return { ok: false, error: { code: 'BAD_REQUEST', message: 'tabId required' } }
+      }
+      if (
+        opts.captureMode &&
+        opts.captureMode !== 'capturePage' &&
+        opts.captureMode !== 'frameSubscription'
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'captureMode must be capturePage or frameSubscription'
+          }
+        }
       }
       const wc = tabManager.getWebContentsById(opts.tabId)
       if (!wc) {
@@ -1162,9 +1177,12 @@ function registerIpc(): void {
 
       try {
         const isActive = opts.tabId === tabManager.getActiveTabId()
-        const image = isActive
-          ? await wc.capturePage(rect, { stayHidden: true })
-          : await captureBackgroundTabFrame(wc, rect)
+        const resolvedCaptureMode =
+          opts.captureMode || (isActive ? 'capturePage' : 'frameSubscription')
+        const image =
+          resolvedCaptureMode === 'capturePage'
+            ? await wc.capturePage(rect, { stayHidden: true })
+            : await captureBackgroundTabFrame(wc, rect)
         if (image.isEmpty()) {
           return {
             ok: false,
@@ -1181,7 +1199,7 @@ function registerIpc(): void {
             height: size.height,
             bytes: png.length,
             foundRect: rect || null,
-            captureMode: isActive ? 'capturePage' : 'frameSubscription'
+            captureMode: resolvedCaptureMode
           }
         }
       } catch (e) {

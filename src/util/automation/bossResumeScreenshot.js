@@ -53,6 +53,109 @@ function measureResumeSlice(options) {
       height: bounds.height
     };
   }
+  function describeInputTarget(x, y) {
+    let doc = document;
+    let localX = x;
+    let localY = y;
+    let frameDepth = 0;
+    while (doc && frameDepth <= 8) {
+      const element = doc.elementFromPoint(localX, localY);
+      if (!element) return null;
+      let childDocument = null;
+      if (element.tagName === "IFRAME") {
+        try {
+          childDocument = element.contentDocument;
+        } catch {}
+      }
+      if (!childDocument) {
+        return {
+          frameDepth,
+          tag: element.tagName,
+          id: element.id || "",
+          className: String(element.className || "").slice(0, 120),
+          insideScroller: Boolean(
+            scroller &&
+            element.ownerDocument === scroller.ownerDocument &&
+            scroller.contains(element)
+          )
+        };
+      }
+      const bounds = element.getBoundingClientRect();
+      localX -= bounds.left + element.clientLeft;
+      localY -= bounds.top + element.clientTop;
+      doc = childDocument;
+      frameDepth++;
+    }
+    return { frameDepth, tag: "UNKNOWN" };
+  }
+  function inputX(bounds, alternate) {
+    if (!alternate || !scroller) return bounds.left + bounds.width / 2;
+    const nonClientRight = Math.max(
+      1,
+      bounds.width - Number(scroller.clientWidth || 0) - Number(scroller.clientLeft || 0)
+    );
+    return bounds.right - Math.max(2, nonClientRight / 2);
+  }
+  function buildScrollbarInput(fromScrollTop, targetScrollTop, reason, dragSteps) {
+    if (!scroller) return null;
+    const bounds = globalBounds(scroller);
+    const scrollHeight = Number(scroller.scrollHeight) || 0;
+    const clientHeight = Number(scroller.clientHeight) || 0;
+    const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+    const from = Math.max(0, Math.min(maxScrollTop, Number(fromScrollTop) || 0));
+    const target = Math.max(0, Math.min(maxScrollTop, Number(targetScrollTop) || 0));
+    if (maxScrollTop < 1 || clientHeight < 1 || Math.abs(target - from) < 1) return null;
+
+    const trackTop = bounds.top + scroller.clientTop;
+    const trackHeight = clientHeight;
+    const thumbHeight = Math.max(32, Math.min(
+      trackHeight,
+      trackHeight * (clientHeight / scrollHeight)
+    ));
+    const thumbTravel = Math.max(1, trackHeight - thumbHeight);
+    const nonClientRight = Math.max(
+      3,
+      bounds.width - Number(scroller.clientWidth || 0)
+    );
+    const x = Math.round(Math.max(
+      1,
+      Math.min(window.innerWidth - 1, bounds.right - nonClientRight / 2)
+    ));
+    const startY = Math.round(Math.max(
+      1,
+      Math.min(
+        window.innerHeight - 1,
+        trackTop + thumbHeight / 2 + thumbTravel * (from / maxScrollTop)
+      )
+    ));
+    let endY = Math.round(Math.max(
+      1,
+      Math.min(
+        window.innerHeight - 1,
+        trackTop + thumbHeight / 2 + thumbTravel * (target / maxScrollTop)
+      )
+    ));
+    if (endY === startY && target !== from) {
+      endY = Math.max(
+        1,
+        Math.min(window.innerHeight - 1, endY + Math.sign(target - from))
+      );
+    }
+    return {
+      reason,
+      x,
+      startY,
+      endY,
+      thumbHeight,
+      trackTop,
+      trackHeight,
+      fromScrollTop: from,
+      toScrollTop: target,
+      deltaY: target - from,
+      steps: dragSteps,
+      target: describeInputTarget(x, startY)
+    };
+  }
   function viewportArea(element) {
     try {
       const bounds = globalBounds(element);
@@ -166,22 +269,9 @@ function measureResumeSlice(options) {
     }
   }
   let scrollInput = null;
-  if ((options.action === "scroll" || options.action === "restore") && scroller) {
-    if (options.action === "restore") {
-      const deltaY = options.scrollTop - scroller.scrollTop;
-      if (Math.abs(deltaY) >= 1) {
-        const bounds = globalBounds(scroller);
-        scrollInput = {
-          reason: "restore",
-          x: Math.round(Math.max(1, Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2))),
-          y: Math.round(Math.max(1, Math.min(window.innerHeight - 1, bounds.top + bounds.height / 2))),
-          fromScrollTop: scroller.scrollTop,
-          toScrollTop: options.scrollTop,
-          deltaY
-        };
-      }
-    }
-  }
+  let scrollbarInput = null;
+  // Restoring scrollTop must not emit wheel input. The caller restores styles
+  // first and then uses the trusted scrollbar drag path when scrolling is needed.
   if (options.action === "makeBottomReachable" && scroller) {
     const style = scroller.ownerDocument.defaultView.getComputedStyle(scroller);
     const bounds = globalBounds(scroller);
@@ -237,7 +327,7 @@ function measureResumeSlice(options) {
       }
     }
   }
-  if ((options.action === "scroll" || options.action === "setScroll") && scroller) {
+  if (options.action === "scroll" && scroller) {
     const bounds = globalBounds(scroller);
     const innerTop = bounds.top + scroller.clientTop;
     const innerBottom = innerTop + scroller.clientHeight;
@@ -254,8 +344,10 @@ function measureResumeSlice(options) {
     // when BOSS clamps scrollTop before the end of the resume.
     const scrollBounds = globalBounds(scroller);
     const rootBounds = globalBounds(root);
-    const targetScrollTop = Math.max(0, scroller.scrollTop + rootBounds.top +
-      options.contentOffset - scrollBounds.top - scroller.clientTop);
+    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const requestedScrollTop = scroller.scrollTop + rootBounds.top +
+      options.contentOffset - scrollBounds.top - scroller.clientTop;
+    const targetScrollTop = Math.max(0, Math.min(maxScrollTop, requestedScrollTop));
     const deltaY = targetScrollTop - scroller.scrollTop;
     if (Math.abs(deltaY) >= 1) {
       const inputTop = Math.max(visibleTop, bounds.top + scroller.clientTop);
@@ -264,39 +356,76 @@ function measureResumeSlice(options) {
         Math.min(visibleBottom, bounds.bottom - scroller.clientTop)
       );
       const inputRatio = options.alternateScrollInput ? 0.3 : 0.5;
+      const x = Math.round(Math.max(
+        1,
+        Math.min(window.innerWidth - 1, inputX(bounds, options.alternateScrollInput))
+      ));
+      const y = Math.round(Math.max(
+        1,
+        Math.min(window.innerHeight - 1, inputTop + (inputBottom - inputTop) * inputRatio)
+      ));
       scrollInput = {
-        reason: options.action === "setScroll" ? "slice-dom-fallback" : "slice",
-        inputMode: options.action === "setScroll" ? "direct" : "cdp",
-        x: Math.round(Math.max(1, Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2))),
-        y: Math.round(Math.max(
-          1,
-          Math.min(window.innerHeight - 1, inputTop + (inputBottom - inputTop) * inputRatio)
-        )),
+        reason: "slice",
+        x,
+        y,
+        target: describeInputTarget(x, y),
         fromScrollTop: scroller.scrollTop,
         toScrollTop: targetScrollTop,
         deltaY
       };
-      if (options.action === "setScroll") scroller.scrollTop = targetScrollTop;
     }
   }
-  if (options.action === "setScrollTop" && scroller) {
-    const fromScrollTop = scroller.scrollTop;
+  if (options.action === "wheelBy" && scroller) {
+    const fromScrollTop = Number(scroller.scrollTop) || 0;
     const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    const targetScrollTop = Math.max(0, Math.min(maxScrollTop, Number(options.scrollTop) || 0));
+    const requestedDelta = Number(options.deltaY) || 0;
+    const targetScrollTop = Math.max(
+      0,
+      Math.min(maxScrollTop, fromScrollTop + requestedDelta)
+    );
     const deltaY = targetScrollTop - fromScrollTop;
     if (Math.abs(deltaY) >= 1) {
       const bounds = globalBounds(scroller);
+      const inputRatio = options.alternateScrollInput ? 0.3 : 0.5;
+      const x = Math.round(Math.max(
+        1,
+        Math.min(window.innerWidth - 1, inputX(bounds, options.alternateScrollInput))
+      ));
+      const y = Math.round(Math.max(
+        1,
+        Math.min(
+          window.innerHeight - 1,
+          bounds.top + scroller.clientTop + scroller.clientHeight * inputRatio
+        )
+      ));
       scrollInput = {
-        reason: "restore-dom-fallback",
-        inputMode: "direct",
-        x: Math.round(Math.max(1, Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2))),
-        y: Math.round(Math.max(1, Math.min(window.innerHeight - 1, bounds.top + bounds.height / 2))),
+        reason: options.reason || "wheel-by",
+        x,
+        y,
+        target: describeInputTarget(x, y),
         fromScrollTop,
         toScrollTop: targetScrollTop,
         deltaY
       };
-      scroller.scrollTop = targetScrollTop;
     }
+  }
+  if (options.action === "scrollbar" && scroller) {
+    const fromScrollTop = Number(scroller.scrollTop) || 0;
+    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    let targetScrollTop = Number(options.targetScrollTop);
+    if (!Number.isFinite(targetScrollTop)) {
+      const bounds = globalBounds(scroller);
+      const rootBounds = globalBounds(root);
+      targetScrollTop = Math.max(0, fromScrollTop + rootBounds.top +
+        (Number(options.contentOffset) || 0) - bounds.top - scroller.clientTop);
+    }
+    targetScrollTop = Math.max(0, Math.min(maxScrollTop, targetScrollTop));
+    scrollbarInput = buildScrollbarInput(
+      fromScrollTop,
+      targetScrollTop,
+      options.reason || "scrollbar-drag",
+      options.dragSteps
+    );
   }
   const rootBounds = globalBounds(root);
   const canvasBounds = globalBounds(canvas);
@@ -341,6 +470,7 @@ function measureResumeSlice(options) {
     detailScrollerContentFits,
     requireResumeDetailScroller,
     scrollInput,
+    scrollbarInput,
     frameAdjustments
   };
   const diagnostics = {
@@ -425,11 +555,17 @@ const INITIAL_RENDER_TIMEOUT_MS = 15000;
 const SLICE_RENDER_TIMEOUT_MS = 8000;
 const SCROLL_SETTLE_TIMEOUT_MS = 1200;
 const SCROLL_SETTLE_POLL_MS = 120;
+const SCROLL_TARGET_TOLERANCE_PX = 8;
 const RESUME_SCROLLER_READY_TIMEOUT_MS = 10000;
 const RESUME_SCROLLER_STABLE_READS = 3;
 const RESUME_SCROLLER_POLL_MS = 180;
 const RESUME_SCROLLER_VALIDATION_STEP_PX = 28;
-const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-29-scroller-validated-v3";
+const CDP_WHEEL_MAX_STEP_PX = 120;
+const CDP_WHEEL_STEP_INTERVAL_MS = 28;
+const CDP_SCROLLBAR_DRAG_STEPS = 1;
+const MAX_RESUME_SLICES = 80;
+const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-capture-locked-v15";
+const BOSS_RESUME_CAPTURE_MODE = "frameSubscription";
 
 const RETRYABLE_DETAIL_SCROLLER_CODES = new Set([
   "RESUME_DETAIL_SCROLLER_NOT_FOUND",
@@ -437,6 +573,7 @@ const RETRYABLE_DETAIL_SCROLLER_CODES = new Set([
   "RESUME_SCROLLER_VERIFICATION_FAILED",
   "RESUME_SCROLLER_NOT_FOUND",
   "RESUME_SCROLL_NOT_ADVANCING",
+  "RESUME_CDP_SCROLL_FAILED",
   "RESUME_NOT_VISIBLE",
   "RESUME_VISIBLE_HEIGHT_TOO_SMALL",
   "RESUME_WIDTH_CLIPPED"
@@ -519,12 +656,17 @@ export async function stitchResumeSlices(slices, totalHeight) {
         throw new Error("RESUME_SCREENSHOT_GAP");
       }
       const image = index === 0 ? firstImage : await loadScreenshot(slice.base64);
-      if (Math.abs(image.naturalWidth - width) > 1 ||
-          Math.abs(image.naturalHeight - slice.state.rect.height * scale) > 2) {
+      const sliceRect = slice.state?.rect;
+      if (!sliceRect || sliceRect.width < 1 || sliceRect.height < 1) {
         throw new Error("RESUME_SCREENSHOT_SIZE_CHANGED");
       }
-      const sourceTop = (slice.from - slice.state.contentTop) * scale;
-      const sourceHeight = (slice.to - slice.from) * scale;
+      const sliceScale = image.naturalWidth / sliceRect.width;
+      const expectedImageHeight = sliceRect.height * sliceScale;
+      if (Math.abs(image.naturalHeight - expectedImageHeight) > 2) {
+        throw new Error("RESUME_SCREENSHOT_SIZE_CHANGED");
+      }
+      const sourceTop = (slice.from - slice.state.contentTop) * sliceScale;
+      const sourceHeight = (slice.to - slice.from) * sliceScale;
       if (sourceTop < 0 || sourceTop + sourceHeight > image.naturalHeight + 1) {
         throw new Error("RESUME_SCREENSHOT_INVALID_SLICE");
       }
@@ -551,7 +693,8 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
   const captureStartedAt = Date.now();
   console.info(`[任务流程] [BOSS简历长图] capture revision=${BOSS_RESUME_SCREENSHOT_REVISION} tabId=${tabId}`);
   const automation = window.api?.automation;
-  if (!automation?.sendCdp || !automation?.evalOnTab || !automation?.captureTab) {
+  if (!automation?.evalOnTab || !automation?.captureTab ||
+      (!automation?.mouseWheel && !automation?.sendCdp)) {
     throw new Error("当前客户端版本不支持简历分片截图");
   }
   const checkStopped = () => {
@@ -564,7 +707,8 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
   let scrollerIndex = null;
   const viewportAdjustments = [];
   const frameAdjustments = [];
-  // Every CDP command below is scoped to the target BOSS tabId; never dispatch it to the app view.
+  // Wheel input prefers the native bridge. CDP is used for older desktop clients
+  // and for trusted native scrollbar dragging. Every command is scoped to tabId.
   const sendCdp = async (method, params) => {
     checkStopped();
     const result = await automation.sendCdp({ tabId, method, params });
@@ -572,6 +716,152 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       throw new Error(result?.error?.message || `CDP_COMMAND_FAILED ${method}`);
     }
     return result.result;
+  };
+  const dispatchWheel = async ({ x, y, deltaY, reason }) => {
+    checkStopped();
+    let nativeError = null;
+    if (automation.mouseWheel) {
+      try {
+        const nativeResult = await automation.mouseWheel({
+          tabId,
+          x,
+          y,
+          deltaX: 0,
+          deltaY
+        });
+        if (!nativeResult?.ok) {
+          throw new Error(nativeResult?.error?.message || "NATIVE_MOUSE_WHEEL_FAILED");
+        }
+        console.log("[任务流程] [BOSS简历长图] 原生滚轮滚动 >>>", {
+          reason,
+          x,
+          y,
+          deltaY,
+          inputMode: "native",
+          eventCount: nativeResult.data?.eventCount || 1
+        });
+        return { inputMode: "native", eventCount: nativeResult.data?.eventCount || 1 };
+      } catch (error) {
+        nativeError = error;
+        console.warn("[任务流程] [BOSS简历长图] 原生滚轮发送失败，改用分步 CDP", {
+          reason,
+          message: error?.message || String(error)
+        });
+      }
+    }
+    if (!automation.sendCdp) {
+      throw nativeError || new Error("当前客户端不支持鼠标滚轮输入");
+    }
+
+    await sendCdp("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x,
+      y,
+      button: "none",
+      pointerType: "mouse"
+    });
+    await sleep(80);
+    const eventCount = Math.max(1, Math.ceil(Math.abs(deltaY) / CDP_WHEEL_MAX_STEP_PX));
+    const direction = Math.sign(deltaY) || 1;
+    for (let index = 0; index < eventCount; index += 1) {
+      const remaining = Math.abs(deltaY) - index * CDP_WHEEL_MAX_STEP_PX;
+      const step = direction * Math.min(CDP_WHEEL_MAX_STEP_PX, remaining);
+      await sendCdp("Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x,
+        y,
+        deltaX: 0,
+        deltaY: step,
+        pointerType: "mouse"
+      });
+      if (index < eventCount - 1) await sleep(CDP_WHEEL_STEP_INTERVAL_MS);
+    }
+    console.log("[任务流程] [BOSS简历长图] 分步 CDP 滚轮滚动 >>>", {
+      reason,
+      x,
+      y,
+      deltaY,
+      inputMode: "cdp",
+      eventCount,
+      nativeError: nativeError?.message || null
+    });
+    return { inputMode: "cdp", eventCount };
+  };
+  const dispatchScrollbarDrag = async ({
+    x,
+    startY,
+    endY,
+    reason,
+    fromScrollTop,
+    toScrollTop,
+    steps: requestedSteps
+  }) => {
+    checkStopped();
+    if (!automation.sendCdp) {
+      throw new Error("当前客户端不支持滚动条拖动");
+    }
+
+    // Hover the native scrollbar first so overlay scrollbars have time to appear.
+    await sendCdp("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x,
+      y: startY,
+      button: "none",
+      buttons: 0,
+      pointerType: "mouse"
+    });
+    await sleep(160);
+    await sendCdp("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x,
+      y: startY,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+      pointerType: "mouse"
+    });
+    await sleep(60);
+
+    const steps = Math.max(
+      1,
+      Math.min(12, Math.round(Number(requestedSteps) || CDP_SCROLLBAR_DRAG_STEPS))
+    );
+    for (let index = 1; index <= steps; index += 1) {
+      const y = Math.round(startY + (endY - startY) * (index / steps));
+      await sendCdp("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x,
+        y,
+        button: "left",
+        buttons: 1,
+        pointerType: "mouse"
+      });
+      if (index < steps) await sleep(24);
+    }
+    await sendCdp("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x,
+      y: endY,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+      pointerType: "mouse"
+    });
+    console.log("[任务流程] [BOSS简历长图] 原生滚动条拖动 >>>", {
+      reason,
+      x,
+      startY,
+      endY,
+      fromScrollTop,
+      toScrollTop,
+      steps,
+      inputMode: "scrollbar-drag"
+    });
+    return { inputMode: "scrollbar-drag", eventCount: steps + 3 };
+  };
+  const isWheelBlockedByIframe = (scrollInput) => {
+    const target = scrollInput?.target;
+    return Number(target?.frameDepth) > 0 && target?.insideScroller === false;
   };
   const read = async (options = {}) => {
     checkStopped();
@@ -609,27 +899,41 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         }))
       });
     }
-    if (result.result?.scrollInput && result.result.scrollInput.inputMode !== "direct") {
-      const { x, y, deltaY } = result.result.scrollInput;
-      await sendCdp("Input.dispatchMouseEvent", {
-        type: "mouseMoved",
-        x,
-        y,
-        button: "none"
-      });
-      await sendCdp("Input.dispatchMouseEvent", {
-        type: "mouseWheel",
-        x,
-        y,
-        deltaX: 0,
-        deltaY
-      });
-      console.log("[任务流程] [BOSS简历长图] CDP 原生滚轮滚动 >>>", {
-        ...result.result.scrollInput,
+    if (result.result?.scrollInput) {
+      if (isWheelBlockedByIframe(result.result.scrollInput)) {
+        result.result.inputDispatchMode = "blocked-by-iframe";
+        result.result.inputEventCount = 0;
+        console.log("[任务流程] [BOSS简历长图] 滚轮目标位于 iframe 内，跳过 wheel", {
+          ...result.result.scrollInput,
+          scrollerIndex,
+          scrollHeight: result.result.scrollHeight,
+          clientHeight: result.result.clientHeight
+        });
+      } else {
+        const dispatch = await dispatchWheel(result.result.scrollInput);
+        result.result.inputDispatchMode = dispatch.inputMode;
+        result.result.inputEventCount = dispatch.eventCount;
+        console.log("[任务流程] [BOSS简历长图] 简历滚动输入已发送", {
+          ...result.result.scrollInput,
+          scrollerIndex,
+          scrollHeight: result.result.scrollHeight,
+          clientHeight: result.result.clientHeight,
+          inputMode: dispatch.inputMode,
+          eventCount: dispatch.eventCount
+        });
+      }
+    }
+    if (result.result?.scrollbarInput) {
+      const dispatch = await dispatchScrollbarDrag(result.result.scrollbarInput);
+      result.result.inputDispatchMode = dispatch.inputMode;
+      result.result.inputEventCount = dispatch.eventCount;
+      console.log("[任务流程] [BOSS简历长图] 简历滚动条输入已发送", {
+        ...result.result.scrollbarInput,
         scrollerIndex,
         scrollHeight: result.result.scrollHeight,
         clientHeight: result.result.clientHeight,
-        inputMode: result.result.scrollInput.inputMode || "cdp"
+        inputMode: dispatch.inputMode,
+        eventCount: dispatch.eventCount
       });
     }
     return result.result;
@@ -776,20 +1080,75 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
     let restored = null;
     let verificationError = null;
     let scrollOperationError = null;
+    let verificationInputMode = null;
+    let verificationScrollbarInput = null;
     try {
-      await read({ action: "setScrollTop", scrollTop: targetScrollTop });
-      await sleep(RESUME_SCROLLER_POLL_MS);
-      after = await read();
+      const verifyAfterState = () => {
+        const actualDelta = Number(after?.scrollTop) - fromScrollTop;
+        const rootShift = Number(after?.rootBounds?.top) - Number(before.rootBounds?.top);
+        return {
+          actualDelta,
+          rootShift,
+          moved: Math.abs(actualDelta) >= 1,
+          visualMatched: Math.abs(rootShift + actualDelta) <= 4,
+          stillVisible: after?.ok === true
+        };
+      };
+      let verification = {
+        actualDelta: 0,
+        rootShift: 0,
+        moved: false,
+        visualMatched: true,
+        stillVisible: true
+      };
 
-      const actualDelta = Number(after?.scrollTop) - fromScrollTop;
-      const rootShift = Number(after?.rootBounds?.top) - Number(before.rootBounds?.top);
-      const moved = Math.abs(actualDelta) >= 1;
-      const visualMatched = Math.abs(rootShift + actualDelta) <= 4;
-      const stillVisible = after?.ok === true;
-      if (!moved || !visualMatched || !stillVisible) {
+      try {
+        const dragState = await read({
+          action: "scrollbar",
+          targetScrollTop,
+          reason: "verify-forward-scrollbar-priority",
+          dragSteps: 1
+        });
+        if (dragState.scrollbarInput) {
+          verificationScrollbarInput = dragState.scrollbarInput;
+          verificationInputMode = dragState.inputDispatchMode || "scrollbar-drag";
+          await sleep(RESUME_SCROLLER_POLL_MS);
+          after = await read();
+          verification = verifyAfterState();
+        }
+      } catch (error) {
+        console.warn("[任务流程] [BOSS简历长图] 滚动条优先验证失败，回退滚轮", {
+          targetScrollTop,
+          message: error?.message || String(error)
+        });
+      }
+
+      if (!verification.moved) {
+        console.warn("[任务流程] [BOSS简历长图] 滚动条未推动外层滚动器，改用滚轮", {
+          targetScrollTop,
+          inputMode: verificationInputMode
+        });
+        const movedState = await read({
+          action: "wheelBy",
+          deltaY: targetScrollTop - fromScrollTop,
+          reason: "verify-forward-wheel-fallback"
+        });
+        verificationInputMode = movedState.inputDispatchMode || null;
+        if (verificationInputMode === "blocked-by-iframe") {
+          after = before;
+        } else {
+          await sleep(RESUME_SCROLLER_POLL_MS);
+          after = await read();
+        }
+        verification = verifyAfterState();
+      }
+
+      if (!verification.moved || !verification.visualMatched || !verification.stillVisible) {
         verificationError = new Error(
-          `详情滚动器验证失败 moved=${moved} visualMatched=${visualMatched} ` +
-          `visible=${stillVisible} actualDelta=${actualDelta} rootShift=${rootShift}`
+          `详情滚动器验证失败 moved=${verification.moved} ` +
+          `visualMatched=${verification.visualMatched} ` +
+          `visible=${verification.stillVisible} ` +
+          `actualDelta=${verification.actualDelta} rootShift=${verification.rootShift}`
         );
         verificationError.code = "RESUME_SCROLLER_VERIFICATION_FAILED";
       }
@@ -798,8 +1157,15 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
     }
 
     try {
-      await read({ action: "setScrollTop", scrollTop: fromScrollTop });
-      await sleep(RESUME_SCROLLER_POLL_MS);
+      if (after && Math.abs(Number(after.scrollTop) - fromScrollTop) >= 1) {
+        await read({
+          action: "scrollbar",
+          targetScrollTop: fromScrollTop,
+          reason: "verify-restore-scrollbar",
+          dragSteps: 1
+        });
+        await sleep(RESUME_SCROLLER_POLL_MS);
+      }
       restored = await read();
       if (Math.abs(Number(restored?.scrollTop) - fromScrollTop) > 2) {
         console.warn("[任务流程] [BOSS简历长图] 滚动器验证后恢复位置失败", {
@@ -837,6 +1203,8 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         phase: "scroll",
         direction,
         delta,
+        inputMode: verificationInputMode,
+        scrollbarInput: verificationScrollbarInput,
         before: stateSummary(before),
         after: stateSummary(after),
         restored: stateSummary(restored),
@@ -849,6 +1217,7 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
     console.log("[任务流程] [BOSS简历长图] 详情滚动器验证通过 ✓", {
       direction,
       delta,
+      inputMode: verificationInputMode,
       fromScrollTop,
       toScrollTop: after?.scrollTop,
       rootShift: Number(after?.rootBounds?.top) - Number(before.rootBounds?.top),
@@ -864,7 +1233,37 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
   };
   const scrollTargetReached = (state, targetScrollTop, expectedDirection) => {
     if (expectedDirection > 0 && isScrollerAtEnd(state)) return true;
-    return Math.abs(Number(state?.scrollTop || 0) - Number(targetScrollTop)) <= 2;
+    return Math.abs(Number(state?.scrollTop || 0) - Number(targetScrollTop)) <=
+      SCROLL_TARGET_TOLERANCE_PX;
+  };
+  const evaluateScrollProgress = (
+    state,
+    fromScrollTop,
+    targetScrollTop,
+    expectedDirection,
+    minimumProgress,
+    acceptDirectionalProgress
+  ) => {
+    // Scrollbar thumb coordinates are rounded to integer screen pixels, so the
+    // resulting page offset can miss the requested target by several pixels.
+    // For that input path, meaningful movement in the intended direction is the
+    // success signal; slice coverage is validated after capture.
+    const delta = Number(state?.scrollTop || 0) - fromScrollTop;
+    const progressed = scrollProgressed(delta, expectedDirection, minimumProgress);
+    const targetReached = scrollTargetReached(
+      state,
+      targetScrollTop,
+      expectedDirection
+    );
+    return {
+      delta,
+      progressed,
+      targetReached,
+      // A sub-pixel scrollTop difference can survive scrollbar restore on
+      // Windows. If the current position already satisfies the target
+      // tolerance, requiring another input would cause a false failure.
+      accepted: targetReached || (progressed && acceptDirectionalProgress)
+    };
   };
   const waitForScrollTarget = async (
     fromScrollTop,
@@ -872,22 +1271,31 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
     phaseLabel,
     inputMode,
     expectedDirection = 0,
-    minimumProgress = 1
+    minimumProgress = 1,
+    acceptDirectionalProgress = false
   ) => {
     const startedAt = Date.now();
     let latest = null;
     do {
       latest = await read();
-      const delta = Number(latest?.scrollTop || 0) - fromScrollTop;
-      if (scrollTargetReached(latest, targetScrollTop, expectedDirection) &&
-          scrollProgressed(delta, expectedDirection, minimumProgress)) {
+      const progress = evaluateScrollProgress(
+        latest,
+        fromScrollTop,
+        targetScrollTop,
+        expectedDirection,
+        minimumProgress,
+        acceptDirectionalProgress
+      );
+      if (progress.accepted) {
         console.log("[任务流程] [BOSS简历长图] 滚动位置已确认 ✓", {
           phaseLabel,
           inputMode,
           fromScrollTop,
           targetScrollTop,
           toScrollTop: latest.scrollTop,
-          delta,
+          delta: progress.delta,
+          targetReached: progress.targetReached,
+          acceptedBy: progress.targetReached ? "target" : "directional-progress",
           scrollerIndex: latest.scrollerIndex,
           scrollerClass: latest.scrollerClass,
           scrollerRange: latest.scrollerRange,
@@ -909,97 +1317,215 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       throw error;
     }
     const fromScrollTop = Number(before.scrollTop) || 0;
+    let latest = before;
+    let priorityScrollbarState = null;
+    let priorityScrollbarError = null;
+    try {
+      priorityScrollbarState = await read({
+        action: "scrollbar",
+        contentOffset: requestedOffset,
+        reason: `${phaseLabel}-scrollbar-priority`
+      });
+    } catch (error) {
+      priorityScrollbarError = error;
+      console.warn("[任务流程] [BOSS简历长图] 滚动条优先拖动失败，回退滚轮", {
+        phaseLabel,
+        requestedOffset,
+        message: error?.message || String(error)
+      });
+    }
+    if (!priorityScrollbarState?.scrollbarInput &&
+        priorityScrollbarState?.ok &&
+        isScrollerAtEnd(priorityScrollbarState)) {
+      console.log("[任务流程] [BOSS简历长图] 滚动器已到底，保留当前位置用于末屏修正", {
+        phaseLabel,
+        requestedOffset,
+        scrollTop: priorityScrollbarState.scrollTop,
+        scrollHeight: priorityScrollbarState.scrollHeight,
+        clientHeight: priorityScrollbarState.clientHeight
+      });
+      return priorityScrollbarState;
+    }
+    if (priorityScrollbarState?.scrollbarInput) {
+      const scrollbarInput = priorityScrollbarState.scrollbarInput;
+      const priorityDirection = Math.sign(Number(scrollbarInput.deltaY) || 0);
+      const priorityMinimumProgress = Math.min(
+        4,
+        Math.abs(Number(scrollbarInput.deltaY) || 1)
+      );
+      latest = await waitForScrollTarget(
+        fromScrollTop,
+        scrollbarInput.toScrollTop,
+        phaseLabel,
+        priorityScrollbarState.inputDispatchMode || "scrollbar-drag",
+        priorityDirection,
+        priorityMinimumProgress,
+        true
+      );
+      if (evaluateScrollProgress(
+        latest,
+        fromScrollTop,
+        scrollbarInput.toScrollTop,
+        priorityDirection,
+        priorityMinimumProgress,
+        true
+      ).accepted) {
+        return latest;
+      }
+      console.warn("[任务流程] [BOSS简历长图] 优先滚动条拖动未产生有效位移，回退滚轮", {
+        phaseLabel,
+        requestedOffset,
+        fromScrollTop,
+        actualScrollTop: latest?.scrollTop,
+        targetScrollTop: scrollbarInput.toScrollTop
+      });
+    }
+
     const normal = await read({ action: "scroll", contentOffset: requestedOffset });
     if (!normal?.scrollInput) return normal;
     const expectedDirection = Math.sign(Number(normal.scrollInput.deltaY) || 0);
     const minimumProgress = Math.min(4, Math.abs(Number(normal.scrollInput.deltaY) || 1));
 
-    let latest = await waitForScrollTarget(
-      fromScrollTop,
-      normal.scrollInput.toScrollTop,
-      phaseLabel,
-      "cdp",
-      expectedDirection,
-      minimumProgress
-    );
-    if (scrollTargetReached(latest, normal.scrollInput.toScrollTop, expectedDirection)) {
-      return latest;
+    const wheelBlocked = normal.inputDispatchMode === "blocked-by-iframe";
+    let alternate = null;
+    if (!wheelBlocked) {
+      latest = await waitForScrollTarget(
+        fromScrollTop,
+        normal.scrollInput.toScrollTop,
+        phaseLabel,
+        normal.inputDispatchMode || "wheel",
+        expectedDirection,
+        minimumProgress
+      );
+      if (evaluateScrollProgress(
+        latest,
+        fromScrollTop,
+        normal.scrollInput.toScrollTop,
+        expectedDirection,
+        minimumProgress,
+        false
+      ).accepted) {
+        return latest;
+      }
+
+      console.warn("[任务流程] [BOSS简历长图] 滚轮未推进，更换滚轮落点重试", {
+        phaseLabel,
+        requestedOffset,
+        fromScrollTop,
+        inputMode: normal.inputDispatchMode,
+        scrollerIndex: latest?.scrollerIndex,
+        scrollerClass: latest?.scrollerClass,
+        rect: latest?.rect
+      });
+      alternate = await read({
+        action: "scroll",
+        contentOffset: requestedOffset,
+        alternateScrollInput: true
+      });
+      if (!alternate?.scrollInput) return alternate;
+      latest = await waitForScrollTarget(
+        fromScrollTop,
+        alternate.scrollInput.toScrollTop,
+        phaseLabel,
+        alternate.inputDispatchMode || "wheel-alternate",
+        expectedDirection,
+        minimumProgress
+      );
+      if (evaluateScrollProgress(
+        latest,
+        fromScrollTop,
+        alternate.scrollInput.toScrollTop,
+        expectedDirection,
+        minimumProgress,
+        false
+      ).accepted) {
+        return latest;
+      }
     }
 
-    console.warn("[任务流程] [BOSS简历长图] CDP 滚轮未推进，更换滚轮落点重试", {
+    const scrollbarTarget = (alternate || normal).scrollInput.toScrollTop;
+    console.warn("[任务流程] [BOSS简历长图] 外层滚动器由 iframe 覆盖，直接使用滚动条拖动", {
       phaseLabel,
       requestedOffset,
       fromScrollTop,
-      scrollerIndex: latest?.scrollerIndex,
-      scrollerClass: latest?.scrollerClass,
-      rect: latest?.rect
+      targetScrollTop: scrollbarTarget,
+      wheelBlocked
     });
-    const alternate = await read({
-      action: "scroll",
-      contentOffset: requestedOffset,
-      alternateScrollInput: true
+    const dragState = await read({
+      action: "scrollbar",
+      targetScrollTop: scrollbarTarget,
+      reason: `${phaseLabel}-scrollbar`
     });
-    if (!alternate?.scrollInput) return alternate;
-    latest = await waitForScrollTarget(
-      fromScrollTop,
-      alternate.scrollInput.toScrollTop,
-      phaseLabel,
-      "alternate",
-      expectedDirection,
-      minimumProgress
-    );
-    if (scrollTargetReached(latest, alternate.scrollInput.toScrollTop, expectedDirection)) {
-      return latest;
+    if (dragState?.scrollbarInput) {
+      latest = await waitForScrollTarget(
+        fromScrollTop,
+        scrollbarTarget,
+        phaseLabel,
+        dragState.inputDispatchMode || "scrollbar-drag",
+        expectedDirection,
+        minimumProgress,
+        true
+      );
+      if (evaluateScrollProgress(
+        latest,
+        fromScrollTop,
+        scrollbarTarget,
+        expectedDirection,
+        minimumProgress,
+        true
+      ).accepted) {
+        return latest;
+      }
     }
 
-    console.warn("[任务流程] [BOSS简历长图] 替代滚轮落点仍未推进，直接设置 scrollTop", {
-      phaseLabel,
-      requestedOffset,
-      fromScrollTop,
-      scrollerIndex: latest?.scrollerIndex,
-      scrollerClass: latest?.scrollerClass,
-      scrollHeight: latest?.scrollHeight,
-      clientHeight: latest?.clientHeight
-    });
-    const direct = await read({ action: "setScroll", contentOffset: requestedOffset });
-    latest = await waitForScrollTarget(
-      fromScrollTop,
-      direct?.scrollInput?.toScrollTop ?? latest?.scrollTop ?? fromScrollTop,
-      phaseLabel,
-      "dom",
-      expectedDirection,
-      minimumProgress
-    );
-    if (scrollTargetReached(
+    const finalProgress = evaluateScrollProgress(
       latest,
-      direct?.scrollInput?.toScrollTop ?? latest?.scrollTop ?? fromScrollTop,
-      expectedDirection
-    )) return latest;
-
-    const error = new Error(
-      `简历滚动容器未前进 phase=${phaseLabel} from=${fromScrollTop} ` +
-      `to=${latest?.scrollTop} class=${latest?.scrollerClass || ""}`
+      fromScrollTop,
+      scrollbarTarget,
+      expectedDirection,
+      minimumProgress,
+      true
     );
-    error.code = "RESUME_SCROLL_NOT_ADVANCING";
+    const failureReason = Math.abs(finalProgress.delta) < 1
+      ? "未产生位移"
+      : "位移不足或方向异常";
+    const error = new Error(
+      `简历滚动条拖动失败：${failureReason} phase=${phaseLabel} ` +
+      `from=${fromScrollTop} to=${latest?.scrollTop} target=${scrollbarTarget} ` +
+      `delta=${finalProgress.delta} class=${latest?.scrollerClass || ""}`
+    );
+    error.code = "RESUME_CDP_SCROLL_FAILED";
     error.details = {
       phaseLabel,
       requestedOffset,
       fromScrollTop,
+      targetScrollTop: scrollbarTarget,
+      actualScrollTop: latest?.scrollTop,
+      actualDelta: finalProgress.delta,
+      minimumProgress,
       latest: stateSummary(latest),
       normalInput: normal.scrollInput,
-      alternateInput: alternate.scrollInput,
-      directInput: direct?.scrollInput
+      normalInputMode: normal.inputDispatchMode,
+      alternateInput: alternate?.scrollInput || null,
+      alternateInputMode: alternate?.inputDispatchMode || null,
+      scrollbarInput: dragState?.scrollbarInput || null,
+      priorityScrollbarInput: priorityScrollbarState?.scrollbarInput || null,
+      priorityScrollbarError: priorityScrollbarError?.message || null
     };
+    console.warn("[任务流程] [BOSS简历长图] 滚动条拖动未产生有效位移，停止自动滚动", error.details);
     throw error;
   };
   const captureSlice = async (rect, phaseLabel) => {
-    // The main process captures only the target BOSS webContents. Active tabs use
-    // capturePage; background tabs use frame subscription so capture never promotes
-    // the obscured BOSS view into the shell's compositor. Scrolling remains via CDP.
+    // Lock one capture path for the whole resume. Mixing capturePage and frame
+    // subscription can produce different pixel scales when tab activation changes.
     let lastError;
     for (let attempt = 0; attempt <= 2; attempt += 1) {
       try {
-        const result = await automation.captureTab({ tabId, rect });
+        const result = await automation.captureTab({
+          tabId,
+          rect,
+          captureMode: BOSS_RESUME_CAPTURE_MODE
+        });
         if (!result?.ok || !result.data?.base64) {
           throw new Error(result?.error?.message || "RESUME_CAPTURE_EMPTY");
         }
@@ -1149,7 +1675,7 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       await scrollToContentOffset(0, "首屏重置");
       await captureStableSlice(INITIAL_RENDER_TIMEOUT_MS, "首屏重置后");
     }
-    for (let index = 0; index < 80; index++) {
+    for (let index = 0; index < MAX_RESUME_SLICES; index++) {
       const phaseLabel = `分片 ${index + 1}`;
       console.log("[任务流程] [BOSS简历长图] 准备滚动并截图", {
         phaseLabel,
@@ -1242,7 +1768,30 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         return result;
       }
     }
-    throw new Error("简历分片超过安全上限，已取消上传不完整截图");
+    if (!slices.length) {
+      throw new Error("简历分片达到上限但没有任何可拼接内容");
+    }
+    const lastSliceState = slices[slices.length - 1].state;
+    const detectedTotalHeight = Number(lastSliceState?.totalHeight) || covered;
+    checkStopped();
+    const partialResult = await stitchResumeSlices(slices, covered);
+    checkStopped();
+    console.warn("[任务流程] [BOSS简历长图] 达到分片上限，拼接不完整长图", {
+      maxSlices: MAX_RESUME_SLICES,
+      slices: partialResult.sliceCount,
+      capturedHeight: covered,
+      totalHeight: detectedTotalHeight,
+      missingHeight: Math.max(0, detectedTotalHeight - covered),
+      width: partialResult.width,
+      height: partialResult.height,
+      totalElapsedMs: Date.now() - captureStartedAt
+    });
+    return {
+      ...partialResult,
+      incomplete: covered < detectedTotalHeight,
+      capturedHeight: covered,
+      totalHeight: detectedTotalHeight
+    };
   } catch (error) {
     console.warn("[任务流程] [BOSS简历长图] 截图流程失败 ✗", {
       tabId,
@@ -1266,26 +1815,33 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
           viewportAdjustments,
           frameAdjustments
         });
+        await read({
+          action: "scrollbar",
+          targetScrollTop: initialScrollTop,
+          reason: "restore-scrollbar"
+        });
         await sleep(180);
         let restoredState = await read();
         if (Math.abs(Number(restoredState?.scrollTop || 0) - initialScrollTop) > 2) {
-          console.warn("[任务流程] [BOSS简历长图] 恢复滚轮未到达目标，直接设置 scrollTop", {
+          console.warn("[任务流程] [BOSS简历长图] 滚动条恢复未到达目标，重试一次", {
             expectedScrollTop: initialScrollTop,
             actualScrollTop: restoredState?.scrollTop
           });
           await read({
-            action: "setScrollTop",
-            scrollTop: initialScrollTop,
-            scrollerIndex,
-            viewportAdjustments,
-            frameAdjustments
+            action: "scrollbar",
+            targetScrollTop: initialScrollTop,
+            reason: "restore-retry-scrollbar"
           });
           await sleep(180);
           restoredState = await read();
         }
-        console.log("[任务流程] [BOSS简历长图] 原始滚动位置已恢复", {
+        const restoredPosition = Math.abs(
+          Number(restoredState?.scrollTop || 0) - initialScrollTop
+        ) <= 2;
+        console.log("[任务流程] [BOSS简历长图] 原始滚动位置恢复完成", {
           expectedScrollTop: initialScrollTop,
           actualScrollTop: restoredState?.scrollTop,
+          restoredPosition,
           elapsedMs: Date.now() - restoreStartedAt
         });
       } catch (error) {

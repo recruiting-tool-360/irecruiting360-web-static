@@ -410,6 +410,7 @@ interface DeepLinkPayload_v1 {
   // === 公司信息(client/launch 返回,随 deep link 透传给桌面端)===
   companyId?: string                      // 桌面端登录调 /sso/generateToken 时作为参数带上
   companyName?: string                    // 同上
+  brand?: string                          // 同上
 }
 ```
 

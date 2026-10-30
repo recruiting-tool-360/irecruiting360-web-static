@@ -18,6 +18,12 @@ import {
 } from "src/util/automation/bossEntitlementDialog";
 
 const CARD_SELECTOR_PREFIX = ".candidate-recommend .card-inner.common-wrap";
+const LIST_SCROLLER_SELECTORS = [
+  "#recommend-list",
+  ".recommend-list-wrap",
+  ".candidate-body",
+  ".candidate-recommend",
+];
 const DETAIL_SELECTOR = ".lib-standard-resume.with-right-side";
 const DETAIL_ROOT_SELECTOR =
   ".lib-standard-resume.with-right-side, .lib-standard-resume, div#resume";
@@ -25,7 +31,7 @@ const RESUME_CANVAS_SELECTOR = "div#resume canvas#resume";
 const COLLECT_SELECTOR = ".resume-right-side .like-icon-and-text";
 const CLOSE_SELECTOR = ".close-btn";
 
-const CARD_READY_TIMEOUT_MS = 10_000;
+const CARD_READY_TIMEOUT_MS = 12_000;
 const DETAIL_OPEN_TIMEOUT_MS = 12_000;
 const DETAIL_FIRST_CLICK_WAIT_MS = 4_000;
 const COLLECT_STATE_TIMEOUT_MS = 6_000;
@@ -151,8 +157,10 @@ function buildScrollCardScript(geekOrIds, timeoutMs = CARD_READY_TIMEOUT_MS) {
   var wantedSet = {};
   for (var wi = 0; wi < wantedIds.length; wi++) wantedSet[wantedIds[wi]] = true;
   var timeoutMs = ${Math.max(0, Number(timeoutMs) || 0)};
+  var scrollerSelectors = ${JSON.stringify(LIST_SCROLLER_SELECTORS)};
   var startedAt = Date.now();
-  var lastScrollAt = 0;
+  var lastScrollAt = Date.now();
+  var lastScrollState = [];
   function norm(value) {
     return String(value == null ? '' : value).trim().replace(/~+$/, '').replace(/^rec_/, '');
   }
@@ -254,45 +262,123 @@ function buildScrollCardScript(geekOrIds, timeoutMs = CARD_READY_TIMEOUT_MS) {
       nameHitCount: nameHits.length
     };
   }
-  function scrollListStep() {
+  function findListScrollers() {
     var docs = documents();
-    var best = null;
-    var bestRange = 0;
+    var scrollers = [];
+    var seen = [];
+    var cardFrameFound = false;
+    function addScroller(el, label) {
+      if (!el || !isVisible(el) || seen.indexOf(el) !== -1) return;
+      var range = Number(el.scrollHeight || 0) - Number(el.clientHeight || 0);
+      seen.push(el);
+      scrollers.push({ el: el, label: label, range: range });
+    }
     for (var di = 0; di < docs.length; di++) {
-      var nodes = docs[di].doc.querySelectorAll('*');
-      for (var ni = 0; ni < nodes.length; ni++) {
-        var el = nodes[ni];
-        var range = Number(el.scrollHeight || 0) - Number(el.clientHeight || 0);
-        if (range > bestRange && isVisible(el)) {
-          best = el;
-          bestRange = range;
+      var doc = docs[di].doc;
+      var cards = doc.querySelectorAll(
+        '.candidate-recommend .card-inner.common-wrap[data-geekid],' +
+        '.candidate-recommend .card-inner.common-wrap[data-geek]'
+      );
+      if (!cards.length) continue;
+      cardFrameFound = true;
+
+      // 固定 selector 是第一优先级；再从真实卡片向上补滚动祖先，
+      // 兼容 BOSS 把 overflow 放在未写进 selector 的中间层。
+      for (var si = 0; si < scrollerSelectors.length; si++) {
+        addScroller(
+          doc.querySelector(scrollerSelectors[si]),
+          docs[di].label + ' ' + scrollerSelectors[si]
+        );
+      }
+      var ancestor = cards[0].parentElement;
+      var ancestorDepth = 0;
+      while (ancestor && ancestorDepth < 12) {
+        if (Number(ancestor.scrollHeight || 0) > Number(ancestor.clientHeight || 0)) {
+          addScroller(
+            ancestor,
+            docs[di].label + ' card-ancestor[' + ancestorDepth + ']' +
+              (ancestor.id ? '#' + ancestor.id : '') +
+              (ancestor.classList && ancestor.classList.length
+                ? '.' + Array.prototype.slice.call(ancestor.classList, 0, 2).join('.')
+                : '')
+          );
         }
+        ancestor = ancestor.parentElement;
+        ancestorDepth++;
+      }
+      addScroller(
+        doc.scrollingElement || doc.documentElement,
+        docs[di].label + ' scrollingElement'
+      );
+      // 页面结构变更时保留兜底，但只在当前 frame 确实包含推荐卡片时启用。
+      if (scrollers.length === 0) {
+        var nodes = doc.querySelectorAll('*');
+        var best = null;
+        var bestRange = 0;
+        for (var ni = 0; ni < nodes.length; ni++) {
+          var el = nodes[ni];
+          var range = Number(el.scrollHeight || 0) - Number(el.clientHeight || 0);
+          if (range > bestRange && isVisible(el)) {
+            best = el;
+            bestRange = range;
+          }
+        }
+        addScroller(best, docs[di].label + ' fallback-largest');
       }
     }
-    if (!best || bestRange < 40) return false;
-    var step = Math.max(420, Math.min(900, Math.floor(best.clientHeight * 0.75)));
-    best.scrollTop = Math.min(best.scrollHeight, best.scrollTop + step);
-    return true;
+    // BOSS 推荐列表在 iframe 内，宿主页面的 document 也可能负责滚动整个 iframe。
+    if (cardFrameFound) {
+      addScroller(
+        document.scrollingElement || document.documentElement,
+        'mainFrame host scrollingElement'
+      );
+    }
+    return scrollers;
+  }
+  function scrollState() {
+    return findListScrollers().map(function(item) {
+      return {
+        label: item.label,
+        scrollTop: Math.round(Number(item.el.scrollTop) || 0),
+        range: Math.max(0, Math.round(item.range)),
+        height: Number(item.el.clientHeight) || 0
+      };
+    });
+  }
+  function scrollListStep() {
+    var scrollers = findListScrollers();
+    var moved = false;
+    for (var i = 0; i < scrollers.length; i++) {
+      var item = scrollers[i];
+      if (item.range < 40) continue;
+      var before = Number(item.el.scrollTop) || 0;
+      var viewportHeight = Number(item.el.clientHeight) || 720;
+      var step = Math.max(420, Math.min(900, Math.floor(viewportHeight * 0.75)));
+      item.el.scrollTop = Math.min(item.el.scrollHeight, before + step);
+      if (Number(item.el.scrollTop) !== before) moved = true;
+    }
+    lastScrollState = scrollState();
+    return moved;
   }
 
   // 同一 BOSS 页会连续处理多批候选人。先把列表复位，再主动向下扫描，
   // 避免上一批停在中后段时漏掉本轮位于列表上半部分的候选人。
   (function resetScrollToStart() {
-    var docs = documents();
-    var best = null;
-    var bestRange = 0;
-    for (var di = 0; di < docs.length; di++) {
-      var nodes = docs[di].doc.querySelectorAll('*');
-      for (var ni = 0; ni < nodes.length; ni++) {
-        var el = nodes[ni];
-        var range = Number(el.scrollHeight || 0) - Number(el.clientHeight || 0);
-        if (range > bestRange && isVisible(el)) {
-          best = el;
-          bestRange = range;
-        }
-      }
+    var scrollers = findListScrollers();
+    for (var i = 0; i < scrollers.length; i++) {
+      scrollers[i].el.scrollTop = 0;
     }
-    if (best) best.scrollTop = 0;
+    var docs = documents();
+    for (var di = 0; di < docs.length; di++) {
+      var firstCard = docs[di].doc.querySelector(
+        '.candidate-recommend .card-inner.common-wrap[data-geekid],' +
+        '.candidate-recommend .card-inner.common-wrap[data-geek]'
+      );
+      if (!firstCard) continue;
+      firstCard.scrollIntoView({ behavior: 'instant', block: 'start', inline: 'nearest' });
+      break;
+    }
+    lastScrollState = scrollState();
   })();
 
   var last = findTarget();
@@ -321,6 +407,7 @@ function buildScrollCardScript(geekOrIds, timeoutMs = CARD_READY_TIMEOUT_MS) {
           renderedNames: last.renderedNames || [],
           clickTargets: clickTargets(last.card),
           elapsedMs: Date.now() - startedAt,
+          scrollState: lastScrollState.length > 0 ? lastScrollState : scrollState(),
           rect: { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) }
         };
       }
@@ -337,7 +424,8 @@ function buildScrollCardScript(geekOrIds, timeoutMs = CARD_READY_TIMEOUT_MS) {
     renderedIds: last.renderedIds || [],
     renderedNames: last.renderedNames || [],
     nameHitCount: last.nameHitCount || 0,
-    frameStates: last.frameStates
+    frameStates: last.frameStates,
+    scrollState: lastScrollState.length > 0 ? lastScrollState : scrollState()
   };
 })();
 `;
@@ -368,11 +456,23 @@ function ensureRecommendCardReady(geekOrIds, result) {
   const domNameSamples = Array.isArray(result?.renderedNames)
     ? result.renderedNames.slice(0, 10).join(", ")
     : "";
+  const scrollSample = Array.isArray(result?.scrollState)
+    ? result.scrollState
+        .slice(0, 4)
+        .map(
+          (item) =>
+            `${item.label || "unknown"}:top=${item.scrollTop || 0}/range=${
+              item.range || 0
+            }`
+        )
+        .join(" | ")
+    : "";
   const error = new Error(
     `${code} geekIds=[${wantedIds.join(", ")}] waited=${Number(result?.elapsedMs) || 0}ms ` +
       `renderedCards=${Number(result?.renderedCards) || 0} frames=${frameSummary} ` +
       `domIdSamples=[${domIdSamples}] name=${result?.wantedName || "-"} ` +
-      `nameHitCount=${Number(result?.nameHitCount) || 0} domNameSamples=[${domNameSamples}]`
+      `nameHitCount=${Number(result?.nameHitCount) || 0} domNameSamples=[${domNameSamples}] ` +
+      `scroll=[${scrollSample}]`
   );
   error.code = code;
   error.diagnostics = result || null;

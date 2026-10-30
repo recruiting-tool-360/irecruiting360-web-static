@@ -170,6 +170,8 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
       // 遍历 res 对象
       for (const [id, obj] of Object.entries(res)) {
         const { base64, htmlContent, fileId, fileType, channel, name, gender, ...args } = obj
+        const localResumeId =
+          obj.localResumeId || obj.resumeBlindId || obj._raw?.resumeBlindId || id;
 
         if (fileId) {
           results.push({
@@ -177,7 +179,8 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
             fileId,
             channel: channelsEnum[channel] || channel,
             link: obj.link || obj.url || obj.originalResumeUrlInfo?.url || '',
-            type: obj.type || 'normal'
+            type: obj.type || 'normal',
+            localResumeId
           });
           continue;
         }
@@ -216,6 +219,7 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
           file,
           channel: channelsEnum[channel],
           fileType: fileType || 'image',
+          localResumeId,
           ...args,
         });
       }
@@ -277,20 +281,32 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
     });
     const resumeMap = {};
     for (const resume of list) {
-      const id = resume?.id || resume?.resumeBlindId || resume?.taskResumeId;
+      const id =
+        resume?.taskResumeId ||
+        resume?.taskResumeID ||
+        resume?._raw?.taskResumeId ||
+        resume?._raw?.taskResumeID;
       const fileId =
         resume?.fileId ||
         resume?.resumeFileId ||
         resume?.resumeFile?.fileId ||
         resume?.resumeInfo?.fileId;
-      if (!id || !fileId) {
+      const localResumeId =
+        resume?.resumeBlindId || resume?.id || resume?._raw?.resumeBlindId;
+      if (!id) {
+        const error = new Error(`候选人缺少 taskResumeId：${localResumeId || 'unknown'}`);
+        error.code = 'RESUME_TASK_ID_NOT_FOUND';
+        throw error;
+      }
+      if (!fileId) {
         logIhrAction("direct:invalid-resume", {
           action: extraParams.action || "",
-          resumeId: id || "",
+          resumeId: localResumeId || "",
+          taskResumeId: id,
           channel: resume?.channel || "",
           hasFileId: !!fileId
         });
-        throw new Error(`候选人缺少 id 或 fileId：${id || 'unknown'}`);
+        throw new Error(`候选人缺少 fileId：${localResumeId || id}`);
       }
       let link = resume.link || resume.url || resume.originalResumeUrlInfo?.url || '';
       if (!link) {
@@ -304,11 +320,13 @@ export function useSendResume(messageType = 'resumeList', options = {}) {
         fileId,
         channel: resume.channel,
         link,
-        type: resume.type || 'normal'
+        type: resume.type || 'normal',
+        localResumeId
       };
       logIhrAction("direct:resume", {
         action: extraParams.action || "",
-        resumeId: id,
+        resumeId: localResumeId || "",
+        taskResumeId: id,
         fileId,
         channel: resume.channel,
         type: resume.type || 'normal',

@@ -272,9 +272,10 @@ const ihrBridge = {
     ipcRenderer.invoke('ihrBridge:batchGetPositionDetailByIds', ids),
 
   assignPositions: (req: Record<string, unknown>): Promise<IhrApiResult> => {
-    console.info('[IHR Action][preload] assignPositions:invoke', req)
+    const phase = req?.isSelectPosition === true ? 'phase-2' : 'phase-1'
+    console.info(`[IHR Action][preload] assignPositions:${phase}:request`, req)
     return ipcRenderer.invoke('ihrBridge:assignPositions', req).then((result) => {
-      console.info('[IHR Action][preload] assignPositions:returned', result)
+      console.info(`[IHR Action][preload] assignPositions:${phase}:response`, result)
       return result as IhrApiResult
     })
   },
@@ -672,10 +673,12 @@ const automation = {
    * 用于 BOSS 推荐详情接口不可用后，打开候选人详情面板截图，
    * 再把图片上传 resume/upload 交给后端解析评分。
    * rect 为 CSS 像素；省略时截整个可见页面。
+   * captureMode 可锁定单次任务的截图路径，避免活跃状态变化导致模式切换。
    */
   captureTab: (opts: {
     tabId: string
     rect?: { x: number; y: number; width: number; height: number }
+    captureMode?: 'capturePage' | 'frameSubscription'
   }): Promise<{
     ok: boolean
     data?: {

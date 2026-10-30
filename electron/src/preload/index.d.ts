@@ -503,10 +503,12 @@ export interface AutomationBridge {
   /**
    * 截取指定 tab 的可见区域（PNG base64）。
    * rect 为 CSS 像素，省略时截整个可见页面；详见 main 进程 `automation:captureTab`。
+   * captureMode 可显式锁定截图模式；省略时根据 tab 是否活跃自动选择。
    */
   captureTab(opts: {
     tabId: string
     rect?: { x: number; y: number; width: number; height: number }
+    captureMode?: 'capturePage' | 'frameSubscription'
   }): Promise<{
     ok: boolean
     data?: {
