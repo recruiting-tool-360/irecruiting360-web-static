@@ -162,7 +162,7 @@ createQuasarApp(createApp, quasarUserOptions)
       
       import('boot/iframe-messenger'),
       
-      import('boot/SvgBase64Manager'),
+      import('boot/svgBase64Manager'),
       
       import('boot/chunkReload')
       
