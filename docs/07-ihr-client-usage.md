@@ -22,7 +22,7 @@ sequenceDiagram
     participant Client as 独立客户端
 
     Web->>Recruit: POST /candidate/AiManager/client/launch
-    Recruit-->>Web: accessToken / accessTokenExpireAt / authMode / tokenParamName / companyId / companyName
+    Recruit-->>Web: accessToken / accessTokenExpireAt / authMode / tokenParamName / companyId / companyName / brand
     Web->>Client: 传递 accessToken
     Client->>Recruit: /candidate/AiManager/client/noauth/**?accessToken=...
     Recruit->>Recruit: 校验 accessToken 并恢复上下文
@@ -67,6 +67,7 @@ sequenceDiagram
 | `tokenParamName` | `string` | 固定 `accessToken` |
 | `companyId` | `string` | 公司 id；随 deep link 透传到桌面端，桌面端登录时作为参数调 `/sso/generateToken` |
 | `companyName` | `string` | 公司名称；同上 |
+| `brand` | `string` | 品牌标识；同上 |
 
 示例：
 
@@ -77,7 +78,8 @@ sequenceDiagram
   "authMode": "IHR_RECRUIT_LOCAL_JWT",
   "tokenParamName": "accessToken",
   "companyId": "<company-id>",
-  "companyName": "<company-name>"
+  "companyName": "<company-name>",
+  "brand": "<brand>"
 }
 ```
 

@@ -25,6 +25,7 @@ export interface SsoHandoverPayload {
   /** /client/launch 返回的当前企业信息，客户端 SSO 时透传给 /sso/generateToken。 */
   companyId?: string | number
   companyName?: string
+  brand?: string
   from?: string
   ts?: number
   v?: number

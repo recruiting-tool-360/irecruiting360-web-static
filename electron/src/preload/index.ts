@@ -272,9 +272,10 @@ const ihrBridge = {
     ipcRenderer.invoke('ihrBridge:batchGetPositionDetailByIds', ids),
 
   assignPositions: (req: Record<string, unknown>): Promise<IhrApiResult> => {
-    console.info('[IHR Action][preload] assignPositions:invoke', req)
+    const phase = req?.isSelectPosition === true ? 'phase-2' : 'phase-1'
+    console.info(`[IHR Action][preload] assignPositions:${phase}:request`, req)
     return ipcRenderer.invoke('ihrBridge:assignPositions', req).then((result) => {
-      console.info('[IHR Action][preload] assignPositions:returned', result)
+      console.info(`[IHR Action][preload] assignPositions:${phase}:response`, result)
       return result as IhrApiResult
     })
   },

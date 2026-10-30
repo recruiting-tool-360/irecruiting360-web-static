@@ -222,6 +222,18 @@ export function createElectronMessengerShim() {
           return { data: { code: -1, message: 'ihrBridge unavailable' } };
         }
         const action = data?.action;
+        const localResumeIdByTaskResumeId = new Map();
+        for (const item of data?.resumeFile || []) {
+          const taskResumeId = item?.id;
+          const localResumeId = item?.localResumeId || item?.resumeBlindId;
+          if (taskResumeId && localResumeId) {
+            localResumeIdByTaskResumeId.set(String(taskResumeId), String(localResumeId));
+          }
+        }
+        const toLocalResumeIds = (ids) =>
+          (Array.isArray(ids) ? ids : []).map(
+            (id) => localResumeIdByTaskResumeId.get(String(id)) || id
+          );
         console.info('[IHR Action][electronShim] request:received', {
           action: action || '',
           resumeCount: Array.isArray(data?.resumeFile) ? data.resumeFile.length : 0,
@@ -285,9 +297,9 @@ export function createElectronMessengerShim() {
           if (result?.success && result.data) {
             const successPayload = {
               type: result.data.type,
-              successResumeIds: result.data.successResumeIds,
-              failRepeatResumeIds: result.data.failRepeatResumeIds,
-              failOtherResumeIds: result.data.failOtherResumeIds
+              successResumeIds: toLocalResumeIds(result.data.successResumeIds),
+              failRepeatResumeIds: toLocalResumeIds(result.data.failRepeatResumeIds),
+              failOtherResumeIds: toLocalResumeIds(result.data.failOtherResumeIds)
             };
             // 空 successResumeIds（mock 模式 / 真实校验阶段都可能为空）就不触发后续状态同步
             // 避免下游 POST /importResume 收到空数组报错

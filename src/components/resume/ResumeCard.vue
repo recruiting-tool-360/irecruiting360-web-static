@@ -159,16 +159,12 @@
                 flat class="q-ma-xs"
                 size="md" color="primary" 
                 :disable="readOnly || isThirdPartyActionDone(resume?.resumeThirdPartyInfo) || assignJobLoading || talentPoolLoading"
-                :loading="assignJobLoading"
                 @click.stop="assignJob(resume)">
-                <q-icon size="xs" class="q-mr-xs" name="work"></q-icon>
+                <q-spinner v-if="assignJobLoading" size="16px" class="q-mr-xs" />
+                <q-icon v-else size="xs" class="q-mr-xs" name="work"></q-icon>
                 <span>
                   {{ getAssignJobButtonText(resume?.resumeThirdPartyInfo) }}
                 </span>
-                <template #loading>
-                  <q-spinner size="16px" class="q-mr-xs" />
-                  <span>{{ getAssignJobButtonText(resume?.resumeThirdPartyInfo) }}</span>
-                </template>
                 <q-tooltip 
                   v-if="shouldShowAssignJobTooltip(resume?.resumeThirdPartyInfo)"
                   anchor="top middle" 
@@ -182,16 +178,12 @@
                 flat class="q-ma-xs"
                 size="md" color="primary"
                 :disable="readOnly || isThirdPartyActionDone(resume?.resumeThirdPartyInfo) || assignJobLoading || talentPoolLoading"
-                :loading="talentPoolLoading"
                 @click.stop="addToTalentPool(resume)">
-                <q-icon size="xs" class="q-mr-xs" name="group_add"></q-icon>
+                <q-spinner v-if="talentPoolLoading" size="16px" class="q-mr-xs" />
+                <q-icon v-else size="xs" class="q-mr-xs" name="group_add"></q-icon>
                 <span>
                   {{ getTalentPoolButtonText(resume?.resumeThirdPartyInfo) }}
                 </span>
-                <template #loading>
-                  <q-spinner size="16px" class="q-mr-xs" />
-                  <span>{{ getTalentPoolButtonText(resume?.resumeThirdPartyInfo) }}</span>
-                </template>
                 <q-tooltip 
                   v-if="shouldShowTalentPoolTooltip(resume?.resumeThirdPartyInfo)"
                   anchor="top middle" 
@@ -337,6 +329,8 @@ const bossCommunicationButtonText = computed(() =>
     : '打招呼'
 );
 const bossRecommendTaskExecutingMessage = '任务执行中，完成后可立即沟通';
+
+const resumeFileIdNotFoundMessage = '当前找不到该候选人，请重新搜索';
 
 const props = defineProps({
   resume: {
@@ -1163,7 +1157,9 @@ const sendResumeByFileId = async (resume, action) => {
         resume?._raw?.uniqSign
       ].filter(Boolean)
     });
-    throw new Error('当前候选人没有可用的 fileId');
+    const error = new Error('当前候选人没有可用的 fileId');
+    error.code = 'RESUME_FILE_ID_NOT_FOUND';
+    throw error;
   }
   const id = resume?.id || resume?.resumeBlindId || resume?.taskResumeId;
   if (!id) {
@@ -1172,6 +1168,22 @@ const sendResumeByFileId = async (resume, action) => {
       hasFileId: true
     });
     throw new Error('当前候选人没有可用的简历 id');
+  }
+  let taskResumeId =
+    resume?.taskResumeId ||
+    resume?.taskResumeID ||
+    resume?._raw?.taskResumeId ||
+    resume?._raw?.taskResumeID;
+  if (!taskResumeId) {
+    const getTaskResumeId = store.getters['SearchTasks/getTaskResumeId'];
+    if (typeof getTaskResumeId === 'function') {
+      taskResumeId = getTaskResumeId(String(resume?.resumeBlindId || resume?.id));
+    }
+  }
+  if (!taskResumeId) {
+    const error = new Error('当前候选人没有可用的 taskResumeId');
+    error.code = 'RESUME_TASK_ID_NOT_FOUND';
+    throw error;
   }
   const extraParams = {
     action,
@@ -1184,6 +1196,7 @@ const sendResumeByFileId = async (resume, action) => {
 
   logIhrAction(action, "prepare:ready", {
     resumeId: id,
+    taskResumeId,
     fileId,
     positionId: extraParams.positionId || store.getters.getLatestPositionId || "",
     talentPoolIds: extraParams.talentPoolIds || []
@@ -1192,9 +1205,34 @@ const sendResumeByFileId = async (resume, action) => {
   return sendDirectResume({
     ...resume,
     id,
+    taskResumeId,
     fileId,
     type: 'normal'
   }, extraParams);
+};
+
+const showResumeActionError = (error) => {
+  if (error?.code === 'RESUME_FILE_ID_NOT_FOUND') {
+    notify.warning(resumeFileIdNotFoundMessage, {
+      color: 'warning',
+      icon: 'warning'
+    });
+    return;
+  }
+  $q.notify({
+    message: '处理简历失败: ' + error.message,
+    color: 'negative',
+    position: 'top'
+  });
+};
+
+const isAssignPositionConfirmed = (result, taskResumeId) => {
+  if (!taskResumeId || result?.success !== true) return false;
+  if (result?.code !== 0 && result?.code !== '0') return false;
+  if (result?.data?.errorResult === true) return false;
+  return (result?.data?.successResumeIds || []).some(
+    (id) => String(id) === String(taskResumeId)
+  );
 };
 
 // 分配职位
@@ -1217,19 +1255,31 @@ const assignJob = async (resume) => {
 
     const response = await sendResumeByFileId(resume, 'assign-position');
     const result = response?.data || response;
+    const taskResumeId =
+      resume?.taskResumeId ||
+      resume?.taskResumeID ||
+      resume?._raw?.taskResumeId ||
+      evaluationTaskResumeId.value;
     logIhrAction("assign-position", "response", {
       success: result?.success,
       code: result?.code,
       errorCode: result?.errorCode,
-      message: result?.message || result?.errorMessage || ""
+      message: result?.message || result?.errorMessage || "",
+      taskResumeId,
+      successResumeIds: result?.data?.successResumeIds || []
     });
-    if (result?.success === true || result?.success === 'success') {
+    if (isAssignPositionConfirmed(result, taskResumeId)) {
       resume.resumeThirdPartyInfo = { type: 'ASSIGN_POSITIONS', status: '1' };
       logIhrAction("assign-position", "success");
     } else {
       logIhrAction("assign-position", "business-failed", {
         response: result || null
       });
+      if (!result?.data || result?.errorCode || result?.data?.errorResult === true) {
+        notify.warning(
+          result?.message || result?.errorMessage || '分配职位失败，请稍后重试'
+        );
+      }
     }
   } catch (error) {
     console.error('assignJob失败:', error);
@@ -1237,11 +1287,7 @@ const assignJob = async (resume) => {
       message: error?.message || String(error),
       stack: error?.stack || ""
     });
-    $q.notify({
-      message: '处理简历失败: ' + error.message,
-      color: 'negative',
-      position: 'top'
-    });
+    showResumeActionError(error);
   } finally {
     assignJobLoading.value = false;
     emit('updateCollectResumeLoading', false);
@@ -1288,11 +1334,7 @@ const addToTalentPool = async (resume) => {
       message: error?.message || String(error),
       stack: error?.stack || ""
     });
-    $q.notify({
-      message: '处理简历失败: ' + error.message,
-      color: 'negative',
-      position: 'top'
-    });
+    showResumeActionError(error);
   } finally {
     talentPoolLoading.value = false;
     emit('updateCollectResumeLoading', false);

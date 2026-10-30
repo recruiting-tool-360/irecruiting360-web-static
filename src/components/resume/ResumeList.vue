@@ -669,13 +669,59 @@ const filteredSelectedResumes = computed(() => {
 // 批量分配职位对话框类型
 const batchDialogType = ref("talent-pool");
 
+const resolveTaskResumeId = (resume) => {
+  const direct =
+    resume?.taskResumeId ||
+    resume?.taskResumeID ||
+    resume?._raw?.taskResumeId ||
+    resume?._raw?.taskResumeID;
+  if (direct !== undefined && direct !== null && direct !== "") {
+    return String(direct);
+  }
+  const localResumeId =
+    resume?.resumeBlindId || resume?.id || resume?._raw?.resumeBlindId;
+  const getTaskResumeId = store.getters["SearchTasks/getTaskResumeId"];
+  const mapped =
+    localResumeId && typeof getTaskResumeId === "function"
+      ? getTaskResumeId(String(localResumeId))
+      : null;
+  return mapped ? String(mapped) : "";
+};
+
+const isBatchAssignPositionConfirmed = (result, taskResumeIds) => {
+  if (!Array.isArray(taskResumeIds) || taskResumeIds.length === 0) return false;
+  if (result?.success !== true) return false;
+  if (result?.code !== 0 && result?.code !== "0") return false;
+  if (result?.data?.errorResult === true) return false;
+  const confirmedIds = new Set(
+    (result?.data?.successResumeIds || []).map((id) => String(id))
+  );
+  return taskResumeIds.every((id) => confirmedIds.has(String(id)));
+};
+
 // 处理批量确认操作
 const handleBatchConfirm = async (obj) => {
+  const batchResumes = (obj?.resumes || []).map((resume) => {
+    const taskResumeId = resolveTaskResumeId(resume);
+    if (!taskResumeId) {
+      const localResumeId =
+        resume?.resumeBlindId || resume?.id || resume?._raw?.resumeBlindId;
+      const error = new Error(
+        `候选人缺少 taskResumeId：${localResumeId || "unknown"}`
+      );
+      error.code = "RESUME_TASK_ID_NOT_FOUND";
+      throw error;
+    }
+    return { ...resume, taskResumeId };
+  });
+  const taskResumeIds = batchResumes.map((resume) => resume.taskResumeId);
+
   logIhrAction(obj?.type || "batch", "confirm", {
-    selectedCount: Array.isArray(obj?.resumes) ? obj.resumes.length : 0,
+    selectedCount: batchResumes.length,
     positionId: store.getters.getLatestPositionId || "",
-    resumeItems: (obj?.resumes || []).map((resume) => ({
-      id: resume?.id || resume?.resumeBlindId || resume?.taskResumeId || "",
+    resumeItems: batchResumes.map((resume) => ({
+      id: resume?.resumeBlindId || resume?.id || "",
+      taskResumeId: resume?.taskResumeId || "",
       channel: resume?.channel || "",
       hasFileId: !!(
         resume?.fileId ||
@@ -689,7 +735,7 @@ const handleBatchConfirm = async (obj) => {
   updateCollectResumeLoading(true);
   console.log(obj, "obj");
   try {
-    const response = await sendDirectResume(obj.resumes, {
+    const response = await sendDirectResume(batchResumes, {
       action: obj.type,
       positionId: store.getters.getLatestPositionId
     });
@@ -700,7 +746,15 @@ const handleBatchConfirm = async (obj) => {
       errorCode: result?.errorCode,
       message: result?.message || result?.errorMessage || ""
     });
-    if (result?.success !== true && result?.success !== "success") {
+    if (obj?.type === "assign-position") {
+      if (!isBatchAssignPositionConfirmed(result, taskResumeIds)) {
+        throw new Error(
+          result?.message ||
+            result?.errorMessage ||
+            "分配职位未全部成功，请检查候选人后重试"
+        );
+      }
+    } else if (result?.success !== true && result?.success !== "success") {
       throw new Error(result?.message || result?.errorMessage || "操作失败");
     }
     logIhrAction(obj?.type || "batch", "success");
@@ -710,6 +764,7 @@ const handleBatchConfirm = async (obj) => {
       message: error?.message || String(error),
       stack: error?.stack || ""
     });
+    notify.warning(error?.message || "操作失败，请稍后重试");
   } finally {
     updateCollectResumeLoading(false);
   }

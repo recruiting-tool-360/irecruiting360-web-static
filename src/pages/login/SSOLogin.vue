@@ -122,7 +122,7 @@ const doSSOLogin = async (iframeMessage) => {
       return;
     }
 
-    const { ssoConfig, positionList, companyId, companyName } = iframeMessage;
+    const { ssoConfig, positionList, companyId, companyName, brand } = iframeMessage;
     // 父页（ihr360-recruit-static）会在 positionList 每项里带上 jd 文本，
     // 这里立刻缓存到 store，让 LeftMenu loadChatList 后能按 positionId 回填 jd
     // （后端 chatList 接口不返 jd 字段，需要前端 cache 这条路径补）
@@ -132,11 +132,13 @@ const doSSOLogin = async (iframeMessage) => {
         `[SSOLogin] 已缓存 ${positionList.length} 个职位 JD（用于 LeftMenu auto-send-jd）`
       );
     }
-    // companyId / companyName 由 /client-launcher 经 deep link 透传（request-launch-token 返回），
-    // 桌面端登录时作为额外参数随 userConfig 一起传给 /sso/generateToken。
+    // companyId / companyName / brand 由 /client-launcher 经 deep link 透传
+    // （request-launch-token 返回），桌面端登录时作为额外参数随 userConfig 一起传给
+    // /sso/generateToken。
     const ssoTokenParams = { ...(ssoConfig?.userConfig ?? {}) };
     if (companyId != null && companyId !== '') ssoTokenParams.companyId = companyId;
     if (companyName != null && companyName !== '') ssoTokenParams.companyName = companyName;
+    if (brand != null && brand !== '') ssoTokenParams.brand = brand;
     const tokenResponse = await generateSsoToken(ssoTokenParams);
 
     if (tokenResponse.data && tokenResponse.data.token) {
@@ -289,6 +291,7 @@ async function runFromDeepLinkPayload(p) {
     sysConfig: p.sysConfig,
     companyId: p.companyId,
     companyName: p.companyName,
+    brand: p.brand,
     positionList
   };
   iframeParams.value = fakeInitMessage;
@@ -307,7 +310,8 @@ async function runFromDeepLinkPayload(p) {
       companyConfig: p.companyConfig,
       // 保留 client/launch 返回的公司信息，后续业务模块读取 init 数据时不丢失。
       companyId: p.companyId,
-      companyName: p.companyName
+      companyName: p.companyName,
+      brand: p.brand
     });
   }
 }

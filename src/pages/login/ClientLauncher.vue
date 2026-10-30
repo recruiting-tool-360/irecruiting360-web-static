@@ -593,13 +593,14 @@ function detectIhrManageOrigin() {
  *       accessTokenExpireAt: body?.accessTokenExpireAt,
  *       tokenParamName: body?.tokenParamName || 'accessToken',
  *       companyId: body?.companyId,
- *       companyName: body?.companyName
+ *       companyName: body?.companyName,
+ *       brand: body?.brand
  *     };
  *   });
  *
  * 详见 docs/07-ihr-client-usage.md §3 + docs/client-launcher-flow.md。
  *
- * @returns {Promise<null | { accessToken: string, accessTokenExpireAt?: string, tokenParamName?: string, companyId?: string, companyName?: string }>}
+ * @returns {Promise<null | { accessToken: string, accessTokenExpireAt?: string, tokenParamName?: string, companyId?: string, companyName?: string, brand?: string }>}
  */
 async function tryFetchAccessToken() {
   if (!iframeMsg || typeof iframeMsg.post !== "function") {
@@ -630,7 +631,8 @@ async function tryFetchAccessToken() {
       // 父页 client/launch 新返回的公司信息，随 deep link 透传给桌面端，
       // 桌面端登录调用 /sso/generateToken 时作为参数带上。
       companyId: body.companyId,
-      companyName: body.companyName
+      companyName: body.companyName,
+      brand: body.brand
     };
   } catch (e) {
     // 常见原因：父页没注册 handler / 15s 超时 / 父页 fetch 失败
@@ -713,7 +715,8 @@ async function launchWithPayload(payload, prefetchedTokenInfo = null) {
               accessTokenExpireAt: tokenInfo.accessTokenExpireAt,
               tokenParamName: tokenInfo.tokenParamName,
               companyId: tokenInfo.companyId,
-              companyName: tokenInfo.companyName
+              companyName: tokenInfo.companyName,
+              brand: tokenInfo.brand
             }
           : {})
       }
@@ -726,7 +729,8 @@ async function launchWithPayload(payload, prefetchedTokenInfo = null) {
               accessTokenExpireAt: tokenInfo.accessTokenExpireAt,
               tokenParamName: tokenInfo.tokenParamName,
               companyId: tokenInfo.companyId,
-              companyName: tokenInfo.companyName
+              companyName: tokenInfo.companyName,
+              brand: tokenInfo.brand
             }
           : {})
       };
@@ -855,6 +859,9 @@ function buildMockPayload() {
     ],
     sysConfig: { color: "#1677ff" },
     companyConfig: { companyId: "mock-company-001" },
+    companyId: "mock-company-001",
+    companyName: "Mock 公司",
+    brand: "mock-brand",
     ssoConfig: {
       locale: "zh-CN",
       userConfig: {

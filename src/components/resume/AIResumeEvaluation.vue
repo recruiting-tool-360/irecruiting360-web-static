@@ -153,17 +153,13 @@
           <template v-if="isVisible">
             <q-btn 
               color="primary" 
-              :disable="!!resumeData?.resumeThirdPartyInfo || assignJobLoading || talentPoolLoading"
-              :loading="assignJobLoading"
+              :disable="assignJobLoading || talentPoolLoading"
               outline 
               class="q-pt-sm q-px-md q-mb-sm" 
-              :label="getAssignJobButtonText(resumeData?.resumeThirdPartyInfo)" 
               @click="assignJobHandler"
             >
-              <template #loading>
-                <q-spinner size="16px" class="q-mr-xs" />
-                <span>{{ getAssignJobButtonText(resumeData?.resumeThirdPartyInfo) }}</span>
-              </template>
+              <q-spinner v-if="assignJobLoading" size="16px" class="q-mr-xs" />
+              <span>{{ getAssignJobButtonText(resumeData?.resumeThirdPartyInfo) }}</span>
               <q-tooltip 
                 v-if="shouldShowAssignJobTooltip(resumeData?.resumeThirdPartyInfo)"
                 anchor="top middle" 
@@ -178,16 +174,12 @@
             <q-btn 
               color="primary" 
               :disable="!!resumeData?.resumeThirdPartyInfo || assignJobLoading || talentPoolLoading"
-              :loading="talentPoolLoading"
               outline 
               class="q-pt-sm q-px-md q-mb-sm" 
-              :label="getTalentPoolButtonText(resumeData?.resumeThirdPartyInfo)" 
               @click="addToTalentPoolHandler"
             >
-              <template #loading>
-                <q-spinner size="16px" class="q-mr-xs" />
-                <span>{{ getTalentPoolButtonText(resumeData?.resumeThirdPartyInfo) }}</span>
-              </template>
+              <q-spinner v-if="talentPoolLoading" size="16px" class="q-mr-xs" />
+              <span>{{ getTalentPoolButtonText(resumeData?.resumeThirdPartyInfo) }}</span>
               <q-tooltip 
                 v-if="shouldShowTalentPoolTooltip(resumeData?.resumeThirdPartyInfo)"
                 anchor="top middle" 

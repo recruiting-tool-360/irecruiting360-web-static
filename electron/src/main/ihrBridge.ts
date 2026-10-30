@@ -391,7 +391,8 @@ async function manageFetch<T = unknown>(
  */
 async function noauthFetch<T = unknown>(
   subPath: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
+  options: { structuredLog?: boolean } = {}
 ): Promise<IhrApiResult<T>> {
   const { token, expired, expireAt } = getAccessToken()
   if (!token || expired) {
@@ -422,7 +423,17 @@ async function noauthFetch<T = unknown>(
   console.log(
     `[ihrBridge] → ${init.method ?? 'GET'} ${manageUrl()}${path}?accessToken=${tokenPreview} (remain=${Math.floor(remainMs / 1000)}s)`
   )
-  if (bodyPreview) console.log(`[ihrBridge]   body: ${bodyPreview}`)
+  if (bodyPreview) {
+    let bodyLog: unknown = bodyPreview
+    if (options.structuredLog && typeof init.body === 'string') {
+      try {
+        bodyLog = JSON.parse(init.body)
+      } catch {
+        bodyLog = init.body
+      }
+    }
+    console.log('[ihrBridge]   body:', bodyLog)
+  }
   const result = await manageFetch<T>(appendAccessTokenQuery(path, token), init)
   // response data 摘要（业务排查"接口 code=0 但数据没落库"时关键）
   let dataPreview = ''
@@ -439,7 +450,9 @@ async function noauthFetch<T = unknown>(
   console.log(
     `[ihrBridge] ← noauth/${subPath} success=${result.success} code=${result.code} http=${result.httpStatus ?? '-'} message=${result.message ?? '-'}`
   )
-  if (dataPreview) console.log(`[ihrBridge]   data: ${dataPreview}`)
+  if (dataPreview) {
+    console.log('[ihrBridge]   data:', options.structuredLog ? result.data : dataPreview)
+  }
   return result
 }
 
@@ -583,26 +596,15 @@ async function batchGetPositionDetailByIds(ids: string[]): Promise<IhrApiResult<
 }
 
 async function assignPositions(req: Record<string, unknown>): Promise<IhrApiResult<unknown>> {
-  console.info('[IHR Action][ihrBridge] assignPositions:invoke', {
-    isSelectPosition: req?.isSelectPosition === true,
-    headcountId: req?.headcountId ?? '',
-    resumeInfoCount: Array.isArray(req?.resumeInfo) ? req.resumeInfo.length : 0,
-    hasPhase2ResumeInfos:
-      Array.isArray(req?.newResumeInfos) ||
-      Array.isArray(req?.maybeResumeInfos) ||
-      Array.isArray(req?.repeatResumeInfos)
-  })
+  const phase = req?.isSelectPosition === true ? 'phase-2' : 'phase-1'
+  console.info(`[IHR Action][ihrBridge] assignPositions:${phase}:request`, req)
   const result = await noauthFetch<unknown>('import', {
     method: 'POST',
     body: JSON.stringify(req)
+  }, {
+    structuredLog: true
   })
-  console.info('[IHR Action][ihrBridge] assignPositions:returned', {
-    success: result.success,
-    code: result.code ?? '-',
-    errorCode: result.errorCode ?? '-',
-    httpStatus: result.httpStatus ?? '-',
-    message: result.message ?? '-'
-  })
+  console.info(`[IHR Action][ihrBridge] assignPositions:${phase}:response`, result)
   return result
 }
 

@@ -268,6 +268,9 @@ GET /candidate/AiManager/client/noauth/application/position?accessToken=<local-j
 | `signature` | `string` | 是 | 现有签名 |
 | `thirdPartyUserId` | `string` | 是 | 第三方用户 ID |
 | `userData` | `object|string` | 是 | 透传用户数据 |
+| `companyId` | `string` | 否 | IHR 公司 ID，由 `client/launch` 返参经 deep link 透传 |
+| `companyName` | `string` | 否 | 公司名称，由 `client/launch` 返参经 deep link 透传 |
+| `brand` | `string` | 否 | 品牌标识，由 `client/launch` 返参经 deep link 透传 |
 
 #### 5.1.2 建立登录态
 
