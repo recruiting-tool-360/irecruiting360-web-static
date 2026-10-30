@@ -128,13 +128,19 @@ function measureResumeSlice(options) {
         trackTop + thumbHeight / 2 + thumbTravel * (from / maxScrollTop)
       )
     ));
-    const endY = Math.round(Math.max(
+    let endY = Math.round(Math.max(
       1,
       Math.min(
         window.innerHeight - 1,
         trackTop + thumbHeight / 2 + thumbTravel * (target / maxScrollTop)
       )
     ));
+    if (endY === startY && target !== from) {
+      endY = Math.max(
+        1,
+        Math.min(window.innerHeight - 1, endY + Math.sign(target - from))
+      );
+    }
     return {
       reason,
       x,
@@ -558,7 +564,7 @@ const CDP_WHEEL_MAX_STEP_PX = 120;
 const CDP_WHEEL_STEP_INTERVAL_MS = 28;
 const CDP_SCROLLBAR_DRAG_STEPS = 1;
 const MAX_RESUME_SLICES = 80;
-const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-scrollbar-first-v12";
+const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-scrollbar-first-v14";
 
 const RETRYABLE_DETAIL_SCROLLER_CODES = new Set([
   "RESUME_DETAIL_SCROLLER_NOT_FOUND",
@@ -1247,7 +1253,10 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       delta,
       progressed,
       targetReached,
-      accepted: progressed && (acceptDirectionalProgress || targetReached)
+      // A sub-pixel scrollTop difference can survive scrollbar restore on
+      // Windows. If the current position already satisfies the target
+      // tolerance, requiring another input would cause a false failure.
+      accepted: targetReached || (progressed && acceptDirectionalProgress)
     };
   };
   const waitForScrollTarget = async (
