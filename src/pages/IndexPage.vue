@@ -1121,6 +1121,10 @@ async function buildAndUploadBossRecommendResume(geek, localId, tabId, shouldAbo
           height: screenshot.height,
           bytes: screenshot.bytes,
           slices: screenshot.sliceCount,
+          incomplete: !!screenshot.incomplete,
+          capturedHeight: screenshot.capturedHeight,
+          totalHeight: screenshot.totalHeight,
+          partialReason: screenshot.partialReason,
           captureMs
         });
         break;

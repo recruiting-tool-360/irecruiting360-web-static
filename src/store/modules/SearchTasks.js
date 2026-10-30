@@ -77,7 +77,24 @@ function createRestartCleanupState(status = "PENDING", patch = {}) {
  * 清理失败只更新状态卡并继续，不能阻断后续搜索 / 推荐流程。
  */
 async function runRestartCleanupStep({ taskId, task, commit }) {
-  if (!shouldRunRestartCleanup(task)) return;
+  const cleanupCheck = {
+    taskId,
+    taskType: task?.taskType || null,
+    sourceTaskId: task?.sourceTaskId || null,
+    hasBossRecommendChannel: hasBossRecommendChannel(task),
+    restartCleanup: task?.restartCleanup || null
+  };
+  if (!shouldRunRestartCleanup(task)) {
+    console.log("[任务流程] [SearchTasks] RESTART 取消收藏条件检查", {
+      ...cleanupCheck,
+      skipped: true
+    });
+    return;
+  }
+  console.log("[任务流程] [SearchTasks] RESTART 取消收藏开始", {
+    ...cleanupCheck,
+    skipped: false
+  });
 
   let cleanupState = createRestartCleanupState("RUNNING", task.restartCleanup || {});
   const patchCleanup = (patch) => {

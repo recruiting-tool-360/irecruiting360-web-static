@@ -287,44 +287,25 @@ function measureResumeSlice(options) {
     const boxExtras = style.boxSizing === "border-box" ? 0 :
       [style.paddingTop, style.paddingBottom, style.borderTopWidth, style.borderBottomWidth]
         .reduce((total, value) => total + (parseFloat(value) || 0), 0);
-    const clippedBelow = Math.max(0, innerBottom - visibleBottom);
-    const requestedReduction = Math.max(0, Number(options.remainingHeight) || 0);
-    const reduction = Math.max(clippedBelow, requestedReduction);
+    const visibleHeight = Math.max(0, visibleBottom - innerTop);
+    const maxHeight = Math.max(1, Math.floor(visibleHeight - boxExtras));
+    const previousHeight = scroller.clientHeight;
+    const reduction = Math.max(0, previousHeight - maxHeight);
     if (reduction >= 1) {
-      if (options.strategy === "padding") {
-        const paddingBottom = parseFloat(style.paddingBottom) || 0;
-        viewportAdjustment = {
-          strategy: "padding",
-          properties: ["padding-bottom"].map((name) => ({
-            name,
-            value: scroller.style.getPropertyValue(name),
-            priority: scroller.style.getPropertyPriority(name)
-          })),
-          previousHeight: scroller.clientHeight,
-          visibleHeight: Math.max(0, visibleBottom - innerTop),
-          reduction: Math.ceil(requestedReduction)
-        };
-        scroller.style.setProperty(
-          "padding-bottom",
-          `${paddingBottom + Math.ceil(requestedReduction)}px`,
-          "important"
-        );
-      } else {
-        const maxHeight = Math.max(120, Math.floor(bounds.height - reduction - boxExtras));
-        viewportAdjustment = {
-          strategy: "compact",
-          properties: ["max-height", "min-height"].map((name) => ({
-            name,
-            value: scroller.style.getPropertyValue(name),
-            priority: scroller.style.getPropertyPriority(name)
-          })),
-          previousHeight: scroller.clientHeight,
-          visibleHeight: Math.max(0, visibleBottom - innerTop),
-          reduction
-        };
-        scroller.style.setProperty("min-height", "0px", "important");
-        scroller.style.setProperty("max-height", `${maxHeight}px`, "important");
-      }
+      viewportAdjustment = {
+        strategy: "compact",
+        properties: ["max-height", "min-height"].map((name) => ({
+          name,
+          value: scroller.style.getPropertyValue(name),
+          priority: scroller.style.getPropertyPriority(name)
+        })),
+        previousHeight,
+        visibleHeight,
+        maxHeight,
+        reduction
+      };
+      scroller.style.setProperty("min-height", "0px", "important");
+      scroller.style.setProperty("max-height", `${maxHeight}px`, "important");
     }
   }
   if (options.action === "scroll" && scroller) {
@@ -550,7 +531,7 @@ function measureResumeSlice(options) {
 }
 
 const sleep = (duration) => new Promise((resolve) => setTimeout(resolve, duration));
-const FINAL_SLICE_ROUNDING_TOLERANCE = 1;
+const FINAL_SLICE_ROUNDING_TOLERANCE = 20;
 const INITIAL_RENDER_TIMEOUT_MS = 15000;
 const SLICE_RENDER_TIMEOUT_MS = 8000;
 const SCROLL_SETTLE_TIMEOUT_MS = 1200;
@@ -564,7 +545,7 @@ const CDP_WHEEL_MAX_STEP_PX = 120;
 const CDP_WHEEL_STEP_INTERVAL_MS = 28;
 const CDP_SCROLLBAR_DRAG_STEPS = 1;
 const MAX_RESUME_SLICES = 80;
-const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-capture-locked-v15";
+const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-compact-partial-stitch-v21";
 const BOSS_RESUME_CAPTURE_MODE = "frameSubscription";
 
 const RETRYABLE_DETAIL_SCROLLER_CODES = new Set([
@@ -605,6 +586,78 @@ async function loadScreenshot(base64) {
   image.src = `data:image/png;base64,${base64}`;
   await image.decode();
   return image;
+}
+
+async function cropCapturedFrame(shot, rect) {
+  if (!shot?.rawFrame) return shot;
+  const viewport = shot.sourceViewport;
+  if (!viewport ||
+      !(viewport.width > 0) ||
+      !(viewport.height > 0)) {
+    throw new Error("RESUME_SCREENSHOT_VIEWPORT_MISSING");
+  }
+  const image = await loadScreenshot(shot.base64);
+  const scaleX = image.naturalWidth / viewport.width;
+  const scaleY = image.naturalHeight / viewport.height;
+  const sourceX = Math.max(0, Math.round(rect.x * scaleX));
+  const sourceY = Math.max(0, Math.round(rect.y * scaleY));
+  const sourceWidth = Math.min(
+    image.naturalWidth - sourceX,
+    Math.max(1, Math.round(rect.width * scaleX))
+  );
+  const sourceHeight = Math.min(
+    image.naturalHeight - sourceY,
+    Math.max(1, Math.round(rect.height * scaleY))
+  );
+  if (sourceWidth < 1 || sourceHeight < 1) {
+    throw new Error("RESUME_SCREENSHOT_CROP_EMPTY");
+  }
+  const output = document.createElement("canvas");
+  output.width = Math.max(1, Math.round(rect.width * scaleX));
+  output.height = Math.max(1, Math.round(rect.height * scaleX));
+  try {
+    const context = output.getContext("2d");
+    if (!context) throw new Error("RESUME_SCREENSHOT_CROP_CONTEXT_UNAVAILABLE");
+    context.drawImage(
+      image,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      output.width,
+      output.height
+    );
+    const dataUrl = output.toDataURL("image/png");
+    const base64 = dataUrl.split(",")[1];
+    if (!base64) throw new Error("RESUME_SCREENSHOT_CROP_FAILED");
+    return {
+      ...shot,
+      base64,
+      width: output.width,
+      height: output.height,
+      bytes: Math.floor(base64.length * 3 / 4) -
+        (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0),
+      croppedInRenderer: true,
+      sourceFrame: {
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        viewport,
+        scaleX,
+        scaleY,
+        sourceRect: {
+          x: sourceX,
+          y: sourceY,
+          width: sourceWidth,
+          height: sourceHeight
+        }
+      }
+    };
+  } finally {
+    output.width = 0;
+    output.height = 0;
+  }
 }
 
 async function screenshotHasContent(base64) {
@@ -875,15 +928,26 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       })})`,
       awaitPromise: true
     });
-    if (!result?.ok) throw new Error(result?.error?.message || "RESUME_MEASURE_FAILED");
+    if (!result?.ok) {
+      if (options.allowInvalid) {
+        return {
+          ok: false,
+          code: result?.error?.code || "RESUME_MEASURE_FAILED",
+          error: result?.error?.message || result?.error?.code || "RESUME_MEASURE_FAILED"
+        };
+      }
+      throw new Error(result?.error?.message || "RESUME_MEASURE_FAILED");
+    }
     if (Number.isInteger(result.result?.scrollerIndex) && result.result.scrollerIndex >= 0) {
       scrollerIndex = result.result.scrollerIndex;
     }
     if (result.result?.viewportAdjustment) {
       viewportAdjustments.push(result.result.viewportAdjustment);
-      console.log("[任务流程] [BOSS简历长图] 末片扩大滚动范围", {
+      console.log("[任务流程] [BOSS简历长图] 末片单次压缩可视容器", {
         strategy: result.result.viewportAdjustment.strategy,
         previousHeight: result.result.viewportAdjustment.previousHeight,
+        visibleHeight: result.result.viewportAdjustment.visibleHeight,
+        maxHeight: result.result.viewportAdjustment.maxHeight,
         reduction: result.result.viewportAdjustment.reduction,
         clientHeight: result.result.clientHeight
       });
@@ -1524,12 +1588,13 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         const result = await automation.captureTab({
           tabId,
           rect,
-          captureMode: BOSS_RESUME_CAPTURE_MODE
+          captureMode: BOSS_RESUME_CAPTURE_MODE,
+          rawFrame: true
         });
         if (!result?.ok || !result.data?.base64) {
           throw new Error(result?.error?.message || "RESUME_CAPTURE_EMPTY");
         }
-        return result.data;
+        return await cropCapturedFrame(result.data, rect);
       } catch (error) {
         lastError = error;
         console.warn("[任务流程] [BOSS简历长图] 截图请求失败", {
@@ -1592,6 +1657,7 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
         captureMode: shot.captureMode || "unknown",
         requestedRect: state.rect,
         output: { width: shot.width, height: shot.height, bytes: shot.bytes },
+        sourceFrame: shot.sourceFrame,
         scrollTop: state.scrollTop,
         scrollHeight: state.scrollHeight,
         clientHeight: state.clientHeight
@@ -1640,6 +1706,34 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
   let initialScrollTop = null;
   let covered = 0;
   let bottomAdjustAttempt = 0;
+  const finishPartialCapture = async ({ reason, state, details = {} }) => {
+    if (!slices.length) {
+      throw new Error("简历无法继续覆盖，且没有可拼接的分片");
+    }
+    const detectedTotalHeight = Number(state?.totalHeight) ||
+      Number(slices[slices.length - 1]?.state?.totalHeight) || covered;
+    checkStopped();
+    const partialResult = await stitchResumeSlices(slices, covered);
+    checkStopped();
+    console.warn("[任务流程] [BOSS简历长图] 无法继续覆盖，拼接已获取分片", {
+      reason,
+      slices: partialResult.sliceCount,
+      capturedHeight: covered,
+      totalHeight: detectedTotalHeight,
+      missingHeight: Math.max(0, detectedTotalHeight - covered),
+      width: partialResult.width,
+      height: partialResult.height,
+      totalElapsedMs: Date.now() - captureStartedAt,
+      ...details
+    });
+    return {
+      ...partialResult,
+      incomplete: covered < detectedTotalHeight,
+      capturedHeight: covered,
+      totalHeight: detectedTotalHeight,
+      partialReason: reason
+    };
+  };
   try {
     // 先记录调用前位置，再把滚动容器恢复到顶部，保证第一条带从内容 0 开始；
     // 结束时仍恢复用户原来的位置。
@@ -1690,39 +1784,76 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
       const finalPixelGap = hasOnlyFinalPixelGap(state, bottom);
       const targetHeight = finalPixelGap ? bottom : state.totalHeight;
       if (finalPixelGap) {
-        console.log("[任务流程] [BOSS简历长图] 末屏存在 1px 亚像素取整误差，按实际截取高度拼接", {
+        console.log("[任务流程] [BOSS简历长图] 末屏存在滚动条取整误差，按实际截取高度拼接", {
           totalHeight: state.totalHeight,
           coveredTo: bottom,
+          remainingHeight: state.totalHeight - bottom,
+          tolerance: FINAL_SLICE_ROUNDING_TOLERANCE,
           scrollTop: state.scrollTop,
           scrollHeight: state.scrollHeight,
           clientHeight: state.clientHeight
         });
       }
-      const strategies = ["padding", "compact"];
+      const strategies = ["compact"];
       while ((state.contentTop > covered || bottom <= covered) &&
              bottomAdjustAttempt < strategies.length &&
              targetHeight > bottom) {
-        const remainingHeight = state.totalHeight - bottom;
         const adjusted = await read({
           action: "makeBottomReachable",
-          remainingHeight,
           strategy: strategies[bottomAdjustAttempt]
         });
         if (!adjusted?.viewportAdjustment) break;
         bottomAdjustAttempt++;
-        await scrollToContentOffset(Math.max(0, covered - 80), `${phaseLabel} 回退修正`);
-        slice = await captureStableSlice(SLICE_RENDER_TIMEOUT_MS, `${phaseLabel} 回退修正后`);
+        try {
+          await scrollToContentOffset(Math.max(0, covered - 80), `${phaseLabel} 回退修正`);
+          slice = await captureStableSlice(SLICE_RENDER_TIMEOUT_MS, `${phaseLabel} 回退修正后`);
+        } catch (error) {
+          let latest = null;
+          try {
+            latest = await read({ allowInvalid: true });
+          } catch {
+            // Preserve the original capture error when the detail is no longer readable.
+          }
+          if (slices.length > 0 && isScrollerAtEnd(latest)) {
+            return await finishPartialCapture({
+              reason: "resume-post-compact-unreachable",
+              state: latest,
+              details: {
+                phaseLabel,
+                errorCode: error?.code || null,
+                errorMessage: error?.message || String(error)
+              }
+            });
+          }
+          throw error;
+        }
         state = slice.state;
         bottom = Math.min(state.totalHeight, state.contentTop + state.rect.height);
       }
       const coveredByFinalPixel = hasOnlyFinalPixelGap(state, bottom) && bottom <= covered;
       if (state.contentTop > covered || (bottom <= covered && !coveredByFinalPixel)) {
+        const failureDetails = {
+          covered,
+          bottom,
+          contentTop: state.contentTop,
+          totalHeight: state.totalHeight,
+          scrollTop: state.scrollTop,
+          scrollHeight: state.scrollHeight,
+          clientHeight: state.clientHeight,
+          rect: state.rect,
+          bottomAdjustAttempt,
+          atScrollerEnd: isScrollerAtEnd(state)
+        };
         console.warn("[任务流程] [BOSS简历长图] 分片无法连续覆盖", {
-          covered, bottom, contentTop: state.contentTop, totalHeight: state.totalHeight,
-          scrollTop: state.scrollTop, scrollHeight: state.scrollHeight,
-          clientHeight: state.clientHeight, rect: state.rect,
-          bottomAdjustAttempt
+          ...failureDetails
         });
+        if (slices.length > 0 && failureDetails.atScrollerEnd) {
+          return await finishPartialCapture({
+            reason: "resume-bottom-unreachable",
+            state,
+            details: failureDetails
+          });
+        }
         throw new Error("简历滚动后存在缺片或未前进，已取消上传不完整截图");
       }
       if (slices.length && state.rect.width !== slices[0].state.rect.width) {
@@ -1744,7 +1875,47 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
           rect: state.rect
         });
       }
-      if (covered >= targetHeight) {
+      if (covered < targetHeight) {
+        // If the next requested offset is beyond the current scroll range, the
+        // next pass would only capture a narrow tail and then repair again.
+        // Expand the range before that pass so the final overlap stays stable.
+        const nextContentOffset = Math.max(0, covered - 80);
+        const currentMaxScrollTop = Math.max(
+          0,
+          state.scrollHeight - state.clientHeight
+        );
+        const finalContentOffsetNeeded = Math.max(
+          0,
+          state.totalHeight - state.rect.height
+        );
+        const reachableContentOffset = Math.min(
+          nextContentOffset,
+          finalContentOffsetNeeded
+        );
+        const missingScrollRange = reachableContentOffset - currentMaxScrollTop;
+        if (missingScrollRange > 1 && bottomAdjustAttempt < strategies.length) {
+          const expanded = await read({
+            action: "makeBottomReachable",
+            strategy: strategies[bottomAdjustAttempt]
+          });
+          if (expanded?.viewportAdjustment) {
+            bottomAdjustAttempt++;
+            console.log("[任务流程] [BOSS简历长图] 预判末屏滚动不足，提前压缩可视容器", {
+              nextContentOffset,
+              reachableContentOffset,
+              currentMaxScrollTop,
+              missingScrollRange,
+              strategy: expanded.viewportAdjustment.strategy,
+              maxHeight: expanded.viewportAdjustment.maxHeight,
+              scrollHeight: expanded.scrollHeight,
+              clientHeight: expanded.clientHeight
+            });
+          }
+        }
+      }
+      const coveredWithFinalPixelGap =
+        hasOnlyFinalPixelGap(state, covered) && isScrollerAtEnd(state);
+      if (covered >= targetHeight || coveredWithFinalPixelGap) {
         await sleep(1000);
         const last = await read();
         if (!last?.ok) throw new Error(last?.code || "RESUME_DETAIL_CLOSED");
@@ -1771,27 +1942,11 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
     if (!slices.length) {
       throw new Error("简历分片达到上限但没有任何可拼接内容");
     }
-    const lastSliceState = slices[slices.length - 1].state;
-    const detectedTotalHeight = Number(lastSliceState?.totalHeight) || covered;
-    checkStopped();
-    const partialResult = await stitchResumeSlices(slices, covered);
-    checkStopped();
-    console.warn("[任务流程] [BOSS简历长图] 达到分片上限，拼接不完整长图", {
-      maxSlices: MAX_RESUME_SLICES,
-      slices: partialResult.sliceCount,
-      capturedHeight: covered,
-      totalHeight: detectedTotalHeight,
-      missingHeight: Math.max(0, detectedTotalHeight - covered),
-      width: partialResult.width,
-      height: partialResult.height,
-      totalElapsedMs: Date.now() - captureStartedAt
+    return await finishPartialCapture({
+      reason: "max-resume-slices",
+      state: slices[slices.length - 1].state,
+      details: { maxSlices: MAX_RESUME_SLICES }
     });
-    return {
-      ...partialResult,
-      incomplete: covered < detectedTotalHeight,
-      capturedHeight: covered,
-      totalHeight: detectedTotalHeight
-    };
   } catch (error) {
     console.warn("[任务流程] [BOSS简历长图] 截图流程失败 ✗", {
       tabId,

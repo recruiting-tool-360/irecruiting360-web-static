@@ -142,14 +142,31 @@ const clientRecovery = {
  *   ikuaizhaoConfig.set('includeViewedCandidates', true)
  *   ikuaizhaoConfig.reset('includeViewedCandidates')
  *
- * 只有 QA2 安装包允许修改配置；线上 release 只允许 get，set/reset 会直接抛错。
+ * QA2 安装包和非打包开发模式允许修改配置；线上 release 只允许 get。
  */
-const isQa2Runtime = /qa2/i.test(process.execPath || '')
+const runtimeConfigPermission = (() => {
+  try {
+    return ipcRenderer.sendSync('app:getRuntimeConfigPermission') as {
+      isPackaged?: boolean
+      isQa2?: boolean
+    }
+  } catch {
+    // 老客户端没有该同步 IPC；保留原有 QA2 路径判定作为兜底。
+    return {
+      isPackaged: true,
+      isQa2: /qa2/i.test(process.execPath || '')
+    }
+  }
+})()
+
+const canMutateRuntimeConfig =
+  runtimeConfigPermission?.isQa2 === true || runtimeConfigPermission?.isPackaged === false
 
 function assertRuntimeConfigMutable(action: 'set' | 'reset'): void {
-  if (!isQa2Runtime) {
+  if (!canMutateRuntimeConfig) {
     throw new Error(
-      `ikuaizhaoConfig.${action} 仅允许在 QA2 客户端执行；线上版本只支持 ikuaizhaoConfig.get()`
+      `ikuaizhaoConfig.${action} 仅允许在 QA2 客户端或非打包开发模式执行；` +
+        `线上版本只支持 ikuaizhaoConfig.get()`
     )
   }
 }
@@ -674,11 +691,13 @@ const automation = {
    * 再把图片上传 resume/upload 交给后端解析评分。
    * rect 为 CSS 像素；省略时截整个可见页面。
    * captureMode 可锁定单次任务的截图路径，避免活跃状态变化导致模式切换。
+   * rawFrame=true 时返回 frameSubscription 的完整帧，由渲染端按 sourceViewport 裁切。
    */
   captureTab: (opts: {
     tabId: string
     rect?: { x: number; y: number; width: number; height: number }
     captureMode?: 'capturePage' | 'frameSubscription'
+    rawFrame?: boolean
   }): Promise<{
     ok: boolean
     data?: {
@@ -688,6 +707,12 @@ const automation = {
       bytes: number
       foundRect: { x: number; y: number; width: number; height: number } | null
       captureMode: 'capturePage' | 'frameSubscription'
+      rawFrame: boolean
+      sourceViewport: {
+        width: number
+        height: number
+        devicePixelRatio: number
+      } | null
     }
     error?: { code: string; message: string }
   }> => ipcRenderer.invoke('automation:captureTab', opts),

@@ -504,11 +504,13 @@ export interface AutomationBridge {
    * 截取指定 tab 的可见区域（PNG base64）。
    * rect 为 CSS 像素，省略时截整个可见页面；详见 main 进程 `automation:captureTab`。
    * captureMode 可显式锁定截图模式；省略时根据 tab 是否活跃自动选择。
+   * frameSubscription 可传 rawFrame=true 返回完整帧，由渲染端按 sourceViewport 裁切。
    */
   captureTab(opts: {
     tabId: string
     rect?: { x: number; y: number; width: number; height: number }
     captureMode?: 'capturePage' | 'frameSubscription'
+    rawFrame?: boolean
   }): Promise<{
     ok: boolean
     data?: {
@@ -518,6 +520,12 @@ export interface AutomationBridge {
       bytes: number
       foundRect: { x: number; y: number; width: number; height: number } | null
       captureMode: 'capturePage' | 'frameSubscription'
+      rawFrame: boolean
+      sourceViewport: {
+        width: number
+        height: number
+        devicePixelRatio: number
+      } | null
     }
     error?: { code: string; message: string }
   }>
@@ -680,19 +688,19 @@ export interface RuntimeConfigValues {
 
 /**
  * 仅当前 Electron 进程有效的运行时配置。
- * 不持久化，应用退出后恢复默认值。set/reset 仅允许在 QA2 客户端执行。
+ * 不持久化，应用退出后恢复默认值。set/reset 仅允许在 QA2 客户端或非打包开发模式执行。
  */
 export interface RuntimeConfigBridge {
   get(): RuntimeConfigValues
   get<K extends keyof RuntimeConfigValues>(key: K): RuntimeConfigValues[K]
-  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  /** 仅 QA2 客户端或非打包开发模式可用；线上 release 会抛错。 */
   set<K extends keyof RuntimeConfigValues>(
     key: K,
     value: RuntimeConfigValues[K]
   ): RuntimeConfigValues
-  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  /** 仅 QA2 客户端或非打包开发模式可用；线上 release 会抛错。 */
   reset(): RuntimeConfigValues
-  /** 仅 QA2 客户端可用；线上 release 会抛错。 */
+  /** 仅 QA2 客户端或非打包开发模式可用；线上 release 会抛错。 */
   reset<K extends keyof RuntimeConfigValues>(key: K): RuntimeConfigValues
 }
 

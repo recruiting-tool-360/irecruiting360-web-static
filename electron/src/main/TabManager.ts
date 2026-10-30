@@ -3,7 +3,8 @@
  *
  * 设计要点：
  *   - 主窗口的 webContents 仅渲染"壳层"（自绘标题栏 + 标签栏），永不导航。
- *   - 每个标签是一个 WebContentsView，挂在 mainWindow.contentView 下。
+ *   - 每个标签是一个 WebContentsView；可见 tab 挂在 mainWindow.contentView 下，
+ *     纯后台 hidden tab 保持 detach，只让 webContents 运行，避免 native view 抢焦点。
  *     激活的 view 占满 chrome 之下的内容区；未激活的 setBounds(0,0,0,0) 隐藏。
  *   - 主页 tab pinned 不可关，channel='home'，使用主 partition + 完整 preload。
  *   - 招聘站点 tab 各自一个 partition（与原 SiteWindowManager 一致），preload 为空。
@@ -60,6 +61,8 @@ interface InternalTab {
   channel?: string
   title: string
   view: WebContentsView
+  /** view 是否已挂到 mainWindow.contentView；hidden tab 加载时保持 false。 */
+  attached: boolean
   /**
    * 隐藏 tab：tab 仍然有 webContents / view（可以 loadURL / executeJavaScript），
    * 但不会出现在 TabBar UI 上，也不会被自动 activate。
@@ -237,12 +240,13 @@ class TabManager {
       closable: false,
       channel: 'home',
       title: HOME_TITLE,
-      view
+      view,
+      attached: false
     }
     this.attachViewListeners(tab)
     this.attachWindowOpenHandler(tab)
 
-    this.mainWindow.contentView.addChildView(view)
+    this.attachTabView(tab)
     this.tabs.set(id, tab)
     this.order.push(id)
     this.homeTabId = id
@@ -382,18 +386,17 @@ class TabManager {
       channel: key,
       title,
       view,
+      attached: false,
       hidden: isHidden
     }
     this.attachViewListeners(tab)
     this.attachSiteWindowOpenHandler(tab)
     this.attachSiteDebugListeners(tab)
 
-    // 0×0 bounds 仍然是一个可获焦的 native view。隐藏页 reload 后若页面执行
-    // focus()/autofocus，macOS 可能先把整个 app 激活到前台，再等 mainWindow 的
-    // focus 守卫 blur，用户会看到一次闪烁。必须在 loadURL/addChildView 前把
-    // hidden view 本身设为不可见，从源头阻止它获得焦点。
-    if (isHidden) view.setVisible(false)
-    this.mainWindow.contentView.addChildView(view)
+    // hidden tab 在加载期间不挂到主窗口。0×0 + setVisible(false) 仍可能保留一个
+    // 可获焦的 native view，页面 autofocus 会先把 macOS app 激活到前台，等
+    // mainWindow focus 守卫再 blur 时用户已经看到闪烁。detach 才能从源头阻断。
+    if (!isHidden) this.attachTabView(tab)
     this.tabs.set(id, tab)
 
     // 紧挨当前 active 右侧插入（决策 E.b）；hidden tab 仍加进 order（统一管理 / close），
@@ -410,7 +413,7 @@ class TabManager {
     void view.webContents.loadURL(url)
     if (isHidden) {
       // hidden tab：不 activate（保持原 active 不变），不显式 broadcast（getTabs 会过滤掉它）
-      // 仅 updateBounds 一次，确保 hidden view 的尺寸保持 0x0 不占主窗口
+      // updateBounds 会跳过未挂载的 hidden view。
       this.updateBounds()
     } else if (isBackground) {
       // ★ background tab：tab 栏可见 + 真实尺寸渲染（自动化能跑），但 active 仍是 home
@@ -497,6 +500,7 @@ class TabManager {
       this.activate(tab.id)
     } else if (mode === 'background') {
       tab.hidden = false
+      this.attachTabView(tab)
       // 用户已经在看 BOSS 时，后台复用同一个主签不能再把它标成 bgRender。
       // 否则切到 home 后 BOSS 仍会保留真实 bounds，并凭更高 z-order 盖住主页。
       this.bgRenderId = this.activeId === tab.id ? null : tab.id
@@ -518,11 +522,7 @@ class TabManager {
     for (const id of bossIds) {
       const tab = this.tabs.get(id)
       if (!tab) continue
-      try {
-        this.mainWindow?.contentView.removeChildView(tab.view)
-      } catch {
-        /* ignore */
-      }
+      this.detachTabView(tab)
       try {
         if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
       } catch {
@@ -664,7 +664,9 @@ class TabManager {
   // ----- 激活 / 关闭 / 重排 -----
 
   activate(id: string): void {
-    if (!this.tabs.has(id)) return
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    this.attachTabView(tab)
     // bgRender 不应指向即将离开的旧 active，也不应指向新的 active。
     // 前者用于自愈“当前 BOSS 被后台流程重新标成 bgRender”的历史残留状态。
     if (this.bgRenderId === id || this.bgRenderId === this.activeId) this.bgRenderId = null
@@ -675,8 +677,7 @@ class TabManager {
     this.bringActiveToFront()
     // 通知蒙层重新评估：active 是招聘站 tab 时显示，是 home / 其它时隐藏
     // 详见 automationOverlay.ts setActiveChannel 注释
-    const tab = this.tabs.get(id)
-    setOverlayActiveChannel(tab?.channel ?? null)
+    setOverlayActiveChannel(tab.channel ?? null)
     this.broadcastState()
   }
 
@@ -746,9 +747,7 @@ class TabManager {
       nextActive = this.activeId
     }
 
-    if (this.mainWindow) {
-      this.mainWindow.contentView.removeChildView(tab.view)
-    }
+    this.detachTabView(tab)
     try {
       // 兼容 Electron 30+：webContents.close() / view 自身没有 close()
       // 通过 destroy webContents 来释放资源
@@ -909,6 +908,27 @@ class TabManager {
 
   // ----- 内部：bounds / state ----
 
+  /** 把 tab view 挂到主窗口；hidden 加载期间保持 detach，避免 native view 抢焦点。 */
+  private attachTabView(tab: InternalTab): void {
+    if (tab.attached || !this.mainWindow || this.mainWindow.isDestroyed()) return
+    // 先以不可见 / 零尺寸挂载，随后由 updateBounds 决定真实显示状态，避免首帧闪出。
+    tab.view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
+    tab.view.setVisible(false)
+    this.mainWindow.contentView.addChildView(tab.view)
+    tab.attached = true
+  }
+
+  /** 从主窗口摘掉 tab view；webContents 仍可继续 loadURL / executeJavaScript。 */
+  private detachTabView(tab: InternalTab): void {
+    if (!tab.attached || !this.mainWindow || this.mainWindow.isDestroyed()) return
+    try {
+      this.mainWindow.contentView.removeChildView(tab.view)
+    } catch (e) {
+      console.warn(`[TabManager] detach view failed tab=${tab.id}: ${(e as Error)?.message || e}`)
+    }
+    tab.attached = false
+  }
+
   private updateBounds(): void {
     if (!this.mainWindow) return
     const bounds = this.mainWindow.getContentBounds()
@@ -919,6 +939,7 @@ class TabManager {
       height: Math.max(0, bounds.height - CHROME_HEIGHT)
     }
     for (const [id, tab] of this.tabs) {
+      if (!tab.attached) continue
       // active 给真实 bounds（最上层可见）；
       // bgRender tab 也给真实 bounds（被 active 遮挡，但保证页面布局真实 → CDP / 懒加载能跑）；
       // 任务期间锁定的 BOSS 主签即使被用户切到后台也必须保持真实视口，否则 WebContentsView

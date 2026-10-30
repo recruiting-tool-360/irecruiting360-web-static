@@ -211,12 +211,44 @@ let mainWindow: BrowserWindow | null = null
  *
  * beginFrameSubscription 通过目标 RenderWidgetHost 的 FrameSinkVideoCapturer 取帧，
  * 不参与父窗口的 view 合成，也不会改变可见 view 栈。它返回完整 webContents viewport，
- * 再按 captureTab 的 CSS 像素 rect 裁剪；其他兄弟 WebContentsView 不会进入图片。
+ * 再按 captureTab 的 CSS 像素 rect 裁剪。高 DPI 下主进程 NativeImage.crop 对帧坐标的
+ * 解释不稳定，rawFrame 模式会返回完整帧，由渲染端按实际 PNG 尺寸裁切。
+ * 其他兄弟 WebContentsView 不会进入图片。
  */
-function captureBackgroundTabFrame(
+interface CaptureViewport {
+  width: number
+  height: number
+  devicePixelRatio: number
+}
+
+async function readCaptureViewport(wc: Electron.WebContents): Promise<CaptureViewport> {
+  const viewport = await wc.executeJavaScript(
+    `(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      devicePixelRatio: window.devicePixelRatio
+    }))()`,
+    false
+  )
+  const width = Number(viewport?.width)
+  const height = Number(viewport?.height)
+  const devicePixelRatio = Number(viewport?.devicePixelRatio)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+    throw new Error('FRAME_VIEWPORT_UNAVAILABLE')
+  }
+  return {
+    width,
+    height,
+    devicePixelRatio: Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1
+  }
+}
+
+async function captureBackgroundTabFrame(
   wc: Electron.WebContents,
-  rect?: Electron.Rectangle
-): Promise<Electron.NativeImage> {
+  rect?: Electron.Rectangle,
+  rawFrame = false
+): Promise<{ image: Electron.NativeImage; viewport: CaptureViewport }> {
+  const viewport = await readCaptureViewport(wc)
   return new Promise((resolve, reject) => {
     let settled = false
     let subscribed = false
@@ -244,7 +276,7 @@ function captureBackgroundTabFrame(
       settled = true
       cleanup()
       if (error) reject(error)
-      else resolve(image as Electron.NativeImage)
+      else resolve({ image: image as Electron.NativeImage, viewport })
     }
     const onDestroyed = (): void => finish(new Error('WEB_CONTENTS_DESTROYED'))
 
@@ -254,7 +286,7 @@ function captureBackgroundTabFrame(
       wc.beginFrameSubscription(false, (image) => {
         if (settled || image.isEmpty()) return
         try {
-          finish(null, rect ? image.crop(rect) : image)
+          finish(null, rect && !rawFrame ? image.crop(rect) : image)
         } catch (e) {
           finish(new Error(`FRAME_CROP_FAILED: ${(e as Error)?.message || String(e)}`))
         }
@@ -669,6 +701,15 @@ function createMainWindow(): BrowserWindow {
 function registerIpc(): void {
   registerClientRecoveryIpc()
   ipcMain.on('ping', () => console.log('pong'))
+
+  // preload 无法直接读取 app.isPackaged。运行时配置的 set/reset 需要在
+  // 非打包开发模式和 QA2 包中开放，因此由主进程提供同步环境标记。
+  ipcMain.on('app:getRuntimeConfigPermission', (event) => {
+    event.returnValue = {
+      isPackaged: app.isPackaged,
+      isQa2: isQa2Build()
+    }
+  })
 
   /**
    * 渲染端启动后调用一次，取走主进程缓存的 deep link payload。
@@ -1120,6 +1161,7 @@ function registerIpc(): void {
         tabId: string
         rect?: { x: number; y: number; width: number; height: number }
         captureMode?: 'capturePage' | 'frameSubscription'
+        rawFrame?: boolean
       }
     ) => {
       if (!opts || typeof opts.tabId !== 'string') {
@@ -1179,10 +1221,15 @@ function registerIpc(): void {
         const isActive = opts.tabId === tabManager.getActiveTabId()
         const resolvedCaptureMode =
           opts.captureMode || (isActive ? 'capturePage' : 'frameSubscription')
-        const image =
-          resolvedCaptureMode === 'capturePage'
-            ? await wc.capturePage(rect, { stayHidden: true })
-            : await captureBackgroundTabFrame(wc, rect)
+        let sourceViewport: CaptureViewport | null = null
+        let image: Electron.NativeImage
+        if (resolvedCaptureMode === 'capturePage') {
+          image = await wc.capturePage(rect, { stayHidden: true })
+        } else {
+          const captured = await captureBackgroundTabFrame(wc, rect, !!opts.rawFrame)
+          image = captured.image
+          sourceViewport = captured.viewport
+        }
         if (image.isEmpty()) {
           return {
             ok: false,
@@ -1199,7 +1246,9 @@ function registerIpc(): void {
             height: size.height,
             bytes: png.length,
             foundRect: rect || null,
-            captureMode: resolvedCaptureMode
+            captureMode: resolvedCaptureMode,
+            rawFrame: resolvedCaptureMode === 'frameSubscription' && !!opts.rawFrame,
+            sourceViewport
           }
         }
       } catch (e) {
