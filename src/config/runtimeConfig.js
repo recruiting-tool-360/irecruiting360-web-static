@@ -23,17 +23,22 @@ function isElectronRuntime() {
   );
 }
 
-function isQa2Page() {
+function isMutableRuntimePage() {
+  if (typeof window === "undefined") return false;
+  const hostname = window.location.hostname;
   return (
-    typeof window !== "undefined" &&
-    window.location.hostname === "test.ihire365.com"
+    hostname === "test.ihire365.com" ||
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1"
   );
 }
 
 function assertMutable(action) {
-  if (!isQa2Page()) {
+  if (!isMutableRuntimePage()) {
     throw new Error(
-      `ikuaizhaoConfig.${action} 仅允许在 QA2 环境执行；线上版本只支持 ikuaizhaoConfig.get()`
+      `ikuaizhaoConfig.${action} 仅允许在 QA2 或本地开发环境执行；` +
+        `线上版本只支持 ikuaizhaoConfig.get()`
     );
   }
 }

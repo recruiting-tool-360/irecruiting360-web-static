@@ -114,7 +114,7 @@ function collectLocalIds(item, flat, blind) {
 async function loadTaskUncollectTargets(taskId) {
   const response = await queryTaskResults(taskId);
   const rawList = readTaskResultList(response);
-  const recommendItems = rawList.filter((item) => {
+  const recommendCandidates = rawList.filter((item) => {
     const blind = item?.resumeBlind && typeof item.resumeBlind === "object"
       ? item.resumeBlind
       : {};
@@ -122,22 +122,24 @@ async function loadTaskUncollectTargets(taskId) {
     const channelSubType = item?.channelSubType || blind?.channelSubType;
     return (
       businessChannel === "RECOMMEND" &&
-      channelSubType === "BOSS" &&
-      item?.visibleInResultSet !== false
+      channelSubType === "BOSS"
     );
   });
 
   const targets = [];
   const unresolved = [];
   const seen = new Set();
+  const candidates = [];
 
-  for (const item of recommendItems) {
+  for (const item of recommendCandidates) {
     const blind = item?.resumeBlind && typeof item.resumeBlind === "object"
       ? item.resumeBlind
       : {};
     const flat = { ...blind, ...item };
-    const ids = collectDirectGeekIds(item, flat, blind);
-    for (const localId of collectLocalIds(item, flat, blind)) {
+    const directGeekIds = collectDirectGeekIds(item, flat, blind);
+    const localIds = collectLocalIds(item, flat, blind);
+    const ids = [...directGeekIds];
+    for (const localId of localIds) {
       const mapped = lookupGeekId(localId);
       if (isLikelyEncryptGeekId(mapped)) ids.push(mapped);
     }
@@ -146,10 +148,24 @@ async function loadTaskUncollectTargets(taskId) {
       new Set(ids.map(normalizeGeekId).filter(Boolean))
     );
     const name = String(flat?.name || blind?.name || "").trim();
+    const taskResumeId = item?.taskResumeId || flat?.taskResumeId || "";
+    const visibleInResultSet = item?.visibleInResultSet !== false;
+    const candidateLog = {
+      name,
+      taskResumeId,
+      businessChannel: item?.businessChannel || blind?.businessChannel || "",
+      channelSubType: item?.channelSubType || blind?.channelSubType || "",
+      visibleInResultSet,
+      directGeekIds: Array.from(new Set(directGeekIds)),
+      localIds: Array.from(new Set(localIds.map(String))),
+      resolvedGeekIds: normalizedIds
+    };
+    candidates.push(candidateLog);
+    if (!visibleInResultSet) continue;
     if (normalizedIds.length === 0) {
       unresolved.push({
         name,
-        taskResumeId: item?.taskResumeId || flat?.taskResumeId || "",
+        taskResumeId,
         reason: "ENCRYPT_GEEK_ID_UNRESOLVED",
       });
       continue;
@@ -161,8 +177,27 @@ async function loadTaskUncollectTargets(taskId) {
     targets.push({ geekIds: normalizedIds, name, key: dedupeKey });
   }
 
+  const visibleCandidates = candidates.filter(
+    (candidate) => candidate.visibleInResultSet
+  );
+  console.log("[任务流程] [SearchTasks] RESTART 查询旧任务候选人", {
+    sourceTaskId: taskId,
+    rawResultCount: rawList.length,
+    recommendCandidateCount: recommendCandidates.length,
+    visibleRecommendCandidateCount: visibleCandidates.length,
+    targetCount: targets.length,
+    unresolvedCount: unresolved.length,
+    candidates,
+    targets: targets.map((target) => ({
+      name: target.name,
+      key: target.key,
+      geekIds: target.geekIds
+    })),
+    unresolved
+  });
+
   return {
-    totalRecommendResults: recommendItems.length,
+    totalRecommendResults: visibleCandidates.length,
     targets,
     unresolved,
   };
