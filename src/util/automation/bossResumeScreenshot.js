@@ -564,7 +564,8 @@ const CDP_WHEEL_MAX_STEP_PX = 120;
 const CDP_WHEEL_STEP_INTERVAL_MS = 28;
 const CDP_SCROLLBAR_DRAG_STEPS = 1;
 const MAX_RESUME_SLICES = 80;
-const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-scrollbar-first-v14";
+const BOSS_RESUME_SCREENSHOT_REVISION = "2026-10-30-capture-locked-v15";
+const BOSS_RESUME_CAPTURE_MODE = "frameSubscription";
 
 const RETRYABLE_DETAIL_SCROLLER_CODES = new Set([
   "RESUME_DETAIL_SCROLLER_NOT_FOUND",
@@ -655,12 +656,17 @@ export async function stitchResumeSlices(slices, totalHeight) {
         throw new Error("RESUME_SCREENSHOT_GAP");
       }
       const image = index === 0 ? firstImage : await loadScreenshot(slice.base64);
-      if (Math.abs(image.naturalWidth - width) > 1 ||
-          Math.abs(image.naturalHeight - slice.state.rect.height * scale) > 2) {
+      const sliceRect = slice.state?.rect;
+      if (!sliceRect || sliceRect.width < 1 || sliceRect.height < 1) {
         throw new Error("RESUME_SCREENSHOT_SIZE_CHANGED");
       }
-      const sourceTop = (slice.from - slice.state.contentTop) * scale;
-      const sourceHeight = (slice.to - slice.from) * scale;
+      const sliceScale = image.naturalWidth / sliceRect.width;
+      const expectedImageHeight = sliceRect.height * sliceScale;
+      if (Math.abs(image.naturalHeight - expectedImageHeight) > 2) {
+        throw new Error("RESUME_SCREENSHOT_SIZE_CHANGED");
+      }
+      const sourceTop = (slice.from - slice.state.contentTop) * sliceScale;
+      const sourceHeight = (slice.to - slice.from) * sliceScale;
       if (sourceTop < 0 || sourceTop + sourceHeight > image.naturalHeight + 1) {
         throw new Error("RESUME_SCREENSHOT_INVALID_SLICE");
       }
@@ -1510,14 +1516,16 @@ export async function captureBossResumeLongScreenshot(tabId, { shouldAbort } = {
     throw error;
   };
   const captureSlice = async (rect, phaseLabel) => {
-    // The main process captures only the target BOSS webContents. Active tabs use
-    // capturePage; background tabs use frame subscription so capture never promotes
-    // the obscured BOSS view into the shell's compositor. Scrolling only uses
-    // native input events or the bounded CDP compatibility path.
+    // Lock one capture path for the whole resume. Mixing capturePage and frame
+    // subscription can produce different pixel scales when tab activation changes.
     let lastError;
     for (let attempt = 0; attempt <= 2; attempt += 1) {
       try {
-        const result = await automation.captureTab({ tabId, rect });
+        const result = await automation.captureTab({
+          tabId,
+          rect,
+          captureMode: BOSS_RESUME_CAPTURE_MODE
+        });
         if (!result?.ok || !result.data?.base64) {
           throw new Error(result?.error?.message || "RESUME_CAPTURE_EMPTY");
         }

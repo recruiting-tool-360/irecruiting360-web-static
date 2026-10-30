@@ -673,10 +673,12 @@ const automation = {
    * 用于 BOSS 推荐详情接口不可用后，打开候选人详情面板截图，
    * 再把图片上传 resume/upload 交给后端解析评分。
    * rect 为 CSS 像素；省略时截整个可见页面。
+   * captureMode 可锁定单次任务的截图路径，避免活跃状态变化导致模式切换。
    */
   captureTab: (opts: {
     tabId: string
     rect?: { x: number; y: number; width: number; height: number }
+    captureMode?: 'capturePage' | 'frameSubscription'
   }): Promise<{
     ok: boolean
     data?: {
