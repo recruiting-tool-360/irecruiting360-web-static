@@ -46,9 +46,9 @@
 
             <!-- 标题 + 描述 -->
             <div class="ihr-auth-title-wrap">
-              <h2 class="ihr-auth-title">AI 聚合搜索</h2>
+              <h2 class="ihr-auth-title">AI 寻聘</h2>
               <p class="ihr-auth-desc">
-                检测到您的认证信息已过期，请通过账号授权以继续使用全网深度聚合搜索功能
+                检测到您的认证信息已过期，请通过账号授权以继续使用全网深度搜索功能
               </p>
             </div>
 

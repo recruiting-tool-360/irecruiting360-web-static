@@ -80,9 +80,9 @@
 
           <!-- ===== intro：默认下载引导页 ===== -->
           <div v-else-if="state === 'intro'" key="intro" class="cg-step-intro">
-            <h2 class="cg-title">启用 AI 聚合搜索客户端</h2>
+            <h2 class="cg-title">启用 AI 寻聘客户端</h2>
             <p class="cg-desc">
-              请安装第三方"AI 聚合搜索客户端"并在本地运行
+              请安装第三方"AI 寻聘客户端"并在本地运行
             </p>
 
             <div class="cg-download-grid">

@@ -31,12 +31,12 @@
       </svg>
     </div>
 
-    <h3 class="empty-title">你好，我是你的 AI 招聘助理</h3>
+    <h3 class="empty-title">你好，我是你的 AI 寻聘</h3>
     <p class="empty-desc">
       {{
         selectedJob
-          ? `当前已选择 ${selectedJob.name || selectedJob.title}。你可以发送指令让我修改职位画像，或者直接启动全网聚合搜索任务。`
-          : '你可以发送指令让我修改职位画像、调整搜索策略，或者直接启动全网聚合搜索任务。'
+          ? `当前已选择 ${selectedJob.name || selectedJob.title}。你可以发送指令让我修改职位画像，或者直接启动全网搜索任务。`
+          : '你可以发送指令让我修改职位画像、调整搜索策略，或者直接启动全网搜索任务。'
       }}
     </p>
 
