@@ -58,11 +58,11 @@ function getChannelTheme(channelName?: string): { color: string; chip: string } 
 function buildOverlayDataUrl(payload: OverlayPayload): string {
   const { color, chip } = getChannelTheme(payload.channelName)
   const channelName = payload.channelName || ''
-  const title = payload.title || 'AI 聚合搜索进行中'
+  const title = payload.title || 'AI 寻聘进行中'
   // ihraisaas/PlatformSimulation.tsx L329-331 副文同款，channel 高亮
   const message =
     payload.message ||
-    `AI 聚合搜索客户端正在执行中，请耐心等待，请勿同步操作 <span class="channel">${channelName || '招聘'}</span> 账号`
+    `AI 寻聘客户端正在执行中，请耐心等待，请勿同步操作 <span class="channel">${channelName || '招聘'}</span> 账号`
 
   // 不依赖任何外部 CSS / JS / 字体；纯 inline 跑得动
   const html = `<!doctype html>
