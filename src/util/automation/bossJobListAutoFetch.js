@@ -16,6 +16,7 @@
  */
 
 import { fetchBossJobList, isInElectronClient } from './bossJobList'
+import { isBossJobOpen } from 'src/util/bossSearchFilters'
 
 const DEFAULT_STALE_MS = 5 * 60 * 1000
 
@@ -26,18 +27,18 @@ let inflight = null
  * 输出 BOSS「我的职位」原始数据和下拉过滤结果，便于排查 BOSS 页面职位数与
  * i快招「推荐牛人」职位下拉数量不一致的问题。
  *
- * 当前下拉唯一的职位状态过滤条件是：Number(jobStatus) === 0。
+ * 当前下拉唯一的职位状态过滤条件是：jobStatus 为 0 或 2。
  * 这里和 AIProfileActionPanel 的过滤口径保持一致，只做日志，不修改数据。
  */
 function logBossJobListSnapshot(jobList, meta = {}) {
   const rows = Array.isArray(jobList) ? jobList : []
   const details = rows.map((job, index) => {
-    const displayed = Number(job?.jobStatus) === 0
+    const displayed = isBossJobOpen(job)
     return {
       序号: index + 1,
       职位名称: job?.jobName || job?.positionName || '未命名职位',
       是否展示: displayed ? '是' : '否',
-      过滤原因: displayed ? '' : `jobStatus=${String(job?.jobStatus)}（仅展示 0）`,
+      过滤原因: displayed ? '' : `jobStatus=${String(job?.jobStatus)}（仅展示 0/2）`,
       jobStatus: job?.jobStatus,
       jobAuditStatus: job?.jobAuditStatus,
       showType: job?.showType,

@@ -229,7 +229,11 @@ import {
   installRuntimeConfigConsole
 } from "src/config/runtimeConfig";
 import { buildSearchTaskChannels, pickBossFilters } from "src/util/searchTaskPayloadBuilder";
-import { extractBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
+import {
+  extractBossFilters,
+  isBossJobOpen,
+  normalizeBossJobId
+} from "src/util/bossSearchFilters";
 import ClearChatConfirmModal from "src/components/clients/ClearChatConfirmModal.vue";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import {
@@ -2741,12 +2745,12 @@ function waitForSearchConditionId(timeoutMs = 30000) {
 }
 
 /**
- * BOSS「我的职位」是否存在「招聘中」(jobStatus===0) 的职位。
+ * BOSS「我的职位」是否存在开放职位（兼容 jobStatus 0 / 2）。
  *   - 优先读 store 缓存（bossJobListAutoFetch 维护）；空则现拉一次 fetchBossJobList。
  *   - 拿不到列表（未登录 / 接口异常）→ 返回 true（不拦截，放行交运行时兜底），避免误杀。
  */
 async function hasPublishedBossJob() {
-  const isPublished = (j) => Number(j?.jobStatus) === 0;
+  const isPublished = isBossJobOpen;
   try {
     const cached = store.getters.getBossJobList;
     if (Array.isArray(cached) && cached.length > 0) {

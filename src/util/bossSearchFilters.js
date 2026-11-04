@@ -33,6 +33,20 @@ export function normalizeBossJobId(value) {
   return normalized;
 }
 
+/**
+ * BOSS「我的职位」是否处于开放招聘状态。
+ * 兼容历史 jobStatus=0 与新数据 jobStatus=2。
+ */
+export function isBossJobOpen(jobOrStatus) {
+  const status =
+    jobOrStatus && typeof jobOrStatus === "object"
+      ? jobOrStatus.jobStatus
+      : jobOrStatus;
+  if (status === undefined || status === null || status === "") return false;
+  const normalized = Number(status);
+  return normalized === 0 || normalized === 2;
+}
+
 const LEGACY_VALUE_MAP = {
   UNLIMITED: 0,
   JUST_ACTIVE: 1,

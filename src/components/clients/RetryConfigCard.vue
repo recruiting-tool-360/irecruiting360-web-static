@@ -243,7 +243,8 @@ import {
   BOSS_ACTIVE_OPTIONS,
   BOSS_NOT_VIEWED_OPTIONS,
   BOSS_RESUME_EXCHANGE_OPTIONS,
-  extractBossFilters
+  extractBossFilters,
+  isBossJobOpen
 } from "src/util/bossSearchFilters";
 import { getCondition } from "src/api/search/SearchApi";
 
@@ -286,7 +287,7 @@ const isRecommend = computed(() => !!props.cardData?.selectedModules?.recommend)
 
 const bossJobOptions = computed(() =>
   (store.getters.getBossJobList || [])
-    .filter((job) => Number(job?.jobStatus) === 0)
+    .filter(isBossJobOpen)
     .map((job) => ({
       value: job.encryptJobId || job.encryptId || String(job.jobId || ""),
       label: `${job.jobName || job.positionName || "未命名职位"}${
