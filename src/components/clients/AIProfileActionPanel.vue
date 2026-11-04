@@ -12,7 +12,7 @@
     - 用原生 select / input 而非 Quasar 组件，避免 Quasar 默认重样式破坏视觉
 
   数据过滤：
-    - BossData.jobList 里只展示 jobStatus === 0（招聘中）的职位，3=已关闭 直接过滤
+    - BossData.jobList 里只展示 jobStatus 为 0 或 2 的开放职位，3=已关闭 直接过滤
 -->
 <template>
   <div class="ai-panel">
@@ -332,7 +332,8 @@ import {
   BOSS_ACTIVE_OPTIONS,
   BOSS_NOT_VIEWED_OPTIONS,
   BOSS_RESUME_EXCHANGE_OPTIONS,
-  extractBossFilters
+  extractBossFilters,
+  isBossJobOpen
 } from "src/util/bossSearchFilters";
 import { getCurrentConditionByChatId } from "src/api/chat/ChatApi";
 import notify from "src/util/notify";
@@ -421,11 +422,11 @@ watch(
   { immediate: true }
 );
 
-// BOSS 职位下拉：仅展示开放（jobStatus === 0）的职位
+// BOSS 职位下拉：展示开放职位（兼容 jobStatus 0 / 2）
 const bossJobList = computed(() => store.getters.getBossJobList || []);
 const bossJobOptions = computed(() =>
   bossJobList.value
-    .filter((job) => Number(job.jobStatus) === 0) // 0 = 招聘中；3 = 已关闭
+    .filter(isBossJobOpen)
     .map((job) => ({
       value:
         job.encryptJobId || job.encryptId || String(job.jobId || job.positionName || job.jobName),

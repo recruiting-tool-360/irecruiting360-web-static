@@ -10,7 +10,7 @@
  *   {
  *     position?: number, type?: number, searchStr?: string,
  *     comId?: string, tagIdStr?: string, page?: number,
- *     jobStatus?: 0 | 3 | null,  // 0 招聘中 / 3 已关闭 / null 不过滤
+ *     jobStatus?: 0 | 2 | 3 | null,  // 0/2 招聘中 / 3 已关闭 / null 不过滤
  *     timeoutMs?: number          // 单次 fetch 超时
  *   }
  *
@@ -150,7 +150,7 @@ export const meta = {
       comId: { type: 'string' },
       tagIdStr: { type: 'string' },
       page: { type: 'number', default: 1 },
-      jobStatus: { type: ['number', 'null'], enum: [0, 3, null], default: null },
+      jobStatus: { type: ['number', 'null'], enum: [0, 2, 3, null], default: null },
       timeoutMs: { type: 'number', default: 8000 }
     }
   },
