@@ -1407,6 +1407,54 @@ async function persistProfile(msg, payload) {
 }
 
 /**
+ * 判断画像卡是否紧跟在用户发送的文字消息之后。
+ *
+ * 用户可能通过聊天让 AI 调整画像细节，AI 随后返回新的画像卡。这种画像虽然不是用户
+ * 在卡片里手动编辑的，但点击搜索时也必须先用 updateHarnessProfile 落库，避免搜索
+ * 仍使用旧画像。
+ */
+function isProfileCardAfterUserText(msg) {
+  const messages = internalMessages.value.length ? internalMessages.value : props.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+  const index = messages.findIndex(
+    (item) => item === msg || (msg?.id && item?.id === msg.id)
+  );
+  if (index <= 0) return false;
+  const previous = messages[index - 1];
+  const isUser = previous?.type === "user" || previous?.role === "user";
+  return isUser && String(previous?.content || "").trim() !== "";
+}
+
+/** 找到当前会话最后一张职位画像卡，供没有直接持有画像卡消息的重搜入口复用保存逻辑 */
+function findLatestProfileMessage(chatId) {
+  const messages = internalMessages.value.length ? internalMessages.value : props.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return null;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const item = messages[index];
+    if (
+      chatId &&
+      item?.chatId &&
+      String(item.chatId) !== String(chatId)
+    ) {
+      continue;
+    }
+    if (
+      item?.type === "bot" &&
+      item?.content?.includes("[&AI_SEARCH&]") &&
+      resolveCardProfile(item)
+    ) {
+      return item;
+    }
+  }
+  return null;
+}
+
+async function prepareLatestProfileForSearch(chatId) {
+  const profileMessage = findLatestProfileMessage(chatId);
+  return profileMessage ? prepareProfileForSearch(profileMessage) : true;
+}
+
+/**
  * 聚合搜索类入口共用的画像保存前置步骤。
  * 启动聚合搜索、清空重新搜索、保留增量搜索都必须先走这里。
  */
@@ -1416,7 +1464,9 @@ async function prepareProfileForSearch(msg) {
     const profileCard = msg?.id ? profileCardRefs.value[msg.id] : null;
     if (profileCard) {
       const dirty = profileCard.isDirty?.() === true;
-      if (profileCard.isEditing || dirty) {
+      const afterUserText = isProfileCardAfterUserText(msg);
+      const needsProfileSave = dirty || afterUserText;
+      if (profileCard.isEditing || needsProfileSave) {
         const editedPayload = profileCard.flushEdit();
         if (!editedPayload) {
           profileReady = false;
@@ -1427,7 +1477,7 @@ async function prepareProfileForSearch(msg) {
           });
           return;
         }
-        if (dirty && !(await persistProfile(msg, editedPayload))) {
+        if (needsProfileSave && !(await persistProfile(msg, editedPayload))) {
           profileReady = false;
           return;
         }
@@ -1539,9 +1589,9 @@ const handleSearch = async (msg) => {
  * - 搜索关键字/条件：handleAggregateSearch → prepareConditionOnly 读 searchState 自动带入
  *   （searchState 与顶部搜索栏 v-model 双绑，用户改的条件就在里面）。
  * - 复用占位卡 + 在途去重 + canCreate 拦截，跟「启动聚合搜索 / 清空重新搜索」同一套。
- * @returns {boolean} 是否成功发起
+ * @returns {Promise<boolean>} 是否成功发起
  */
-function startSearchFromFilter() {
+async function startSearchFromFilter() {
   const chatIdForSearch = props.chatId || currentChatId.value;
   if (!chatIdForSearch) {
     console.warn("[任务流程] [ChatCard] startSearchFromFilter: 没拿到 chatId");
@@ -1563,6 +1613,7 @@ function startSearchFromFilter() {
     });
     return false;
   }
+  if (!(await prepareLatestProfileForSearch(chatIdForSearch))) return false;
   const selectedModules = { search: false, recommend: true };
   const placeholderMsgId = pushTaskStatusPlaceholdersByModules(chatIdForSearch, selectedModules);
   emit("aggregate-search", {
@@ -1581,9 +1632,9 @@ function startSearchFromFilter() {
  * - originalTaskId 取本 chat 最新任务（CONTINUE 要挂在原 resultSet 上增量追加）。
  * - 搜索条件由 handleAggregateSearch → prepareConditionOnly 读 searchState 带入。
  * - 复用占位卡 + 在途去重 + canCreate 拦截。返回聊天视图由 IndexPage.handleAggregateSearch 统一切。
- * @returns {boolean} 是否成功发起
+ * @returns {Promise<boolean>} 是否成功发起
  */
-function startContinueSearch() {
+async function startContinueSearch() {
   const chatIdForSearch = props.chatId || currentChatId.value;
   if (!chatIdForSearch) {
     console.warn("[任务流程] [ChatCard] startContinueSearch: 没拿到 chatId");
@@ -1605,6 +1656,7 @@ function startContinueSearch() {
     });
     return false;
   }
+  if (!(await prepareLatestProfileForSearch(chatIdForSearch))) return false;
   const latest = store.getters["SearchTasks/getLatestTaskByChat"]?.(chatIdForSearch);
   const originalTaskId = latest?.taskId || null;
   // ★ 按被增量的原任务渠道组成决定要插哪些状态卡：原任务有推荐渠道 → 也要插推荐状态卡
@@ -2189,12 +2241,13 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
  *      —— 保持旧的"一键重启"体验
  *
  * 两条路径最终都走 _emitRetryAggregateSearch：
- *   1) canCreateForChat 拦截重复点击（被拒也 emit 让 IndexPage 弹 notify）
- *   2) 立刻 push 一张占位 task_status 卡片（watchPendingTaskBinding 会自动绑定到新 taskId）
- *   3) emit('aggregate-search') 携带 taskType + originalTaskId，IndexPage 复用同一套
+ *   1) 保存当前最新职位画像（手动编辑 / 对话生成画像都走同一套校验）
+ *   2) canCreateForChat 拦截重复点击（被拒也 emit 让 IndexPage 弹 notify）
+ *   3) 立刻 push 一张占位 task_status 卡片（watchPendingTaskBinding 会自动绑定到新 taskId）
+ *   4) emit('aggregate-search') 携带 taskType + originalTaskId，IndexPage 复用同一套
  *      dispatchTaskStore → SearchTasks/create → enqueue → runTask 链路
  */
-function _retriggerTaskFromCard(taskType, msg, payload) {
+async function _retriggerTaskFromCard(taskType, msg, payload) {
   const cardData = payload?.cardData || {};
   const chatIdForSearch = cardData.chatId || props.chatId || currentChatId.value;
   if (!chatIdForSearch) {
@@ -2311,6 +2364,7 @@ function _retriggerTaskFromCard(taskType, msg, payload) {
   }
 
   // ★ 路径 B：纯搜索 → 沿用旧直接重启路径
+  if (!(await prepareLatestProfileForSearch(chatIdForSearch))) return;
   _emitRetryAggregateSearch({
     taskType,
     chatIdForSearch,
@@ -2366,13 +2420,13 @@ function _emitRetryAggregateSearch({
   return true;
 }
 
-function onTaskCardClearAndRestart(msg, payload) {
+async function onTaskCardClearAndRestart(msg, payload) {
   console.log("[任务流程] [ChatCard] task_completion_card action=clear-and-restart", { msg, payload });
-  _retriggerTaskFromCard("RESTART", msg, payload);
+  await _retriggerTaskFromCard("RESTART", msg, payload);
 }
-function onTaskCardKeepAndIncrement(msg, payload) {
+async function onTaskCardKeepAndIncrement(msg, payload) {
   console.log("[任务流程] [ChatCard] task_completion_card action=keep-and-increment", { msg, payload });
-  _retriggerTaskFromCard("CONTINUE", msg, payload);
+  await _retriggerTaskFromCard("CONTINUE", msg, payload);
 }
 function onTaskCardUnknownAction(msg, payload) {
   console.warn("[任务流程] [ChatCard] task_completion_card 未知 action", { msg, payload });
@@ -2435,9 +2489,10 @@ async function onAiPanelRetry(msg, taskType, panelState) {
 /**
  * RetryConfigCard "启动聚合搜索" 按钮回调。
  * 把用户填的 resumeCount 覆盖到 params 上，调 _emitRetryAggregateSearch 走原链路。
+ * 跟普通聚合搜索一样，发起前先保存当前最新职位画像。
  * 同时把 cardData.actionExecuted=true 锁定 UI（输入框 disabled + 按钮文案变化）。
  */
-function onRetryConfigStart(msg, payload) {
+async function onRetryConfigStart(msg, payload) {
   const cd = msg?.cardData;
   if (!cd) return;
   const resumeCount = Number(payload?.resumeCount) || cd.initialResumeCount;
@@ -2456,6 +2511,9 @@ function onRetryConfigStart(msg, payload) {
     matchedBossJobId,
     originalTaskId: cd.originalTaskId
   });
+
+  if (_isAggregateClickDebounced(chatIdForSearch, taskType)) return;
+  if (!(await prepareLatestProfileForSearch(chatIdForSearch))) return;
 
   // 锁定卡片 UI（input disabled + 按钮变"聚合搜索已启动"）
   cd.actionExecuted = true;

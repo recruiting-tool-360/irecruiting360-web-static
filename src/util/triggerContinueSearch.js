@@ -7,13 +7,13 @@
  * IndexPage.handleAggregateSearch 创建任务 + 切回聊天视图。
  *
  * @param {import('vuex').Store} store
- * @returns {boolean} 是否成功发起
+ * @returns {Promise<boolean>} 是否成功发起
  */
-export function triggerContinueSearchFromResults(store) {
+export async function triggerContinueSearchFromResults(store) {
   try {
     const chatCard = store?.getters?.getChatCardRefValue;
     if (chatCard && typeof chatCard.startContinueSearch === "function") {
-      return chatCard.startContinueSearch();
+      return await chatCard.startContinueSearch();
     }
     console.warn("[triggerContinueSearch] chatCardRef 不可用，无法走保留增量搜索流程");
   } catch (e) {
