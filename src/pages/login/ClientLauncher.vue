@@ -81,8 +81,16 @@
           <!-- ===== intro：默认下载引导页 ===== -->
           <div v-else-if="state === 'intro'" key="intro" class="cg-step-intro">
             <h2 class="cg-title">启用 AI 寻聘客户端</h2>
-            <p class="cg-desc">
-              请安装第三方"AI 寻聘客户端"并在本地运行
+            <p class="cg-desc cg-desc--intro">
+              <span>请安装第三方"AI 寻聘客户端"并在本地运行</span>
+              <a
+                class="cg-guide-link"
+                :href="INSTALL_GUIDE_URL"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                安装指南
+              </a>
             </p>
 
             <div class="cg-download-grid">
@@ -366,6 +374,9 @@ import { useRouter, useRoute } from "vue-router";
 import { useClientLauncher, probeClient } from "src/hooks/useClientLauncher";
 import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { detectOS, osLabel as osLabelOf, isInsideEmbeddedWebview } from "src/util/clientPlatform";
+
+const INSTALL_GUIDE_URL =
+  "https://wxvsfhdklsi.feishu.cn/wiki/Dvz9wVmcwiwKQekTOVGcyrswncg";
 
 const router = useRouter();
 const route = useRoute();
@@ -1308,6 +1319,33 @@ $blue-200: #bfdbfe;
   &--md {
     margin-bottom: 40px;
     font-weight: 500;
+  }
+}
+
+.cg-desc--intro {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cg-guide-link {
+  color: $primary-600;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  border-radius: 2px;
+  transition: color 200ms;
+
+  &:hover {
+    color: $primary-500;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $primary-400;
+    outline-offset: 2px;
   }
 }
 
