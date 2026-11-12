@@ -78,7 +78,12 @@
         客户端嵌入式模式：未选职位 → ChatEmptyState 引导
         其它（浏览器模式 / 浮窗 / 已有职位但无消息）保持原 hint 空占位
       -->
-      <ChatEmptyState v-if="shouldShowEmptyState" :selected-job="null" />
+      <ChatEmptyState
+        v-if="shouldShowEmptyState"
+        :selected-job="null"
+        :no-profile-enabled="noProfileEnabledForSearch"
+        @open-position-management="openPositionManagement"
+      />
       <div
         v-else-if="messages.length === 0 && internalMessages.length === 0"
         class="text-center text-grey q-pa-md empty-message-hint"
@@ -468,9 +473,12 @@ import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { normalizeClientChannelConfig } from "src/util/clientChannelAvailability";
 import { extractBossFilters } from "src/util/bossSearchFilters";
 import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
+import { POSITION_PROFILE_AVAILABILITY } from "src/util/jobProfileAvailability";
 
 const store = useStore();
 const $q = useQuasar();
+const IHR_POSITION_MANAGEMENT_PATH =
+  "/web/page/single/#/recruit/recruitment-need?menu=60000&subMenu=60010&thirdMenu=";
 
 /* ============ 客户端模式：渠道未登录时挡住聊天，提示先登录 ============ */
 
@@ -693,6 +701,12 @@ const handleStopTask = async () => {
  *   - 业务 SSO / 聊天加载等流程对 latestChatId 的隐式 set 不会污染 UI 状态
  */
 const chosenJobId = computed(() => store.getters.getChosenJobId || "");
+const noProfileEnabledForSearch = computed(
+  () =>
+    visibleThirdSwitchPlus.value &&
+    store.getters.getPositionProfileAvailability ===
+      POSITION_PROFILE_AVAILABILITY.NONE_ENABLED
+);
 const currentEmbeddedChat = computed(() => {
   const id = chosenJobId.value;
   if (!id) return null;
@@ -711,7 +725,36 @@ const currentEmbeddedChat = computed(() => {
  *   - **只看 chosenJobId 是否为空**，不去 chatList 里 find；
  *     否则 chatList 异步加载完成前 find 返回 null，会出现"先显示后消失"的闪烁
  */
-const shouldShowEmptyState = computed(() => visibleThirdSwitchPlus.value && !chosenJobId.value);
+const shouldShowEmptyState = computed(
+  () => visibleThirdSwitchPlus.value && (noProfileEnabledForSearch.value || !chosenJobId.value)
+);
+
+async function openPositionManagement() {
+  const ihrBridge = window?.api?.ihrBridge;
+  if (ihrBridge?.openManageLoginTab) {
+    const result = await ihrBridge.openManageLoginTab({
+      useSystemBrowser: true,
+      loginPath: IHR_POSITION_MANAGEMENT_PATH
+    });
+    if (!result?.ok) {
+      $q.notify({
+        message: result?.message || "打开职位管理失败，请稍后重试",
+        color: "negative",
+        position: "top",
+        timeout: 3000
+      });
+    }
+    return;
+  }
+
+  let fallbackOrigin = window.location.origin;
+  try {
+    if (document.referrer) fallbackOrigin = new URL(document.referrer).origin;
+  } catch (_e) {
+    /* ignore */
+  }
+  window.open(`${fallbackOrigin}${IHR_POSITION_MANAGEMENT_PATH}`, "_blank", "noopener");
+}
 
 /* ===========================================================================
  * 「启动聚合搜索 / 保留增量 / 清空重新」三入口共用的 500ms 时间窗防抖
@@ -3250,6 +3293,15 @@ const sendChatMessage = async (msg) => {
   if (messageText === "") return;
   if (sending.value) return;
   if (isComposing.value) return;
+  if (noProfileEnabledForSearch.value) {
+    $q.notify({
+      message: "请到职位管理中开启职位画像，再进行寻聘操作",
+      color: "warning",
+      position: "top",
+      timeout: 3000
+    });
+    return;
+  }
 
   // 标记首次消息状态
   if (!isFirstMessage.value) {

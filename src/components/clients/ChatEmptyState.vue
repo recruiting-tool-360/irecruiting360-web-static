@@ -31,29 +31,45 @@
       </svg>
     </div>
 
-    <h3 class="empty-title">你好，我是你的 AI 招聘助理</h3>
-    <p class="empty-desc">
-      {{
-        selectedJob
-          ? `当前已选择 ${selectedJob.name || selectedJob.title}。你可以发送指令让我修改职位画像，或者直接启动全网聚合搜索任务。`
-          : '你可以发送指令让我修改职位画像、调整搜索策略，或者直接启动全网聚合搜索任务。'
-      }}
-    </p>
-
-    <!-- 未选中职位：黄色警告卡片 -->
-    <div v-if="!selectedJob" class="empty-warning">
-      <p class="warning-text">⚠️ 请先从左侧列表选择一个职位开始</p>
+    <div v-if="noProfileEnabled" class="profile-guide-layout">
+      <h3 class="empty-title empty-title--guide">暂无可寻聘职位</h3>
+      <p class="empty-desc empty-desc--guide">
+        请到
+        <button type="button" class="position-management-link" @click="$emit('open-position-management')">
+          职位管理
+        </button>
+        中开启职位画像，再进行寻聘操作
+      </p>
     </div>
+    <template v-else>
+      <h3 class="empty-title">你好，我是你的 AI寻聘助理</h3>
+      <p class="empty-desc">
+        {{
+          selectedJob
+            ? `当前已选择 ${selectedJob.name || selectedJob.title}。你可以发送指令让我修改职位画像，或者直接启动全网聚合搜索任务。`
+            : '你可以发送指令让我修改职位画像、调整搜索策略，或者直接启动全网聚合搜索任务。'
+        }}
+      </p>
 
-    <!-- 已选职位时：渲染 CTA 按钮（slot 供调用方传入业务） -->
-    <slot v-else name="cta" />
+      <!-- 未选中职位：黄色警告卡片 -->
+      <div v-if="!selectedJob" class="empty-warning">
+        <p class="warning-text">⚠️ 请先从左侧列表选择一个职位开始</p>
+      </div>
+
+      <!-- 已选职位时：渲染 CTA 按钮（slot 供调用方传入业务） -->
+      <slot v-else name="cta" />
+    </template>
   </div>
 </template>
 
 <script setup>
+defineEmits(['open-position-management']);
+
 defineProps({
   /** 当前选中的职位（chat 对象），无则显示"请先选择"提示 */
-  selectedJob: { type: Object, default: null }
+  selectedJob: { type: Object, default: null },
+  /** 招聘中职位全部未开启画像时，展示去职位管理开启画像的阻断提示 */
+  noProfileEnabled: { type: Boolean, default: false }
 });
 </script>
 
@@ -110,6 +126,41 @@ defineProps({
   color: #6b7280; /* neutral-500 */
   max-width: 384px; /* max-w-sm */
   line-height: 1.625; /* leading-relaxed */
+}
+
+.empty-desc--guide {
+  max-width: 384px;
+  margin: 0;
+  text-align: center;
+}
+
+.empty-title--guide {
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.profile-guide-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 420px;
+}
+
+.position-management-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0d9488;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.position-management-link:hover {
+  color: #0f766e;
 }
 
 /* bg-amber-50 border border-amber-200 p-4 rounded-xl mb-12 */
