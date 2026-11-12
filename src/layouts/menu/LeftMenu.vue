@@ -100,7 +100,6 @@
               </button>
               <div class="job-title-wrap">
                 <h4 class="job-title">{{ parseJobName(item.name).title || item.name }}</h4>
-                <span v-if="isJobProfileOff(item)" class="job-profile-off-tag">未开启</span>
               </div>
             </div>
             <!-- 第二行（仅在有 code 时）：编号 -->
@@ -202,7 +201,7 @@
                   class="recruit-btn"
                   :title="
                     planInfo?.sendJdAuth
-                      ? '发送当前职位的JD信息至AI招聘助理'
+                      ? '发送当前职位的JD信息至AI寻聘助理'
                       : '您当前无职位管理模块权限'
                   "
                   @click="
@@ -439,6 +438,10 @@ import { generateJobPostingFromResume } from "src/util/jobPostingGenerator";
 import { isFromMenu, isVisibleThirdA, usePlanVisibility } from "src/hooks/usePlanVisibility";
 import notify from "src/util/notify";
 import { ensureClientAuthority } from "src/util/checkClientAuthority";
+import {
+  POSITION_PROFILE_AVAILABILITY,
+  resolvePositionProfileAvailability
+} from "src/util/jobProfileAvailability";
 import SettingsModal from "src/components/clients/SettingsModal.vue";
 import UpdateModal from "src/components/clients/UpdateModal.vue";
 
@@ -601,11 +604,6 @@ function parseJobName(name) {
 /** 职位画像是否开启：契约类型仅允许 boolean | null，只有 true 代表开启。 */
 function isJobProfileEnabled(item) {
   return item?.jobProfileEnabled === true;
-}
-
-/** 职位画像是否明确未开启；null 表示状态未知。 */
-function isJobProfileOff(item) {
-  return item?.jobProfileEnabled === false;
 }
 const currentChatId = computed(() => store.getters.getLatestChatId || "");
 const renameDialogVisible = ref(false);
@@ -842,7 +840,14 @@ async function syncChatPositions(applicationPositions, chatListItems, detailMap)
   );
   const missing = applicationPositions.filter((p) => {
     const pid = p?.headcountId ?? p?.positionId;
-    return pid != null && pid !== "" && !existingIds.has(String(pid));
+    const detail = pid == null ? null : detailMap[String(pid)];
+    const jobProfileEnabled = detail?.jobProfileEnabled ?? p.jobProfileEnabled;
+    return (
+      pid != null &&
+      pid !== "" &&
+      !existingIds.has(String(pid)) &&
+      jobProfileEnabled === true
+    );
   });
 
   const positionNameById = new Map();
@@ -872,7 +877,7 @@ async function syncChatPositions(applicationPositions, chatListItems, detailMap)
     positionHarnessProfileId: c.positionHarnessProfileId
   }));
 
-  // 新增职位：从详情接口 + application/position 补齐
+  // 新增职位：只为招聘侧已开启画像的职位创建；从详情接口 + application/position 补齐
   const newPayload = missing.map((item) => {
     const pid = item.headcountId ?? item.positionId;
     const detail = detailMap[String(pid)] || {};
@@ -1007,19 +1012,33 @@ const loadChatList = async (opts = {}) => {
         }
       }
 
-      // ★ 用 noauth/application/position 做白名单过滤：chatList 里 positionId 不在
-      //   i人事在招职位列表中的（职位已关闭/移除）→ 隐藏。
-      //   接口不可用/失败 → activePositionIdSet 为 null → 不过滤（show all），避免误隐藏全部。
-      //   chat 没 positionId（理论上少见）→ 无从判定 → 保留。
+      // ★ 用 noauth/application/position 做白名单和职位画像开关过滤：
+      //   - positionId 不在在招职位列表（职位已关闭/移除）→ 隐藏
+      //   - jobProfileEnabled 不是 true（招聘侧未开启职位画像）→ 隐藏
+      //   - 接口不可用/失败 → activePositionIdSet 为 null → 不过滤，避免误隐藏全部
+      //   - chat 没 positionId（理论上少见）→ 无从判定 → 保留
       const activePositionIdSet = buildActivePositionIdSet(applicationPositions);
       const visibleChatList = activePositionIdSet
         ? chatListWithProfileFlags.filter(
-            (item) => !item.positionId || activePositionIdSet.has(String(item.positionId))
+            (item) =>
+              !item.positionId ||
+              (activePositionIdSet.has(String(item.positionId)) && isJobProfileEnabled(item))
           )
         : chatListWithProfileFlags;
+      const positionProfileAvailability = activePositionIdSet
+        ? resolvePositionProfileAvailability(applicationPositions, positionDetailMap)
+        : POSITION_PROFILE_AVAILABILITY.UNKNOWN;
+      store.commit("SET_POSITION_PROFILE_AVAILABILITY", positionProfileAvailability);
+
+      if (positionProfileAvailability === POSITION_PROFILE_AVAILABILITY.NONE_ENABLED) {
+        store.commit("SET_LATEST_CHAT_ID", "");
+        store.commit("SET_LATEST_POSITION_ID", "");
+        store.commit("SET_CHOSEN_JOB_ID", "");
+      }
       if (activePositionIdSet) {
         console.log(
-          `[LeftMenu] 职位列表过滤：${formattedChatList.length} → ${visibleChatList.length}（按 application/position 在招职位）`
+          `[LeftMenu] 职位列表过滤：${formattedChatList.length} → ${visibleChatList.length}` +
+            `（按在招职位 + 职位画像开启状态，availability=${positionProfileAvailability}）`
         );
       }
 
@@ -1873,18 +1892,6 @@ watch(
 
   .job-item.active .job-title
     color: #14b8a6 // text-primary-500
-
-  // 职位画像未开启 tag：仅按 jobProfileEnabled 判定
-  .job-profile-off-tag
-    flex-shrink: 0
-    margin-left: 4px
-    padding: 0 4px
-    font-size: 10px
-    line-height: 16px
-    color: #a1a1aa
-    background: #f4f4f5
-    border: 1px solid #e4e4e7
-    border-radius: 3px
 
   // 1:1 对照 p className="text-xs text-neutral-500 font-mono"
   .job-code
