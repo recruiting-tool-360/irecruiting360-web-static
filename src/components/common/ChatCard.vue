@@ -474,6 +474,7 @@ import { normalizeClientChannelConfig } from "src/util/clientChannelAvailability
 import { extractBossFilters } from "src/util/bossSearchFilters";
 import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
 import { POSITION_PROFILE_AVAILABILITY } from "src/util/jobProfileAvailability";
+import { resolveChatMessageText } from "src/util/chatComposer";
 
 const store = useStore();
 const $q = useQuasar();
@@ -3287,7 +3288,7 @@ const sendChatMessage = async (msg) => {
     return;
   }
 
-  const messageText = msg || chatMessage.value.trim();
+  const messageText = resolveChatMessageText(msg, chatMessage.value);
   console.log("发送聊天消息", messageText, sending.value, isComposing.value);
 
   if (messageText === "") return;
@@ -3617,9 +3618,15 @@ const insertMessageToInput = async (msg) => {
 };
 
 const fillMessageToInput = async (msg) => {
+  const injectedText = resolveChatMessageText(msg, "");
+  if (!injectedText) {
+    chatMessage.value = "";
+    return;
+  }
+
   if (!chatFluxStatus.value && !sending.value) {
     setTimeout(() => {
-      sendChatMessage(msg);
+      sendChatMessage(injectedText);
     }, 500);
   }
 };
