@@ -16,12 +16,13 @@
         originalTaskId,
         selectedModules: { search, recommend },
         matchedBossJobId,                            // 原职位不可用时为 null，由用户重新选择
+        matchedBossJobName,                          // 原 BOSS 职位名称快照
         initialResumeCount: number,                  // 从原任务复原的默认值
         actionExecuted: boolean,                     // 已点过启动 → 锁定 input + 按钮文字变化
       }
 
     emit:
-      start({ resumeCount, matchedBossJobId })  用户点「启动聚合搜索」时携带最终配置
+      start({ resumeCount, matchedBossJobId, matchedBossJobName })  用户点「启动聚合搜索」时携带最终配置
   -->
   <div class="rcc-root">
     <!-- 头部：闪电 icon + 标题 -->
@@ -292,12 +293,25 @@ const bossJobOptions = computed(() =>
       value: job.encryptJobId || job.encryptId || String(job.jobId || ""),
       label: `${job.jobName || job.positionName || "未命名职位"}${
         job.salaryDesc ? ` (${job.salaryDesc})` : ""
-      }`
+      }`,
+      raw: job
     }))
     .filter((option) => option.value)
 );
 
 const matchedBossJobId = ref(props.cardData?.matchedBossJobId || null);
+const matchedBossJobName = computed(() => {
+  const selectedId = String(matchedBossJobId.value ?? "");
+  const selected = bossJobOptions.value.find(
+    (option) => String(option.value) === selectedId
+  );
+  return (
+    selected?.raw?.jobName ||
+    selected?.raw?.positionName ||
+    props.cardData?.matchedBossJobName ||
+    ""
+  );
+});
 watch(
   () => props.cardData?.matchedBossJobId,
   (value) => {
@@ -415,6 +429,7 @@ async function runEstimate() {
     cfgList: cfgList.value,
     selectedModules: props.cardData?.selectedModules || {},
     matchedBossJobId: matchedBossJobId.value,
+    matchedBossJobName: matchedBossJobName.value,
     bossFilters: bossFilters.value,
     resumeCount: effectiveCount.value,
     targetCount: effectiveCount.value,
@@ -506,6 +521,7 @@ function handleStart() {
   emit("start", {
     resumeCount: Number(resumeCount.value),
     matchedBossJobId: matchedBossJobId.value,
+    matchedBossJobName: matchedBossJobName.value,
     bossFilters: { ...bossFilters.value }
   });
 }

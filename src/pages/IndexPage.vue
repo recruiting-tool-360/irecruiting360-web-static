@@ -2772,6 +2772,7 @@ async function dispatchTaskStore({
   searchChecked,
   recommendChecked,
   jobId,
+  jobName = null,
   positionId = null,
   taskType = "INITIAL",
   sourceTaskId = null,
@@ -2828,6 +2829,7 @@ async function dispatchTaskStore({
       cfgList,
       selectedModules: { search: searchChecked, recommend: recommendChecked },
       matchedBossJobId: jobId,
+      matchedBossJobName: jobName,
       resumeCount: payload?.resumeCount,
       recommendMaxResumeCount:
         Number(payload?.targetCount) > 0 ? payload.targetCount : payload?.resumeCount,
@@ -2894,7 +2896,8 @@ async function dispatchTaskStore({
       taskType,
       chatId: chatIdToSearch,
       positionId: createPayload.positionId,
-      matchedBossJobId: jobId || null
+      matchedBossJobId: jobId || null,
+      matchedBossJobName: jobName || null
     });
     // 期望合格简历总数：后端用它 + 累计合格人数计算 shouldContinue
     const targetCount = Number(payload?.targetCount);
@@ -3034,6 +3037,7 @@ async function handleAggregateSearch(payload) {
   // 当前只保留推荐牛人；未传 selectedModules 的老入口也按推荐任务处理。
   const recommendChecked = modules.recommend !== false;
   const jobId = normalizeBossJobId(payload?.matchedBossJobId);
+  const jobName = payload?.matchedBossJobName || null;
 
   if (recommendChecked && !jobId) {
     console.warn(
@@ -3261,6 +3265,7 @@ async function handleAggregateSearch(payload) {
     searchChecked,
     recommendChecked,
     jobId,
+    jobName,
     positionId: payload?.positionId || store.getters.getLatestPositionId,
     taskType,
     sourceTaskId,

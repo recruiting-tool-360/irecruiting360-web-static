@@ -1562,6 +1562,7 @@ const handleSearch = async (msg) => {
       recommend: state?.selectedModules?.recommend !== false
     };
     const matchedBossJobId = state?.matchedBossJobId || null;
+    const matchedBossJobName = state?.matchedBossJobName || null;
     const resumeCount = state?.resumeCount ?? null;
     const bossFilters = state?.bossFilters || null;
     const targetCount = state?.resumeCount ?? null;
@@ -1589,6 +1590,7 @@ const handleSearch = async (msg) => {
         chatId: chatIdForSearch,
         selectedModules,
         matchedBossJobId,
+        matchedBossJobName,
         resumeCount,
         targetCount,
         bossFilters,
@@ -1608,6 +1610,7 @@ const handleSearch = async (msg) => {
       chatId: chatIdForSearch,
       selectedModules,
       matchedBossJobId,
+      matchedBossJobName,
       resumeCount,
       targetCount,
       bossFilters,
@@ -2231,6 +2234,7 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
 
   // 推荐渠道（限 BOSS）的配置——抽 relatedPositionValue / maxResumeCount
   let matchedBossJobId = null;
+  let matchedBossJobName = null;
   let resumeCount = null;
   let searchConditionId = null;
   const recommendCh = channels.find(
@@ -2250,6 +2254,12 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
           ? matchedPosition
           : matchedPosition?.encryptJobId || matchedPosition?.encryptId || matchedPosition?.jobId) ||
         null;
+      matchedBossJobName =
+        cfg?.matchedPosition?.positionName ||
+        cfg?.matchedPosition?.name ||
+        cfg?.bossPositionName ||
+        cfg?.positionName ||
+        null;
       if (Number.isFinite(Number(cfg?.maxResumeCount))) {
         resumeCount = Number(cfg.maxResumeCount);
       }
@@ -2264,6 +2274,7 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
   return {
     selectedModules: { search: false, recommend: hasRecommend },
     matchedBossJobId,
+    matchedBossJobName,
     resumeCount,
     positionId: originalTask.positionId || null,
     searchConditionId,
@@ -2329,7 +2340,8 @@ async function _retriggerTaskFromCard(taskType, msg, payload) {
   console.log("[任务流程] [ChatCard] 结果卡片恢复原任务职位", {
     originalTaskId: cardData.taskId,
     positionId: params.positionId || null,
-    matchedBossJobId: params.matchedBossJobId || null
+    matchedBossJobId: params.matchedBossJobId || null,
+    matchedBossJobName: params.matchedBossJobName || null
   });
 
   // ★ selectedModules 以完成卡的渠道属性为权威来源（data-search-task-channel-id /
@@ -2377,6 +2389,7 @@ async function _retriggerTaskFromCard(taskType, msg, payload) {
       originalTaskId: cardData.taskId,
       selectedModules: params.selectedModules,
       matchedBossJobId: params.matchedBossJobId,
+      matchedBossJobName: params.matchedBossJobName,
       positionId: params.positionId,
       searchConditionId: params.searchConditionId,
       bossFilters: params.bossFilters,
@@ -2425,7 +2438,7 @@ async function _retriggerTaskFromCard(taskType, msg, payload) {
  * @param {'RESTART'|'CONTINUE'} opts.taskType
  * @param {string} opts.chatIdForSearch
  * @param {string} opts.originalTaskId
- * @param {object|null} opts.params  { selectedModules, matchedBossJobId, resumeCount, targetCount }
+ * @param {object|null} opts.params  { selectedModules, matchedBossJobId, matchedBossJobName, resumeCount, targetCount }
  * @param {string} [opts.msgContent]
  */
 function _emitRetryAggregateSearch({
@@ -2517,6 +2530,7 @@ async function onAiPanelRetry(msg, taskType, panelState) {
           recommend: state?.selectedModules?.recommend !== false
         },
         matchedBossJobId: state?.matchedBossJobId || null,
+        matchedBossJobName: state?.matchedBossJobName || null,
         resumeCount: state?.resumeCount ?? null,
         targetCount: state?.resumeCount ?? null,
         bossFilters: state?.bossFilters || null
@@ -2542,6 +2556,8 @@ async function onRetryConfigStart(msg, payload) {
   const resumeCount = Number(payload?.resumeCount) || cd.initialResumeCount;
   const targetCount = resumeCount;
   const matchedBossJobId = payload?.matchedBossJobId || cd.matchedBossJobId || null;
+  const matchedBossJobName =
+    payload?.matchedBossJobName || cd.matchedBossJobName || null;
   const bossFilters = payload?.bossFilters || cd.bossFilters || null;
   const taskType = cd.configType;
   const chatIdForSearch = cd.chatId;
@@ -2553,6 +2569,7 @@ async function onRetryConfigStart(msg, payload) {
     resumeCount,
     targetCount,
     matchedBossJobId,
+    matchedBossJobName,
     originalTaskId: cd.originalTaskId
   });
 
@@ -2563,6 +2580,7 @@ async function onRetryConfigStart(msg, payload) {
   cd.actionExecuted = true;
   cd.initialResumeCount = resumeCount;
   cd.matchedBossJobId = matchedBossJobId;
+  cd.matchedBossJobName = matchedBossJobName;
   cd.bossFilters = bossFilters;
 
   // 记住本 chat 这次输入的份数 → 下次保留增量/画像卡默认用它（跟 AIProfileActionPanel 同源）
@@ -2577,6 +2595,7 @@ async function onRetryConfigStart(msg, payload) {
     params: {
       selectedModules: cd.selectedModules,
       matchedBossJobId,
+      matchedBossJobName,
       positionId: cd.positionId,
       resumeCount,
       targetCount,
