@@ -45,6 +45,7 @@ import { useRouter } from 'vue-router';
 import { generateSsoToken, ssoLogin, getUserInfo } from 'src/api/user/UserApi';
 import { createChat } from 'src/api/chat/ChatApi';
 import { fetchJdMapForPositions } from 'src/util/positionJdFetcher';
+import { filterNonDeletedApplicationPositions } from 'src/util/applicationPositions';
 import { useStore } from 'vuex';
 import notify from 'src/util/notify';
 import Cookies from 'js-cookie';
@@ -250,7 +251,10 @@ async function rebuildPositionList(positionIds) {
       "[API-TRACE] GET /candidate/AiManager/client/noauth/application/position 返回值:",
       res
     );
-    const all = res?.success && Array.isArray(res?.data) ? res.data : [];
+    const all =
+      res?.success && Array.isArray(res?.data)
+        ? filterNonDeletedApplicationPositions(res.data)
+        : [];
     const idSet = new Set(positionIds);
     const filtered = all.filter((item) => idSet.has(item.headcountId));
     // ★ application/position 不带 jd → 在这里批量拉职位详情算出 JD，

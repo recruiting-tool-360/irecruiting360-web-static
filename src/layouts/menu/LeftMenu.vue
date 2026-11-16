@@ -442,6 +442,7 @@ import {
   POSITION_PROFILE_AVAILABILITY,
   resolvePositionProfileAvailability
 } from "src/util/jobProfileAvailability";
+import { filterNonDeletedApplicationPositions } from "src/util/applicationPositions";
 import SettingsModal from "src/components/clients/SettingsModal.vue";
 import UpdateModal from "src/components/clients/UpdateModal.vue";
 
@@ -651,12 +652,14 @@ async function getActiveApplicationPositions() {
       return null;
     }
     // 响应形态跟 SSOLogin.rebuildPositionList 一致：resp.data 直接是职位数组
-    const positions = Array.isArray(resp.data) ? resp.data : [];
+    const rawPositions = Array.isArray(resp.data) ? resp.data : [];
+    const positions = filterNonDeletedApplicationPositions(rawPositions);
     const positionIds = positions
       .map((item) => item?.headcountId ?? item?.positionId)
       .filter((id) => id != null && id !== "");
     console.log(
-      `[LeftMenu] getActiveApplicationPositions 成功: count=${positions.length}` +
+      `[LeftMenu] getActiveApplicationPositions 成功: rawCount=${rawPositions.length}` +
+        ` activeCount=${positions.length}` +
         (positionIds.length ? ` ids=${JSON.stringify(positionIds)}` : "")
     );
     if (!Array.isArray(resp.data)) {
