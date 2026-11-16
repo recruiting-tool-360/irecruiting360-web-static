@@ -10,8 +10,8 @@
  *   - 其他渠道：cfgList 找不到 → 视为未启用（严格，避免误报）
  *   - 找到了 → 直接 truthy 判断 enableConfig
  */
-import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
-import { normalizeBossFilters, normalizeBossJobId } from "src/util/bossSearchFilters";
+import { DEFAULT_RECOMMEND_RESUME_COUNT } from "../config/searchTaskConfig.js";
+import { normalizeBossFilters, normalizeBossJobId } from "./bossSearchFilters.js";
 
 /**
  * 单个 channel 是否启用（按 store.getters.getUserChannelConfig 判定）。
@@ -41,6 +41,7 @@ export function isChannelEnabled(cfgList, key) {
  * @param {Array<{key:string, enableConfig:boolean}>} opts.cfgList  store.getters.getUserChannelConfig
  * @param {{search?: boolean, recommend?: boolean}} opts.selectedModules  用户勾选
  * @param {string|null} opts.matchedBossJobId  推荐固定 BOSS 用的 encryptJobId
+ * @param {string|null} opts.matchedBossJobName  推荐固定 BOSS 用的职位名称
  * @param {number|null|undefined} opts.resumeCount  推荐期望简历份数
  * @param {string|number} [opts.condId='0']  searchConditionId；
  *   - create 路径：必须传真实 condId（prepareConditionOnly 拿到的）
@@ -51,6 +52,7 @@ export function buildSearchTaskChannels({
   cfgList,
   selectedModules,
   matchedBossJobId,
+  matchedBossJobName,
   resumeCount,
   recommendMaxResumeCount,
   bossFilters,
@@ -67,6 +69,8 @@ export function buildSearchTaskChannels({
   const searchChecked = !!selectedModules?.search;
   const recommendChecked = !!selectedModules?.recommend;
   const validBossJobId = normalizeBossJobId(matchedBossJobId);
+  const bossJobName =
+    typeof matchedBossJobName === "string" ? matchedBossJobName.trim() : "";
 
   // 搜索：为每个启用的渠道生成一个 SEARCH channel
   if (searchChecked) {
@@ -89,6 +93,11 @@ export function buildSearchTaskChannels({
       searchConditionId: String(condId),
       searchTaskConfig: JSON.stringify({
         relatedPositionValue: validBossJobId,
+        // 服务端据此保存 boss_position_name；relatedPositionValue 仍兼容既有执行链路。
+        matchedPosition: {
+          encryptJobId: validBossJobId,
+          ...(bossJobName ? { positionName: bossJobName } : {})
+        },
         // 用户输入优先；只有调用方完全未传数量时才使用兼容兜底值。
         maxResumeCount: effectiveRecommendCount
       })
@@ -110,6 +119,7 @@ export function buildSearchTaskChannels({
  * @param {Array} opts.cfgList
  * @param {object} opts.selectedModules
  * @param {string|null} opts.matchedBossJobId
+ * @param {string|null} opts.matchedBossJobName
  * @param {number|null} opts.resumeCount
  * @param {number|null} opts.targetCount 用户期望的合格简历数
  * @param {'INITIAL'|'RESTART'|'CONTINUE'} [opts.taskType='INITIAL']
@@ -122,6 +132,7 @@ export function buildEstimatePayload(opts) {
     cfgList,
     selectedModules,
     matchedBossJobId,
+    matchedBossJobName,
     resumeCount,
     bossFilters,
     targetCount,

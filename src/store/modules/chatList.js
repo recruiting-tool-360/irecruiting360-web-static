@@ -1,3 +1,5 @@
+import { POSITION_PROFILE_AVAILABILITY } from "src/util/jobProfileAvailability";
+
 const state = {
   activeChatId: '', // 当前激活的聊天 ID
   needRefreshList: false, // 是否需要刷新列表
@@ -13,6 +15,14 @@ const state = {
    *   - 持久化到 localStorage（vuex-persistedstate paths 配置）
    */
   chosenJobId: '',
+  /**
+   * 招聘中职位画像可用状态：unknown / available / none_enabled。
+   *
+   * 仅 none_enabled（接口明确返回所有招聘中职位都未开启画像）时，右侧对话区
+   * 才阻断寻聘并引导用户去职位管理开启画像。unknown 保持原有行为，避免接口
+   * 临时失败或无字段时误拦截。
+   */
+  positionProfileAvailability: POSITION_PROFILE_AVAILABILITY.UNKNOWN,
   chatListData: [], // 聊天列表数据
   /**
    * 职位 ID → JD 文本缓存（Plain Object，key=positionId, value=jd 文本）。
@@ -55,6 +65,12 @@ const mutations = {
   },
   SET_CHOSEN_JOB_ID(state, jobId) {
     state.chosenJobId = jobId || ''
+  },
+  SET_POSITION_PROFILE_AVAILABILITY(state, availability) {
+    const allowed = Object.values(POSITION_PROFILE_AVAILABILITY)
+    state.positionProfileAvailability = allowed.includes(availability)
+      ? availability
+      : POSITION_PROFILE_AVAILABILITY.UNKNOWN
   },
   SET_NEED_REFRESH_LIST(state, status) {
     state.needRefreshList = status
@@ -149,6 +165,7 @@ const getters = {
   getLatestChatId: state => state.latestChatId,
   getLatestPositionId: state => state.latestPositionId,
   getChosenJobId: state => state.chosenJobId,
+  getPositionProfileAvailability: state => state.positionProfileAvailability,
   getNeedRefreshList: state => state.needRefreshList,
   getChatList: state => state.chatListData,
   // 获取指定ID的聊天
@@ -168,4 +185,4 @@ export default {
   mutations,
   actions,
   getters
-} 
+}

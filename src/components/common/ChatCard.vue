@@ -78,7 +78,12 @@
         客户端嵌入式模式：未选职位 → ChatEmptyState 引导
         其它（浏览器模式 / 浮窗 / 已有职位但无消息）保持原 hint 空占位
       -->
-      <ChatEmptyState v-if="shouldShowEmptyState" :selected-job="null" />
+      <ChatEmptyState
+        v-if="shouldShowEmptyState"
+        :selected-job="null"
+        :no-profile-enabled="noProfileEnabledForSearch"
+        @open-position-management="openPositionManagement"
+      />
       <div
         v-else-if="messages.length === 0 && internalMessages.length === 0"
         class="text-center text-grey q-pa-md empty-message-hint"
@@ -468,9 +473,13 @@ import { isElectronClient } from "src/util/openChannelLoginUrl";
 import { normalizeClientChannelConfig } from "src/util/clientChannelAvailability";
 import { extractBossFilters } from "src/util/bossSearchFilters";
 import { DEFAULT_RECOMMEND_RESUME_COUNT } from "src/config/searchTaskConfig";
+import { POSITION_PROFILE_AVAILABILITY } from "src/util/jobProfileAvailability";
+import { resolveChatMessageText } from "src/util/chatComposer";
 
 const store = useStore();
 const $q = useQuasar();
+const IHR_POSITION_MANAGEMENT_PATH =
+  "/web/page/single/#/recruit/recruitment-need?menu=60000&subMenu=60010&thirdMenu=";
 
 /* ============ 客户端模式：渠道未登录时挡住聊天，提示先登录 ============ */
 
@@ -693,6 +702,12 @@ const handleStopTask = async () => {
  *   - 业务 SSO / 聊天加载等流程对 latestChatId 的隐式 set 不会污染 UI 状态
  */
 const chosenJobId = computed(() => store.getters.getChosenJobId || "");
+const noProfileEnabledForSearch = computed(
+  () =>
+    visibleThirdSwitchPlus.value &&
+    store.getters.getPositionProfileAvailability ===
+      POSITION_PROFILE_AVAILABILITY.NONE_ENABLED
+);
 const currentEmbeddedChat = computed(() => {
   const id = chosenJobId.value;
   if (!id) return null;
@@ -711,7 +726,36 @@ const currentEmbeddedChat = computed(() => {
  *   - **只看 chosenJobId 是否为空**，不去 chatList 里 find；
  *     否则 chatList 异步加载完成前 find 返回 null，会出现"先显示后消失"的闪烁
  */
-const shouldShowEmptyState = computed(() => visibleThirdSwitchPlus.value && !chosenJobId.value);
+const shouldShowEmptyState = computed(
+  () => visibleThirdSwitchPlus.value && (noProfileEnabledForSearch.value || !chosenJobId.value)
+);
+
+async function openPositionManagement() {
+  const ihrBridge = window?.api?.ihrBridge;
+  if (ihrBridge?.openManageLoginTab) {
+    const result = await ihrBridge.openManageLoginTab({
+      useSystemBrowser: true,
+      loginPath: IHR_POSITION_MANAGEMENT_PATH
+    });
+    if (!result?.ok) {
+      $q.notify({
+        message: result?.message || "打开职位管理失败，请稍后重试",
+        color: "negative",
+        position: "top",
+        timeout: 3000
+      });
+    }
+    return;
+  }
+
+  let fallbackOrigin = window.location.origin;
+  try {
+    if (document.referrer) fallbackOrigin = new URL(document.referrer).origin;
+  } catch (_e) {
+    /* ignore */
+  }
+  window.open(`${fallbackOrigin}${IHR_POSITION_MANAGEMENT_PATH}`, "_blank", "noopener");
+}
 
 /* ===========================================================================
  * 「启动聚合搜索 / 保留增量 / 清空重新」三入口共用的 500ms 时间窗防抖
@@ -1518,6 +1562,7 @@ const handleSearch = async (msg) => {
       recommend: state?.selectedModules?.recommend !== false
     };
     const matchedBossJobId = state?.matchedBossJobId || null;
+    const matchedBossJobName = state?.matchedBossJobName || null;
     const resumeCount = state?.resumeCount ?? null;
     const bossFilters = state?.bossFilters || null;
     const targetCount = state?.resumeCount ?? null;
@@ -1545,6 +1590,7 @@ const handleSearch = async (msg) => {
         chatId: chatIdForSearch,
         selectedModules,
         matchedBossJobId,
+        matchedBossJobName,
         resumeCount,
         targetCount,
         bossFilters,
@@ -1564,6 +1610,7 @@ const handleSearch = async (msg) => {
       chatId: chatIdForSearch,
       selectedModules,
       matchedBossJobId,
+      matchedBossJobName,
       resumeCount,
       targetCount,
       bossFilters,
@@ -2187,6 +2234,7 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
 
   // 推荐渠道（限 BOSS）的配置——抽 relatedPositionValue / maxResumeCount
   let matchedBossJobId = null;
+  let matchedBossJobName = null;
   let resumeCount = null;
   let searchConditionId = null;
   const recommendCh = channels.find(
@@ -2206,6 +2254,12 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
           ? matchedPosition
           : matchedPosition?.encryptJobId || matchedPosition?.encryptId || matchedPosition?.jobId) ||
         null;
+      matchedBossJobName =
+        cfg?.matchedPosition?.positionName ||
+        cfg?.matchedPosition?.name ||
+        cfg?.bossPositionName ||
+        cfg?.positionName ||
+        null;
       if (Number.isFinite(Number(cfg?.maxResumeCount))) {
         resumeCount = Number(cfg.maxResumeCount);
       }
@@ -2220,6 +2274,7 @@ function _extractRetrySearchParamsFromOriginalTask(originalTaskId) {
   return {
     selectedModules: { search: false, recommend: hasRecommend },
     matchedBossJobId,
+    matchedBossJobName,
     resumeCount,
     positionId: originalTask.positionId || null,
     searchConditionId,
@@ -2285,7 +2340,8 @@ async function _retriggerTaskFromCard(taskType, msg, payload) {
   console.log("[任务流程] [ChatCard] 结果卡片恢复原任务职位", {
     originalTaskId: cardData.taskId,
     positionId: params.positionId || null,
-    matchedBossJobId: params.matchedBossJobId || null
+    matchedBossJobId: params.matchedBossJobId || null,
+    matchedBossJobName: params.matchedBossJobName || null
   });
 
   // ★ selectedModules 以完成卡的渠道属性为权威来源（data-search-task-channel-id /
@@ -2333,6 +2389,7 @@ async function _retriggerTaskFromCard(taskType, msg, payload) {
       originalTaskId: cardData.taskId,
       selectedModules: params.selectedModules,
       matchedBossJobId: params.matchedBossJobId,
+      matchedBossJobName: params.matchedBossJobName,
       positionId: params.positionId,
       searchConditionId: params.searchConditionId,
       bossFilters: params.bossFilters,
@@ -2381,7 +2438,7 @@ async function _retriggerTaskFromCard(taskType, msg, payload) {
  * @param {'RESTART'|'CONTINUE'} opts.taskType
  * @param {string} opts.chatIdForSearch
  * @param {string} opts.originalTaskId
- * @param {object|null} opts.params  { selectedModules, matchedBossJobId, resumeCount, targetCount }
+ * @param {object|null} opts.params  { selectedModules, matchedBossJobId, matchedBossJobName, resumeCount, targetCount }
  * @param {string} [opts.msgContent]
  */
 function _emitRetryAggregateSearch({
@@ -2473,6 +2530,7 @@ async function onAiPanelRetry(msg, taskType, panelState) {
           recommend: state?.selectedModules?.recommend !== false
         },
         matchedBossJobId: state?.matchedBossJobId || null,
+        matchedBossJobName: state?.matchedBossJobName || null,
         resumeCount: state?.resumeCount ?? null,
         targetCount: state?.resumeCount ?? null,
         bossFilters: state?.bossFilters || null
@@ -2498,6 +2556,8 @@ async function onRetryConfigStart(msg, payload) {
   const resumeCount = Number(payload?.resumeCount) || cd.initialResumeCount;
   const targetCount = resumeCount;
   const matchedBossJobId = payload?.matchedBossJobId || cd.matchedBossJobId || null;
+  const matchedBossJobName =
+    payload?.matchedBossJobName || cd.matchedBossJobName || null;
   const bossFilters = payload?.bossFilters || cd.bossFilters || null;
   const taskType = cd.configType;
   const chatIdForSearch = cd.chatId;
@@ -2509,6 +2569,7 @@ async function onRetryConfigStart(msg, payload) {
     resumeCount,
     targetCount,
     matchedBossJobId,
+    matchedBossJobName,
     originalTaskId: cd.originalTaskId
   });
 
@@ -2519,6 +2580,7 @@ async function onRetryConfigStart(msg, payload) {
   cd.actionExecuted = true;
   cd.initialResumeCount = resumeCount;
   cd.matchedBossJobId = matchedBossJobId;
+  cd.matchedBossJobName = matchedBossJobName;
   cd.bossFilters = bossFilters;
 
   // 记住本 chat 这次输入的份数 → 下次保留增量/画像卡默认用它（跟 AIProfileActionPanel 同源）
@@ -2533,6 +2595,7 @@ async function onRetryConfigStart(msg, payload) {
     params: {
       selectedModules: cd.selectedModules,
       matchedBossJobId,
+      matchedBossJobName,
       positionId: cd.positionId,
       resumeCount,
       targetCount,
@@ -3302,12 +3365,21 @@ const sendChatMessage = async (msg) => {
     return;
   }
 
-  const messageText = msg || chatMessage.value.trim();
+  const messageText = resolveChatMessageText(msg, chatMessage.value);
   console.log("发送聊天消息", messageText, sending.value, isComposing.value);
 
   if (messageText === "") return;
   if (sending.value) return;
   if (isComposing.value) return;
+  if (noProfileEnabledForSearch.value) {
+    $q.notify({
+      message: "请到职位管理中开启职位画像，再进行寻聘操作",
+      color: "warning",
+      position: "top",
+      timeout: 3000
+    });
+    return;
+  }
 
   // 标记首次消息状态
   if (!isFirstMessage.value) {
@@ -3623,9 +3695,15 @@ const insertMessageToInput = async (msg) => {
 };
 
 const fillMessageToInput = async (msg) => {
+  const injectedText = resolveChatMessageText(msg, "");
+  if (!injectedText) {
+    chatMessage.value = "";
+    return;
+  }
+
   if (!chatFluxStatus.value && !sending.value) {
     setTimeout(() => {
-      sendChatMessage(msg);
+      sendChatMessage(injectedText);
     }, 500);
   }
 };

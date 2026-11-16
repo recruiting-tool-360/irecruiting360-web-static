@@ -443,6 +443,14 @@ const bossJobOptions = computed(() =>
 //   - 手动覆盖：用户在下拉里选过后 _userPickedBoss=true，不再被自动匹配覆盖（换职位会话时重置）。
 //   （自动匹配逻辑 autoMatchBossPosition 定义在 latestChatId/latestPositionId 之后）
 const matchedBossJobId = ref(null);
+const matchedBossJobName = computed(() => {
+  const selectedId = String(matchedBossJobId.value ?? "");
+  if (!selectedId) return "";
+  const selected = bossJobOptions.value.find(
+    (option) => String(option.value) === selectedId
+  );
+  return selected?.raw?.jobName || selected?.raw?.positionName || "";
+});
 let _userPickedBoss = false;
 // 本卡片是否已发起过搜索（用户点过启动/重搜/增量）→ 锁定匹配职位，不再自动匹配
 const searchLocked = ref(false);
@@ -807,6 +815,7 @@ async function runEstimate() {
     cfgList: cfgList.value,
     selectedModules: selectedModules.value,
     matchedBossJobId: matchedBossJobId.value,
+    matchedBossJobName: matchedBossJobName.value,
     resumeCount: resumeCountNum.value,
     targetCount: resumeCountNum.value,
     bossFilters: bossFilters.value,
@@ -909,6 +918,7 @@ function getState() {
   return {
     selectedModules: selectedModules.value,
     matchedBossJobId: matchedBossJobId.value,
+    matchedBossJobName: matchedBossJobName.value,
     resumeCount: resumeCountInput.value === "" ? null : Number(resumeCountInput.value),
     bossFilters: { ...bossFilters.value }
   };
