@@ -182,8 +182,19 @@ export function isUnlimitedItem(item) {
 
 export const AGE_MIN = 16;
 export const AGE_MAX = 65;
-export const SALARY_MIN = 1;
-export const SALARY_MAX = 200;
+export const SALARY_MIN = 1000;
+export const SALARY_UNIT = "元";
+export const SALARY_MAX = 999999;
+
+const SALARY_AMOUNT_PATTERN = "([0-9][0-9,，]*(?:\\.[0-9]+)?)";
+const SALARY_UNIT_PATTERN = "(千|[Kk]|元)?";
+
+function salaryAmountToYuan(amount, unit) {
+  const numeric = Number(String(amount ?? "").replace(/[,，\s]/g, ""));
+  if (!Number.isFinite(numeric)) return null;
+  const multiplier = unit === "K" || unit === "k" || unit === "千" ? 1000 : 1;
+  return Math.round(numeric * multiplier);
+}
 
 /** "不限" / "18岁及以上" / "23岁及以下" / "18-23岁" → { unlimited, min, max } */
 export function parseAgeDisplay(display) {
@@ -206,25 +217,66 @@ export function formatAgeDisplay({ min, max }) {
   return [`${min}-${max}岁`];
 }
 
-/** "不限" / "3K以上" / "7K以下" / "3-7K" → { unlimited, min, max } */
+/**
+ * 兼容 K 和元：统一解析成元。
+ * "不限" / "3K以上" / "7000元以下" / "3-7K" / "3000-7000元"
+ * → { unlimited, min, max }
+ */
 export function parseSalaryDisplay(display) {
   const text = Array.isArray(display) ? display[0] : display;
   if (!text || text === UNLIMITED_TEXT) return { unlimited: true, min: null, max: null };
-  const str = String(text);
-  let m = str.match(/^(\d+)\s*[Kk]以上$/);
-  if (m) return { unlimited: false, min: Number(m[1]), max: null };
-  m = str.match(/^(\d+)\s*[Kk]以下$/);
-  if (m) return { unlimited: false, min: null, max: Number(m[1]) };
-  m = str.match(/^(\d+)\s*[-~]\s*(\d+)\s*[Kk]$/);
-  if (m) return { unlimited: false, min: Number(m[1]), max: Number(m[2]) };
+  const str = String(text).trim();
+  const rangeMatch = str.match(
+    new RegExp(
+      `^[¥￥]?${SALARY_AMOUNT_PATTERN}\\s*${SALARY_UNIT_PATTERN}\\s*[-~—至到]\\s*${SALARY_AMOUNT_PATTERN}\\s*${SALARY_UNIT_PATTERN}(?:\\s*\\/\\s*月)?$`
+    )
+  );
+  if (rangeMatch) {
+    const sharedUnit = rangeMatch[2] || rangeMatch[4] || SALARY_UNIT;
+    const min = salaryAmountToYuan(rangeMatch[1], rangeMatch[2] || sharedUnit);
+    const max = salaryAmountToYuan(rangeMatch[3], rangeMatch[4] || sharedUnit);
+    return { unlimited: false, min, max };
+  }
+
+  const aboveMatch = str.match(
+    new RegExp(
+      `^[¥￥]?${SALARY_AMOUNT_PATTERN}\\s*${SALARY_UNIT_PATTERN}\\s*(?:及以上|以上|起)(?:\\s*\\/\\s*月)?$`
+    )
+  );
+  if (aboveMatch) {
+    return {
+      unlimited: false,
+      min: salaryAmountToYuan(aboveMatch[1], aboveMatch[2] || SALARY_UNIT),
+      max: null
+    };
+  }
+
+  const belowMatch = str.match(
+    new RegExp(
+      `^[¥￥]?${SALARY_AMOUNT_PATTERN}\\s*${SALARY_UNIT_PATTERN}\\s*(?:及以下|以下)(?:\\s*\\/\\s*月)?$`
+    )
+  );
+  if (belowMatch) {
+    return {
+      unlimited: false,
+      min: null,
+      max: salaryAmountToYuan(belowMatch[1], belowMatch[2] || SALARY_UNIT)
+    };
+  }
   return { unlimited: true, min: null, max: null };
 }
 
 export function formatSalaryDisplay({ min, max }) {
-  if (min === null && max === null) return [UNLIMITED_TEXT];
-  if (max === null) return [`${min}K以上`];
-  if (min === null) return [`${max}K以下`];
-  return [`${min}-${max}K`];
+  let lower = min === null || min === undefined ? null : Math.round(Number(min));
+  let upper = max === null || max === undefined ? null : Math.round(Number(max));
+  if (!Number.isFinite(lower)) lower = null;
+  if (!Number.isFinite(upper)) upper = null;
+  if (lower !== null && upper !== null && lower > upper) [lower, upper] = [upper, lower];
+
+  if (lower === null && upper === null) return [UNLIMITED_TEXT];
+  if (upper === null) return [`${lower}${SALARY_UNIT}以上`];
+  if (lower === null) return [`${upper}${SALARY_UNIT}以下`];
+  return [`${lower}-${upper}${SALARY_UNIT}`];
 }
 
 /* ===== 归一化 ===== */
