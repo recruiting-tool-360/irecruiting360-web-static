@@ -5,7 +5,7 @@
   - remote：模糊搜索多选（/knowledge/search）
   - area：意向工作城市级联多选
   - range-age：双端滚动滑块（16-65 岁）
-  - range-salary：最低/最高数字输入框，单位 K 独立展示（1-200K）
+  - range-salary：最低/最高数字输入框，单位元独立展示（1000-999999元）
   直接修改传入的 item（display_value / dataTypeValue），并 emit change 通知父组件。
 -->
 <template>
@@ -63,7 +63,7 @@
         @change="onSalaryRangeChange('max', $event)"
       />
     </div>
-    <span class="salary-editor__unit">K</span>
+    <span class="salary-editor__unit">{{ SALARY_UNIT }}</span>
   </div>
 
   <q-select
@@ -113,6 +113,7 @@ import {
   AGE_MIN,
   SALARY_MAX,
   SALARY_MIN,
+  SALARY_UNIT,
   formatAgeDisplay,
   formatSalaryDisplay,
   parseAgeDisplay,
@@ -370,7 +371,7 @@ const rangeText = computed(() => {
  * 滑块两端各留一个「不限」档位：
  *   最左（bounds.min - 1）→ 不设下限
  *   最右（bounds.max + 1）→ 不设上限
- * 其余位置都是正常数值，保留 16/65、1K/200K 作为具体边界。
+ * 其余位置都是正常数值，保留 16/65、1000元/999999元 作为具体边界。
  */
 const sliderBounds = computed(() => ({
   min: rangeBounds.value.min - 1,
