@@ -219,13 +219,17 @@ export function formatAgeDisplay({ min, max }) {
 
 /**
  * 兼容 K 和元：统一解析成元。
- * "不限" / "3K以上" / "7000元以下" / "3-7K" / "3000-7000元"
+ * "不限" / "3K以上" / "7000元以下" / "3-7K" / "3-7K·12薪" / "3000-7000元"
  * → { unlimited, min, max }
  */
 export function parseSalaryDisplay(display) {
   const text = Array.isArray(display) ? display[0] : display;
   if (!text || text === UNLIMITED_TEXT) return { unlimited: true, min: null, max: null };
-  const str = String(text).trim();
+  // 后端会把薪数作为展示信息一并返回（如 "10-15K·12薪"），薪资区间本身不包含该后缀。
+  const str = String(text)
+    .trim()
+    .replace(/\s*[·•]\s*\d+\s*薪\s*$/, "")
+    .trim();
   const rangeMatch = str.match(
     new RegExp(
       `^[¥￥]?${SALARY_AMOUNT_PATTERN}\\s*${SALARY_UNIT_PATTERN}\\s*[-~—至到]\\s*${SALARY_AMOUNT_PATTERN}\\s*${SALARY_UNIT_PATTERN}(?:\\s*\\/\\s*月)?$`
