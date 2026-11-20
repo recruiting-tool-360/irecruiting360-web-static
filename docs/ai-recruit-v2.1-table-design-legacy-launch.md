@@ -234,7 +234,7 @@ adapter_version
 | `close_reason` | varchar(128) | 可空 | 固定关闭原因码；活动会话为空。 |
 | `last_error_code` | varchar(64) | 可空 | 固定错误或关闭原因码，用于状态机。 |
 | `last_error_message` | varchar(512) | 可空 | 脱敏错误摘要，仅展示和排障。 |
-| `channel_ext_json` | json | 可空 | 渠道账号白名单扩展，例如 BOSS 的 `brandId/brandName/userTitle`；禁止敏感字段和完整响应。 |
+| `channel_ext_json` | json | 可空 | 渠道账号白名单扩展，例如 BOSS 的 `brandId/brandName/userTitle` 和 `accountPrivileges.viewQuota/onlineCompetitiveJobQuota`；沟通权益继续使用通用字段。禁止敏感字段和完整响应。 |
 | `ext_schema_version` | int | 必填，默认 1 | `channel_ext_json` 的结构版本。 |
 
 唯一键：
@@ -662,7 +662,7 @@ idx_heartbeat(last_heartbeat_at)
 | `source_version` | bigint | 必填，默认 0 | 账号当前态聚合版本，由服务端单调递增；用于招聘侧拒绝旧事件。 |
 | `entitlement_captured_at` | datetime(3) | 可空 | 渠道权益实际采集时间；为空表示没有成功采集权益。 |
 | `last_job_sync_sent_at` | datetime(3) | 可空 | 最近一次职位列表同步事件成功交给投递器的时间；只表示事件已发出，不保证招聘侧已应用，也不表示客户端在线。 |
-| `channel_ext_json` | json | 可空 | 渠道账号白名单扩展，如 BOSS 品牌、标题、脱敏权益路径；不得存 Cookie、密码、完整用户对象或完整接口响应。 |
+| `channel_ext_json` | json | 可空 | 渠道账号白名单扩展，如 BOSS 品牌、标题、脱敏权益路径及 `accountPrivileges.viewQuota/onlineCompetitiveJobQuota`；沟通权益继续使用通用字段，不在扩展中重复。不得存 Cookie、密码、完整用户对象或完整接口响应。 |
 | `ext_schema_version` | int | 必填，默认 1 | 渠道扩展 JSON 版本。 |
 | `adapter_version` | varchar(32) | 可空 | 最近一次成功采集该账号的适配器版本；为空表示尚未成功采集。 |
 | `first_seen_at` | datetime(3) | 必填 | 首次识别该账号的时间；由服务端写入。 |

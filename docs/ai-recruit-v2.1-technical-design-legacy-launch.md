@@ -392,7 +392,17 @@ adapterVersion
       "brandName": "利唐",
       "userTitle": "招聘者",
       "rawJobStatus": "0",
-      "rightsPath": "/vip/paid_rights_use"
+      "rightsPath": "/vip/paid_rights_use",
+      "accountPrivileges": {
+        "viewQuota": {
+          "usedCount": 130,
+          "totalCount": 200
+        },
+        "onlineCompetitiveJobQuota": {
+          "usedCount": 4,
+          "totalCount": 4
+        }
+      }
     }
   }
 }
@@ -1109,6 +1119,16 @@ countType=2
 total = parse(limit)
 used = parse(used)
 ```
+
+招聘 AI 寻聘助手顶部账号权益栏的 BOSS 口径：
+
+| 展示项 | BOSS `countType` | 取值 | 说明 |
+|---|---:|---|---|
+| 今日查看权益消耗 | `1` | `used / limit` | 展示为已用/总量 |
+| 今日沟通权益消耗 | `2` | `used / limit` | 同时写入通用 `communicationQuotaTotal/Used`，供沟通权益分配和任务停止使用 |
+| 在线竞招/集招职位 | `7` | `used / limit` | “竞招/集招职位”是同一职位类型描述，`4 / 4` 表示已用权益/总权益 |
+
+`countType=4` 表示“在线普通职位”，不并入“在线竞招/集招职位”展示。`countType=1` 和 `countType=7` 只用于招聘页面展示与经营数据辅助，不参与 AI 沟通上限分配；其最新值写入 `channel_account.channel_ext_json.boss.accountPrivileges`，随 `CHANNEL_ACCOUNT_SYNCED` 同步到招聘侧。`countType=2` 继续使用通用沟通权益字段，不在 `channelExt` 重复存储。
 
 账户池职位分配：
 

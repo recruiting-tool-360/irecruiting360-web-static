@@ -286,6 +286,27 @@ GET /sseManager/connect?satoken={satoken}&clientSessionId={clientSessionId}&sess
   "page": 1,
   "pageSize": 20,
   "total": 2,
+  "accountSummary": {
+    "channelAccountId": "ca-10001",
+    "displayName": "张三",
+    "channelLoginState": "LOGGED_IN",
+    "rights": {
+      "viewQuota": {
+        "usedCount": 130,
+        "totalCount": 200
+      },
+      "communicationQuota": {
+        "usedCount": 3,
+        "totalCount": 100
+      },
+      "onlineCompetitiveJobQuota": {
+        "usedCount": 4,
+        "totalCount": 4
+      }
+    },
+    "capturedAt": "2026-11-17T10:30:00+08:00",
+    "freshnessState": "FRESH"
+  },
   "items": [
     {
       "headcountId": "100001",
@@ -357,6 +378,8 @@ GET /sseManager/connect?satoken={satoken}&clientSessionId={clientSessionId}&sess
 - 固定查询 `ai_enabled=1` 的职位；关闭 AI 寻聘后不再出现在该列表。
 - 必须按当前用户职位权限过滤，不能只按 `companyId` 返回企业全部职位。
 - 列表只返回当前绑定摘要，不返回完整 `bindableJobs`，避免一次查询携带大量 BOSS 职位。用户点击编辑时，再调用 `GET /ai-recruit/positions/{headcountId}/assistant-config` 获取可绑定职位和当前关联。
+- `accountSummary` 返回当前页面绑定账号的账号级摘要，不按职位重复计算。`rights.viewQuota` 取 BOSS `countType=1`，`rights.communicationQuota` 取 `countType=2`，`rights.onlineCompetitiveJobQuota` 取 `countType=7`；三项均按“已用/总量”展示。`countType=4` 的在线普通职位不并入竞招/集招职位指标。
+- `accountSummary` 没有活动账号或权益尚未同步时返回 `null`，不得返回全企业聚合值或使用其他 BOSS 账号的数据。
 - `channelBinding.allocatedLimit` 是当前职位本业务日实际 AI 沟通上限：`chatLimitOverride` 非空时优先使用该值，否则使用权益分配结果；`channelBinding.aiUsedCount` 必须优先取 i快招当日任务二方查询聚合的成功自动打招呼数，不能只读招聘侧投影缓存。达到 `aiUsedCount >= allocatedLimit` 时，招聘页面显示该职位已用尽，i快招调度器必须停止该职位当前搜索任务并继续下一个职位。
 - `channelBinding=null` 表示该职位已打开 AI 寻聘但尚未关联 BOSS 职位，前端应展示“未关联”并允许编辑。
 - 批量页采用逐行编辑和逐行保存，保存复用 `PUT /ai-recruit/positions/{headcountId}/bindings/{channelCode}`。本期不新增批量写接口，避免多行部分成功、版本冲突和错误回滚语义复杂化。
